@@ -5655,58 +5655,85 @@ const GexPanel: React.FC<GexPanelProps> = ({
                       {/* Mode ? custom dropdown mobile */}
                       {(() => {
                         const modeValue =
-                          showGEX && !showDealer && !showFlowGEX && !showODTRIO
-                            ? 'normal'
-                            : showDealer
-                              ? 'dealer'
-                              : showFlowGEX
-                                ? 'flowmap'
-                                : showODTRIO
-                                  ? 'odtrio'
-                                  : 'normal'
+                          showGEX && showDealer && !showFlowGEX && !showODTRIO
+                            ? 'duo'
+                            : showGexMap && !showGEX && !showDealer && !showFlowGEX && !showODTRIO
+                              ? 'gexmap'
+                              : showGEX && !showDealer && !showFlowGEX && !showODTRIO
+                                ? 'normal'
+                                : showDealer
+                                  ? 'dealer'
+                                  : showFlowGEX
+                                    ? 'flowmap'
+                                    : showODTRIO
+                                      ? 'odtrio'
+                                      : 'normal'
                         const modeColor =
-                          showGEX && !showDealer && !showFlowGEX && !showODTRIO
-                            ? '#22c55e'
-                            : showDealer
-                              ? '#a855f7'
-                              : showFlowGEX
-                                ? '#f97316'
-                                : '#3b82f6'
+                          modeValue === 'duo'
+                            ? '#06b6d4'
+                            : modeValue === 'gexmap'
+                              ? '#a78bfa'
+                              : showGEX && !showDealer && !showFlowGEX && !showODTRIO
+                                ? '#22c55e'
+                                : showDealer
+                                  ? '#a855f7'
+                                  : showFlowGEX
+                                    ? '#f97316'
+                                    : '#3b82f6'
                         const modeBorder =
-                          showGEX && !showDealer && !showFlowGEX && !showODTRIO
-                            ? 'rgba(34,197,94,0.5)'
-                            : showDealer
-                              ? 'rgba(168,85,247,0.5)'
-                              : showFlowGEX
-                                ? 'rgba(249,115,22,0.5)'
-                                : 'rgba(59,130,246,0.5)'
+                          modeValue === 'duo'
+                            ? 'rgba(6,182,212,0.5)'
+                            : modeValue === 'gexmap'
+                              ? 'rgba(167,139,250,0.5)'
+                              : showGEX && !showDealer && !showFlowGEX && !showODTRIO
+                                ? 'rgba(34,197,94,0.5)'
+                                : showDealer
+                                  ? 'rgba(168,85,247,0.5)'
+                                  : showFlowGEX
+                                    ? 'rgba(249,115,22,0.5)'
+                                    : 'rgba(59,130,246,0.5)'
                         const modeGlow =
-                          showGEX && !showDealer && !showFlowGEX && !showODTRIO
-                            ? 'rgba(34,197,94,0.15)'
-                            : showDealer
-                              ? 'rgba(168,85,247,0.15)'
-                              : showFlowGEX
-                                ? 'rgba(249,115,22,0.15)'
-                                : 'rgba(59,130,246,0.15)'
+                          modeValue === 'duo'
+                            ? 'rgba(6,182,212,0.15)'
+                            : modeValue === 'gexmap'
+                              ? 'rgba(167,139,250,0.15)'
+                              : showGEX && !showDealer && !showFlowGEX && !showODTRIO
+                                ? 'rgba(34,197,94,0.15)'
+                                : showDealer
+                                  ? 'rgba(168,85,247,0.15)'
+                                  : showFlowGEX
+                                    ? 'rgba(249,115,22,0.15)'
+                                    : 'rgba(59,130,246,0.15)'
                         const modeLabel =
-                          showGEX && !showDealer && !showFlowGEX && !showODTRIO
-                            ? 'NORMAL'
-                            : showDealer
-                              ? 'DEALER'
-                              : showFlowGEX
-                                ? 'FLOW MAP'
-                                : 'ODTRIO'
+                          modeValue === 'duo'
+                            ? 'DUO'
+                            : modeValue === 'gexmap'
+                              ? 'GEX MAP'
+                              : showGEX && !showDealer && !showFlowGEX && !showODTRIO
+                                ? 'NORMAL'
+                                : showDealer
+                                  ? 'DEALER'
+                                  : showFlowGEX
+                                    ? 'FLOW MAP'
+                                    : 'ODTRIO'
                         const applyMode = (v: string) => {
-                          setShowGEX(v === 'normal')
-                          setShowDealer(v === 'dealer')
+                          setShowGEX(v === 'normal' || v === 'duo')
+                          setShowDealer(v === 'dealer' || v === 'duo')
                           setShowFlowGEX(v === 'flowmap')
                           setShowODTRIO(v === 'odtrio')
-                          if (v === 'normal') setGexMode('Net GEX')
+                          setShowGexMap(v === 'gexmap')
+                          if (v === 'normal' || v === 'duo') setGexMode('Net GEX')
                           if (v === 'dealer') setGexMode('Net Dealer')
                           if (v === 'odtrio') fetchODTRIOData()
                           setShowModeDropdown(false)
                         }
                         const opts = [
+                          {
+                            value: 'duo',
+                            label: 'DUO',
+                            color: '#06b6d4',
+                            glow: 'rgba(6,182,212,0.3)',
+                          },
                           {
                             value: 'normal',
                             label: 'NORMAL',
@@ -5730,6 +5757,12 @@ const GexPanel: React.FC<GexPanelProps> = ({
                             label: 'ODTRIO',
                             color: '#3b82f6',
                             glow: 'rgba(59,130,246,0.3)',
+                          },
+                          {
+                            value: 'gexmap',
+                            label: 'GEX MAP',
+                            color: '#a78bfa',
+                            glow: 'rgba(167,139,250,0.3)',
                           },
                         ]
                         return (
@@ -5785,7 +5818,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                         color: opt.color,
                                         background:
                                           modeValue === opt.value
-                                            ? `linear-gradient(90deg, rgba(${opt.color === '#22c55e' ? '34,197,94' : opt.color === '#a855f7' ? '168,85,247' : opt.color === '#f97316' ? '249,115,22' : '59,130,246'},0.15) 0%, transparent 100%)`
+                                            ? `linear-gradient(90deg, rgba(${opt.color === '#22c55e' ? '34,197,94' : opt.color === '#a855f7' ? '168,85,247' : opt.color === '#f97316' ? '249,115,22' : opt.color === '#06b6d4' ? '6,182,212' : opt.color === '#a78bfa' ? '167,139,250' : '59,130,246'},0.15) 0%, transparent 100%)`
                                             : 'transparent',
                                         borderBottom: '1px solid rgba(255,255,255,0.05)',
                                         boxShadow:
@@ -7769,8 +7802,8 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                     className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
                                     style={{
                                       maxHeight: isMobile
-                                        ? 'calc(100.97vh - 278.94px)'
-                                        : showOI ? '1260px' : 'calc(71.74vh - 259.02px)',
+                                        ? (activeTableCount === 1 ? 'calc(100.97vh - 155px)' : 'calc(100.97vh - 278.94px)')
+                                        : (activeTableCount === 1 ? 'calc(71.74vh - 136.02px)' : (showOI ? '1260px' : 'calc(71.74vh - 259.02px)')),
                                       overflowX: 'auto',
                                       zoom: analysisSuiteMode ? 1.5 : undefined,
                                     }}
@@ -7978,8 +8011,8 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                     className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
                                     style={{
                                       maxHeight: isMobile
-                                        ? 'calc(100.97vh - 278.94px)'
-                                        : showOI ? '1260px' : 'calc(71.74vh - 259.02px)',
+                                        ? (activeTableCount === 1 ? 'calc(100.97vh - 155px)' : 'calc(100.97vh - 278.94px)')
+                                        : (activeTableCount === 1 ? 'calc(71.74vh - 136.02px)' : (showOI ? '1260px' : 'calc(71.74vh - 259.02px)')),
                                       zoom: analysisSuiteMode ? 1.5 : undefined,
                                       overflowX: 'auto',
                                     }}
@@ -8194,8 +8227,8 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                     className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
                                     style={{
                                       maxHeight: isMobile
-                                        ? 'calc(100.97vh - 278.94px)'
-                                        : showOI ? '1260px' : 'calc(71.74vh - 259.02px)',
+                                        ? (activeTableCount === 1 ? 'calc(100.97vh - 155px)' : 'calc(100.97vh - 278.94px)')
+                                        : (activeTableCount === 1 ? 'calc(71.74vh - 136.02px)' : (showOI ? '1260px' : 'calc(71.74vh - 259.02px)')),
                                       overflowX: 'auto',
                                       zoom: analysisSuiteMode ? 1.5 : undefined,
                                     }}
@@ -8424,8 +8457,8 @@ const GexPanel: React.FC<GexPanelProps> = ({
                                       className={`${useBloombergTheme ? 'bg-black border-white/20' : 'bg-gray-900 border-gray-700'} border overflow-x-auto table-scroll-container`}
                                       style={{
                                         maxHeight: isMobile
-                                          ? 'calc(100.97vh - 278.94px)'
-                                          : showOI ? '1260px' : 'calc((71.74vh - 259.02px) * 1.1)',
+                                          ? (activeTableCount === 1 ? 'calc(100.97vh - 155px)' : 'calc(100.97vh - 278.94px)')
+                                          : (activeTableCount === 1 ? 'calc(71.74vh - 136.02px)' : (showOI ? '1260px' : 'calc((71.74vh - 259.02px) * 1.1)')),
                                         overflowX: 'auto',
                                       }}
                                     >
@@ -8576,7 +8609,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
                           style={{
                             maxHeight:
                               isMobilePanel
-                                ? 'calc(86.0vh - 258.75px)'
+                                ? 'calc(106.3vh - 319.8px)'
                                 : 'calc(71.74vh - 259.02px)',
                             overflowX: 'auto',
                             zoom: analysisSuiteMode ? 1.5 : undefined,

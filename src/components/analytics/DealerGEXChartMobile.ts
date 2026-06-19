@@ -6,6 +6,6 @@ export function getDealerGEXChartMobileConfig(svgHeight: number) {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
     return {
         isMobile,
-        totalSVGHeight: isMobile ? 484 : svgHeight,
+        totalSVGHeight: svgHeight,
     }
 }

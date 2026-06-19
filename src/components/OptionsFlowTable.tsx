@@ -466,6 +466,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [isMounted, setIsMounted] = useState(false)
   const { isMobileView } = useOptionsFlowTableMobile()
 
+
+
   // State for historical price data - storing last 3 days of high/low ranges
 
   const [historicalRanges, setHistoricalRanges] = useState<

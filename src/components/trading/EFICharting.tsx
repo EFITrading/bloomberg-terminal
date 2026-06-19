@@ -6626,6 +6626,8 @@ export default function TradingViewChart({
   const flowTabFetchedRef = useRef(false)
   const [flowTabRange, setFlowTabRange] = useState<'1M' | '4M' | '1Y' | '3Y' | '5Y'>(isMobile ? '4M' : '1Y')
   const [flowTickerRanges, setFlowTickerRanges] = useState<Record<string, '1M' | '4M' | '1Y' | '3Y' | '5Y'>>({})
+  const [flowShowRecordInflow, setFlowShowRecordInflow] = useState(false)
+  const [flowShowAbnormalOutflow, setFlowShowAbnormalOutflow] = useState(false)
   const [trackingTimeframe, setTrackingTimeframe] = useState<
     '1D' | '5D' | '1M' | '3M' | '6M' | '1Y'
   >('1D')
@@ -6849,6 +6851,11 @@ export default function TradingViewChart({
 
   // Pinch-to-zoom state for mobile
   const [lastTouchDistance, setLastTouchDistance] = useState<number | null>(null)
+
+  // Long-press crosshair mode (TradingView-style mobile crosshair)
+  const touchLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const touchCrosshairActive = useRef(false)
+  const touchStartPos = useRef<{ x: number; y: number } | null>(null)
 
   // ========================================
   // MULTICHART STATE & MANAGEMENT
@@ -7671,6 +7678,7 @@ export default function TradingViewChart({
 
   // Sidebar panel state
   const [activeSidebarPanel, setActiveSidebarPanel] = useState<string | null>(null)
+
   const [newsActiveTab, setNewsActiveTab] = useState<string>('breaking')
   // sidebarPanelTop is computed live from topBarRef on every render — no stale state
   const sidebarPanelTopRef = useRef(180)
@@ -17131,7 +17139,10 @@ export default function TradingViewChart({
         } else {
           // Y-AXIS ZOOM - TradingView exact behavior
           const zoomIn = e.deltaY < 0
-          const zoomFactor = zoomIn ? 0.925 : 1.075 // 7.5% per scroll tick (50% faster)
+          // Normalize delta across trackpad (pixel mode) and mouse wheel (line mode)
+          const yNormalizedDelta = e.deltaMode === 1 ? Math.abs(e.deltaY) * 20 : Math.abs(e.deltaY)
+          const yZoomAmount = Math.min(yNormalizedDelta / 500, 0.075)
+          const zoomFactor = zoomIn ? 1 - yZoomAmount : 1 + yZoomAmount
 
           const startIndex = Math.max(0, Math.floor(scrollOffset))
           const endIndex = Math.min(data.length, startIndex + visibleCandleCount)
@@ -17165,6 +17176,9 @@ export default function TradingViewChart({
         // X-AXIS ZOOM/SCROLL - TradingView exact behavior
         const zoomIn = e.deltaY < 0
 
+        // Normalize delta: line-mode (mouse wheel) deltaY ~3 lines → ~60px equiv; pixel-mode (trackpad) use as-is
+        const normalizedDelta = e.deltaMode === 1 ? Math.abs(e.deltaY) * 20 : Math.abs(e.deltaY)
+
         // TradingView: plain scroll = zoom, Ctrl = faster zoom, Alt = pan
         if (e.altKey) {
           // ALT + SCROLL = Horizontal pan (like TradingView)
@@ -17178,8 +17192,9 @@ export default function TradingViewChart({
           const Y_AXIS_WIDTH = 80
           const chartWidth = canvasWidth - Y_AXIS_WIDTH
 
-          // Calculate zoom factor - faster zoom speed
-          const baseZoomFactor = e.ctrlKey || e.metaKey ? 0.375 : 0.18 // Ctrl = faster zoom (50% faster)
+          // Scale zoom proportionally to normalized delta — trackpad (small delta) = smooth, mouse (large delta) = snappy
+          const strength = e.ctrlKey || e.metaKey ? 2.0 : 1.0
+          const baseZoomFactor = Math.min(normalizedDelta / 500 * strength, 0.25)
           const zoomMultiplier = zoomIn ? 1 - baseZoomFactor : 1 + baseZoomFactor
 
           const currentCount = visibleCandleCount
@@ -25787,58 +25802,136 @@ export default function TradingViewChart({
         {activeTab === 'Money' && (
           <div className="flex-1 flex flex-col overflow-hidden bg-black">
             {/* Header */}
-            <div className="px-4 pt-4 pb-3 border-b border-gray-800 flex items-center justify-between flex-wrap gap-2">
-              {!isMobile && <span style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: 11, color: '#555', letterSpacing: '2px', textTransform: 'uppercase' }}>ALL CHARTS</span>}
-              <div className="flex items-center gap-2 flex-wrap">
-                {(['1M', '4M', '1Y', '3Y', '5Y'] as const).filter(r => !isMobile || ['1M', '4M', '1Y'].includes(r)).map((r) => (
-                  <button
-                    key={r}
-                    onClick={() => {
-                      setFlowTabRange(r)
-                      setFlowTickerRanges({})
-                    }}
-                    className="font-mono font-black"
-                    style={{
-                      padding: '7px 18px',
-                      fontSize: 13,
-                      borderRadius: 6,
-                      cursor: 'pointer',
-                      outline: 'none',
-                      letterSpacing: '1px',
-                      border: flowTabRange === r ? '1px solid #FF6600' : '1px solid #333',
-                      background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
-                      color: flowTabRange === r ? '#FF6600' : '#ffffff',
-                      boxShadow: flowTabRange === r
-                        ? 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.5)'
-                        : 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.4), 0 1px 3px rgba(0,0,0,0.8)',
-                      textShadow: 'none',
-                    }}
-                  >
-                    {r}
-                  </button>
-                ))}
-                <button
-                  onClick={() => {
-                    // Bust the cache so a fresh fetch goes to Polygon
-                    try {
-                      const today = new Date().toISOString().split('T')[0]
-                      localStorage.removeItem(`etf-flows-v2-${today}`)
-                    } catch { /* ignore */ }
-                    flowTabFetchedRef.current = false
-                    fetchETFFlows()
-                  }}
-                  className="font-mono font-bold text-xs px-2 py-1 rounded"
-                  style={{ background: '#1a1a1a', color: '#555', border: '1px solid #333', cursor: 'pointer' }}
-                  title="Refresh"
-                >↺</button>
-                {flowTabLoading && (
-                  <div className="flex items-center gap-1 text-yellow-400 text-xs ml-1">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-400" />
-                    Loading…
+            {(() => {
+              // Regime definitions
+              const REGIMES = [
+                { label: 'Growth', tickers: ['QQQ', 'IWM', 'XLK', 'XLY', 'XLC', 'SMH', 'HYG', 'ARKK', 'TAN'] },
+                { label: 'Defensive', tickers: ['GLD', 'SLV', 'TLT', 'KWEB', 'XLRE', 'XLP', 'XLU', 'XLV'] },
+                { label: 'Value', tickers: ['DIA', 'XLI', 'XLF', 'XLE', 'XBI'] },
+              ]
+              // Determine regime signal from last period flow of each ticker in flowTabData
+              const getRegimeSignal = (tickers: string[]): 'inflow' | 'outflow' => {
+                let pos = 0, neg = 0
+                tickers.forEach(t => {
+                  const pts = flowTabData[t]
+                  if (!pts || pts.length === 0) return
+                  const last = [...pts].reverse().find(p => p.periodFlow !== 0)
+                  if (!last) return
+                  if (last.periodFlow > 0) pos++; else neg++
+                })
+                return pos >= neg ? 'inflow' : 'outflow'
+              }
+              return (
+                <div style={{ padding: isMobile ? '8px 10px' : '10px 16px', borderBottom: '1px solid #1c1c1c', display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 8 : 6, alignItems: isMobile ? 'stretch' : 'center', flexWrap: isMobile ? undefined : 'wrap' }}>
+                  {/* Row 1 on mobile: timeframe + controls */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    {/* Timeframe pill group */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: '#0d0d0d', border: '1px solid #222', borderRadius: 6, padding: '3px 4px' }}>
+                      {(['1M', '4M', '1Y', '3Y', '5Y'] as const).map((r) => (
+                        <button
+                          key={r}
+                          onClick={() => { setFlowTabRange(r); setFlowTickerRanges({}) }}
+                          style={{
+                            padding: isMobile ? '4px 9px' : '5px 14px',
+                            fontSize: isMobile ? 11 : 12,
+                            fontFamily: 'monospace',
+                            fontWeight: 900,
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                            outline: 'none',
+                            border: 'none',
+                            background: 'transparent',
+                            color: flowTabRange === r ? '#FF6600' : '#ffffff',
+                            letterSpacing: '0.5px',
+                          }}
+                        >
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                    {/* Divider */}
+                    <div style={{ width: 1, height: 20, background: '#222' }} />
+                    {/* Anomaly filters */}
+                    {([['RECORD_INFLOW', flowShowRecordInflow, setFlowShowRecordInflow, '#00ff88', isMobile ? '↑ Inflows' : '↑ RECORD INFLOW', 'ETFs at or near 1Y cumulative inflow high'], ['ABNORMAL_OUTFLOW', flowShowAbnormalOutflow, setFlowShowAbnormalOutflow, '#ff4444', isMobile ? '↓ Outflows' : '↓ ABNORMAL OUTFLOW', 'ETFs with sudden outflow reversal']] as const).map(([key, isActive, toggle, color, label, title]) => (
+                      <button
+                        key={key}
+                        onClick={() => (toggle as React.Dispatch<React.SetStateAction<boolean>>)(!isActive)}
+                        title={title as string}
+                        style={{
+                          padding: isMobile ? '4px 7px' : '5px 12px',
+                          fontSize: isMobile ? 10 : 11,
+                          fontFamily: 'monospace',
+                          fontWeight: 900,
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                          outline: 'none',
+                          border: isActive ? `1px solid ${color}` : '1px solid #222',
+                          background: isActive ? `${color}18` : 'transparent',
+                          color: isActive ? color as string : '#ffffff',
+                          letterSpacing: '0.5px',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {label as string}
+                      </button>
+                    ))}
+                    {/* Divider */}
+                    <div style={{ width: 1, height: 20, background: '#222' }} />
+                    {/* Refresh */}
+                    <button
+                      onClick={() => {
+                        try { localStorage.removeItem(`etf-flows-v2-${new Date().toISOString().split('T')[0]}`) } catch { /* ignore */ }
+                        flowTabFetchedRef.current = false
+                        fetchETFFlows()
+                      }}
+                      style={{ background: 'transparent', color: '#444', border: '1px solid #222', borderRadius: 4, cursor: 'pointer', padding: '4px 8px', fontFamily: 'monospace', fontSize: 13 }}
+                      title="Refresh"
+                    >↺</button>
+                    {flowTabLoading && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#FF6600', fontSize: 11, fontFamily: 'monospace', fontWeight: 700 }}>
+                        <div className="animate-spin rounded-full" style={{ width: 12, height: 12, border: '2px solid #333', borderTopColor: '#FF6600' }} />
+                        LOADING
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            </div>
+                  {/* Row 2: Regime indicators */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 8, marginLeft: isMobile ? 0 : 4 }}>
+                    {!isMobile && <div style={{ width: 1, height: 20, background: '#222' }} />}
+                    {REGIMES.map(({ label, tickers }) => {
+                      const signal = getRegimeSignal(tickers)
+                      const isInflow = signal === 'inflow'
+                      const glowColor = isInflow ? '#00ff88' : '#ff4444'
+                      const dotColor = isInflow ? '#00ff88' : '#ff4444'
+                      const textColor = isInflow ? '#00ff88' : '#ff4444'
+                      const borderColor = isInflow ? '#00ff8840' : '#ff444440'
+                      const bgColor = isInflow ? '#00ff8808' : '#ff444408'
+                      const arrowLabel = isInflow ? '▲' : '▼'
+                      return (
+                        <div
+                          key={label}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: isMobile ? '5px 10px' : '5px 12px',
+                            borderRadius: 5,
+                            border: `1px solid ${borderColor}`,
+                            background: bgColor,
+                            boxShadow: `0 0 8px ${glowColor}30`,
+                            flex: isMobile ? 1 : undefined,
+                            justifyContent: isMobile ? 'center' : undefined,
+                          }}
+                        >
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor, flexShrink: 0, boxShadow: `0 0 5px ${dotColor}`, display: 'inline-block' }} />
+                          <span style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: isMobile ? 10 : 11, color: '#888', letterSpacing: '0.5px', textTransform: 'uppercase' }}>{label}</span>
+                          <span style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: isMobile ? 10 : 11, color: textColor, letterSpacing: '0.5px' }}>{arrowLabel}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })()}
 
             <div
               ref={moneyScrollDivRef}
@@ -25954,29 +26047,6 @@ export default function TradingViewChart({
                       <div style={{ width: '100%', background: '#000', borderRadius: 4, border: `1px solid ${accentColor}33`, padding: isMobile ? 4 : 8, boxShadow: '0 0 12px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.04)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isMobile ? 2 : 8, gap: 4, flexWrap: 'wrap' }}>
                           <span className="font-mono font-black tracking-widest" style={{ fontSize: isMobile ? 12 : 15, color: accentColor }}>{ticker}</span>
-                          <div style={{ display: 'flex', gap: isMobile ? 2 : 3, alignItems: 'center' }}>
-                            {chartRangeOptions.map(r => (
-                              <button
-                                key={r}
-                                onClick={() => setFlowTickerRanges(prev => ({ ...prev, [ticker]: r as typeof flowTabRange }))}
-                                style={{
-                                  padding: isMobile ? '1px 5px' : '4px 9px',
-                                  fontSize: isMobile ? 9 : 10,
-                                  fontFamily: 'monospace',
-                                  fontWeight: 900,
-                                  borderRadius: 4,
-                                  cursor: 'pointer',
-                                  outline: 'none',
-                                  border: tickerActiveRange === r ? '1px solid #FF6600' : '1px solid #2a2a2a',
-                                  background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
-                                  color: tickerActiveRange === r ? '#FF6600' : '#ffffff',
-                                  textShadow: 'none',
-                                }}
-                              >
-                                {r}
-                              </button>
-                            ))}
-                          </div>
                           <span className="font-mono font-black px-1 py-0.5 rounded" style={{ fontSize: isMobile ? 10 : 13, color: lastPeriod >= 0 ? '#00ff00' : '#ff0000', background: '#000', border: `1px solid ${lastPeriod >= 0 ? '#00ff00' : '#ff0000'}` }}>
                             {lastPeriod >= 0 ? '▲' : '▼'} {formatFlow(lastPeriod)}
                           </span>
@@ -26022,7 +26092,24 @@ export default function TradingViewChart({
                       {/* ── Individual ETF groups ── */}
                       {ETF_GROUPS.map((group) => {
                         const accentColor = GROUP_COLORS[group.label] || '#ff6600'
-                        const available = group.tickers.filter(t => rangeData[t])
+                        const available = group.tickers.filter(t => {
+                          if (!rangeData[t]) return false
+                          if (!flowShowRecordInflow && !flowShowAbnormalOutflow) return true
+                          const pts = rangeData[t]
+                          if (pts.length < 4) return false
+                          const cumFlows = pts.map((p: { cumFlow: number }) => p.cumFlow)
+                          const lastCum = cumFlows[cumFlows.length - 1]
+                          const maxCum = Math.max(...cumFlows)
+                          const isRecordInflow = lastCum > 0 && maxCum > 0 && (maxCum - lastCum) / Math.abs(maxCum) < 0.05
+                          const recentFlows = pts.slice(-Math.max(4, Math.floor(pts.length * 0.15))).map((p: { periodFlow: number }) => p.periodFlow)
+                          const avgEarlyInflow = pts.slice(0, Math.floor(pts.length * 0.6)).reduce((s: number, p: { periodFlow: number }) => s + p.periodFlow, 0) / Math.max(1, Math.floor(pts.length * 0.6))
+                          const recentNetFlow = recentFlows.reduce((s: number, v: number) => s + v, 0)
+                          const isAbnormalOutflow = (maxCum > 0 && (maxCum - lastCum) / Math.abs(maxCum) > 0.12) || (avgEarlyInflow > 0 && recentNetFlow < -Math.abs(avgEarlyInflow) * 1.5)
+                          if (flowShowRecordInflow && flowShowAbnormalOutflow) return isRecordInflow || isAbnormalOutflow
+                          if (flowShowRecordInflow) return isRecordInflow
+                          if (flowShowAbnormalOutflow) return isAbnormalOutflow
+                          return true
+                        })
                         if (available.length === 0) return null
                         return (
                           <div key={group.label} style={{ marginBottom: 8 }}>
@@ -36221,24 +36308,37 @@ export default function TradingViewChart({
                           }
                         }
                       }}
-                      // Touch Events for Mobile Support
+                      // Touch Events for Mobile Support (TradingView-style: long-press = crosshair, drag = pan)
                       onTouchStart={(e: React.TouchEvent<HTMLCanvasElement>) => {
-                        e.preventDefault()
-                        const touch = e.touches[0]
-                        if (!touch) return
+                        if (e.touches.length === 1) {
+                          e.preventDefault()
+                          const touch = e.touches[0]
+                          touchStartPos.current = { x: touch.clientX, y: touch.clientY }
+                          touchCrosshairActive.current = false
 
-                        const rect = e.currentTarget.getBoundingClientRect()
-                        const mouseEvent = {
-                          currentTarget: e.currentTarget,
-                          button: 0,
-                          clientX: touch.clientX,
-                          clientY: touch.clientY,
-                          ctrlKey: false,
-                          metaKey: false,
-                          preventDefault: () => e.preventDefault(),
-                        } as unknown as React.MouseEvent<HTMLCanvasElement>
-
-                        handleUnifiedMouseDown(mouseEvent)
+                          // Start long-press timer — 500ms activates crosshair mode
+                          if (touchLongPressTimer.current) clearTimeout(touchLongPressTimer.current)
+                          touchLongPressTimer.current = setTimeout(() => {
+                            touchCrosshairActive.current = true
+                            // Activate crosshair at current touch position
+                            const mouseEvent = {
+                              currentTarget: e.currentTarget,
+                              button: 0,
+                              clientX: touch.clientX,
+                              clientY: touch.clientY,
+                              ctrlKey: false,
+                              metaKey: false,
+                              preventDefault: () => { },
+                            } as unknown as React.MouseEvent<HTMLCanvasElement>
+                            handleUnifiedMouseDown(mouseEvent)
+                            // Optional haptic feedback
+                            if (navigator.vibrate) navigator.vibrate(30)
+                          }, 500)
+                        } else if (e.touches.length === 2) {
+                          // Pinch starting — cancel any long-press
+                          if (touchLongPressTimer.current) clearTimeout(touchLongPressTimer.current)
+                          touchCrosshairActive.current = false
+                        }
                       }}
                       onTouchMove={(e: React.TouchEvent<HTMLCanvasElement>) => {
                         // Handle pinch-to-zoom gesture
@@ -36268,28 +36368,53 @@ export default function TradingViewChart({
                           return
                         }
 
-                        // Single touch - pan/draw
+                        // Single touch
                         setLastTouchDistance(null)
                         e.preventDefault()
                         const touch = e.touches[0]
                         if (!touch) return
 
-                        const rect = e.currentTarget.getBoundingClientRect()
                         const mouseEvent = {
                           currentTarget: e.currentTarget,
                           clientX: touch.clientX,
                           clientY: touch.clientY,
                         } as unknown as React.MouseEvent<HTMLCanvasElement>
 
-                        if (activeTool) {
-                          handleCanvasMouseMove(mouseEvent)
-                        } else {
+                        if (touchCrosshairActive.current) {
+                          // Crosshair mode: update crosshair position (drag after long-press)
                           handleMouseMove(mouseEvent)
+                        } else {
+                          // Check if moved enough to cancel long-press and pan instead
+                          const start = touchStartPos.current
+                          if (start) {
+                            const moved = Math.sqrt(
+                              (touch.clientX - start.x) ** 2 + (touch.clientY - start.y) ** 2
+                            )
+                            if (moved > 8) {
+                              // Cancel long-press — treat as pan
+                              if (touchLongPressTimer.current) {
+                                clearTimeout(touchLongPressTimer.current)
+                                touchLongPressTimer.current = null
+                              }
+                              if (activeTool) {
+                                handleCanvasMouseMove(mouseEvent)
+                              } else {
+                                handleMouseMove(mouseEvent)
+                              }
+                            }
+                          }
                         }
                       }}
                       onTouchEnd={(e: React.TouchEvent<HTMLCanvasElement>) => {
                         e.preventDefault()
                         setLastTouchDistance(null)
+                        // Cancel any pending long-press
+                        if (touchLongPressTimer.current) {
+                          clearTimeout(touchLongPressTimer.current)
+                          touchLongPressTimer.current = null
+                        }
+                        touchCrosshairActive.current = false
+                        touchStartPos.current = null
                         handleMouseUp(e as any)
                       }}
                       // Enhanced zoom support

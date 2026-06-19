@@ -7,7 +7,7 @@ export function getDealerOIMobileConfig(svgHeight: number) {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
     return {
         isMobile,
-        totalSVGHeight: isMobile ? 484 : svgHeight,
+        totalSVGHeight: svgHeight,
         labelFontSize: isMobile ? '21px' : '18px',
         subLabelFontSize: isMobile ? '20px' : '16px',
     }

@@ -481,11 +481,6 @@
   .chart-container {
     height: calc(100vh - 50px) !important;
   }
-
-  /* Eliminate empty gray space below x-axis */
-  canvas {
-    height: calc(100% + 20px) !important;
-  }
 }
 
 @media (max-width: 640px) {
@@ -496,10 +491,6 @@
   .chart-container {
     height: calc(100vh - 50px) !important;
   }
-
-  canvas {
-    height: calc(100% + 20px) !important;
-  }
 }
 
 @media (max-width: 480px) {
@@ -509,10 +500,6 @@
 
   .chart-container {
     height: calc(100vh - 50px) !important;
-  }
-
-  canvas {
-    height: calc(100% + 20px) !important;
   }
 }
 

@@ -153,61 +153,64 @@ export default function OptionsFlowMobileFilterPanel({
                                 borderTop: '1px solid rgba(255,255,255,0.07)',
                             }}
                         >
-                            {[
-                                { label: 'BUY', value: 'buy', color: '#22d3ee', glow: 'rgba(34,211,238,0.25)' },
-                                { label: 'SELL', value: 'sell', color: '#f97316', glow: 'rgba(249,115,22,0.25)' },
-                            ].map(({ label, value, color, glow }) => {
-                                const active = selectedOrderSides.includes(value)
-                                return (
-                                    <button
-                                        key={value}
-                                        onClick={() =>
-                                            setSelectedOrderSides((prev) =>
-                                                active ? prev.filter((s) => s !== value) : [...prev, value]
-                                            )
-                                        }
-                                        style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            gap: '7px',
-                                            padding: '8px 8px',
-                                            marginBottom: '6px',
-                                            borderRadius: '8px',
-                                            border: `1px solid ${active ? color : 'rgba(255,255,255,0.06)'}`,
-                                            background: active
-                                                ? `linear-gradient(135deg, ${color}22 0%, ${color}11 100%)`
-                                                : 'rgba(255,255,255,0.02)',
-                                            boxShadow: active ? `0 0 12px ${glow}` : 'none',
-                                            cursor: 'pointer',
-                                            transition: 'all 0.15s ease',
-                                            width: '100%',
-                                        }}
-                                    >
-                                        <div
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px' }}>
+                                {[
+                                    { label: 'BUY A', value: 'buy_a', color: '#22d3ee', glow: 'rgba(34,211,238,0.25)' },
+                                    { label: 'BUY AA', value: 'buy_aa', color: '#22d3ee', glow: 'rgba(34,211,238,0.25)' },
+                                    { label: 'SELL B', value: 'sell_b', color: '#f97316', glow: 'rgba(249,115,22,0.25)' },
+                                    { label: 'SELL BB', value: 'sell_bb', color: '#f97316', glow: 'rgba(249,115,22,0.25)' },
+                                ].map(({ label, value, color, glow }) => {
+                                    const active = selectedOrderSides.includes(value)
+                                    return (
+                                        <button
+                                            key={value}
+                                            onClick={() =>
+                                                setSelectedOrderSides((prev) =>
+                                                    active ? prev.filter((s) => s !== value) : [...prev, value]
+                                                )
+                                            }
                                             style={{
-                                                width: '7px',
-                                                height: '7px',
-                                                borderRadius: '50%',
-                                                background: active ? color : '#374151',
-                                                boxShadow: active ? `0 0 6px ${color}` : 'none',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: '5px',
+                                                padding: '7px 4px',
+                                                borderRadius: '8px',
+                                                border: `1px solid ${active ? color : 'rgba(255,255,255,0.06)'}`,
+                                                background: active
+                                                    ? `linear-gradient(135deg, ${color}22 0%, ${color}11 100%)`
+                                                    : 'rgba(255,255,255,0.02)',
+                                                boxShadow: active ? `0 0 10px ${glow}` : 'none',
+                                                cursor: 'pointer',
                                                 transition: 'all 0.15s ease',
-                                                flexShrink: 0,
-                                            }}
-                                        />
-                                        <span
-                                            style={{
-                                                fontSize: '14px',
-                                                fontWeight: 800,
-                                                letterSpacing: '1.5px',
-                                                color: active ? color : '#ffffff',
+                                                width: '100%',
                                             }}
                                         >
-                                            {label}
-                                        </span>
-                                    </button>
-                                )
-                            })}
+                                            <div
+                                                style={{
+                                                    width: '6px',
+                                                    height: '6px',
+                                                    borderRadius: '50%',
+                                                    background: active ? color : '#374151',
+                                                    boxShadow: active ? `0 0 5px ${color}` : 'none',
+                                                    transition: 'all 0.15s ease',
+                                                    flexShrink: 0,
+                                                }}
+                                            />
+                                            <span
+                                                style={{
+                                                    fontSize: '12px',
+                                                    fontWeight: 800,
+                                                    letterSpacing: '0.5px',
+                                                    color: active ? color : '#ffffff',
+                                                }}
+                                            >
+                                                {label}
+                                            </span>
+                                        </button>
+                                    )
+                                })}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -254,8 +257,9 @@ export default function OptionsFlowMobileFilterPanel({
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         {[
-                            { label: 'BLOCK', value: 'block', color: '#6366f1', glow: 'rgba(99,102,241,0.25)' },
-                            { label: 'SWEEP', value: 'sweep', color: '#f59e0b', glow: 'rgba(245,158,11,0.25)' },
+                            { label: 'BLOCK', value: 'BLOCK_ONLY', color: '#6366f1', glow: 'rgba(99,102,241,0.25)' },
+                            { label: 'SWEEP', value: 'SWEEP_ONLY', color: '#f59e0b', glow: 'rgba(245,158,11,0.25)' },
+                            { label: 'MULTI-LEG', value: 'MULTI_LEG_ONLY', color: '#a855f7', glow: 'rgba(168,85,247,0.25)' },
                         ].map(({ label, value, color, glow }) => {
                             const active = selectedUniqueFilters.includes(value)
                             return (
@@ -368,6 +372,8 @@ export default function OptionsFlowMobileFilterPanel({
                         { label: '= $99K', value: '99000' },
                         { label: '= $200K', value: '200000' },
                         { label: '= $1M', value: '1000000' },
+                        { label: '< $0.40', value: 'contract_lt_040' },
+                        { label: '< $5', value: 'contract_lt_5' },
                     ].map(({ label, value }) => {
                         const active = selectedPremiumFilters.includes(value)
                         return (
@@ -536,6 +542,7 @@ export default function OptionsFlowMobileFilterPanel({
                             { label: 'MAG 7', value: 'MAG7_ONLY' },
                             { label: 'NO MAG7', value: 'EXCLUDE_MAG7' },
                             { label: 'NO ETF', value: 'EXCLUDE_ETF' },
+                            { label: 'OVERBLOWN', value: 'OVERBLOWN_TICKERS' },
                         ].map(({ label, value }) => {
                             const active = selectedTickerFilters.includes(value)
                             return (
@@ -680,6 +687,67 @@ export default function OptionsFlowMobileFilterPanel({
                             )
                         })}
                     </div>
+                </div>
+            </div>
+
+            {/* -- SECTORS -- */}
+            <div
+                style={{
+                    background: '#000',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '12px',
+                    padding: '12px',
+                    boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
+                }}
+            >
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        marginBottom: '10px',
+                        paddingBottom: '8px',
+                        borderBottom: '1px solid rgba(255,255,255,0.08)',
+                    }}
+                >
+                    <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #34d399, #60a5fa)' }} />
+                    <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase' as const, color: '#ffffff' }}>Sectors</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {[
+                        { label: 'Growth  XLK · XLY · XLC · ARKK', value: 'GROWTH_ONLY', color: '#34d399' },
+                        { label: 'Value  XLI · XLF · XLB', value: 'VALUE_ONLY', color: '#fbbf24' },
+                        { label: 'Defensives  XLV · XLRE · XLP · XLU', value: 'DEFENSIVES_ONLY', color: '#60a5fa' },
+                    ].map(({ label, value, color }) => {
+                        const active = selectedUniqueFilters.includes(value)
+                        return (
+                            <button
+                                key={value}
+                                onClick={() =>
+                                    setSelectedUniqueFilters((prev) =>
+                                        active ? prev.filter((f) => f !== value) : [...prev, value]
+                                    )
+                                }
+                                style={{
+                                    padding: '9px 10px',
+                                    borderRadius: '8px',
+                                    border: `1px solid ${active ? color : 'rgba(255,255,255,0.07)'}`,
+                                    background: active ? `${color}18` : 'rgba(255,255,255,0.02)',
+                                    boxShadow: active ? `0 0 10px ${color}33` : 'none',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.15s ease',
+                                    fontSize: '13px',
+                                    fontWeight: 800,
+                                    letterSpacing: '0.5px',
+                                    color: active ? color : 'rgba(255,255,255,0.7)',
+                                    width: '100%',
+                                    textAlign: 'left' as const,
+                                }}
+                            >
+                                {label}
+                            </button>
+                        )
+                    })}
                 </div>
             </div>
 

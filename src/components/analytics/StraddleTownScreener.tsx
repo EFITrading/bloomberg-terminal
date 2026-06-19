@@ -893,17 +893,30 @@ async function scanDPDays(
     const rthEndNs = (dayStartMs + rthCloseUtcMs) * 1_000_000
     const WIN = 3
     const winNs = (rthEndNs - rthStartNs) / WIN
-    const windowUrls = Array.from({ length: WIN }, (_, i) => {
-      const s = rthStartNs + i * winNs
-      const e = rthStartNs + (i + 1) * winNs
-      return `https://api.polygon.io/v3/trades/${symbol}?timestamp.gte=${s}&timestamp.lte=${e}&limit=10000&order=asc&apiKey=${apiKey}`
-    })
     try {
-      // Run windows sequentially — never more than 1 in-flight per day to avoid Polygon TCP resets
+      // Run windows sequentially. Each window fetches twice (asc + desc) so a
+      // massive block trade anywhere in the session window isn't silently cut off
+      // by SPY's 500k+ daily prints exceeding a single-pass limit.
       const winResults: Array<{ prints: DPPrint[]; windowNotional: number }> = []
-      for (const url of windowUrls) {
+      for (let i = 0; i < WIN; i++) {
         if (aborted) break
-        winResults.push(await fetchWindowStreaming(url))
+        const s = rthStartNs + i * winNs
+        const e = rthStartNs + (i + 1) * winNs
+        const base = `https://api.polygon.io/v3/trades/${symbol}?timestamp.gte=${s}&timestamp.lte=${e}&limit=50000&apiKey=${apiKey}`
+        const ascResult = await fetchWindowStreaming(base + '&order=asc')
+        const descResult = await fetchWindowStreaming(base + '&order=desc')
+        // Merge, dedup by ts+price+size, keep top-50 by notional
+        const seen = new Set<string>()
+        const merged: DPPrint[] = []
+        for (const p of [...ascResult.prints, ...descResult.prints]) {
+          const key = `${p.ts}|${p.price}|${p.size}`
+          if (!seen.has(key)) { seen.add(key); merged.push(p) }
+        }
+        merged.sort((a, b) => b.size * b.price - a.size * a.price)
+        winResults.push({
+          prints: merged.slice(0, 50),
+          windowNotional: ascResult.windowNotional + descResult.windowNotional,
+        })
       }
       // Merge top-50 from every window, rerank, then take final top-10
       const allPrints = winResults
@@ -2325,9 +2338,13 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
   // ── Individual ticker search ───────────────────────────────────────────────
   const [tickerSearch, setTickerSearch] = useState('')
   const [tickerScanning, setTickerScanning] = useState(false)
+  const [tickerPoiScanning, setTickerPoiScanning] = useState(false)
   const [tickerScanStatus, setTickerScanStatus] = useState<{ phase: 'ohlcv' | 'dp'; dpDate?: string; dpDone: number; dpTotal: number } | null>(null)
   const [tickerSearchedSymbols, setTickerSearchedSymbols] = useState<string[]>([])
   const [tickerLookback, setTickerLookback] = useState<252 | 756 | 1260>(252) // 1Y / 3Y / 5Y
+  const [poiLookback, setPoiLookback] = useState<90 | 252 | 1260>(90) // 90D / 1Y / 5Y
+  const autoPoiOnDoneRef = useRef(false)
+  const [allPoiScanning, setAllPoiScanning] = useState(false)
 
   const addResult = useCallback((r: ScanResult) => {
     setResults((prev) => {
@@ -2575,21 +2592,8 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
             const sym = hit.symbol
             const daysToScan = hit.bars.slice(-DP_LOOKBACK_DAYS).map(b => b.date)
 
-            // Main thread checks cache — send only uncached dates to worker
-            const cachedDays: DPDay[] = []
-            const uncachedDates: string[] = []
-            for (const date of daysToScan) {
-              if (date === todayStr) { uncachedDates.push(date); continue }
-              try {
-                const raw = sessionStorage.getItem(`poi_dp_${sym}_${date}`)
-                if (raw) { cachedDays.push(JSON.parse(raw)); continue }
-              } catch { /* ignore */ }
-              uncachedDates.push(date)
-            }
-
-            const cachedCount = cachedDays.length
-            tlog(`[DP-W${wid}] dispatching ${sym} — ${uncachedDates.length} uncached / ${cachedCount} cached dates`)
-            worker.postMessage({ symbol: sym, dates: uncachedDates, apiKey: API_KEY, workerId: wid })
+            tlog(`[DP-W${wid}] dispatching ${sym} — ${daysToScan.length} dates`)
+            worker.postMessage({ symbol: sym, dates: daysToScan, apiKey: API_KEY, workerId: wid })
 
             worker.onmessage = async (e) => {
               if (signal.aborted) return
@@ -2603,9 +2607,7 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
                 for (const day of (msg.dpDays as DPDay[])) {
                   try { sessionStorage.setItem(`poi_dp_${sym}_${day.date}`, JSON.stringify(day)) } catch { /* quota */ }
                 }
-
-                // Merge cached + fresh, sorted by date
-                const dpResults: DPDay[] = [...cachedDays, ...msg.dpDays].sort((a, b) => a.date.localeCompare(b.date))
+                const dpResults: DPDay[] = (msg.dpDays as DPDay[]).sort((a, b) => a.date.localeCompare(b.date))
 
                 const hitData = hitsMap.get(sym)!
 
@@ -2818,6 +2820,98 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
     }
   }, [tickerSearch, tickerScanning, tickerLookback, API_KEY, addResult])
 
+  // ── Individual ticker POI-only scan (configurable DP lookback, no contraction required) ──
+  const runTickerPoiScan = useCallback(async () => {
+    const sym = tickerSearch.trim().toUpperCase()
+    if (!sym || tickerPoiScanning || tickerScanning) return
+    setTickerPoiScanning(true)
+    setTickerScanStatus({ phase: 'ohlcv', dpDone: 0, dpTotal: 0 })
+    setSelected(null)
+    try {
+      const ac = new AbortController()
+      // Calendar days + OHLCV limit per lookback:
+      // 90D  → 200 cal days, limit 200
+      // 1Y   → 400 cal days, limit 400
+      // 5Y   → 1900 cal days, limit 2000
+      const calDays = poiLookback === 90 ? 200 : poiLookback === 252 ? 400 : 1900
+      const ohlcvLimit = poiLookback === 90 ? 200 : poiLookback === 252 ? 400 : 2000
+      const bars = await fetchOHLCV(sym, API_KEY, ac.signal, calDays, ohlcvLimit)
+      if (!bars || bars.length < 20) {
+        setTickerPoiScanning(false)
+        setTickerScanStatus(null)
+        return
+      }
+      const daysToScan = bars.slice(-poiLookback).map((b) => b.date)
+      const dpTotal = daysToScan.length
+      setTickerScanStatus({ phase: 'dp', dpDone: 0, dpTotal })
+      let dpDoneCount = 0
+      const dpResults = await scanDPDays(daysToScan, sym, API_KEY, (pct) => {
+        dpDoneCount = Math.round((pct / 100) * dpTotal)
+        const approxDateIdx = Math.min(dpDoneCount, daysToScan.length - 1)
+        setTickerScanStatus({ phase: 'dp', dpDate: daysToScan[approxDateIdx], dpDone: dpDoneCount, dpTotal })
+      }, ac.signal)
+      const allPOI = clusterPOI(dpResults)
+      const triggerDate = bars[bars.length - 1].date
+      const { activePOI: poiActivePOI } = computeSetupTier(dpResults, triggerDate)
+      const hasPOI = poiActivePOI !== null
+      const result: ScanResult = {
+        symbol: sym,
+        currentPrice: bars[bars.length - 1].close,
+        compressionPct: 0,
+        squeezeOn: false,
+        hasPOI,
+        topPOI: poiActivePOI,
+        setupActive: false,
+        setupTier: 'pivotal',
+        bars,
+        allEvents: [],
+        recentEvents: [],
+        dpDays: dpResults,
+        poiLevels: allPOI,
+        trade: null,
+      }
+      addResult(result)
+      setSelected(result)
+      setSelectedFromTickerSearch(true)
+      setPhase('done')
+      setTickerSearchedSymbols(prev => [...prev.filter(s => s !== sym), sym])
+    } finally {
+      setTickerPoiScanning(false)
+      setTickerScanStatus(null)
+    }
+  }, [tickerSearch, tickerPoiScanning, tickerScanning, poiLookback, API_KEY, addResult])
+
+  // ── Scan All POI — run contraction scan then auto-trigger POI for all hits ─
+  const runAllPoi = useCallback(() => {
+    if (phase === 'done' && results.length > 0) {
+      // Results already exist — just scan POI for items that don't have it yet
+      const pending = results.filter(r => !r.hasPOI && !poiLoadingSet.has(r.symbol))
+      setAllPoiScanning(pending.length > 0)
+      pending.forEach(r => scanPoiForSymbol(r))
+    } else {
+      // No results yet — run contraction scan first, then auto-scan POI on completion
+      autoPoiOnDoneRef.current = true
+      run()
+    }
+  }, [phase, results, poiLoadingSet, scanPoiForSymbol, run])
+
+  // When a full scan completes and autoPoiOnDoneRef is set, trigger POI for all hits
+  useEffect(() => {
+    if (phase === 'done' && autoPoiOnDoneRef.current) {
+      autoPoiOnDoneRef.current = false
+      setResults(prev => {
+        prev.filter(r => !r.hasPOI && !poiLoadingSet.has(r.symbol)).forEach(r => scanPoiForSymbol(r))
+        return prev
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase])
+
+  // Clear allPoiScanning flag when no symbols remain in poiLoadingSet
+  useEffect(() => {
+    if (poiLoadingSet.size === 0) setAllPoiScanning(false)
+  }, [poiLoadingSet])
+
   const removeTickerResult = useCallback((sym: string) => {
     setTickerSearchedSymbols(prev => prev.filter(s => s !== sym))
     setResults(prev => prev.filter(r => r.symbol !== sym))
@@ -2965,109 +3059,165 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
           @keyframes stPulse { 0%,100% { transform: scale(1); opacity:1; } 50% { transform: scale(0.85); opacity:0.6; } }
           @keyframes stScanDot { 0%,100% { transform: translateX(0); opacity:1; } 50% { transform: translateX(3px); opacity:0.4; } }
         `}</style>
-        <div className="straddle-controls-row" style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 58 }}>
+        <div className="straddle-controls-row" style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 58, flexWrap: 'wrap' }}>
 
           {/* Brand */}
-          <div className="straddle-brand" style={{ display: 'flex', alignItems: 'center', gap: 12, paddingRight: 24, borderRight: '1px solid rgba(255,255,255,0.07)', flexShrink: 0, alignSelf: 'stretch' }}>
+          <div className="straddle-brand" style={{ display: 'flex', alignItems: 'center', gap: 12, paddingRight: 20, borderRight: '1px solid rgba(255,255,255,0.07)', flexShrink: 0, alignSelf: 'stretch' }}>
             <div style={{ width: 4, height: 30, background: 'linear-gradient(180deg,#FF8C00,#FFD700)', borderRadius: 2, flexShrink: 0, boxShadow: '0 0 10px rgba(255,140,0,0.45)' }} />
-            <div>
-              <div style={{ ...mono, fontWeight: 900, fontSize: 21, color: '#FFFFFF', letterSpacing: '4px', lineHeight: 1 }}>STRADDLE TOWN</div>
+            <div style={{ ...mono, fontWeight: 900, fontSize: 20, color: '#FFFFFF', letterSpacing: '4px', lineHeight: 1 }}>STRADDLE TOWN</div>
+          </div>
+
+          {/* ── TICKER SCAN group ───────────────────────────────────────────── */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingRight: 16, borderRight: '1px solid rgba(255,255,255,0.07)', flexShrink: 0, alignSelf: 'stretch' }}>
+
+            {/* Search input */}
+            <div style={{ display: 'flex', alignItems: 'stretch', borderRadius: 6, overflow: 'hidden', height: 38, border: '1px solid rgba(80,120,200,0.4)', background: 'rgba(10,20,50,0.8)', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', paddingLeft: 9, color: 'rgba(255,255,255,0.3)' }}>
+                <svg width="12" height="12" viewBox="0 0 13 13" fill="none">
+                  <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.5" />
+                  <line x1="8.5" y1="8.5" x2="12" y2="12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </div>
+              <input
+                value={tickerSearch}
+                onChange={e => setTickerSearch(e.target.value.toUpperCase())}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); runTickerScan() } }}
+                placeholder="TICKER"
+                maxLength={8}
+                style={{
+                  ...mono, fontSize: 13, fontWeight: 700, letterSpacing: 2,
+                  color: '#ffffff', background: 'transparent', border: 'none', outline: 'none',
+                  padding: '0 8px', width: 68, textTransform: 'uppercase',
+                }}
+              />
+            </div>
+
+            {/* Split SCAN button: POI | PIVOT */}
+            <div style={{ display: 'flex', alignItems: 'stretch', borderRadius: 6, overflow: 'hidden', height: 38, border: '1px solid rgba(100,100,100,0.35)', flexShrink: 0 }}>
+              {/* POI half */}
+              <button
+                onClick={runTickerPoiScan}
+                disabled={tickerScanning || tickerPoiScanning}
+                title="Scan dark pool POI only — no contraction required"
+                style={{
+                  ...mono, fontSize: 12, fontWeight: 900, letterSpacing: 1.5,
+                  cursor: (tickerScanning || tickerPoiScanning) ? 'not-allowed' : 'pointer',
+                  background: tickerPoiScanning ? 'rgba(255,140,0,0.25)' : 'linear-gradient(180deg,#2a1200,#180a00)',
+                  border: 'none',
+                  color: (tickerScanning || tickerPoiScanning) ? 'rgba(255,180,60,0.35)' : '#FFA028',
+                  padding: '0 14px', display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                {tickerPoiScanning
+                  ? <svg width="9" height="9" viewBox="0 0 11 11" style={{ animation: 'stPulse 0.8s ease-in-out infinite' }}><rect x="2" y="2" width="7" height="7" rx="1" fill="currentColor" /></svg>
+                  : <svg width="9" height="9" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="3.5" stroke="currentColor" strokeWidth="1.5" /><circle cx="5.5" cy="5.5" r="1.2" fill="currentColor" /></svg>
+                }
+                {tickerPoiScanning ? 'SCANNING' : 'POI'}
+              </button>
+              {/* Divider */}
+              <div style={{ width: 1, background: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />
+              {/* PIVOT half */}
+              <button
+                onClick={runTickerScan}
+                disabled={tickerScanning || tickerPoiScanning}
+                title="Scan for volatility contractions (pivot setups)"
+                style={{
+                  ...mono, fontSize: 12, fontWeight: 900, letterSpacing: 1.5,
+                  cursor: (tickerScanning || tickerPoiScanning) ? 'not-allowed' : 'pointer',
+                  background: tickerScanning ? 'rgba(60,140,255,0.2)' : 'linear-gradient(180deg,#0e1e3a,#070f1e)',
+                  border: 'none',
+                  color: (tickerScanning || tickerPoiScanning) ? 'rgba(100,180,255,0.35)' : '#41B6F6',
+                  padding: '0 14px', display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                {tickerScanning
+                  ? <svg width="9" height="9" viewBox="0 0 11 11" style={{ animation: 'stPulse 0.8s ease-in-out infinite' }}><rect x="2" y="2" width="7" height="7" rx="1" fill="currentColor" /></svg>
+                  : <svg width="9" height="9" viewBox="0 0 11 11"><polygon points="2,1 10,5.5 2,10" fill="currentColor" /></svg>
+                }
+                {tickerScanning ? 'SCANNING' : 'PIVOT'}
+              </button>
+            </div>
+
+            {/* POI lookback pills */}
+            <div style={{ display: 'flex', alignItems: 'stretch', borderRadius: 5, overflow: 'hidden', height: 26, border: '1px solid rgba(255,140,0,0.25)', background: 'rgba(20,10,0,0.8)' }}>
+              {([90, 252, 1260] as const).map((v, i) => (
+                <button key={v} onClick={() => setPoiLookback(v)} style={{
+                  ...mono, fontSize: 10, fontWeight: 900, letterSpacing: 1,
+                  padding: '0 9px', cursor: 'pointer',
+                  background: poiLookback === v ? 'rgba(255,140,0,0.2)' : 'transparent',
+                  color: poiLookback === v ? '#FFA028' : 'rgba(255,255,255,0.35)',
+                  border: 'none', borderLeft: i > 0 ? '1px solid rgba(255,140,0,0.15)' : 'none',
+                  transition: 'background 0.1s, color 0.1s',
+                }}>{v === 90 ? '90D' : v === 252 ? '1Y' : '5Y'}</button>
+              ))}
             </div>
           </div>
 
-          {/* Search + Scan */}
-          <div style={{
-            display: 'flex', alignItems: 'stretch', borderRadius: 8, overflow: 'hidden', flexShrink: 0,
-            height: 45,
-            border: '1px solid rgba(30,80,160,0.5)',
-            background: 'linear-gradient(180deg, #0e1e3a 0%, #070f1e 100%)',
-            boxShadow: '0 4px 0 rgba(0,0,0,0.6), inset 0 1px 0 rgba(60,120,255,0.1)',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', paddingLeft: 10, color: 'rgba(255,255,255,0.35)' }}>
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.5" />
-                <line x1="8.5" y1="8.5" x2="12" y2="12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
+          {/* ── SCAN ALL group ──────────────────────────────────────────────── */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, paddingRight: 16, borderRight: '1px solid rgba(255,255,255,0.07)', flexShrink: 0, alignSelf: 'stretch' }}>
+            <div style={{ display: 'flex', alignItems: 'stretch', borderRadius: 6, overflow: 'hidden', height: 38, border: '1px solid rgba(100,100,100,0.3)', flexShrink: 0 }}>
+              {/* SCAN ALL POI */}
+              <button
+                onClick={runAllPoi}
+                disabled={isScanning || allPoiScanning}
+                title="Scan dark pool POI for full universe"
+                style={{
+                  ...mono, fontSize: 12, fontWeight: 900, letterSpacing: 1,
+                  cursor: (isScanning || allPoiScanning) ? 'not-allowed' : 'pointer',
+                  background: allPoiScanning ? 'rgba(255,140,0,0.2)' : 'linear-gradient(180deg,#2a1200,#180a00)',
+                  border: 'none',
+                  color: (isScanning || allPoiScanning) ? 'rgba(255,180,60,0.35)' : '#FFA028',
+                  padding: '0 14px', display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                {allPoiScanning
+                  ? <svg width="9" height="9" viewBox="0 0 11 11" style={{ animation: 'stPulse 0.8s ease-in-out infinite' }}><rect x="2" y="2" width="7" height="7" rx="1" fill="currentColor" /></svg>
+                  : <svg width="9" height="9" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="3.5" stroke="currentColor" strokeWidth="1.5" /><circle cx="5.5" cy="5.5" r="1.2" fill="currentColor" /></svg>
+                }
+                {allPoiScanning ? 'SCANNING…' : 'SCAN ALL POI'}
+              </button>
+              {/* Divider */}
+              <div style={{ width: 1, background: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />
+              {/* SCAN ALL PIVOT */}
+              {isScanning ? (
+                <button onClick={() => abortRef.current?.abort()} style={{
+                  ...mono, fontSize: 12, fontWeight: 900, letterSpacing: 1, padding: '0 14px', height: '100%',
+                  cursor: 'pointer', background: 'linear-gradient(180deg,#FF2040,#A00018)',
+                  border: 'none', color: '#FFFFFF', display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  <svg width="9" height="9" viewBox="0 0 10 10" style={{ animation: 'stPulse 1s ease-in-out infinite' }}><rect width="10" height="10" rx="1.5" fill="currentColor" /></svg>
+                  STOP
+                </button>
+              ) : (
+                <button onClick={run} style={{
+                  ...mono, fontSize: 12, fontWeight: 900, letterSpacing: 1, padding: '0 14px', height: '100%',
+                  cursor: 'pointer',
+                  background: phase === 'done' || phase === 'error'
+                    ? 'linear-gradient(180deg,#162040,#0a1228)'
+                    : 'linear-gradient(180deg,#0e1e3a,#070f1e)',
+                  border: 'none', color: '#41B6F6', display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  {phase === 'done' || phase === 'error'
+                    ? <svg width="9" height="9" viewBox="0 0 13 13" fill="none" style={{ animation: 'stSpin 2.5s linear infinite' }}><path d="M11 6.5A4.5 4.5 0 1 1 9.2 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" /><polygon points="9.2,0.5 12.5,3.5 6.5,3.5" fill="currentColor" /></svg>
+                    : <svg width="9" height="9" viewBox="0 0 11 11"><polygon points="2,1 10,5.5 2,10" fill="currentColor" /></svg>
+                  }
+                  {phase === 'done' || phase === 'error' ? 'RESCAN PIVOT' : 'SCAN ALL PIVOT'}
+                </button>
+              )}
             </div>
-            <input
-              value={tickerSearch}
-              onChange={e => setTickerSearch(e.target.value.toUpperCase())}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); runTickerScan() } }}
-              placeholder="TICKER"
-              maxLength={8}
-              style={{
-                ...mono, fontSize: 14, fontWeight: 700, letterSpacing: 2,
-                color: '#ffffff', background: 'transparent', border: 'none', outline: 'none',
-                padding: '0 8px', width: 72, textTransform: 'uppercase',
-              }}
-            />
-            <button
-              onClick={runTickerScan}
-              disabled={tickerScanning}
-              style={{
-                ...mono, fontSize: 14, fontWeight: 900, letterSpacing: 2,
-                cursor: tickerScanning ? 'not-allowed' : 'pointer',
-                background: 'transparent',
-                border: 'none', borderLeft: '1px solid rgba(30,80,160,0.4)',
-                color: tickerScanning ? 'rgba(255,255,255,0.3)' : '#FFFFFF',
-                padding: '0 14px', display: 'flex', alignItems: 'center', gap: 7,
-              }}
-            >
-              {tickerScanning
-                ? <svg width="11" height="11" viewBox="0 0 11 11" style={{ animation: 'stPulse 0.8s ease-in-out infinite' }}><rect x="2" y="2" width="7" height="7" rx="1" fill="currentColor" /></svg>
-                : <svg width="11" height="11" viewBox="0 0 11 11"><polygon points="2,1 10,5.5 2,10" fill="currentColor" /></svg>
-              }
-              {tickerScanning ? 'SCANNING' : 'SCAN'}
-            </button>
           </div>
-
-
-
-          {/* Stop / Rescan — no initial scan-all in toolbar */}
-          {isScanning ? (
-            <button onClick={() => abortRef.current?.abort()} style={{
-              ...mono, fontSize: 16, fontWeight: 900, letterSpacing: 2, padding: '0 25px', height: 45,
-              cursor: 'pointer', borderRadius: 8, flexShrink: 0,
-              background: 'linear-gradient(180deg, #FF2040 0%, #A00018 100%)',
-              border: '1px solid rgba(255,60,80,0.6)',
-              boxShadow: '0 4px 0 rgba(80,0,10,0.8), 0 6px 16px rgba(255,40,60,0.25), inset 0 1px 0 rgba(255,160,160,0.25)',
-              color: '#FFFFFF', display: 'flex', alignItems: 'center', gap: 8,
-            }}>
-              <svg width="12" height="12" viewBox="0 0 10 10" style={{ animation: 'stPulse 1s ease-in-out infinite' }}><rect width="10" height="10" rx="1.5" fill="currentColor" /></svg>
-              STOP
-            </button>
-          ) : (phase === 'done' || phase === 'error') ? (
-            <button onClick={run} style={{
-              ...mono, fontSize: 16, fontWeight: 900, letterSpacing: 2, padding: '0 25px', height: 45,
-              cursor: 'pointer', borderRadius: 8, flexShrink: 0,
-              background: 'linear-gradient(180deg, #FF9A00 0%, #CC6000 100%)',
-              border: '1px solid rgba(255,180,0,0.6)',
-              boxShadow: '0 4px 0 rgba(100,30,0,0.8), 0 6px 16px rgba(255,140,0,0.25), inset 0 1px 0 rgba(255,230,100,0.35)',
-              color: '#000000', display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.1s',
-            }}
-              onMouseDown={e => (e.currentTarget.style.transform = 'translateY(2px)', e.currentTarget.style.boxShadow = '0 2px 0 rgba(100,30,0,0.8), 0 3px 8px rgba(255,140,0,0.2), inset 0 1px 0 rgba(255,230,100,0.2)')}
-              onMouseUp={e => (e.currentTarget.style.transform = '', e.currentTarget.style.boxShadow = '0 4px 0 rgba(100,30,0,0.8), 0 6px 16px rgba(255,140,0,0.25), inset 0 1px 0 rgba(255,230,100,0.35)')}
-              onMouseLeave={e => (e.currentTarget.style.transform = '', e.currentTarget.style.boxShadow = '0 4px 0 rgba(100,30,0,0.8), 0 6px 16px rgba(255,140,0,0.25), inset 0 1px 0 rgba(255,230,100,0.35)')}
-            >
-              <svg width="14" height="14" viewBox="0 0 13 13" fill="none" style={{ animation: 'stSpin 2s linear infinite' }}>
-                <path d="M11 6.5A4.5 4.5 0 1 1 9.2 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" />
-                <polygon points="9.2,0.5 12.5,3.5 6.5,3.5" fill="currentColor" />
-              </svg>
-              RESCAN
-            </button>
-          ) : null}
 
           {/* Portfolio button */}
           <button onClick={() => setShowPortfolio(true)} style={{
-            ...mono, fontSize: 14, fontWeight: 900, letterSpacing: 1.5, padding: '0 18px', height: 45,
-            cursor: 'pointer', borderRadius: 8, flexShrink: 0,
+            ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 1.5, padding: '0 15px', height: 38,
+            cursor: 'pointer', borderRadius: 6, flexShrink: 0,
             background: 'linear-gradient(180deg, #0e1e3a 0%, #070f1e 100%)',
             border: '1px solid rgba(255,154,0,0.35)',
-            boxShadow: '0 4px 0 rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06)',
+            boxShadow: '0 3px 0 rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06)',
             color: '#FF9A00',
-            display: 'flex', alignItems: 'center', gap: 8,
+            display: 'flex', alignItems: 'center', gap: 7,
           }}>
-            <svg width="15" height="15" viewBox="0 0 20 20" fill="none">
+            <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
               <polygon points="10,2 18,8 15,18 5,18 2,8" fill="rgba(255,154,0,0.15)" stroke="#FF9A00" strokeWidth="1.5" />
               <circle cx="10" cy="11" r="3" fill="#FF9A00" opacity="0.8" />
             </svg>

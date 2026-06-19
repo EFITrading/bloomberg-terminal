@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 import DealerGEXChart from './DealerGEXChart'
 import DealerOpenInterestChart from './DealerOpenInterestChart'
@@ -26,6 +26,28 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
   // Unified Controls (affect both charts)
   const [showPremium, setShowPremium] = useState<boolean>(false)
   const [showAITowers, setShowAITowers] = useState<boolean>(false)
+  const [showOptDropdown, setShowOptDropdown] = useState(false)
+  const optButtonRef = useRef<HTMLButtonElement>(null)
+
+  // Dynamic chart sizing — measures the actual available scroll container height
+  // so both charts always fit without clipping or overlap, on any screen size
+  const chartsScrollRef = useRef<HTMLDivElement>(null)
+  const [chartH, setChartH] = useState(280)
+  const svgH = Math.round((chartH * 1120) / 769)
+  useEffect(() => {
+    const update = () => {
+      if (!chartsScrollRef.current) return
+      const available = chartsScrollRef.current.clientHeight
+      const perChart = Math.floor((available - 118) / 2) // 8px gap + 110px total reduction buffer
+      setChartH(Math.max(180, Math.min(420, perChart)))
+    }
+    const ro = new ResizeObserver(update)
+    if (chartsScrollRef.current) ro.observe(chartsScrollRef.current)
+    update()
+    const onOrient = () => setTimeout(update, 100)
+    window.addEventListener('orientationchange', onOrient)
+    return () => { ro.disconnect(); window.removeEventListener('orientationchange', onOrient) }
+  }, [])
 
   // Fetch expiration dates once
   useEffect(() => {
@@ -100,53 +122,108 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
           ))}
         </select>
 
-        {/* $ Prem */}
-        <button
-          onClick={() => setShowPremium(!showPremium)}
-          style={{
-            height: 34,
-            padding: '0 8px',
-            flexShrink: 0,
-            background: showPremium ? '#00c853' : 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
-            border: showPremium ? '1px solid #00c853' : '1px solid rgba(255,255,255,0.1)',
-            borderRadius: 6,
-            color: showPremium ? '#fff' : '#888',
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: 'pointer',
-            boxShadow: showPremium
-              ? '0 0 10px rgba(0,200,83,0.35)'
-              : 'inset 0 1px 0 rgba(255,255,255,0.08)',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          $ Prem
-        </button>
-
-        {/* AI */}
-        <button
-          onClick={() => setShowAITowers(!showAITowers)}
-          style={{
-            height: 34,
-            padding: '0 8px',
-            flexShrink: 0,
-            background: showAITowers
-              ? 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)'
-              : 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
-            border: showAITowers ? '1px solid #667eea' : '1px solid rgba(255,255,255,0.1)',
-            borderRadius: 6,
-            color: '#fff',
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: 'pointer',
-            boxShadow: showAITowers
-              ? '0 4px 12px rgba(102,126,234,0.4)'
-              : 'inset 0 1px 0 rgba(255,255,255,0.08)',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          👑 AI
-        </button>
+        {/* $ Prem + AI combined dropdown */}
+        <div style={{ position: 'relative', flexShrink: 0 }}>
+          <button
+            ref={optButtonRef}
+            onClick={() => setShowOptDropdown((p) => !p)}
+            style={{
+              height: 34,
+              padding: '0 10px',
+              background:
+                showPremium || showAITowers
+                  ? 'linear-gradient(135deg,#1a2a1a 0%,#0a1a0a 100%)'
+                  : 'linear-gradient(180deg,#1a1a1a 0%,#000 60%)',
+              border:
+                showPremium && showAITowers
+                  ? '1px solid #667eea'
+                  : showPremium
+                    ? '1px solid #00c853'
+                    : showAITowers
+                      ? '1px solid #667eea'
+                      : '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 6,
+              color: '#fff',
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              boxShadow:
+                showPremium || showAITowers
+                  ? '0 0 10px rgba(102,126,234,0.25)'
+                  : 'inset 0 1px 0 rgba(255,255,255,0.08)',
+            }}
+          >
+            {showPremium && showAITowers
+              ? '$ | 👑'
+              : showPremium
+                ? 'Premium'
+                : showAITowers
+                  ? '👑 AI'
+                  : 'Premium ▾'}
+          </button>
+          {showOptDropdown && (
+            <>
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setShowOptDropdown(false)}
+              />
+              <div
+                className="fixed z-50 rounded overflow-hidden"
+                style={{
+                  top: (optButtonRef.current?.getBoundingClientRect().bottom ?? 0) + 4,
+                  left: optButtonRef.current?.getBoundingClientRect().left ?? 0,
+                  minWidth: 100,
+                  background:
+                    'linear-gradient(180deg,#1c1c1c 0%,#0d0d0d 40%,#080808 100%)',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  boxShadow:
+                    '0 8px 24px rgba(0,0,0,0.8),inset 0 1px 0 rgba(255,255,255,0.06)',
+                }}
+              >
+                <button
+                  onClick={() => setShowPremium((p) => !p)}
+                  className="w-full text-left"
+                  style={{
+                    height: 36,
+                    padding: '0 12px',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: showPremium ? '#00c853' : '#888',
+                    background: showPremium
+                      ? 'linear-gradient(90deg,rgba(0,200,83,0.12) 0%,transparent 100%)'
+                      : 'transparent',
+                    borderBottom: '1px solid rgba(255,255,255,0.05)',
+                    boxShadow: showPremium ? 'inset 0 -2px 0 #00c853' : 'none',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {showPremium ? '✓' : '○'} $ Prem
+                </button>
+                <button
+                  onClick={() => setShowAITowers((p) => !p)}
+                  className="w-full text-left"
+                  style={{
+                    height: 36,
+                    padding: '0 12px',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: showAITowers ? '#a78bfa' : '#888',
+                    background: showAITowers
+                      ? 'linear-gradient(90deg,rgba(167,139,250,0.12) 0%,transparent 100%)'
+                      : 'transparent',
+                    boxShadow: showAITowers ? 'inset 0 -2px 0 #a78bfa' : 'none',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {showAITowers ? '✓' : '○'} 👑 AI
+                </button>
+              </div>
+            </>
+          )}
+        </div>
 
         {/* P/C Ratio chips — inline in same row */}
         <div
@@ -231,10 +308,11 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
 
       {/* MOBILE: Scrollable Charts Container */}
       <div
+        ref={chartsScrollRef}
         style={{
           flex: 1,
-          overflowY: 'scroll',
-          overflowX: 'hidden',
+          overflowY: 'hidden',
+          overflowX: 'clip',
           WebkitOverflowScrolling: 'touch',
           marginTop: '4px',
         }}
@@ -247,9 +325,9 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
             paddingBottom: '100px',
           }}
         >
-          {/* OI Chart — scaleX only keeps full 484px height, reduces width */}
-          <div style={{ width: '100%', height: '333px', overflow: 'hidden' }}>
-            <div style={{ transform: 'scaleX(0.55)', transformOrigin: 'top left', width: '769px', height: '484px' }}>
+          {/* OI Chart — scaleX keeps full height, reduces width */}
+          <div style={{ width: '100%', height: `${chartH}px`, overflow: 'visible', position: 'relative' }}>
+            <div style={{ transform: 'translateZ(0) scaleX(0.55)', transformOrigin: 'top left', width: '769px', height: `${svgH}px`, willChange: 'transform', WebkitBackfaceVisibility: 'hidden' as React.CSSProperties['WebkitBackfaceVisibility'], backfaceVisibility: 'hidden' as React.CSSProperties['backfaceVisibility'] }}>
               <DealerOpenInterestChart
                 selectedTicker={selectedTicker}
                 compactMode={true}
@@ -263,14 +341,14 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
                 onExpectedRangePCRatioChange={setExpectedRangePCRatio}
                 onCumulativePCRatio45DaysChange={setCumulativePCRatio45Days}
                 onExpectedRange90Change={setExpectedRange90}
-                svgHeight={484}
+                svgHeight={svgH}
               />
             </div>
           </div>
 
           {/* GEX Chart — same approach */}
-          <div style={{ width: '100%', height: '333px', overflow: 'hidden' }}>
-            <div style={{ transform: 'scaleX(0.55)', transformOrigin: 'top left', width: '769px', height: '484px' }}>
+          <div style={{ width: '100%', height: `${chartH}px`, overflow: 'visible', position: 'relative' }}>
+            <div style={{ transform: 'translateZ(0) scaleX(0.55)', transformOrigin: 'top left', width: '769px', height: `${svgH}px`, willChange: 'transform', WebkitBackfaceVisibility: 'hidden' as React.CSSProperties['WebkitBackfaceVisibility'], backfaceVisibility: 'hidden' as React.CSSProperties['backfaceVisibility'] }}>
               <DealerGEXChart
                 selectedTicker={selectedTicker}
                 compactMode={true}
@@ -282,7 +360,7 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
                 showNetGamma={showNetGamma}
                 showAttrax={showAITowers}
                 expectedRange90={expectedRange90}
-                svgHeight={484}
+                svgHeight={svgH}
               />
             </div>
           </div>

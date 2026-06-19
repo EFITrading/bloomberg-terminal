@@ -302,7 +302,7 @@ export default function DealerGEXChart({
         setLoading(true)
         setError('')
 
-        // Helper: resolve OI — use historical rollback map if available, else snapshot value
+        // Helper: resolve OI � use historical rollback map if available, else snapshot value
         const resolveOI = (snapshotOI: number, strike: number, type: 'call' | 'put', expiry: string): number => {
           if (!liveOIOverride) return snapshotOI
           const key = `${selectedTicker}_${strike}_${type}_${expiry}`
@@ -355,10 +355,10 @@ export default function DealerGEXChart({
                     const strikeNum = parseFloat(strike)
                     const openInterest = resolveOI(callData.open_interest || 0, strikeNum, 'call', exp)
                     const gamma = callData.greeks?.gamma || 0
-                    const bid = callData.bid || 0
-                    const ask = callData.ask || 0
-                    const midPrice = bid + ask > 0 ? (bid + ask) / 2 : (callData.mid_price || callData.last || 0)
-                    const premium = openInterest * midPrice * 100
+
+
+
+                    const premium = gamma * openInterest * 100 * spotPrice // Gamma Notional: G�OI�100�S
                     const gex = calculateGammaExposure(openInterest, spotPrice, gamma, 'call')
 
                     if (!strikeMap.has(strikeNum)) {
@@ -382,10 +382,10 @@ export default function DealerGEXChart({
                   const strikeNum = parseFloat(strike)
                   const openInterest = resolveOI(putData.open_interest || 0, strikeNum, 'put', exp)
                   const gamma = putData.greeks?.gamma || 0
-                  const bid = putData.bid || 0
-                  const ask = putData.ask || 0
-                  const midPrice = bid + ask > 0 ? (bid + ask) / 2 : (putData.mid_price || putData.last || 0)
-                  const premium = openInterest * midPrice * 100
+
+
+
+                  const premium = gamma * openInterest * 100 * spotPrice // Gamma Notional: G�OI�100�S
                   const gex = calculateGammaExposure(openInterest, spotPrice, gamma, 'put')
 
                   if (!strikeMap.has(strikeNum)) {
@@ -496,10 +496,10 @@ export default function DealerGEXChart({
                     const strikeNum = parseFloat(strike)
                     const openInterest = resolveOI(callData.open_interest || 0, strikeNum, 'call', exp)
                     const gamma = callData.greeks?.gamma || 0
-                    const bid = callData.bid || 0
-                    const ask = callData.ask || 0
-                    const midPrice = bid + ask > 0 ? (bid + ask) / 2 : (callData.mid_price || callData.last || 0)
-                    const premium = openInterest * midPrice * 100
+
+
+
+                    const premium = gamma * openInterest * 100 * spotPrice // Gamma Notional: G�OI�100�S
                     const gex = calculateGammaExposure(openInterest, spotPrice, gamma, 'call')
 
                     if (!strikeMap.has(strikeNum)) {
@@ -523,10 +523,10 @@ export default function DealerGEXChart({
                   const strikeNum = parseFloat(strike)
                   const openInterest = resolveOI(putData.open_interest || 0, strikeNum, 'put', exp)
                   const gamma = putData.greeks?.gamma || 0
-                  const bid = putData.bid || 0
-                  const ask = putData.ask || 0
-                  const midPrice = bid + ask > 0 ? (bid + ask) / 2 : (putData.mid_price || putData.last || 0)
-                  const premium = openInterest * midPrice * 100
+
+
+
+                  const premium = gamma * openInterest * 100 * spotPrice // Gamma Notional: G�OI�100�S
                   const gex = calculateGammaExposure(openInterest, spotPrice, gamma, 'put')
 
                   if (!strikeMap.has(strikeNum)) {
@@ -620,10 +620,7 @@ export default function DealerGEXChart({
               const strikeNum = parseFloat(strike)
               const openInterest = resolveOI(callData.open_interest || 0, strikeNum, 'call', selectedExpiration)
               const gamma = callData.greeks?.gamma || 0
-              const bid = callData.bid || 0
-              const ask = callData.ask || 0
-              const midPrice = bid + ask > 0 ? (bid + ask) / 2 : (callData.mid_price || callData.last || 0)
-              const premium = openInterest * midPrice * 100
+              const premium = gamma * openInterest * 100 * spotPrice // Gamma Notional: G�OI�100�S
               const gex = calculateGammaExposure(openInterest, spotPrice, gamma, 'call')
 
               if (!strikeMap.has(strikeNum)) {
@@ -641,10 +638,7 @@ export default function DealerGEXChart({
               const strikeNum = parseFloat(strike)
               const openInterest = resolveOI(putData.open_interest || 0, strikeNum, 'put', selectedExpiration)
               const gamma = putData.greeks?.gamma || 0
-              const bid = putData.bid || 0
-              const ask = putData.ask || 0
-              const midPrice = bid + ask > 0 ? (bid + ask) / 2 : (putData.mid_price || putData.last || 0)
-              const premium = openInterest * midPrice * 100
+              const premium = gamma * openInterest * 100 * spotPrice // Gamma Notional: G�OI�100�S
               const gex = calculateGammaExposure(openInterest, spotPrice, gamma, 'put')
 
               if (!strikeMap.has(strikeNum)) {
@@ -835,7 +829,7 @@ export default function DealerGEXChart({
           .style('fill', axisColor)
           .style('font-size', isMobile ? '21px' : '18px')
           .style('font-weight', 'bold')
-          .attr('transform', 'rotate(-35)')
+          .attr('transform', isMobile ? 'scale(1.818,1) rotate(-35)' : 'rotate(-35)')
           .style('text-anchor', 'end')
           .attr('dx', '-0.5em')
           .attr('dy', '0.5em')
@@ -1079,7 +1073,7 @@ export default function DealerGEXChart({
       .style('fill', axisColor)
       .style('font-size', isMobile ? '21px' : '18px')
       .style('font-weight', 'bold')
-      .attr('transform', 'rotate(-35)')
+      .attr('transform', isMobile ? 'scale(1.818,1) rotate(-35)' : 'rotate(-35)')
       .style('text-anchor', 'end')
       .attr('dx', '-0.5em')
       .attr('dy', '0.5em')
@@ -1130,7 +1124,7 @@ export default function DealerGEXChart({
       .style('fill', axisColor)
       .style('font-size', isMobile ? '20px' : '16px')
       .style('font-weight', '500')
-      .text(viewMode === 'premium' ? 'Gamma Premium ($)' : 'Gamma Exposure (GEX)')
+      .text(viewMode === 'premium' ? 'Gamma Notional ($)' : 'Gamma Exposure (GEX)')
 
     // Create overlay layer for Attrax (not affected by zoom)
     const overlayLayer = svg
@@ -1285,7 +1279,7 @@ export default function DealerGEXChart({
     if (zoomTransform) {
       svg.call(zoom.transform as any, zoomTransform)
     }
-  }, [data, currentPrice, viewMode, propShowAttrax, attraxPoints, showNetGamma])
+  }, [data, currentPrice, viewMode, propShowAttrax, attraxPoints, showNetGamma, svgHeight])
 
   return (
     <div

@@ -1170,7 +1170,7 @@ export default function DealerOpenInterestChart({
           .style('fill', axisColor)
           .style('font-size', labelFontSize)
           .style('font-weight', 'bold')
-          .attr('transform', 'rotate(-35)')
+          .attr('transform', isMobile ? 'scale(1.818,1) rotate(-35)' : 'rotate(-35)')
           .style('text-anchor', 'end')
           .attr('dx', '-0.5em')
           .attr('dy', '0.5em')
@@ -1508,7 +1508,7 @@ export default function DealerOpenInterestChart({
       .style('fill', axisColor)
       .style('font-size', labelFontSize)
       .style('font-weight', 'bold')
-      .attr('transform', 'rotate(-35)')
+      .attr('transform', isMobile ? 'scale(1.818,1) rotate(-35)' : 'rotate(-35)')
       .style('text-anchor', 'end')
       .attr('dx', '-0.5em')
       .attr('dy', '0.5em')
@@ -2102,7 +2102,7 @@ export default function DealerOpenInterestChart({
     if (zoomTransform) {
       svg.call(zoom.transform as any, zoomTransform)
     }
-  }, [data, currentPrice, viewMode, showTowers, towerStructures, expectedRange80])
+  }, [data, currentPrice, viewMode, showTowers, towerStructures, expectedRange80, svgHeight])
 
   return (
     <div
