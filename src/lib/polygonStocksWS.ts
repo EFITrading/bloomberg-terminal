@@ -81,7 +81,7 @@ class PolygonStocksWSService {
             this.flushAll()
           } else if (msg.status === 'max_connections') {
             // Another tab/window already holds the connection limit — stop retrying
-            console.error(
+            console.warn(
               '[PolygonWS] max_connections: close other tabs or browser windows and reload.'
             )
             this.stopped = true

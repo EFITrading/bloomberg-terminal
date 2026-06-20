@@ -8,6 +8,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useMarketRegime } from '@/contexts/MarketRegimeContext'
 
 import FearGreedGauge from './FearGreedGauge'
+import MobileBottomNav from './MobileBottomNav'
 import NavigationMobileMenu from './NavigationMobileMenu'
 import TickerScroller from './TickerScroller'
 import { useNavigationMobile } from './useNavigationMobile'
@@ -81,20 +82,24 @@ export default function Navigation() {
     { name: 'OptionsFlow', path: '/options-flow', color: '#06b6d4' },
   ]
 
+  const isLandingPage = pathname === '/' || pathname === '/login' || pathname === '/auth'
+  const hideMobileNav = isMobile && !isLandingPage
+
   return (
     <>
       <nav
         className="nav"
         style={{
-          background: isBlindMe ? 'linear-gradient(180deg, #cfc5b8 0%, #c4b9aa 100%)' : 'linear-gradient(180deg, #060d1f 0%, #030810 25%, #010105 60%, #000000 100%)',
-          borderBottom: isBlindMe ? '1px solid #a89888' : '1px solid rgba(255, 133, 0, 0.3)',
-          boxShadow: isBlindMe ? '0 2px 8px rgba(80,60,40,0.15), inset 0 1px 0 rgba(255,253,250,0.5)' : '0 4px 24px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255,255,255,0.18), inset 0 2px 6px rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.8)',
+          background: hideMobileNav ? 'transparent' : isBlindMe ? 'linear-gradient(180deg, #cfc5b8 0%, #c4b9aa 100%)' : 'linear-gradient(180deg, #060d1f 0%, #030810 25%, #010105 60%, #000000 100%)',
+          borderBottom: hideMobileNav ? 'none' : isBlindMe ? '1px solid #a89888' : '1px solid rgba(255, 133, 0, 0.3)',
+          boxShadow: hideMobileNav ? 'none' : isBlindMe ? '0 2px 8px rgba(80,60,40,0.15), inset 0 1px 0 rgba(255,253,250,0.5)' : '0 4px 24px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255,255,255,0.18), inset 0 2px 6px rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.8)',
           position: 'fixed',
           top: 0,
           left: 0,
           right: 0,
           overflow: 'visible',
           zIndex: 1000,
+          pointerEvents: hideMobileNav ? 'none' : undefined,
         }}
       >
         {/* Gloss sheen overlay */}
@@ -141,7 +146,7 @@ export default function Navigation() {
         <div
           className="nav-main"
           style={{
-            display: 'flex',
+            display: hideMobileNav ? 'none' : 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             paddingTop: '0',
@@ -329,7 +334,7 @@ export default function Navigation() {
               gap: '16px',
             }}
           >
-            {/* Mobile hamburger + overlay — extracted to NavigationMobileMenu.tsx */}
+            {/* Mobile hamburger — only shown on landing page; inner pages use bottom tab bar */}
             <NavigationMobileMenu
               navLinks={navLinks}
               pathname={pathname}
@@ -337,6 +342,7 @@ export default function Navigation() {
               isClient={isClient}
               router={router}
               isSmallMobile={isSmallMobile}
+              hideOnInnerPages={true}
             />
 
             {/* Desktop Status and Auth */}
@@ -683,12 +689,23 @@ export default function Navigation() {
         </div>
       </nav>
       {/* Shim: reserves space for the fixed nav so content isn't hidden behind it */}
-      <div style={{ height: isMobile ? '56px' : '90px', flexShrink: 0 }} aria-hidden="true" />
+      <div style={{ height: hideMobileNav ? '0' : isMobile ? '56px' : '90px', flexShrink: 0 }} aria-hidden="true" />
 
       {/* Mobile overlay — extracted to NavigationMobileMenu.tsx */}
       <TickerScroller />
       {/* Shim: reserves space for the fixed ticker scroller (desktop only, 29px) */}
       {!isMobile && <div style={{ height: '29px', flexShrink: 0 }} aria-hidden="true" />}
+
+      {/* Mobile bottom tab bar — shown on all inner pages */}
+      {isMobile && (
+        <MobileBottomNav
+          navLinks={navLinks}
+          pathname={pathname}
+          isAuthenticated={isAuthenticated}
+          isClient={isClient}
+          router={router}
+        />
+      )}
     </>
   )
 }

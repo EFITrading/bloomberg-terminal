@@ -240,61 +240,63 @@ export default function EFIChartingMobileHamburger({ isMobile, activeSidebarPane
                     backdropFilter: 'blur(24px)', overflow: 'hidden', width: 'max-content', minWidth: '160px',
                     animation: 'hmDrop 0.18s cubic-bezier(0.22,1,0.36,1)',
                 }}>
-                    <style>{`@keyframes hmDrop{from{opacity:0;transform:translateY(-8px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}`}</style>
-                    {hmItems.map((item, idx) => {
-                        const clr = hmAccent[item.accent]
-                        const active = activeSidebarPanel === item.id
-                        return (
-                            <button
-                                key={item.id}
-                                onClick={() => { onSidebarClick(item.id); setIsHamburgerOpen(false) }}
-                                style={{
-                                    display: 'flex', alignItems: 'center', gap: '12px',
-                                    width: '100%', padding: '10px 14px',
-                                    background: active ? `linear-gradient(90deg,${clr}18 0%,rgba(255,255,255,0.03) 100%)` : 'transparent',
-                                    borderLeft: `3px solid ${active ? clr : 'transparent'}`,
-                                    borderRight: 'none', borderTop: 'none',
-                                    borderBottom: idx < hmItems.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
-                                    cursor: 'pointer', transition: 'all 0.15s ease',
-                                    position: 'relative', overflow: 'hidden',
-                                }}
-                                onMouseEnter={e => {
-                                    e.currentTarget.style.background = `linear-gradient(90deg,${clr}14 0%,rgba(255,255,255,0.02) 100%)`
-                                    e.currentTarget.style.borderLeft = `3px solid ${clr}80`
-                                }}
-                                onMouseLeave={e => {
-                                    e.currentTarget.style.background = active ? `linear-gradient(90deg,${clr}18 0%,rgba(255,255,255,0.03) 100%)` : 'transparent'
-                                    e.currentTarget.style.borderLeft = `3px solid ${active ? clr : 'transparent'}`
-                                }}
-                            >
-                                <div style={{
-                                    width: '34px', height: '34px', borderRadius: '8px', flexShrink: 0,
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    background: `linear-gradient(145deg,${clr}30 0%,${clr}10 50%,rgba(0,0,0,0.5) 100%)`,
-                                    borderTop: `1px solid ${clr}80`, borderRight: `1px solid ${clr}50`, borderBottom: `1px solid ${clr}50`, borderLeft: `1px solid ${clr}50`,
-                                    boxShadow: `0 4px 12px ${clr}25,inset 0 1px 0 ${clr}30,inset 0 -1px 0 rgba(0,0,0,0.5)`,
-                                    color: clr, position: 'relative', overflow: 'hidden',
-                                }}>
-                                    <div style={{ position: 'absolute', inset: 0, borderRadius: '8px', background: 'linear-gradient(160deg,rgba(255,255,255,0.18) 0%,transparent 55%)', pointerEvents: 'none' }} />
-                                    <div style={{ width: '18px', height: '18px', position: 'relative', zIndex: 1, filter: `drop-shadow(0 0 4px ${clr}80)` }}>
-                                        {item.icon}
+                    <style>{`@keyframes hmDrop{from{opacity:0;transform:translateY(-8px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}} .hm-scroll::-webkit-scrollbar{width:3px} .hm-scroll::-webkit-scrollbar-track{background:transparent} .hm-scroll::-webkit-scrollbar-thumb{background:rgba(255,133,0,0.35);border-radius:2px} .hm-scroll::-webkit-scrollbar-thumb:hover{background:rgba(255,133,0,0.6)}`}</style>
+                    <div className="hm-scroll" style={{ overflowY: 'auto', maxHeight: '540px' }}>
+                        {hmItems.map((item, idx) => {
+                            const clr = hmAccent[item.accent]
+                            const active = activeSidebarPanel === item.id
+                            return (
+                                <button
+                                    key={item.id}
+                                    onClick={() => { onSidebarClick(item.id); setIsHamburgerOpen(false) }}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: '12px',
+                                        width: '100%', padding: '10px 14px',
+                                        background: active ? `linear-gradient(90deg,${clr}18 0%,rgba(255,255,255,0.03) 100%)` : 'transparent',
+                                        borderLeft: `3px solid ${active ? clr : 'transparent'}`,
+                                        borderRight: 'none', borderTop: 'none',
+                                        borderBottom: idx < hmItems.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+                                        cursor: 'pointer', transition: 'all 0.15s ease',
+                                        position: 'relative', overflow: 'hidden',
+                                    }}
+                                    onMouseEnter={e => {
+                                        e.currentTarget.style.background = `linear-gradient(90deg,${clr}14 0%,rgba(255,255,255,0.02) 100%)`
+                                        e.currentTarget.style.borderLeft = `3px solid ${clr}80`
+                                    }}
+                                    onMouseLeave={e => {
+                                        e.currentTarget.style.background = active ? `linear-gradient(90deg,${clr}18 0%,rgba(255,255,255,0.03) 100%)` : 'transparent'
+                                        e.currentTarget.style.borderLeft = `3px solid ${active ? clr : 'transparent'}`
+                                    }}
+                                >
+                                    <div style={{
+                                        width: '34px', height: '34px', borderRadius: '8px', flexShrink: 0,
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        background: `linear-gradient(145deg,${clr}30 0%,${clr}10 50%,rgba(0,0,0,0.5) 100%)`,
+                                        borderTop: `1px solid ${clr}80`, borderRight: `1px solid ${clr}50`, borderBottom: `1px solid ${clr}50`, borderLeft: `1px solid ${clr}50`,
+                                        boxShadow: `0 4px 12px ${clr}25,inset 0 1px 0 ${clr}30,inset 0 -1px 0 rgba(0,0,0,0.5)`,
+                                        color: clr, position: 'relative', overflow: 'hidden',
+                                    }}>
+                                        <div style={{ position: 'absolute', inset: 0, borderRadius: '8px', background: 'linear-gradient(160deg,rgba(255,255,255,0.18) 0%,transparent 55%)', pointerEvents: 'none' }} />
+                                        <div style={{ width: '18px', height: '18px', position: 'relative', zIndex: 1, filter: `drop-shadow(0 0 4px ${clr}80)` }}>
+                                            {item.icon}
+                                        </div>
                                     </div>
-                                </div>
-                                <span style={{
-                                    fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em',
-                                    color: active ? clr : 'rgba(255,255,255,0.85)',
-                                    textTransform: 'uppercase',
-                                    textShadow: active ? `0 0 10px ${clr}60` : '0 1px 3px rgba(0,0,0,0.8)',
-                                    fontFamily: 'system-ui,-apple-system,sans-serif',
-                                }}>
-                                    {item.label}
-                                </span>
-                                {active && (
-                                    <div style={{ marginLeft: 'auto', width: '6px', height: '6px', borderRadius: '50%', background: clr, boxShadow: `0 0 6px ${clr}`, flexShrink: 0 }} />
-                                )}
-                            </button>
-                        )
-                    })}
+                                    <span style={{
+                                        fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em',
+                                        color: active ? clr : 'rgba(255,255,255,0.85)',
+                                        textTransform: 'uppercase',
+                                        textShadow: active ? `0 0 10px ${clr}60` : '0 1px 3px rgba(0,0,0,0.8)',
+                                        fontFamily: 'system-ui,-apple-system,sans-serif',
+                                    }}>
+                                        {item.label}
+                                    </span>
+                                    {active && (
+                                        <div style={{ marginLeft: 'auto', width: '6px', height: '6px', borderRadius: '50%', background: clr, boxShadow: `0 0 6px ${clr}`, flexShrink: 0 }} />
+                                    )}
+                                </button>
+                            )
+                        })}
+                    </div>
                 </div>,
                 document.body
             )}

@@ -17,6 +17,7 @@ import {
 } from 'react-icons/tb'
 
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 interface LWChartDrawingToolsProps {
   width: number
@@ -3067,6 +3068,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
             currentTool !== 'select' || isDragging || !!editingDrawing ? 'auto' : 'none',
           cursor: currentTool === 'select' ? (isDragging ? 'grabbing' : 'default') : 'crosshair',
           zIndex: 1001,
+          touchAction: currentTool !== 'select' ? 'none' : 'auto',
         }}
       />
 
@@ -4399,10 +4401,28 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
             setEditingDrawing(null)
           }
 
-          return (
+          const isMob = typeof window !== 'undefined' && window.innerWidth <= 767
+
+          const panel = (
             <div
               ref={propertiesPanelRef}
-              style={{
+              style={isMob ? {
+                position: 'fixed',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                background: 'linear-gradient(145deg, #0a0a0a 0%, #1a1a1a 100%)',
+                border: '1px solid rgba(255, 120, 0, 0.3)',
+                borderRadius: '8px',
+                padding: '0',
+                width: 'min(300px, calc(100vw - 40px))',
+                maxHeight: '80vh',
+                zIndex: 2147483646,
+                boxShadow: '0 20px 60px rgba(0,0,0,0.95)',
+                pointerEvents: 'auto',
+                overflowY: 'auto',
+                overflowX: 'hidden',
+              } : {
                 position: 'absolute',
                 top: '50%',
                 left: '50%',
@@ -4414,8 +4434,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                 minWidth: '279px',
                 maxWidth: '320px',
                 zIndex: 1004,
-                boxShadow:
-                  '0 20px 60px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+                boxShadow: '0 20px 60px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
                 pointerEvents: 'auto',
                 overflow: 'hidden',
               }}
@@ -4426,13 +4445,14 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                   background:
                     'linear-gradient(180deg, rgba(100, 40, 0, 0.4) 0%, rgba(70, 25, 0, 0.3) 50%, rgba(40, 15, 0, 0.2) 100%)',
                   borderBottom: '1px solid rgba(150, 60, 0, 0.4)',
-                  padding: '16px 20px',
+                  padding: isMob ? '10px 14px' : '16px 20px',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
                   position: 'relative',
                   boxShadow:
                     'inset 0 1px 0 rgba(180, 80, 20, 0.15), inset 0 -1px 0 rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3)',
+                  flexShrink: 0,
                 }}
               >
                 <div
@@ -4451,7 +4471,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                   style={{
                     margin: 0,
                     color: '#ffffff',
-                    fontSize: '18px',
+                    fontSize: isMob ? '13px' : '18px',
                     fontWeight: '600',
                     letterSpacing: '0.5px',
                     textTransform: 'uppercase',
@@ -4499,10 +4519,10 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               {/* Content area */}
               <div
                 style={{
-                  padding: '20px',
+                  padding: isMob ? '10px 12px' : '20px',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '16px',
+                  gap: isMob ? '10px' : '16px',
                   background: 'linear-gradient(180deg, #0f0f0f 0%, #0a0a0a 100%)',
                 }}
               >
@@ -4542,9 +4562,9 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                       <label
                         style={{
                           color: '#ffffff',
-                          fontSize: '14px',
+                          fontSize: isMob ? '11px' : '14px',
                           display: 'block',
-                          marginBottom: '8px',
+                          marginBottom: isMob ? '5px' : '8px',
                           fontWeight: '600',
                           letterSpacing: '0.5px',
                           textTransform: 'uppercase',
@@ -4586,9 +4606,9 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                       <label
                         style={{
                           color: '#ffffff',
-                          fontSize: '14px',
+                          fontSize: isMob ? '11px' : '14px',
                           display: 'block',
-                          marginBottom: '8px',
+                          marginBottom: isMob ? '5px' : '8px',
                           fontWeight: '600',
                           letterSpacing: '0.5px',
                           textTransform: 'uppercase',
@@ -4601,13 +4621,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         onChange={(e) => updateDrawingProperty('lineStyle', e.target.value)}
                         style={{
                           width: '100%',
-                          padding: '10px 12px',
+                          padding: isMob ? '6px 8px' : '10px 12px',
                           background: '#0a0a0a',
                           color: '#ffffff',
                           border: '1px solid rgba(255, 120, 0, 0.2)',
                           borderRadius: '3px',
                           cursor: 'pointer',
-                          fontSize: '17px',
+                          fontSize: isMob ? '13px' : '17px',
                           fontWeight: '500',
                           boxShadow:
                             'inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.05)',
@@ -4836,7 +4856,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         }, 0)
                       }}
                       style={{
-                        padding: '12px 16px',
+                        padding: isMob ? '7px 10px' : '12px 16px',
                         background:
                           'linear-gradient(145deg, rgba(255, 120, 0, 0.2), rgba(255, 120, 0, 0.15))',
                         color: '#ffffff',
@@ -4844,7 +4864,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         borderRadius: '3px',
                         cursor: 'pointer',
                         fontWeight: '600',
-                        fontSize: '16px',
+                        fontSize: isMob ? '12px' : '16px',
                         width: '100%',
                         letterSpacing: '0.5px',
                         textTransform: 'uppercase',
@@ -5033,9 +5053,9 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                   <label
                     style={{
                       color: '#ffffff',
-                      fontSize: '14px',
+                      fontSize: isMob ? '11px' : '14px',
                       display: 'block',
-                      marginBottom: '8px',
+                      marginBottom: isMob ? '5px' : '8px',
                       fontWeight: '600',
                       letterSpacing: '0.5px',
                       textTransform: 'uppercase',
@@ -5069,7 +5089,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                 <button
                   onClick={deleteDrawing}
                   style={{
-                    padding: '12px 16px',
+                    padding: isMob ? '9px 12px' : '12px 16px',
                     background:
                       'linear-gradient(145deg, rgba(239, 68, 68, 0.2), rgba(239, 68, 68, 0.15))',
                     color: '#ffffff',
@@ -5077,7 +5097,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                     borderRadius: '3px',
                     cursor: 'pointer',
                     fontWeight: '600',
-                    fontSize: '16px',
+                    fontSize: isMob ? '13px' : '16px',
                     width: '100%',
                     marginTop: '4px',
                     letterSpacing: '0.5px',
@@ -5100,6 +5120,16 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               </div>
             </div>
           )
+
+          return isMob && typeof document !== 'undefined'
+            ? createPortal(
+              <>
+                <div onClick={() => { setPropertiesEditorVisible(false); setEditingPropertiesId(null) }} style={{ position: 'fixed', inset: 0, zIndex: 2147483645, background: 'rgba(0,0,0,0.6)' }} />
+                {panel}
+              </>,
+              document.body
+            )
+            : panel
         })()}
     </div>
   )

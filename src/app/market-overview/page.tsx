@@ -45,9 +45,12 @@ export default function MarketPage() {
 
     updateLayout()
     window.addEventListener('resize', updateLayout)
+    // Re-measure when Safari toolbar shows/hides (visualViewport resize)
+    window.visualViewport?.addEventListener('resize', updateLayout)
 
     return () => {
       window.removeEventListener('resize', updateLayout)
+      window.visualViewport?.removeEventListener('resize', updateLayout)
       document.removeEventListener('wheel', preventScroll)
       document.body.style.overflow = ''
       document.documentElement.style.overflow = ''

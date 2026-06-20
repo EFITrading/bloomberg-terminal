@@ -12,8 +12,10 @@ export function useMarketOverviewLayout() {
     function updateLayout() {
         const mobile = window.innerWidth <= 768
         setIsMobile(mobile)
+        // Use visualViewport height on mobile so Safari toolbar is excluded
+        const vph = (window.visualViewport?.height ?? window.innerHeight)
         const navHeight = mobile ? 138 : 170
-        const computed = Math.max(400, window.innerHeight - navHeight)
+        const computed = Math.max(400, vph - navHeight)
         setChartHeight(computed)
     }
 

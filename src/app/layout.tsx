@@ -27,7 +27,7 @@ export default function RootLayout({
 }>) {
     return (
         <html lang="en" data-scroll-behavior="smooth" style={{ overflowX: 'clip', width: '100%' }}>
-            <body className={`${inter.variable} antialiased`} style={{ overflowX: 'clip', width: '100%', position: 'relative' }}>
+            <body className={`${inter.variable} antialiased`} style={{ overflowX: 'clip', width: '100%' }}>
                 <ClientSessionProvider>
                     <MarketRegimeProvider>
                         <AuthGuard>

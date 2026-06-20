@@ -15,6 +15,7 @@ interface Props {
     isClient: boolean
     router: AppRouterInstance
     isSmallMobile: boolean
+    hideOnInnerPages?: boolean
 }
 
 /**
@@ -30,10 +31,15 @@ export default function NavigationMobileMenu({
     isClient,
     router,
     isSmallMobile,
+    hideOnInnerPages = false,
 }: Props) {
     const [isOpen, setIsOpen] = useState(false)
 
     const activePageName = navLinks.find((l) => l.path === pathname)?.name ?? null
+    const isLanding = pathname === '/' || pathname === '/login' || pathname === '/auth'
+
+    // On inner pages the bottom tab bar handles navigation — hide the hamburger
+    if (hideOnInnerPages && !isLanding) return null
 
     return (
         <>

@@ -438,22 +438,22 @@
 /* Chart container mobile optimizations */
 @media (max-width: 768px) {
 
-  /* Fix chart height on mobile - add more padding to avoid navigation overlap */
+  /* Fix chart height on mobile — nav is hidden on inner pages, subtract 60px for bottom tab bar */
   .market-overview-container {
-    height: 100vh !important;
-    padding-top: 50px !important;
+    height: calc(100dvh - 60px) !important;
+    padding-top: 0 !important;
   }
 
   /* Ensure chart fills remaining space */
   .chart-container {
-    height: calc(100vh - 50px) !important;
-    min-height: calc(100vh - 50px) !important;
+    height: calc(100dvh - 60px) !important;
+    min-height: calc(100dvh - 60px) !important;
   }
 
   /* Push the chart toolbar down */
   .chart-controls-container,
   .flex.items-center.justify-between {
-    margin-top: 20px !important;
+    margin-top: 0 !important;
     position: relative !important;
     z-index: 50 !important;
   }
@@ -475,31 +475,34 @@
 
 @media (max-width: 768px) {
   .market-overview-container {
-    padding-top: 50px !important;
+    padding-top: 0 !important;
+    height: calc(100dvh - 60px) !important;
   }
 
   .chart-container {
-    height: calc(100vh - 50px) !important;
+    height: calc(100dvh - 60px) !important;
   }
 }
 
 @media (max-width: 640px) {
   .market-overview-container {
-    padding-top: 50px !important;
+    padding-top: 0 !important;
+    height: calc(100dvh - 60px) !important;
   }
 
   .chart-container {
-    height: calc(100vh - 50px) !important;
+    height: calc(100dvh - 60px) !important;
   }
 }
 
 @media (max-width: 480px) {
   .market-overview-container {
-    padding-top: 50px !important;
+    padding-top: 0 !important;
+    height: calc(100dvh - 60px) !important;
   }
 
   .chart-container {
-    height: calc(100vh - 50px) !important;
+    height: calc(100dvh - 60px) !important;
   }
 }
 

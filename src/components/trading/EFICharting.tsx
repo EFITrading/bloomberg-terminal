@@ -6576,6 +6576,12 @@ export default function TradingViewChart({
 
   // Chat store for Guide AI panel
   const { isOpen: isGuideAIOpen, setIsOpen: setGuideAIOpen } = useChatStore()
+  // Mobile standalone panel toggles for Range and Gex buttons
+  const [isMobileRangeOpen, setIsMobileRangeOpen] = useState(false)
+  const [isMobileGexOpen, setIsMobileGexOpen] = useState(false)
+  const [isMobileSeaxOpen, setIsMobileSeaxOpen] = useState(false)
+  const [seaxSmartSection, setSeaxSmartSection] = useState<'perf' | 'events' | null>(null)
+  const [isMobileFlowsOpen, setIsMobileFlowsOpen] = useState(false)
 
   // Trade Mode layout toggle
   const [tradeModeActive, setTradeModeActive] = useState(false)
@@ -6589,6 +6595,27 @@ export default function TradingViewChart({
   const [searchQuery, setSearchQuery] = useState('')
   const searchInputRef = useRef<HTMLDivElement>(null)
   const [invalidTicker, setInvalidTicker] = useState(false)
+
+  // Mobile secondary bar: sync scroller positions when symbol/timeframe changes
+  // isMounted is in deps so this re-fires once the portal (and refs) are actually mounted
+  useEffect(() => {
+    if (!isMobile || !isMounted) return
+    const MOBILE_MAG7_LOCAL = ['SPY', 'QQQ', 'AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'META', 'AMZN', 'DXY', 'VIX', 'IWM']
+    const list = symbol && !MOBILE_MAG7_LOCAL.includes(symbol) ? [symbol, ...MOBILE_MAG7_LOCAL] : MOBILE_MAG7_LOCAL
+    const idx = list.indexOf(symbol)
+    if (idx >= 0) requestAnimationFrame(() => {
+      if (mobileTickerScrollRef.current) mobileTickerScrollRef.current.scrollTop = idx * 18
+    })
+  }, [symbol, isMobile, isMounted])
+
+  useEffect(() => {
+    if (!isMobile || !isMounted) return
+    const mobileTfListLocal: [string, string][] = [['5m', '5M'], ['15m', '15M'], ['30m', '30M'], ['1h', '1H'], ['4h', '4H'], ['1d', 'D'], ['1w', 'W'], ['1mo', 'M'], ['1y', '1Y']]
+    const idx = mobileTfListLocal.findIndex(([v]) => v === config.timeframe)
+    if (idx >= 0) requestAnimationFrame(() => {
+      if (mobileTfScrollRef.current) mobileTfScrollRef.current.scrollTop = idx * 18
+    })
+  }, [config.timeframe, isMobile, isMounted])
 
   // Benchmark mode state
   const [isBenchmarkMode, setIsBenchmarkMode] = useState(false)
@@ -6854,8 +6881,11 @@ export default function TradingViewChart({
 
   // Long-press crosshair mode (TradingView-style mobile crosshair)
   const touchLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const touchCrosshairActive = useRef(false)
+  const touchCrosshairActive = useRef(false) // true = crosshair is currently showing on mobile
   const touchStartPos = useRef<{ x: number; y: number } | null>(null)
+  const touchDragInitialized = useRef(false)
+  const touchDraggingCrosshair = useRef(false) // true = finger is dragging the crosshair
+  const touchIsTap = useRef(false) // true = no significant movement since touchStart
 
   // ========================================
   // MULTICHART STATE & MANAGEMENT
@@ -9929,6 +9959,8 @@ export default function TradingViewChart({
   const [pctChanceCustomDate, setPctChanceCustomDate] = useState<string>('')
   const [pctChanceAvailExpiries, setPctChanceAvailExpiries] = useState<Set<string>>(new Set())
   const [pctChanceCalMonth, setPctChanceCalMonth] = useState<Date>(() => new Date())
+  const [showMobilePctChanceCal, setShowMobilePctChanceCal] = useState(false)
+  const [customCalMonth, setCustomCalMonth] = useState<Date>(() => new Date())
   const [pctChanceLevels, setPctChanceLevels] = useState<{
     p5: number; p25: number; p50: number; p75: number; p95: number; currentPrice: number; expiryLabel: string
   } | null>(null)
@@ -11419,6 +11451,27 @@ export default function TradingViewChart({
   const [showCustomTimeframeInput, setShowCustomTimeframeInput] = useState(false)
   const [customTimeframeValue, setCustomTimeframeValue] = useState('')
   const [customTimeframeLabel, setCustomTimeframeLabel] = useState('')
+
+  // Mobile secondary bar scrollers
+  const mobileTickerScrollRef = useRef<HTMLDivElement>(null)
+  const mobileTfScrollRef = useRef<HTMLDivElement>(null)
+  const mobileTickerInputRef = useRef<HTMLInputElement>(null)
+  const [isMobileTickerSearchOpen, setIsMobileTickerSearchOpen] = useState(false)
+  const [mobileTickerSearchVal, setMobileTickerSearchVal] = useState('')
+  // Mobile ticker search modal
+  const [isMobileTickerModalOpen, setIsMobileTickerModalOpen] = useState(false)
+  const [mobileTickerModalQuery, setMobileTickerModalQuery] = useState('')
+  const [mobileTickerModalResults, setMobileTickerModalResults] = useState<{ ticker: string; name: string }[]>([])
+  const [mobileTickerModalLoading, setMobileTickerModalLoading] = useState(false)
+  const [mobileTickerRecents, setMobileTickerRecents] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('mobileTickerRecents') || '[]') } catch { return [] }
+  })
+  const mobileTickerModalInputRef = useRef<HTMLInputElement>(null)
+  const mobileTickerSearchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mobileScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const MOBILE_ITEM_H = 18
+  const MOBILE_MAG7 = ['SPY', 'QQQ', 'AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'META', 'AMZN', 'DXY', 'VIX', 'IWM']
+  const mobileTfList: [string, string][] = [['5m', '5M'], ['15m', '15M'], ['30m', '30M'], ['1h', '1H'], ['4h', '4H'], ['1d', 'D'], ['1w', 'W'], ['1mo', 'M'], ['1y', '1Y']]
 
   // Flow chart resize handlers
   const handleFlowChartDragStart = useCallback((e: React.MouseEvent) => {
@@ -16552,16 +16605,14 @@ export default function TradingViewChart({
   // Handle container resize
   useEffect(() => {
     if (!containerRef.current) return
-    const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect
-        setDimensions({ width, height })
-      }
-    })
+    const measure = () => {
+      if (!containerRef.current) return
+      const rect = containerRef.current.getBoundingClientRect()
+      setDimensions({ width: rect.width, height: rect.height })
+    }
+    const ro = new ResizeObserver(measure)
     ro.observe(containerRef.current)
-    // Immediate measurement
-    const rect = containerRef.current.getBoundingClientRect()
-    setDimensions({ width: rect.width, height: rect.height })
+    measure()
     return () => ro.disconnect()
   }, [])
 
@@ -20257,13 +20308,25 @@ export default function TradingViewChart({
     // Detect mobile device
     // isMobile is from useEFIChartingMobile hook in component scope
 
-    // Calculate volume profile area — volumeEndY must stay above priceChartHeight (the time axis boundary)
-    const volumeStartY = isMobile ? priceChartHeight - 30 : priceChartHeight - 50
-    const volumeEndY = isMobile ? priceChartHeight - 10 : priceChartHeight - 10
+    // Calculate volume profile area
+    const volumeStartY = isMobile ? priceChartHeight - 60 : priceChartHeight - 90
+    // Extend all the way to priceChartHeight so no candle wicks peek through at the bottom
+    const volumeEndY = priceChartHeight
 
-    // Draw subtle volume background area (reduced height)
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.05)'
+    // Actual pixel height of the volume area (used for bar scaling so bars never overflow)
+    // Reserve a small bottom gap so bars don't sit flush against the time axis
+    const actualVolumeAreaH = volumeEndY - volumeStartY - 4
+
+    // Draw opaque background covering the full volume area (hides all candle wicks underneath)
+    ctx.fillStyle = config.backgroundColor
     ctx.fillRect(CHART_LEFT_MARGIN, volumeStartY, chartWidth - 80, volumeEndY - volumeStartY)
+    // Subtle separator line at the top of the volume pane
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(CHART_LEFT_MARGIN, volumeStartY)
+    ctx.lineTo(CHART_LEFT_MARGIN + chartWidth - 80, volumeStartY)
+    ctx.stroke()
 
     // Find max volume for scaling
     const volumes = visibleData.map((d) => d.volume || 0).filter((v) => v > 0)
@@ -20291,7 +20354,7 @@ export default function TradingViewChart({
       const volumeValue = candle.volume
       if (!volumeValue || volumeValue <= 0) return
 
-      const volumeHeight = (volumeValue / maxVolume) * volumeAreaHeight
+      const volumeHeight = (volumeValue / maxVolume) * actualVolumeAreaH
       const barY = volumeEndY - volumeHeight
 
       // Color volume bars based on price movement and user settings
@@ -20314,7 +20377,7 @@ export default function TradingViewChart({
     // Draw volume labels (2 levels: 50%, 100%) - strictly within volume area only, skip 0
     for (let i = 1; i <= 2; i++) {
       const volumeLevel = (maxVolume / 2) * i
-      const y = volumeEndY - (i * volumeAreaHeight) / 2
+      const y = volumeEndY - (i * actualVolumeAreaH) / 2
 
       // Only draw if Y position is within the volume area bounds
       if (y >= volumeStartY && y <= volumeEndY + 20) {
@@ -30414,30 +30477,29 @@ export default function TradingViewChart({
  background: linear-gradient(180deg, #2563eb, #7c3aed);
  }
 
- /* Elite Dark Theme Button System - Professional Trading Interface */
+ /* Elite Dark Theme Button System - Desktop */
  .btn-3d-carved {
- background: 
- linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 0%, transparent 50%, rgba(0, 0, 0, 0.3) 100%),
+ background:
+ linear-gradient(to bottom, rgba(255,255,255,0.02) 0%, transparent 50%, rgba(0,0,0,0.3) 100%),
  #000000 !important;
- border: 1px solid rgba(50, 50, 50, 0.6) !important;
+ border: 1px solid rgba(50,50,50,0.6) !important;
  position: relative !important;
- box-shadow: 
- 0 1px 3px rgba(0, 0, 0, 0.8),
- inset 0 1px 0 rgba(255, 255, 255, 0.05),
- inset 0 -1px 0 rgba(0, 0, 0, 0.8) !important;
+ box-shadow:
+ 0 1px 3px rgba(0,0,0,0.8),
+ inset 0 1px 0 rgba(255,255,255,0.05),
+ inset 0 -1px 0 rgba(0,0,0,0.8) !important;
  color: #ffffff !important;
  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
  letter-spacing: 0.4px !important;
  text-transform: uppercase !important;
  font-size: 14px !important;
  font-weight: 600 !important;
- transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+ transition: all 0.2s cubic-bezier(0.4,0,0.2,1) !important;
  border-radius: 4px !important;
  margin: 0 6px !important;
  opacity: 1 !important;
  }
 
- /* Dropdown panel items — no side margins */
  .toolbar-dropdown .btn-3d-carved {
  margin: 0 !important;
  }
@@ -30445,96 +30507,174 @@ export default function TradingViewChart({
  .btn-3d-carved::before {
  content: '';
  position: absolute;
- top: 0;
- left: 0;
- right: 0;
- bottom: 0;
+ top: 0; left: 0; right: 0; bottom: 0;
  border-radius: 4px;
- background: 
- radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.03), transparent 70%),
- repeating-linear-gradient(
- 0deg,
- transparent,
- transparent 2px,
- rgba(255, 255, 255, 0.005) 2px,
- rgba(255, 255, 255, 0.005) 4px
- );
+ background:
+ radial-gradient(circle at 50% 0%, rgba(255,255,255,0.03), transparent 70%),
+ repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.005) 2px, rgba(255,255,255,0.005) 4px);
  pointer-events: none;
  }
- 
- /* Active State - Elegant Orange */
+
  .btn-3d-carved.active {
- background: 
- linear-gradient(to bottom, rgba(255, 133, 0, 0.08) 0%, transparent 50%, rgba(0, 0, 0, 0.4) 100%),
+ background:
+ linear-gradient(to bottom, rgba(255,133,0,0.08) 0%, transparent 50%, rgba(0,0,0,0.4) 100%),
  #000000 !important;
- border: 1px solid rgba(255, 133, 0, 0.6) !important;
+ border: 1px solid rgba(255,133,0,0.6) !important;
  color: #ff8500 !important;
- box-shadow: 
- 0 0 0 1px rgba(255, 133, 0, 0.3),
- 0 2px 6px rgba(0, 0, 0, 0.8),
- inset 0 1px 0 rgba(255, 133, 0, 0.1),
- inset 0 -1px 0 rgba(0, 0, 0, 0.9) !important;
+ box-shadow:
+ 0 0 0 1px rgba(255,133,0,0.3),
+ 0 2px 6px rgba(0,0,0,0.8),
+ inset 0 1px 0 rgba(255,133,0,0.1),
+ inset 0 -1px 0 rgba(0,0,0,0.9) !important;
  }
 
  .btn-3d-carved.active::before {
- background: 
- radial-gradient(circle at 50% 0%, rgba(255, 133, 0, 0.05), transparent 70%),
- repeating-linear-gradient(
- 0deg,
- transparent,
- transparent 2px,
- rgba(255, 133, 0, 0.008) 2px,
- rgba(255, 133, 0, 0.008) 4px
- );
+ background:
+ radial-gradient(circle at 50% 0%, rgba(255,133,0,0.05), transparent 70%),
+ repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,133,0,0.008) 2px, rgba(255,133,0,0.008) 4px);
  }
- 
+
  .btn-3d-carved:hover {
- background: 
- linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 0%, transparent 50%, rgba(0, 0, 0, 0.4) 100%),
+ background:
+ linear-gradient(to bottom, rgba(255,255,255,0.04) 0%, transparent 50%, rgba(0,0,0,0.4) 100%),
  #000000 !important;
- border: 1px solid rgba(80, 80, 80, 0.8) !important;
+ border: 1px solid rgba(80,80,80,0.8) !important;
  color: #ffffff !important;
- box-shadow: 
- 0 2px 6px rgba(0, 0, 0, 0.9),
- inset 0 1px 0 rgba(255, 255, 255, 0.08),
- inset 0 -1px 0 rgba(0, 0, 0, 0.9) !important;
+ box-shadow:
+ 0 2px 6px rgba(0,0,0,0.9),
+ inset 0 1px 0 rgba(255,255,255,0.08),
+ inset 0 -1px 0 rgba(0,0,0,0.9) !important;
  transform: translateY(-2px) !important;
  }
- 
+
  .btn-3d-carved.active:hover {
- background: 
- linear-gradient(to bottom, rgba(255, 160, 48, 0.1) 0%, transparent 50%, rgba(0, 0, 0, 0.5) 100%),
+ background:
+ linear-gradient(to bottom, rgba(255,160,48,0.1) 0%, transparent 50%, rgba(0,0,0,0.5) 100%),
  #000000 !important;
- border: 1px solid rgba(255, 160, 48, 0.7) !important;
+ border: 1px solid rgba(255,160,48,0.7) !important;
  color: #ffa030 !important;
- box-shadow: 
- 0 0 0 1px rgba(255, 160, 48, 0.4),
- 0 3px 8px rgba(0, 0, 0, 0.9),
- inset 0 1px 0 rgba(255, 160, 48, 0.15),
- inset 0 -1px 0 rgba(0, 0, 0, 0.95) !important;
+ box-shadow:
+ 0 0 0 1px rgba(255,160,48,0.4),
+ 0 3px 8px rgba(0,0,0,0.9),
+ inset 0 1px 0 rgba(255,160,48,0.15),
+ inset 0 -1px 0 rgba(0,0,0,0.95) !important;
  transform: translateY(-2px) !important;
  }
- 
+
  .btn-3d-carved:active {
- background: 
- linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.2)),
+ background:
+ linear-gradient(to bottom, transparent, rgba(0,0,0,0.2)),
  #000000 !important;
- box-shadow: 
- inset 0 2px 4px rgba(0, 0, 0, 0.9),
- inset 0 -1px 0 rgba(255, 255, 255, 0.02),
- 0 1px 2px rgba(0, 0, 0, 0.7) !important;
+ box-shadow:
+ inset 0 2px 4px rgba(0,0,0,0.9),
+ inset 0 -1px 0 rgba(255,255,255,0.02),
+ 0 1px 2px rgba(0,0,0,0.7) !important;
  transform: translateY(0) !important;
  }
 
  .btn-3d-carved.active:active {
- background: 
- linear-gradient(to bottom, rgba(255, 133, 0, 0.03), rgba(0, 0, 0, 0.3)),
+ background:
+ linear-gradient(to bottom, rgba(255,133,0,0.03), rgba(0,0,0,0.3)),
  #000000 !important;
- box-shadow: 
- 0 0 0 1px rgba(255, 133, 0, 0.25),
- inset 0 2px 4px rgba(0, 0, 0, 0.95),
- inset 0 -1px 0 rgba(255, 133, 0, 0.02),
- 0 1px 2px rgba(0, 0, 0, 0.7) !important;
+ box-shadow:
+ 0 0 0 1px rgba(255,133,0,0.25),
+ inset 0 2px 4px rgba(0,0,0,0.95),
+ inset 0 -1px 0 rgba(255,133,0,0.02),
+ 0 1px 2px rgba(0,0,0,0.7) !important;
+ }
+
+ /* Mobile-only: Glossy panel buttons */
+ @media (max-width: 767px) {
+ .btn-3d-carved {
+ position: relative !important;
+ overflow: hidden !important;
+ background: linear-gradient(175deg, #1a1a1a 0%, #080808 50%, #000000 100%) !important;
+ border-top: 1px solid rgba(255,140,30,0.32) !important;
+ border-right: 1px solid rgba(255,140,30,0.14) !important;
+ border-bottom: 1px solid rgba(255,140,30,0.10) !important;
+ border-left: 1px solid rgba(255,140,30,0.14) !important;
+ box-shadow: 0 3px 10px rgba(0,0,0,0.88), inset 0 1px 0 rgba(255,255,255,0.11), inset 0 -1px 0 rgba(0,0,0,0.75) !important;
+ color: rgba(255,255,255,0.90) !important;
+ font-size: 11px !important;
+ font-weight: 700 !important;
+ border-radius: 7px !important;
+ margin: 0 !important;
+ transition: all 0.18s ease !important;
+ }
+ .btn-3d-carved::before {
+ content: '' !important;
+ display: block !important;
+ position: absolute !important;
+ top: 0 !important; left: 0 !important; right: 0 !important;
+ height: 52% !important;
+ border-radius: inherit !important;
+ background: linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.02) 70%, transparent 100%) !important;
+ pointer-events: none !important;
+ z-index: 1 !important;
+ }
+ .btn-3d-carved.active {
+ background: #ff8500 !important;
+ border-top: 1px solid rgba(255,200,80,0.7) !important;
+ border-right: 1px solid rgba(255,133,0,0.6) !important;
+ border-bottom: 1px solid rgba(180,90,0,0.5) !important;
+ border-left: 1px solid rgba(255,133,0,0.6) !important;
+ color: #000 !important;
+ box-shadow: 0 0 12px rgba(255,102,0,0.3), 0 3px 10px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,220,120,0.45), inset 0 -1px 0 rgba(0,0,0,0.25) !important;
+ }
+ .btn-3d-carved.active::before {
+ background: linear-gradient(180deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.05) 60%, transparent 100%) !important;
+ display: block !important;
+ }
+ .btn-3d-carved:hover {
+ background: linear-gradient(175deg, #222 0%, #0e0e0e 50%, #020202 100%) !important;
+ border-top-color: rgba(255,140,30,0.5) !important;
+ color: #fff !important;
+ }
+ .btn-3d-carved:active {
+ transform: translateY(1px) scale(0.97) !important;
+ box-shadow: 0 1px 4px rgba(0,0,0,0.9), inset 0 2px 5px rgba(0,0,0,0.8) !important;
+ }
+ /* Glossy toolbar buttons (mobile-dtd-group) */
+ .mobile-dtd-btn {
+ position: relative;
+ overflow: hidden;
+ background: linear-gradient(175deg, #1a1a1a 0%, #080808 50%, #000000 100%) !important;
+ border-top: 1px solid rgba(255,140,30,0.38) !important;
+ border-right: 1px solid rgba(255,140,30,0.18) !important;
+ border-bottom: 1px solid rgba(255,140,30,0.12) !important;
+ border-left: 1px solid rgba(255,140,30,0.18) !important;
+ box-shadow: 0 4px 14px rgba(0,0,0,0.92), 0 1px 0 rgba(255,255,255,0.04), inset 0 1px 0 rgba(255,255,255,0.13), inset 0 -2px 0 rgba(0,0,0,0.85) !important;
+ color: rgba(255,255,255,0.90) !important;
+ transition: all 0.18s ease !important;
+ }
+ .mobile-dtd-btn::before {
+ content: '';
+ position: absolute;
+ top: 0; left: 0; right: 0;
+ height: 52%;
+ border-radius: inherit;
+ background: linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.02) 70%, transparent 100%);
+ pointer-events: none;
+ z-index: 1;
+ display: block !important;
+ }
+ .mobile-dtd-btn.active {
+ background: #ff8500 !important;
+ border-top: 1px solid rgba(255,200,80,0.7) !important;
+ border-right: 1px solid rgba(255,133,0,0.6) !important;
+ border-bottom: 1px solid rgba(180,90,0,0.5) !important;
+ border-left: 1px solid rgba(255,133,0,0.6) !important;
+ color: #000 !important;
+ box-shadow: 0 0 14px rgba(255,102,0,0.35), 0 4px 12px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,220,120,0.5), inset 0 -1px 0 rgba(0,0,0,0.3) !important;
+ }
+ .mobile-dtd-btn.active::before {
+ background: linear-gradient(180deg, rgba(255,255,255,0.25) 0%, rgba(255,255,255,0.06) 60%, transparent 100%);
+ display: block !important;
+ }
+ .mobile-dtd-btn:active {
+ transform: translateY(1px) scale(0.97);
+ box-shadow: 0 1px 4px rgba(0,0,0,0.9), inset 0 2px 6px rgba(0,0,0,0.8) !important;
+ }
  }
 
  /* Button Separator - Visual spacing between button groups */
@@ -30859,7 +30999,7 @@ export default function TradingViewChart({
                     onSidebarClick={handleSidebarClick}
                   />
                 )}
-                <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-3" style={{ display: isMobile ? 'none' : undefined }}>
                   <div
                     className="relative flex items-center"
                     ref={searchInputRef}
@@ -31021,8 +31161,8 @@ export default function TradingViewChart({
                   </div>
                 </div>
 
-                {/* Mobile price display — compact, shown only on mobile */}
-                {isMobile && (
+                {/* Mobile price display — moved to secondary bar */}
+                {false && (
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1, lineHeight: 1.1 }}>
                     <span style={{ color: '#ffffff', fontSize: 13, fontFamily: 'monospace', fontWeight: 900, letterSpacing: '0.5px' }}>
                       ${currentPrice.toFixed(2)}
@@ -31079,19 +31219,19 @@ export default function TradingViewChart({
                   </div>
                 )}
 
-                {/* Timeframes */}
+                {/* Timeframes — hidden on mobile (shown in secondary bar) */}
                 {disableSidebarAutoScan ? (
                   /* Options flow panel: single compact dropdown */
                   <div
                     className="inline-flex items-center w-fit timeframe-dropdown"
                     style={{
+                      display: isMobile ? 'none' : 'inline-flex',
                       background:
                         'linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%)',
                       border: '2px solid rgba(255, 255, 255, 0.4)',
                       borderRadius: '8px',
                       boxShadow:
                         '0 2px 8px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-                      display: 'inline-flex',
                       width: 'fit-content',
                     }}
                   >
@@ -31136,6 +31276,7 @@ export default function TradingViewChart({
                   <div
                     className="flex items-center timeframe-dropdown"
                     style={{
+                      display: isMobile ? 'none' : 'flex',
                       background:
                         'linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%)',
                       border: '2px solid rgba(255, 255, 255, 0.4)',
@@ -31532,25 +31673,363 @@ export default function TradingViewChart({
                 {isMobile && isMounted && (
                   <>
                     <div className="mobile-dtd-group">
-                      <button onClick={() => { setIsMobileGroup1Open(v => !v); setIsMobileGroup2Open(false); setIsMobileGroup3Open(false) }} className="btn-3d-carved" style={{ padding: '3px 10px', fontWeight: '700', fontSize: '11px', borderRadius: '4px', color: (isExpectedRangeActive || isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive || isAnyIVHVActive || showDarkPoolIndicator || isRRGCandleActive) ? '#000' : '#fff', background: (isExpectedRangeActive || isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive || isAnyIVHVActive || showDarkPoolIndicator || isRRGCandleActive) ? 'linear-gradient(145deg,#ff8500,#ff6500)' : undefined }}>DATA</button>
-                      <button onClick={() => { setIsMobileGroup2Open(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup3Open(false) }} className="btn-3d-carved" style={{ padding: '3px 10px', fontWeight: '700', fontSize: '11px', borderRadius: '4px', color: (isSeasonalActive || technalysisActive || isFlowChartActive || showBuySellIndicator || showPEPanel || showPEGPanel) ? '#000' : '#fff', background: (isSeasonalActive || technalysisActive || isFlowChartActive || showBuySellIndicator || showPEPanel || showPEGPanel) ? 'linear-gradient(145deg,#ff8500,#ff6500)' : undefined }}>TOOLS</button>
-                      <button onClick={() => { setIsMobileGroup3Open(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup2Open(false) }} className="btn-3d-carved" style={{ padding: '3px 10px', fontWeight: '700', fontSize: '11px', borderRadius: '4px', color: currentDrawingTool !== 'select' ? '#000' : '#fff', background: currentDrawingTool !== 'select' ? 'linear-gradient(145deg,#ff8500,#ff6500)' : undefined }}>DRAW</button>
+                      {(() => {
+                        const dataActive = (isExpectedRangeActive || isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive || isAnyIVHVActive || showDarkPoolIndicator || isRRGCandleActive)
+                        const toolsActive = (isSeasonalActive || technalysisActive || isFlowChartActive || showBuySellIndicator || showPEPanel || showPEGPanel)
+                        const drawActive = currentDrawingTool !== 'select' // kept for ref
+                        const dtdBtnBase: React.CSSProperties = {
+                          position: 'relative', overflow: 'hidden',
+                          padding: '6px 11px', fontWeight: 800, fontSize: '11px',
+                          borderRadius: '6px', letterSpacing: '0.08em',
+                          textTransform: 'uppercase', cursor: 'pointer',
+                          transition: 'all 0.18s ease',
+                          fontFamily: "'Inter',-apple-system,sans-serif",
+                        }
+                        const dtdInactive: React.CSSProperties = { ...dtdBtnBase }
+                        const dtdActive: React.CSSProperties = { ...dtdBtnBase }
+                        return (
+                          <>
+                            <button className={`mobile-dtd-btn${(isExpectedRangeActive || isATRRangeActive || isStdDevRangeActive || isPctChanceActive) ? ' active' : ''}`} onClick={() => { setIsMobileRangeOpen(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup3Open(false); setIsMobileGexOpen(false); setIsMobileSeaxOpen(false); setIsMobileFlowsOpen(false) }} style={dtdBtnBase}>RANGE</button>
+                            <button className={`mobile-dtd-btn${(isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive) ? ' active' : ''}`} onClick={() => { setIsMobileGexOpen(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup3Open(false); setIsMobileRangeOpen(false); setIsMobileSeaxOpen(false); setIsMobileFlowsOpen(false) }} style={dtdBtnBase}>GEX</button>
+                            <button className={`mobile-dtd-btn${(isSeasonalActive || isSeasonalEventActive || !!activeSmartSignal) ? ' active' : ''}`} onClick={() => { setIsMobileSeaxOpen(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup3Open(false); setIsMobileRangeOpen(false); setIsMobileGexOpen(false); setIsMobileFlowsOpen(false); setSeaxSmartSection(null) }} style={dtdBtnBase}>SeaX</button>
+                            <button className={`mobile-dtd-btn${isFlowChartActive ? ' active' : ''}`} onClick={() => { setIsMobileFlowsOpen(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup3Open(false); setIsMobileRangeOpen(false); setIsMobileGexOpen(false); setIsMobileSeaxOpen(false) }} style={dtdBtnBase}>Flows</button>
+                            <button className={`mobile-dtd-btn${dataActive ? ' active' : ''}`} onClick={() => { setIsMobileGroup1Open(v => !v); setIsMobileGroup3Open(false); setIsMobileRangeOpen(false); setIsMobileGexOpen(false); setIsMobileSeaxOpen(false); setIsMobileFlowsOpen(false) }} style={dtdBtnBase}>Xtras</button>
+                            {/* DRAW moved to secondary toolbar */}
+                          </>
+                        )
+                      })()}
                     </div>
-                    {/* Group 1 Panel - Data */}
+                    {/* Flows Panel */}
+                    {isMobileFlowsOpen && createPortal(
+                      <>
+                        <div style={{ position: 'fixed', inset: 0, zIndex: 99998, background: 'rgba(0,0,0,0.55)' }} onClick={() => setIsMobileFlowsOpen(false)} />
+                        <div style={{ position: 'fixed', bottom: '113px', left: '8px', right: '8px', zIndex: 99999, background: 'linear-gradient(170deg,#111 0%,#060606 100%)', border: '1px solid rgba(255,133,0,0.3)', borderRadius: '16px', padding: '14px 14px 18px', display: 'flex', flexDirection: 'column', gap: '10px', boxShadow: '0 8px 48px rgba(0,0,0,0.95)' }}>
+                          <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center', paddingBottom: '10px', borderBottom: '1px solid rgba(255,133,0,0.2)' }}>
+                            <span style={{ color: '#ff8500', fontWeight: 800, fontSize: '16px', textTransform: 'uppercase', letterSpacing: '3px' }}>Flows</span>
+                            <button onClick={() => setIsMobileFlowsOpen(false)} style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#555', fontSize: '20px', cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
+                          </div>
+                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>IntraFlow</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
+                            <button onClick={() => { if (isFlowChartActive && flowMovesTimeframe === '1D') { setIsFlowChartActive(false); setFlowMovesTimeframe('1D'); } else { setFlowMovesTimeframe('1D'); setIsFlowChartActive(true); handleLiveFlowMovesClick('1D'); } }} className={`btn-3d-carved ${isFlowChartActive && flowMovesTimeframe === '1D' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>1D{isFlowChartActive && flowMovesTimeframe === '1D' ? ' ✓' : ''}</button>
+                            <button onClick={() => { if (isFlowChartActive && flowMovesTimeframe === '3D') { setIsFlowChartActive(false); setFlowMovesTimeframe('1D'); } else { setFlowMovesTimeframe('3D'); setIsFlowChartActive(true); handleLiveFlowMovesClick('3D'); } }} className={`btn-3d-carved ${isFlowChartActive && flowMovesTimeframe === '3D' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>3D{isFlowChartActive && flowMovesTimeframe === '3D' ? ' ✓' : ''}</button>
+                            <button onClick={() => { if (isFlowChartActive && flowMovesTimeframe === '1W') { setIsFlowChartActive(false); setFlowMovesTimeframe('1D'); } else { setFlowMovesTimeframe('1W'); setIsFlowChartActive(true); handleLiveFlowMovesClick('1W'); } }} className={`btn-3d-carved ${isFlowChartActive && flowMovesTimeframe === '1W' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>1W{isFlowChartActive && flowMovesTimeframe === '1W' ? ' ✓' : ''}</button>
+                          </div>
+                          {isFlowChartActive && <button onClick={() => { setIsFlowChartActive(false); setFlowMovesTimeframe('1D'); }} style={{ marginTop: '2px', width: '100%', padding: '7px', fontSize: '11px', fontWeight: 700, color: '#ff4444', background: 'transparent', border: '1px solid rgba(255,68,68,0.3)', borderRadius: '8px', cursor: 'pointer' }}>Clear Flows</button>}
+                        </div>
+                      </>,
+                      document.body
+                    )}
+                    {/* SeaX Panel - Seasonality Extended */}
+                    {isMobileSeaxOpen && createPortal(
+                      <>
+                        <div style={{ position: 'fixed', inset: 0, zIndex: 99998, background: 'rgba(0,0,0,0.55)' }} onClick={() => { setIsMobileSeaxOpen(false); setSeaxSmartSection(null) }} />
+                        <div style={{ position: 'fixed', bottom: '113px', left: '8px', right: '8px', zIndex: 99999, background: 'linear-gradient(170deg,#111 0%,#060606 100%)', border: '1px solid rgba(255,133,0,0.3)', borderRadius: '16px', padding: '14px 14px 18px', display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto', maxHeight: '70vh', boxShadow: '0 8px 48px rgba(0,0,0,0.95)' }}>
+                          <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center', paddingBottom: '10px', borderBottom: '1px solid rgba(255,133,0,0.2)' }}>
+                            <span style={{ color: '#ff8500', fontWeight: 800, fontSize: '16px', textTransform: 'uppercase', letterSpacing: '3px' }}>SeaX</span>
+                            <button onClick={() => { setIsMobileSeaxOpen(false); setSeaxSmartSection(null) }} style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#555', fontSize: '20px', cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
+                          </div>
+                          {/* ── SEASONALITY ── */}
+                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>Seasonality</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                            <button onClick={async () => { if (isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) { setIsSeasonal10YActive(false); setIsSeasonal15YActive(false); setIsSeasonal20YActive(false); setSeasonal10YData(null); setSeasonal15YData(null); setSeasonal20YData(null); setSeasonalCandleData(null); if (!isSeasonalElectionActive) setIsSeasonalActive(false); } else { if (config.timeframe !== '1d') return; setIsLoadingSeasonalProjection(true); setIsSeasonalActive(true); setSeasonalCandleNoData(false); const result = await calculateSeasonalityCandleProjection(symbol, data); if (result === 'NOT_ENOUGH_DATA') { setSeasonalCandleNoData(true); setIsSeasonalActive(false); setIsSeasonal20YActive(false); setIsLoadingSeasonalProjection(false); return; } setSeasonalCandleData(result); setIsSeasonal20YActive(true); setIsLoadingSeasonalProjection(false); } }} className={`btn-3d-carved ${(isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', opacity: config.timeframe !== '1d' ? 0.4 : 1 }}>{isLoadingSeasonalProjection ? 'Loading…' : seasonalCandleNoData ? 'No Data' : (isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) ? 'Seasonal ✓' : config.timeframe !== '1d' ? 'Seasonal (1D)' : 'Seasonal'}</button>
+                            <button onClick={async () => { const n = !isSeasonalElectionActive; setIsSeasonalElectionActive(n); if (n) { if (!seasonalElectionData) { setElectionInsufficientData(false); setIsLoadingSeasonalProjection(true); const cycle = getCurrentElectionCycle(); const result = await calculateElectionCandleProjection(symbol, data, cycle); setIsLoadingSeasonalProjection(false); if (result === 'NOT_ENOUGH_DATA' || !result) { setElectionInsufficientData(true); setIsSeasonalElectionActive(false); return; } setSeasonalElectionData(result as any); } setIsSeasonalActive(true); } else { if (!isSeasonal20YActive && !isSeasonal15YActive && !isSeasonal10YActive) setIsSeasonalActive(false); } }} className={`btn-3d-carved ${isSeasonalElectionActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: electionInsufficientData ? '#f59e0b' : undefined }}>{electionInsufficientData ? 'Election N/A' : isSeasonalElectionActive ? 'Election ✓' : 'Election'}</button>
+                          </div>
+                          {/* ── SMART ── */}
+                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', marginTop: '4px' }}>Smart</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                            <button onClick={() => setSeaxSmartSection(v => v === 'perf' ? null : 'perf')} className={`btn-3d-carved ${activeSmartSignal?.startsWith('perf-') ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>📊 Smart Perf{smartPerformanceSignals.length > 0 ? ` (${smartPerformanceSignals.length})` : ''}{activeSmartSignal?.startsWith('perf-') ? ' ✓' : ''}</button>
+                            <button onClick={() => setSeaxSmartSection(v => v === 'events' ? null : 'events')} className={`btn-3d-carved ${(activeSmartSignal && !activeSmartSignal.startsWith('perf-')) ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>📅 Smart Events{smartEventSignals.length > 0 ? ` (${smartEventSignals.length})` : ''}{(activeSmartSignal && !activeSmartSignal.startsWith('perf-')) ? ' ✓' : ''}</button>
+                          </div>
+                          {seaxSmartSection === 'perf' && (
+                            <div style={{ background: 'rgba(255,133,0,0.06)', border: '1px solid rgba(255,133,0,0.2)', borderRadius: '10px', padding: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                              <div style={{ color: '#ff8500', fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '2px' }}>Current Conditions</div>
+                              {smartPerformanceSignals.length === 0 ? (
+                                <div style={{ color: '#666', fontSize: '11px', padding: '4px 0' }}>No strong conditions detected</div>
+                              ) : smartPerformanceSignals.map(sig => (
+                                <button key={sig.key} onClick={async () => { setActiveSmartSignal(sig.key); setIsLoadingSeasonalProjection(true); setIsSeasonalActive(true); const result = await calculateSmartPerformanceSeasonal(sig.key, data, config.timeframe); if (result) { setSmartPerfData(result.projection); setSmartPerfTriggerDate(result.triggerDate); setIsSmartPerfActive(true); } setIsLoadingSeasonalProjection(false); setSeaxSmartSection(null); }} className={`btn-3d-carved ${activeSmartSignal === sig.key ? 'active' : ''}`} style={{ padding: '8px 10px', fontSize: '11px', textAlign: 'left', borderRadius: '6px', width: '100%', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                  <span style={{ fontWeight: 700, color: activeSmartSignal === sig.key ? '#ff8500' : '#fff' }}>{sig.label}</span>
+                                  <span style={{ fontSize: '10px', color: '#888' }}>{sig.description} · Next 45d avg</span>
+                                </button>
+                              ))}
+                              {activeSmartSignal?.startsWith('perf-') && <button onClick={() => { setActiveSmartSignal(null); setIsSmartPerfActive(false); setSmartPerfData(null); setSmartPerfTriggerDate(null); if (!isSeasonal20YActive && !isSeasonal15YActive && !isSeasonal10YActive && !isSeasonalElectionActive) setIsSeasonalActive(false); setSeaxSmartSection(null); }} style={{ marginTop: '4px', width: '100%', padding: '6px', fontSize: '11px', fontWeight: 700, color: '#ff4444', background: 'transparent', border: '1px solid rgba(255,68,68,0.3)', borderRadius: '4px', cursor: 'pointer' }}>Clear Smart Performance</button>}
+                            </div>
+                          )}
+                          {seaxSmartSection === 'events' && (
+                            <div style={{ background: 'rgba(255,133,0,0.06)', border: '1px solid rgba(255,133,0,0.2)', borderRadius: '10px', padding: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                              <div style={{ color: '#ff8500', fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '2px' }}>Active Events (±30 days)</div>
+                              {smartEventSignals.length === 0 ? (
+                                <div style={{ color: '#666', fontSize: '11px', padding: '4px 0' }}>No events in range</div>
+                              ) : smartEventSignals.map(sig => (
+                                <button key={sig.key + sig.label} onClick={async () => { setActiveSmartSignal(sig.key); setSelectedSeasonalEvent(sig.key); setIsSeasonalActive(true); setIsSeasonalEventActive(true); await calculateEventSeasonal(sig.key, data, config.timeframe); setSeaxSmartSection(null); }} className={`btn-3d-carved ${activeSmartSignal === sig.key ? 'active' : ''}`} style={{ padding: '8px 10px', fontSize: '11px', textAlign: 'left', borderRadius: '6px', width: '100%', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                  <span style={{ fontWeight: 700, color: activeSmartSignal === sig.key ? '#ff8500' : '#fff' }}>{sig.label}</span>
+                                  <span style={{ fontSize: '10px', color: '#888' }}>{sig.description}</span>
+                                </button>
+                              ))}
+                              {activeSmartSignal && !activeSmartSignal.startsWith('perf-') && <button onClick={() => { setActiveSmartSignal(null); setIsSeasonalEventActive(false); setSelectedSeasonalEvent(null); setSeasonalEventData(null); setSeasonalEventLabel(null); if (!isSeasonal20YActive && !isSeasonal15YActive && !isSeasonal10YActive && !isSeasonalElectionActive) setIsSeasonalActive(false); setSeaxSmartSection(null); }} style={{ marginTop: '4px', width: '100%', padding: '6px', fontSize: '11px', fontWeight: 700, color: '#ff4444', background: 'transparent', border: '1px solid rgba(255,68,68,0.3)', borderRadius: '4px', cursor: 'pointer' }}>Clear Smart Event</button>}
+                            </div>
+                          )}
+                          {/* ── EVENT SEASONAL ── */}
+                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', marginTop: '4px' }}>Event Seasonal</div>
+                          {isEventSeasonalLoading && <div style={{ color: '#facc15', fontSize: '11px', fontWeight: 700, padding: '6px 8px', background: 'rgba(250,204,21,0.08)', borderRadius: '6px', border: '1px solid rgba(250,204,21,0.3)', display: 'flex', alignItems: 'center', gap: '6px' }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#facc15' }} />Scanning historical data…</div>}
+                          {seasonalEventNoData && selectedSeasonalEvent && !isEventSeasonalLoading && <div style={{ color: '#f59e0b', fontSize: '11px', fontWeight: 700, padding: '6px 8px', background: 'rgba(245,158,11,0.1)', borderRadius: '6px', border: '1px solid rgba(245,158,11,0.3)' }}>⚠ No data — requires ≥5 years of history</div>}
+                          <div style={{ color: '#ff8500', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '-4px' }}>Holidays</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px' }}>
+                            {['Thanksgiving', 'Christmas', 'New Year', 'Presidents Day', 'MLK Day', 'Memorial Day', 'July 4th', 'Labor Day'].map(ev => { const k = ev.toLowerCase().replace(/\s+/g, ''); return <button key={ev} onClick={async () => { setSelectedSeasonalEvent(k); setIsEventSeasonalLoading(true); await calculateEventSeasonal(k, data, config.timeframe); setIsEventSeasonalLoading(false); setIsSeasonalEventActive(true); setIsSeasonalActive(true); }} className={`btn-3d-carved ${selectedSeasonalEvent === k && isSeasonalEventActive ? 'active' : ''}`} style={{ padding: '7px 4px', fontWeight: 700, fontSize: '10px', borderRadius: '6px', textAlign: 'center' }}>{ev}{selectedSeasonalEvent === k && isSeasonalEventActive ? ' ✓' : ''}</button>; })}
+                          </div>
+                          <div style={{ color: '#ff8500', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '-4px' }}>Options</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px' }}>
+                            {[['Quad Witching Mar', 'quad-witching-mar'], ['Quad Witching Jun', 'quad-witching-jun'], ['Quad Witching Sep', 'quad-witching-sep'], ['Quad Witching Dec', 'quad-witching-dec'], ['Monthly OpEx', 'monthly-opex']].map(([label, k]) => <button key={k} onClick={async () => { setSelectedSeasonalEvent(k); setIsEventSeasonalLoading(true); await calculateEventSeasonal(k, data, config.timeframe); setIsEventSeasonalLoading(false); setIsSeasonalEventActive(true); setIsSeasonalActive(true); }} className={`btn-3d-carved ${selectedSeasonalEvent === k && isSeasonalEventActive ? 'active' : ''}`} style={{ padding: '7px 4px', fontWeight: 700, fontSize: '10px', borderRadius: '6px', textAlign: 'center' }}>{label}{selectedSeasonalEvent === k && isSeasonalEventActive ? ' ✓' : ''}</button>)}
+                          </div>
+                          <div style={{ color: '#ff8500', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '-4px' }}>Rallies</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '5px' }}>
+                            {[['Year End Rally', 'yearendrally'], ['Halloween Rally', 'halloweenrally'], ['Santa Rally', 'santarally']].map(([label, k]) => <button key={k} onClick={async () => { setSelectedSeasonalEvent(k); setIsEventSeasonalLoading(true); await calculateEventSeasonal(k, data, config.timeframe); setIsEventSeasonalLoading(false); setIsSeasonalEventActive(true); setIsSeasonalActive(true); }} className={`btn-3d-carved ${selectedSeasonalEvent === k && isSeasonalEventActive ? 'active' : ''}`} style={{ padding: '7px 4px', fontWeight: 700, fontSize: '10px', borderRadius: '6px', textAlign: 'center' }}>{label}{selectedSeasonalEvent === k && isSeasonalEventActive ? ' ✓' : ''}</button>)}
+                          </div>
+                          <div style={{ color: '#ff8500', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '-4px' }}>Earnings</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '5px' }}>
+                            {[['Q1 Earnings', 'q1-earnings'], ['Q2 Earnings', 'q2-earnings'], ['Q3 Earnings', 'q3-earnings'], ['Q4 Earnings', 'q4-earnings']].map(([label, k]) => <button key={k} onClick={async () => { setSelectedSeasonalEvent(k); setIsEventSeasonalLoading(true); await calculateEventSeasonal(k, data, config.timeframe); setIsEventSeasonalLoading(false); setIsSeasonalEventActive(true); setIsSeasonalActive(true); }} className={`btn-3d-carved ${selectedSeasonalEvent === k && isSeasonalEventActive ? 'active' : ''}`} style={{ padding: '7px 4px', fontWeight: 700, fontSize: '10px', borderRadius: '6px', textAlign: 'center' }}>{label}{selectedSeasonalEvent === k && isSeasonalEventActive ? ' ✓' : ''}</button>)}
+                          </div>
+                          {/* Clear all seasonal */}
+                          {(isSeasonalActive || isSeasonalEventActive || !!activeSmartSignal) && (
+                            <button onClick={() => { setIsSeasonal20YActive(false); setIsSeasonal15YActive(false); setIsSeasonal10YActive(false); setIsSeasonalElectionActive(false); setIsSeasonalActive(false); setSeasonal20YData(null); setSeasonal15YData(null); setSeasonal10YData(null); setSeasonalCandleData(null); setSelectedSeasonalEvent(null); setSeasonalEventData(null); setSeasonalEventLabel(null); setIsSeasonalEventActive(false); setIsSmartPerfActive(false); setSmartPerfData(null); setSmartPerfTriggerDate(null); setActiveSmartSignal(null); setSeaxSmartSection(null); }} style={{ marginTop: '4px', width: '100%', padding: '8px', fontSize: '11px', fontWeight: 700, color: '#ff4444', background: 'transparent', border: '1px solid rgba(255,68,68,0.3)', borderRadius: '8px', cursor: 'pointer' }}>Clear All Seasonal</button>
+                          )}
+                        </div>
+                      </>,
+                      document.body
+                    )}
+                    {/* Xtras Panel */}
                     {isMobileGroup1Open && createPortal(
                       <>
                         <div style={{ position: 'fixed', inset: 0, zIndex: 99998, background: 'rgba(0,0,0,0.55)' }} onClick={() => setIsMobileGroup1Open(false)} />
-                        <div style={{ position: 'fixed', bottom: '54px', left: '8px', right: '8px', zIndex: 99999, background: 'linear-gradient(170deg,#111 0%,#060606 100%)', border: '1px solid rgba(255,133,0,0.3)', borderRadius: '16px', padding: '14px 14px 18px', display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto', maxHeight: '70vh', boxShadow: '0 8px 48px rgba(0,0,0,0.95)' }}>
+                        <div style={{ position: 'fixed', bottom: '113px', left: '8px', right: '8px', zIndex: 99999, background: 'linear-gradient(170deg,#111 0%,#060606 100%)', border: '1px solid rgba(255,133,0,0.3)', borderRadius: '16px', padding: '14px 14px 18px', display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto', maxHeight: '70vh', boxShadow: '0 8px 48px rgba(0,0,0,0.95)' }}>
                           <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center', paddingBottom: '10px', borderBottom: '1px solid rgba(255,133,0,0.2)' }}>
-                            <span style={{ color: '#ff8500', fontWeight: 800, fontSize: '16px', textTransform: 'uppercase', letterSpacing: '3px' }}>Data</span>
+                            <span style={{ color: '#ff8500', fontWeight: 800, fontSize: '16px', textTransform: 'uppercase', letterSpacing: '3px' }}>Xtras</span>
                             <button onClick={() => setIsMobileGroup1Open(false)} style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#555', fontSize: '20px', cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
                           </div>
-                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>Expected Range</div>
+                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>IV / Volatility</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                            <button onClick={() => { const n = !showIVPanel; setShowIVPanel(n); if (n && ivData.length === 0) fetchIVData(); }} className={`btn-3d-carved ${showIVPanel ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>IV (1yr){showIVPanel ? ' ✓' : ''}</button>
+                            <button onClick={() => { const n = !showIV30DPanel; setShowIV30DPanel(n); if (n && iv30DData.length === 0) fetchIV30DData(); if (!n) setIV30DData([]); }} className={`btn-3d-carved ${showIV30DPanel ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>{isIV30DLoading ? `${iv30DProgress}%` : `IV 30D${showIV30DPanel ? ' ✓' : ''}`}</button>
+                            <button onClick={() => setShowIVRankIndicator(v => !v)} className={`btn-3d-carved ${showIVRankIndicator ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>IV Rank{showIVRankIndicator ? ' ✓' : ''}</button>
+                            <button onClick={() => setShowIVPercentileIndicator(v => !v)} className={`btn-3d-carved ${showIVPercentileIndicator ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>IV %ile{showIVPercentileIndicator ? ' ✓' : ''}</button>
+                            <button onClick={() => { const n = !showHVIndicator; setShowHVIndicator(n); if (n && ivData.length === 0) fetchIVData(); }} className={`btn-3d-carved ${showHVIndicator ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Hist Vol{showHVIndicator ? ' ✓' : ''}</button>
+                            <button onClick={() => setShowDarkPoolIndicator(v => !v)} className={`btn-3d-carved ${showDarkPoolIndicator ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>POI{showDarkPoolIndicator ? ' ✓' : ''}</button>
+                          </div>
+                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>RRG Candle</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
+                            <button onClick={() => { if (isRRGCandleActive && rrgMode === 'price') { setIsRRGCandleActive(false); setRrgCandleColors(new Map()); setRrgMode('price'); setRrgLookbackPeriod(10); } else { setRrgMode('price'); handleRRGCandleClick(rrgLookbackPeriod, 'price'); } }} className={`btn-3d-carved ${isRRGCandleActive && rrgMode === 'price' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Price{isRRGCandleActive && rrgMode === 'price' ? ' ✓' : ''}</button>
+                            <button onClick={() => { if (isRRGCandleActive && rrgMode === 'iv') { setIsRRGCandleActive(false); setRrgCandleColors(new Map()); } else { setRrgMode('iv'); handleRRGCandleClick(rrgIvLookbackPeriod, 'iv'); } }} className={`btn-3d-carved ${isRRGCandleActive && rrgMode === 'iv' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>IV{isRRGCandleActive && rrgMode === 'iv' ? ' ✓' : ''}</button>
+                            <button onClick={() => { if (isRRGCandleActive && rrgMode === 'ivspy') { setIsRRGCandleActive(false); setRrgCandleColors(new Map()); } else { setRrgMode('ivspy'); handleRRGCandleClick(rrgIvLookbackPeriod, 'ivspy'); } }} className={`btn-3d-carved ${isRRGCandleActive && rrgMode === 'ivspy' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>IV/SPY{isRRGCandleActive && rrgMode === 'ivspy' ? ' ✓' : ''}</button>
+                          </div>
+                          {/* ── TECHNALYSIS ── */}
+                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', marginTop: '4px' }}>Technalysis</div>
+                          <button onClick={() => { const next = !technalysisActive; setTechnalysisActive(next); setTechnalysisFeatures({ orderBlocks: next, fvg: next, liquidity: next, structure: next, premiumDiscount: next }); }} className={`btn-3d-carved ${technalysisActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', width: '100%' }}>Enable All{technalysisActive ? ' ✓' : ''}</button>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                            <button onClick={() => { setTechnalysisFeatures(p => ({ ...p, orderBlocks: !p.orderBlocks })); if (!technalysisActive) setTechnalysisActive(true); }} className={`btn-3d-carved ${technalysisFeatures.orderBlocks ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Zones{technalysisFeatures.orderBlocks ? ' ✓' : ''}</button>
+                            <button onClick={() => { setTechnalysisFeatures(p => ({ ...p, fvg: !p.fvg })); if (!technalysisActive) setTechnalysisActive(true); }} className={`btn-3d-carved ${technalysisFeatures.fvg ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Fills{technalysisFeatures.fvg ? ' ✓' : ''}</button>
+                            <button onClick={() => { setTechnalysisFeatures(p => ({ ...p, liquidity: !p.liquidity })); if (!technalysisActive) setTechnalysisActive(true); }} className={`btn-3d-carved ${technalysisFeatures.liquidity ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Hunting{technalysisFeatures.liquidity ? ' ✓' : ''}</button>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                            <button onClick={() => { setTechnalysisFeatures(p => ({ ...p, structure: !p.structure })); if (!technalysisActive) setTechnalysisActive(true); }} className={`btn-3d-carved ${technalysisFeatures.structure ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Trend{technalysisFeatures.structure ? ' ✓' : ''}</button>
+                            <button onClick={() => { setTechnalysisFeatures(p => ({ ...p, premiumDiscount: !p.premiumDiscount })); if (!technalysisActive) setTechnalysisActive(true); }} className={`btn-3d-carved ${technalysisFeatures.premiumDiscount ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Prem/Disc{technalysisFeatures.premiumDiscount ? ' ✓' : ''}</button>
+                          </div>
+                          {/* ── OTHER ── */}
+                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', marginTop: '4px' }}>Other</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                            <button onClick={() => setShowBuySellIndicator(v => !v)} className={`btn-3d-carved ${showBuySellIndicator ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Buy/Sell{showBuySellIndicator ? ' ✓' : ''}</button>
+                            <button onClick={() => { const n = !showPEPanel; setShowPEGPanel(false); setShowPEPanel(n); if (n && (!peData || peFetchedSymbolRef.current !== config.symbol)) fetchPEData(config.symbol); }} className={`btn-3d-carved ${showPEPanel ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: showPEPanel ? undefined : '#00E5FF' }}>P/E{showPEPanel && peData?.current != null ? ` (${peData.current.toFixed(0)}x) ✓` : showPEPanel ? ' ✓' : ''}</button>
+                            <button onClick={() => { const n = !showPEGPanel; setShowPEPanel(false); setShowPEGPanel(n); if (n && (!pegData || pegFetchedSymbolRef.current !== config.symbol)) fetchPEGData(config.symbol); }} className={`btn-3d-carved ${showPEGPanel ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: showPEGPanel ? undefined : '#a78bfa' }}>PEG{showPEGPanel && pegData?.pegBasic != null ? ` (${pegData.pegBasic.toFixed(1)}) ✓` : showPEGPanel ? ' ✓' : ''}</button>
+                          </div>
+                        </div>
+                      </>,
+                      document.body
+                    )}
+                    {/* Range Panel */}
+                    {isMobileRangeOpen && createPortal(
+                      <>
+                        <div style={{ position: 'fixed', inset: 0, zIndex: 99998, background: 'rgba(0,0,0,0.55)' }} onClick={() => setIsMobileRangeOpen(false)} />
+                        <div style={{ position: 'fixed', bottom: '113px', left: '8px', right: '8px', zIndex: 99999, background: 'linear-gradient(170deg,#111 0%,#060606 100%)', border: '1px solid rgba(255,133,0,0.3)', borderRadius: '16px', padding: '14px 14px 18px', display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto', maxHeight: '70vh', boxShadow: '0 8px 48px rgba(0,0,0,0.95)' }}>
+                          <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center', paddingBottom: '10px', borderBottom: '1px solid rgba(255,133,0,0.2)' }}>
+                            <span style={{ color: '#ff8500', fontWeight: 800, fontSize: '16px', textTransform: 'uppercase', letterSpacing: '3px' }}>Range</span>
+                            <button onClick={() => setIsMobileRangeOpen(false)} style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#555', fontSize: '20px', cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
+                          </div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                             <button onClick={() => { const n = !isWeeklyActive; setIsWeeklyActive(n); if (n && !expectedRangeLevels && !isLoadingExpectedRange) { setIsLoadingExpectedRange(true); calculateExpectedRangeLevels(symbol).then(r => { if (r) setExpectedRangeLevels(r.levels); setIsLoadingExpectedRange(false); }); } if (n || isMonthlyActive || isCustomActive) setIsExpectedRangeActive(true); else setIsExpectedRangeActive(false); }} className={`btn-3d-carved ${isWeeklyActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Weekly{isWeeklyActive ? ' ✓' : ''}</button>
                             <button onClick={() => { const n = !isMonthlyActive; setIsMonthlyActive(n); if (n && !expectedRangeLevels && !isLoadingExpectedRange) { setIsLoadingExpectedRange(true); calculateExpectedRangeLevels(symbol).then(r => { if (r) setExpectedRangeLevels(r.levels); setIsLoadingExpectedRange(false); }); } if (n || isWeeklyActive || isCustomActive) setIsExpectedRangeActive(true); else setIsExpectedRangeActive(false); }} className={`btn-3d-carved ${isMonthlyActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Monthly{isMonthlyActive ? ' ✓' : ''}</button>
+                            <button onClick={() => { const next = !isATRRangeActiveRef.current; isATRRangeActiveRef.current = next; setIsATRRangeActive(next); }} className={`btn-3d-carved ${isATRRangeActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>ATR Range{isATRRangeActive ? ' ✓' : ''}</button>
+                            <button onClick={() => { const next = !isStdDevRangeActiveRef.current; isStdDevRangeActiveRef.current = next; setIsStdDevRangeActive(next); }} className={`btn-3d-carved ${isStdDevRangeActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>StdDev{isStdDevRangeActive ? ' ✓' : ''}</button>
                           </div>
-                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>GEX / DEX</div>
+
+                          {/* % Chance button + calendar popup */}
+                          {(() => {
+                            const renderCal = (
+                              calMonth: Date,
+                              setCalMonth: (d: Date) => void,
+                              selectedDate: string,
+                              availExpiries: Set<string>,
+                              onSelect: (iso: string) => void
+                            ) => {
+                              const today = new Date(); today.setHours(0, 0, 0, 0)
+                              const yr = calMonth.getFullYear()
+                              const mo = calMonth.getMonth()
+                              const firstDay = new Date(yr, mo, 1).getDay()
+                              const daysInMonth = new Date(yr, mo + 1, 0).getDate()
+                              const cells: (number | null)[] = []
+                              for (let i = 0; i < firstDay; i++) cells.push(null)
+                              for (let d = 1; d <= daysInMonth; d++) cells.push(d)
+                              while (cells.length % 7 !== 0) cells.push(null)
+                              const pad = (n: number) => String(n).padStart(2, '0')
+                              const monthLabel = calMonth.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+                              return (
+                                <div style={{ marginTop: '6px', background: '#0a0a0a', border: '1px solid rgba(255,133,0,0.35)', borderRadius: '6px', padding: '8px', userSelect: 'none' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                    <button onClick={() => { const d = new Date(calMonth); d.setMonth(d.getMonth() - 1); setCalMonth(d) }} style={{ background: 'none', border: 'none', color: '#ff8500', fontSize: '18px', cursor: 'pointer', padding: '0 6px', lineHeight: 1 }}>‹</button>
+                                    <span style={{ color: '#ff8500', fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px' }}>{monthLabel}</span>
+                                    <button onClick={() => { const d = new Date(calMonth); d.setMonth(d.getMonth() + 1); setCalMonth(d) }} style={{ background: 'none', border: 'none', color: '#ff8500', fontSize: '18px', cursor: 'pointer', padding: '0 6px', lineHeight: 1 }}>›</button>
+                                  </div>
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', marginBottom: '3px' }}>
+                                    {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => <div key={i} style={{ textAlign: 'center', fontSize: '10px', color: '#555', fontWeight: '700' }}>{d}</div>)}
+                                  </div>
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px' }}>
+                                    {cells.map((day, i) => {
+                                      if (!day) return <div key={i} />
+                                      const iso = `${yr}-${pad(mo + 1)}-${pad(day)}`
+                                      const cellDate = new Date(yr, mo, day)
+                                      const isPast = cellDate < today
+                                      const isAvail = availExpiries.size > 0 ? availExpiries.has(iso) : !isPast
+                                      const isSelected = selectedDate === iso
+                                      return (
+                                        <div key={i} onClick={() => { if (!isAvail || isPast) return; onSelect(iso) }}
+                                          style={{ textAlign: 'center', fontSize: '11px', fontWeight: isAvail ? '700' : '400', padding: '4px 0', borderRadius: '3px', cursor: isPast || !isAvail ? 'default' : 'pointer', color: isPast ? '#333' : isSelected ? '#000' : isAvail ? '#fff' : '#3a3a3a', background: isSelected ? '#ff8500' : isAvail && !isPast ? 'rgba(255,133,0,0.12)' : 'transparent', border: isAvail && !isPast && !isSelected ? '1px solid rgba(255,133,0,0.25)' : '1px solid transparent' }}>{day}</div>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              )
+                            }
+                            return (
+                              <div>
+                                <button
+                                  onClick={() => {
+                                    const opening = !showMobilePctChanceCal
+                                    setShowMobilePctChanceCal(opening)
+                                    if (opening && !showCustomDatePicker) setShowCustomDatePicker(false)
+                                    if (opening && !isPctChanceActive) {
+                                      setIsPctChanceActive(true)
+                                      setIsLoadingPctChance(true)
+                                      calculatePctChanceLevels(symbol, pctChanceCustomDate || undefined).then(result => {
+                                        setIsLoadingPctChance(false)
+                                        if (result) { pctChanceLevelsRef.current = result; setPctChanceLevels(result); requestAnimationFrame(() => renderChartRef.current()) }
+                                        else setIsPctChanceActive(false)
+                                      })
+                                    } else if (!opening && isPctChanceActive) {
+                                      setIsPctChanceActive(false)
+                                      setPctChanceLevels(null)
+                                    }
+                                  }}
+                                  className={`btn-3d-carved ${isPctChanceActive ? 'active' : ''}`}
+                                  style={{ width: '100%', padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                                >
+                                  {isLoadingPctChance && <svg className="animate-spin" style={{ width: 11, height: 11 }} fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" /><path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg>}
+                                  <span>% Chance{isPctChanceActive ? ' ✓' : ''}</span>
+                                  <svg style={{ width: 10, height: 10, marginLeft: 2, transition: 'transform 0.2s', transform: showMobilePctChanceCal ? 'rotate(180deg)' : 'none' }} viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                                </button>
+                                {showMobilePctChanceCal && renderCal(
+                                  pctChanceCalMonth, setPctChanceCalMonth, pctChanceCustomDate, pctChanceAvailExpiries,
+                                  (iso) => {
+                                    setPctChanceCustomDate(iso)
+                                    setIsLoadingPctChance(true)
+                                    calculatePctChanceLevels(symbol, iso).then(result => {
+                                      setIsLoadingPctChance(false)
+                                      if (result) { pctChanceLevelsRef.current = result; setPctChanceLevels(result); requestAnimationFrame(() => renderChartRef.current()) }
+                                    })
+                                  }
+                                )}
+                              </div>
+                            )
+                          })()}
+
+                          {/* Custom date expiry + calendar popup */}
+                          <div>
+                            <button
+                              onClick={() => {
+                                const opening = !showCustomDatePicker
+                                setShowCustomDatePicker(opening)
+                                if (opening) setShowMobilePctChanceCal(false)
+                              }}
+                              className={`btn-3d-carved ${isCustomActive ? 'active' : ''}`}
+                              style={{ width: '100%', padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                            >
+                              <span>Custom{isCustomActive ? ' ✓' : ''}</span>
+                              <svg style={{ width: 10, height: 10, marginLeft: 2, transition: 'transform 0.2s', transform: showCustomDatePicker ? 'rotate(180deg)' : 'none' }} viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                            </button>
+                            {showCustomDatePicker && (() => {
+                              const today = new Date(); today.setHours(0, 0, 0, 0)
+                              const yr = customCalMonth.getFullYear()
+                              const mo = customCalMonth.getMonth()
+                              const firstDay = new Date(yr, mo, 1).getDay()
+                              const daysInMonth = new Date(yr, mo + 1, 0).getDate()
+                              const cells: (number | null)[] = []
+                              for (let i = 0; i < firstDay; i++) cells.push(null)
+                              for (let d = 1; d <= daysInMonth; d++) cells.push(d)
+                              while (cells.length % 7 !== 0) cells.push(null)
+                              const pad = (n: number) => String(n).padStart(2, '0')
+                              const monthLabel = customCalMonth.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+                              return (
+                                <div style={{ marginTop: '6px', background: '#0a0a0a', border: '1px solid rgba(255,133,0,0.35)', borderRadius: '6px', padding: '8px', userSelect: 'none' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                    <button onClick={() => { const d = new Date(customCalMonth); d.setMonth(d.getMonth() - 1); setCustomCalMonth(d) }} style={{ background: 'none', border: 'none', color: '#ff8500', fontSize: '18px', cursor: 'pointer', padding: '0 6px', lineHeight: 1 }}>‹</button>
+                                    <span style={{ color: '#ff8500', fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px' }}>{monthLabel}</span>
+                                    <button onClick={() => { const d = new Date(customCalMonth); d.setMonth(d.getMonth() + 1); setCustomCalMonth(d) }} style={{ background: 'none', border: 'none', color: '#ff8500', fontSize: '18px', cursor: 'pointer', padding: '0 6px', lineHeight: 1 }}>›</button>
+                                  </div>
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', marginBottom: '3px' }}>
+                                    {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => <div key={i} style={{ textAlign: 'center', fontSize: '10px', color: '#555', fontWeight: '700' }}>{d}</div>)}
+                                  </div>
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px' }}>
+                                    {cells.map((day, i) => {
+                                      if (!day) return <div key={i} />
+                                      const iso = `${yr}-${pad(mo + 1)}-${pad(day)}`
+                                      const cellDate = new Date(yr, mo, day)
+                                      const isPast = cellDate < today
+                                      const isSelected = pendingCustomDate === iso
+                                      return (
+                                        <div key={i} onClick={() => { if (isPast) return; setPendingCustomDate(iso) }}
+                                          style={{ textAlign: 'center', fontSize: '11px', fontWeight: isPast ? '400' : '700', padding: '4px 0', borderRadius: '3px', cursor: isPast ? 'default' : 'pointer', color: isPast ? '#333' : isSelected ? '#000' : '#fff', background: isSelected ? '#ff8500' : !isPast ? 'rgba(255,133,0,0.12)' : 'transparent', border: !isPast && !isSelected ? '1px solid rgba(255,133,0,0.25)' : '1px solid transparent' }}>{day}</div>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              )
+                            })()}
+                            {showCustomDatePicker && pendingCustomDate && (
+                              <button
+                                onClick={() => {
+                                  setIsLoadingExpectedRange(true)
+                                  setIsCustomActive(true)
+                                  setIsExpectedRangeActive(true)
+                                  calculateExpectedRangeLevels(symbol, pendingCustomDate).then(result => {
+                                    if (result) setExpectedRangeLevels(result.levels)
+                                    setIsLoadingExpectedRange(false)
+                                  })
+                                  setShowCustomDatePicker(false)
+                                }}
+                                className="btn-3d-carved"
+                                style={{ width: '100%', marginTop: '8px', padding: '10px', borderRadius: '6px', background: 'rgba(255,133,0,0.15)', border: '1px solid rgba(255,133,0,0.5)', color: '#ff8500', fontSize: '12px', fontWeight: '800', letterSpacing: '1px', cursor: 'pointer' }}
+                              >SCAN — {pendingCustomDate}</button>
+                            )}
+                          </div>
+                        </div>
+                      </>,
+                      document.body
+                    )}
+                    {/* Gex Panel */}
+                    {isMobileGexOpen && createPortal(
+                      <>
+                        <div style={{ position: 'fixed', inset: 0, zIndex: 99998, background: 'rgba(0,0,0,0.55)' }} onClick={() => setIsMobileGexOpen(false)} />
+                        <div style={{ position: 'fixed', bottom: '113px', left: '8px', right: '8px', zIndex: 99999, background: 'linear-gradient(170deg,#111 0%,#060606 100%)', border: '1px solid rgba(255,133,0,0.3)', borderRadius: '16px', padding: '14px 14px 18px', display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto', maxHeight: '70vh', boxShadow: '0 8px 48px rgba(0,0,0,0.95)' }}>
+                          <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center', paddingBottom: '10px', borderBottom: '1px solid rgba(255,133,0,0.2)' }}>
+                            <span style={{ color: '#ff8500', fontWeight: 800, fontSize: '16px', textTransform: 'uppercase', letterSpacing: '3px' }}>Gex</span>
+                            <button onClick={() => setIsMobileGexOpen(false)} style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#555', fontSize: '20px', cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
+                          </div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                             <button onClick={() => { handleGexMapClick() }} className={`btn-3d-carved ${isGexMapActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
                               {isGexMapLoading && <svg className="animate-spin" style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" /><path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg>}
@@ -31573,63 +32052,6 @@ export default function TradingViewChart({
                               {isDexMap45dActive && !isDexMap45dLoading && <span onClick={(e) => { e.stopPropagation(); setIsDexMap45dActive(false); setDexMap45dData(null) }} style={{ color: '#ff8500', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}>×</span>}
                             </button>
                           </div>
-                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>IV</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
-                            <button onClick={() => setShowIVRankIndicator(v => !v)} className={`btn-3d-carved ${showIVRankIndicator ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>IV Rank{showIVRankIndicator ? ' ✓' : ''}</button>
-                            <button onClick={() => setShowIVPercentileIndicator(v => !v)} className={`btn-3d-carved ${showIVPercentileIndicator ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>IV %ile{showIVPercentileIndicator ? ' ✓' : ''}</button>
-                            <button onClick={() => setShowDarkPoolIndicator(v => !v)} className={`btn-3d-carved ${showDarkPoolIndicator ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>POI{showDarkPoolIndicator ? ' ✓' : ''}</button>
-                          </div>
-                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>RRG Candle</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
-                            <button onClick={() => { if (isRRGCandleActive && rrgMode === 'price') { setIsRRGCandleActive(false); setRrgCandleColors(new Map()); setRrgMode('price'); setRrgLookbackPeriod(10); } else { setRrgMode('price'); handleRRGCandleClick(rrgLookbackPeriod, 'price'); } }} className={`btn-3d-carved ${isRRGCandleActive && rrgMode === 'price' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Price{isRRGCandleActive && rrgMode === 'price' ? ' ✓' : ''}</button>
-                            <button onClick={() => { if (isRRGCandleActive && rrgMode === 'iv') { setIsRRGCandleActive(false); setRrgCandleColors(new Map()); } else { setRrgMode('iv'); handleRRGCandleClick(rrgIvLookbackPeriod, 'iv'); } }} className={`btn-3d-carved ${isRRGCandleActive && rrgMode === 'iv' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>IV{isRRGCandleActive && rrgMode === 'iv' ? ' ✓' : ''}</button>
-                            <button onClick={() => { if (isRRGCandleActive && rrgMode === 'ivspy') { setIsRRGCandleActive(false); setRrgCandleColors(new Map()); } else { setRrgMode('ivspy'); handleRRGCandleClick(rrgIvLookbackPeriod, 'ivspy'); } }} className={`btn-3d-carved ${isRRGCandleActive && rrgMode === 'ivspy' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>IV/SPY{isRRGCandleActive && rrgMode === 'ivspy' ? ' ✓' : ''}</button>
-                          </div>
-                        </div>
-                      </>,
-                      document.body
-                    )}
-                    {/* Group 2 Panel - Tools */}
-                    {isMobileGroup2Open && createPortal(
-                      <>
-                        <div style={{ position: 'fixed', inset: 0, zIndex: 99998, background: 'rgba(0,0,0,0.55)' }} onClick={() => setIsMobileGroup2Open(false)} />
-                        <div style={{ position: 'fixed', bottom: '54px', left: '8px', right: '8px', zIndex: 99999, background: 'linear-gradient(170deg,#111 0%,#060606 100%)', border: '1px solid rgba(255,133,0,0.3)', borderRadius: '16px', padding: '14px 14px 18px', display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto', maxHeight: '70vh', boxShadow: '0 8px 48px rgba(0,0,0,0.95)' }}>
-                          <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center', paddingBottom: '10px', borderBottom: '1px solid rgba(255,133,0,0.2)' }}>
-                            <span style={{ color: '#ff8500', fontWeight: 800, fontSize: '16px', textTransform: 'uppercase', letterSpacing: '3px' }}>Tools</span>
-                            <button onClick={() => setIsMobileGroup2Open(false)} style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#555', fontSize: '20px', cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
-                          </div>
-                          {/* ── SEASONAL ── */}
-                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>Seasonal</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-                            <button onClick={async () => { if (isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) { setIsSeasonal10YActive(false); setIsSeasonal15YActive(false); setIsSeasonal20YActive(false); setSeasonal10YData(null); setSeasonal15YData(null); setSeasonal20YData(null); if (!isSeasonalElectionActive) setIsSeasonalActive(false); } else { setIsLoadingSeasonalProjection(true); setIsSeasonalActive(true); const d10 = await calculateSeasonalityProjection(symbol, 10, data, undefined, config.timeframe); setSeasonal10YData(d10); setIsSeasonal10YActive(true); if (maxSeasonalYears >= 15) { const d15 = await calculateSeasonalityProjection(symbol, 15, data, undefined, config.timeframe); setSeasonal15YData(d15); setIsSeasonal15YActive(true); } if (maxSeasonalYears >= 20) { const dMax = await calculateSeasonalityProjection(symbol, maxSeasonalYears, data, undefined, config.timeframe); setSeasonal20YData(dMax); setIsSeasonal20YActive(true); } setIsLoadingSeasonalProjection(false); } }} className={`btn-3d-carved ${(isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>{isLoadingSeasonalProjection ? 'Loading...' : `Seasonality${(isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) ? ' ✓' : ''}`}</button>
-                            <button onClick={async () => { const n = !isSeasonalElectionActive; setIsSeasonalElectionActive(n); if (n) { if (!seasonalElectionData) { setElectionInsufficientData(false); setIsLoadingSeasonalProjection(true); const cycle = getCurrentElectionCycle(); const result = await calculateElectionCandleProjection(symbol, data, cycle); setIsLoadingSeasonalProjection(false); if (result === 'NOT_ENOUGH_DATA' || !result) { setElectionInsufficientData(true); setIsSeasonalElectionActive(false); return; } setSeasonalElectionData(result as any); } setIsSeasonalActive(true); } else { if (!isSeasonal20YActive && !isSeasonal15YActive && !isSeasonal10YActive) setIsSeasonalActive(false); } }} className={`btn-3d-carved ${isSeasonalElectionActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: electionInsufficientData ? '#f59e0b' : undefined }}>{electionInsufficientData ? 'Election (N/A)' : `Election${isSeasonalElectionActive ? ' ✓' : ''}`}</button>
-                          </div>
-                          {/* ── TECHNALYSIS ── */}
-                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', marginTop: '4px' }}>Technalysis</div>
-                          <button onClick={() => { const next = !technalysisActive; setTechnalysisActive(next); setTechnalysisFeatures({ orderBlocks: next, fvg: next, liquidity: next, structure: next, premiumDiscount: next }); }} className={`btn-3d-carved ${technalysisActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', width: '100%' }}>Enable All{technalysisActive ? ' ✓' : ''}</button>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
-                            <button onClick={() => { setTechnalysisFeatures(p => ({ ...p, orderBlocks: !p.orderBlocks })); if (!technalysisActive) setTechnalysisActive(true); }} className={`btn-3d-carved ${technalysisFeatures.orderBlocks ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Zones{technalysisFeatures.orderBlocks ? ' ✓' : ''}</button>
-                            <button onClick={() => { setTechnalysisFeatures(p => ({ ...p, fvg: !p.fvg })); if (!technalysisActive) setTechnalysisActive(true); }} className={`btn-3d-carved ${technalysisFeatures.fvg ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Fills{technalysisFeatures.fvg ? ' ✓' : ''}</button>
-                            <button onClick={() => { setTechnalysisFeatures(p => ({ ...p, liquidity: !p.liquidity })); if (!technalysisActive) setTechnalysisActive(true); }} className={`btn-3d-carved ${technalysisFeatures.liquidity ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Hunting{technalysisFeatures.liquidity ? ' ✓' : ''}</button>
-                          </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-                            <button onClick={() => { setTechnalysisFeatures(p => ({ ...p, structure: !p.structure })); if (!technalysisActive) setTechnalysisActive(true); }} className={`btn-3d-carved ${technalysisFeatures.structure ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Trend{technalysisFeatures.structure ? ' ✓' : ''}</button>
-                            <button onClick={() => { setTechnalysisFeatures(p => ({ ...p, premiumDiscount: !p.premiumDiscount })); if (!technalysisActive) setTechnalysisActive(true); }} className={`btn-3d-carved ${technalysisFeatures.premiumDiscount ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Prem/Disc{technalysisFeatures.premiumDiscount ? ' ✓' : ''}</button>
-                          </div>
-                          {/* ── OTHER ── */}
-                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', marginTop: '4px' }}>Other</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-                            <button onClick={() => setShowBuySellIndicator(v => !v)} className={`btn-3d-carved ${showBuySellIndicator ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Buy/Sell{showBuySellIndicator ? ' ✓' : ''}</button>
-                            <button onClick={() => { const n = !showPEPanel; setShowPEGPanel(false); setShowPEPanel(n); if (n && (!peData || peFetchedSymbolRef.current !== config.symbol)) fetchPEData(config.symbol); }} className={`btn-3d-carved ${showPEPanel ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: showPEPanel ? undefined : '#00E5FF' }}>P/E{showPEPanel && peData?.current != null ? ` (${peData.current.toFixed(0)}x) ✓` : showPEPanel ? ' ✓' : ''}</button>
-                            <button onClick={() => { const n = !showPEGPanel; setShowPEPanel(false); setShowPEGPanel(n); if (n && (!pegData || pegFetchedSymbolRef.current !== config.symbol)) fetchPEGData(config.symbol); }} className={`btn-3d-carved ${showPEGPanel ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: showPEGPanel ? undefined : '#a78bfa' }}>PEG{showPEGPanel && pegData?.pegBasic != null ? ` (${pegData.pegBasic.toFixed(1)}) ✓` : showPEGPanel ? ' ✓' : ''}</button>
-                          </div>
-                          {/* ── LIVE FLOWMOVES ── */}
-                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', marginTop: '4px' }}>IntraFlow</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
-                            <button onClick={() => { if (isFlowChartActive && flowMovesTimeframe === '1D') { setIsFlowChartActive(false); setFlowMovesTimeframe('1D'); } else { setFlowMovesTimeframe('1D'); setIsFlowChartActive(true); handleLiveFlowMovesClick('1D'); } }} className={`btn-3d-carved ${isFlowChartActive && flowMovesTimeframe === '1D' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>1D{isFlowChartActive && flowMovesTimeframe === '1D' ? ' ✓' : ''}</button>
-                            <button onClick={() => { if (isFlowChartActive && flowMovesTimeframe === '3D') { setIsFlowChartActive(false); setFlowMovesTimeframe('1D'); } else { setFlowMovesTimeframe('3D'); setIsFlowChartActive(true); handleLiveFlowMovesClick('3D'); } }} className={`btn-3d-carved ${isFlowChartActive && flowMovesTimeframe === '3D' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>3D{isFlowChartActive && flowMovesTimeframe === '3D' ? ' ✓' : ''}</button>
-                            <button onClick={() => { if (isFlowChartActive && flowMovesTimeframe === '1W') { setIsFlowChartActive(false); setFlowMovesTimeframe('1D'); } else { setFlowMovesTimeframe('1W'); setIsFlowChartActive(true); handleLiveFlowMovesClick('1W'); } }} className={`btn-3d-carved ${isFlowChartActive && flowMovesTimeframe === '1W' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>1W{isFlowChartActive && flowMovesTimeframe === '1W' ? ' ✓' : ''}</button>
-                          </div>
                         </div>
                       </>,
                       document.body
@@ -31638,7 +32060,7 @@ export default function TradingViewChart({
                     {isMobileGroup3Open && createPortal(
                       <>
                         <div style={{ position: 'fixed', inset: 0, zIndex: 99998, background: 'rgba(0,0,0,0.55)' }} onClick={() => setIsMobileGroup3Open(false)} />
-                        <div style={{ position: 'fixed', bottom: '54px', left: '8px', right: '8px', zIndex: 99999, background: 'linear-gradient(170deg,#111 0%,#060606 100%)', border: '1px solid rgba(255,133,0,0.3)', borderRadius: '16px', padding: '14px 14px 18px', display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '70vh', overflowY: 'auto', boxShadow: '0 8px 48px rgba(0,0,0,0.95)' }}>
+                        <div style={{ position: 'fixed', bottom: '113px', left: '8px', right: '8px', zIndex: 99999, background: 'linear-gradient(170deg,#111 0%,#060606 100%)', border: '1px solid rgba(255,133,0,0.3)', borderRadius: '16px', padding: '14px 14px 18px', display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '70vh', overflowY: 'auto', boxShadow: '0 8px 48px rgba(0,0,0,0.95)' }}>
                           <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center', paddingBottom: '10px', borderBottom: '1px solid rgba(255,133,0,0.2)' }}>
                             <span style={{ background: 'linear-gradient(180deg,#fff 20%,#888 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', fontWeight: 800, fontSize: '13px', textTransform: 'uppercase', letterSpacing: '3px' }}>Drawing Tools</span>
                             <button onClick={() => setIsMobileGroup3Open(false)} style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#555', fontSize: '20px', cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
@@ -31646,19 +32068,32 @@ export default function TradingViewChart({
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '6px' }}>
                             {([
                               { tool: 'trendline', icon: '/', label: 'Trend' },
+                              { tool: 'ray', icon: '→', label: 'Ray' },
                               { tool: 'horizontal', icon: '—', label: 'H-Line' },
                               { tool: 'vertical', icon: '|', label: 'V-Line' },
                               { tool: 'parallelChannel', icon: '‖', label: 'Channel' },
                               { tool: 'rectangle', icon: '□', label: 'Box' },
+                              { tool: 'priceRange', icon: '↕', label: 'Range' },
+                              { tool: 'fib', icon: 'fib', label: 'Fib' },
+                              { tool: 'elliottWave', icon: 'ew', label: 'Elliott' },
+                              { tool: 'elliottWaveABC', icon: 'abc', label: 'EW-ABC' },
+                              { tool: 'path', icon: 'path', label: 'Path' },
                               { tool: 'buyZone', icon: '□', label: 'Buy' },
                               { tool: 'sellZone', icon: '□', label: 'Sell' },
-                              { tool: 'priceRange', icon: '↕', label: 'Range' },
                               { tool: 'brush', icon: 'brush', label: 'Brush' },
                               { tool: 'text', icon: 'T', label: 'Text' },
                             ] as const).map(({ tool, icon, label }) => (
                               <button key={tool} onClick={() => setCurrentDrawingTool(currentDrawingTool === tool ? 'select' : tool)} className={`btn-3d-carved ${currentDrawingTool === tool ? 'active' : ''}`} style={{ padding: '8px 2px', fontWeight: 700, fontSize: '10px', borderRadius: '6px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '3px', minWidth: 0, background: tool === 'buyZone' && currentDrawingTool === tool ? 'linear-gradient(135deg,#22c55e,#16a34a)' : tool === 'sellZone' && currentDrawingTool === tool ? 'linear-gradient(135deg,#ef4444,#dc2626)' : undefined, border: tool === 'buyZone' ? (currentDrawingTool === tool ? '2px solid #22c55e' : '2px solid rgba(34,197,94,0.3)') : tool === 'sellZone' ? (currentDrawingTool === tool ? '2px solid #ef4444' : '2px solid rgba(239,68,68,0.3)') : undefined, color: tool === 'buyZone' ? (currentDrawingTool === tool ? '#000' : '#22c55e') : tool === 'sellZone' ? (currentDrawingTool === tool ? '#000' : '#ef4444') : undefined }}>
                                 {icon === 'brush' ? (
                                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z" /><path d="M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7" /><path d="M14.5 17.5 4.5 15" /></svg>
+                                ) : icon === 'fib' ? (
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><line x1="3" y1="5" x2="21" y2="5" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="3" y1="13" x2="21" y2="13" /><line x1="3" y1="17" x2="21" y2="17" /><line x1="3" y1="21" x2="21" y2="21" /><line x1="3" y1="5" x2="3" y2="21" strokeWidth="2.5" stroke="#ff8500" /><line x1="21" y1="5" x2="21" y2="21" strokeWidth="2.5" stroke="#ff8500" /></svg>
+                                ) : icon === 'ew' ? (
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="2,18 6,10 10,14 14,6 18,11 22,5" /><text x="2" y="23" style={{ fontSize: '5px', fill: 'currentColor', stroke: 'none', fontWeight: 700 }}>1 2 3 4 5</text></svg>
+                                ) : icon === 'abc' ? (
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="2,5 8,18 14,8 22,18" /><text x="1" y="23" style={{ fontSize: '6px', fill: 'currentColor', stroke: 'none', fontWeight: 700 }}>A B C</text></svg>
+                                ) : icon === 'path' ? (
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 17 C6 17 7 7 12 7 C17 7 18 17 21 17" /><circle cx="3" cy="17" r="1.5" fill="currentColor" /><circle cx="21" cy="17" r="1.5" fill="currentColor" /></svg>
                                 ) : (
                                   <span style={{ fontSize: '14px', fontWeight: 700, lineHeight: 1 }}>{icon}</span>
                                 )}
@@ -31690,6 +32125,355 @@ export default function TradingViewChart({
                           </div>
                         </div>
                       </>,
+                      document.body
+                    )}
+                    {/* ── SECONDARY MOBILE BAR (above bottom nav) ── */}
+                    {createPortal(
+                      <div style={{
+                        position: 'fixed',
+                        top: 'calc(100dvh - 105px)',
+                        left: 0, right: 0,
+                        height: '45px',
+                        zIndex: 2147483646,
+                        transform: 'translateZ(0)',
+                        WebkitTransform: 'translateZ(0)',
+                        background: '#080c12',
+                        borderTop: '1px solid rgba(255,255,255,0.08)',
+                        borderBottom: '1px solid rgba(255,133,0,0.18)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        overflow: 'hidden',
+                      }}>
+                        {/* Ticker Scroller */}
+                        {(() => {
+                          const tickerList = symbol && !MOBILE_MAG7.includes(symbol)
+                            ? [symbol, ...MOBILE_MAG7]
+                            : MOBILE_MAG7
+                          const curIdx = tickerList.indexOf(symbol)
+                          return (
+                            <div style={{ width: '90px', height: '100%', position: 'relative', flexShrink: 0, borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+                              {/* Fade masks */}
+                              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '8px', background: 'linear-gradient(to bottom, #080c12, transparent)', zIndex: 2, pointerEvents: 'none' }} />
+                              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '8px', background: 'linear-gradient(to top, #080c12, transparent)', zIndex: 2, pointerEvents: 'none' }} />
+                              {/* Center highlight — tap target opens search modal */}
+                              <div
+                                onPointerDown={e => { e.stopPropagation(); setMobileTickerModalQuery(''); setMobileTickerModalResults([]); setIsMobileTickerModalOpen(true); setTimeout(() => mobileTickerModalInputRef.current?.focus(), 80) }}
+                                style={{ position: 'absolute', top: '50%', left: '4px', right: '4px', height: `${MOBILE_ITEM_H}px`, transform: 'translateY(-50%)', background: 'rgba(255,133,0,0.07)', borderRadius: '4px', border: '1px solid rgba(255,133,0,0.15)', zIndex: 4, cursor: 'text' }}
+                              />
+                              {/* Scroller */}
+                              <div
+                                ref={mobileTickerScrollRef}
+                                style={{
+                                  height: '100%',
+                                  overflowY: 'scroll',
+                                  scrollSnapType: 'y mandatory',
+                                  scrollbarWidth: 'none',
+                                  paddingTop: '13.5px',
+                                  paddingBottom: '13.5px',
+                                  boxSizing: 'border-box',
+                                }}
+                                onScroll={(e) => {
+                                  if (mobileScrollTimerRef.current) clearTimeout(mobileScrollTimerRef.current)
+                                  mobileScrollTimerRef.current = setTimeout(() => {
+                                    const el = e.currentTarget
+                                    const idx = Math.round(el.scrollTop / MOBILE_ITEM_H)
+                                    const t = tickerList[Math.max(0, Math.min(idx, tickerList.length - 1))]
+                                    if (t && t !== symbol) handleSearch(t)
+                                  }, 200)
+                                }}
+                              >
+                                <style>{`.mobile-ticker-scroll::-webkit-scrollbar{display:none}`}</style>
+                                {tickerList.map((t, i) => (
+                                  <div key={t} style={{
+                                    height: `${MOBILE_ITEM_H}px`,
+                                    scrollSnapAlign: 'center',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    color: i === curIdx ? '#ffffff' : 'rgba(255,255,255,0.28)',
+                                    fontSize: i === curIdx ? '15px' : '12px',
+                                    fontWeight: i === curIdx ? 900 : 500,
+                                    fontFamily: 'monospace',
+                                    letterSpacing: i === curIdx ? '1px' : '0.5px',
+                                    transition: 'color 0.15s, font-size 0.15s',
+                                    position: 'relative', zIndex: 3,
+                                    userSelect: 'none',
+                                  }}>{t}</div>
+                                ))}
+                              </div>
+                            </div>
+                          )
+                        })()}
+
+                        {/* Timeframe Scroller */}
+                        {(() => {
+                          const curTfIdx = Math.max(0, mobileTfList.findIndex(([v]) => v === config.timeframe))
+                          return (
+                            <div style={{ width: '64px', height: '100%', position: 'relative', flexShrink: 0, borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+                              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '8px', background: 'linear-gradient(to bottom, #080c12, transparent)', zIndex: 2, pointerEvents: 'none' }} />
+                              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '8px', background: 'linear-gradient(to top, #080c12, transparent)', zIndex: 2, pointerEvents: 'none' }} />
+                              <div style={{ position: 'absolute', top: '50%', left: '4px', right: '4px', height: `${MOBILE_ITEM_H}px`, transform: 'translateY(-50%)', background: 'rgba(255,133,0,0.07)', borderRadius: '4px', border: '1px solid rgba(255,133,0,0.15)', zIndex: 1, pointerEvents: 'none' }} />
+                              <div
+                                ref={mobileTfScrollRef}
+                                style={{
+                                  height: '100%',
+                                  overflowY: 'scroll',
+                                  scrollSnapType: 'y mandatory',
+                                  scrollbarWidth: 'none',
+                                  paddingTop: '13.5px',
+                                  paddingBottom: '13.5px',
+                                  boxSizing: 'border-box',
+                                }}
+                                onScroll={(e) => {
+                                  if (mobileScrollTimerRef.current) clearTimeout(mobileScrollTimerRef.current)
+                                  mobileScrollTimerRef.current = setTimeout(() => {
+                                    const el = e.currentTarget
+                                    const idx = Math.round(el.scrollTop / MOBILE_ITEM_H)
+                                    const tf = mobileTfList[Math.max(0, Math.min(idx, mobileTfList.length - 1))]
+                                    if (tf && tf[0] !== config.timeframe) handleTimeframeChange(tf[0])
+                                  }, 200)
+                                }}
+                              >
+                                {mobileTfList.map(([v, l], i) => (
+                                  <div key={v} onClick={() => handleTimeframeChange(v)} style={{
+                                    height: `${MOBILE_ITEM_H}px`,
+                                    scrollSnapAlign: 'center',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    color: i === curTfIdx ? '#ff8500' : 'rgba(255,255,255,0.28)',
+                                    fontSize: i === curTfIdx ? '15px' : '12px',
+                                    fontWeight: i === curTfIdx ? 900 : 500,
+                                    fontFamily: 'monospace',
+                                    letterSpacing: i === curTfIdx ? '1px' : '0.5px',
+                                    cursor: 'pointer',
+                                    transition: 'color 0.15s, font-size 0.15s',
+                                    position: 'relative', zIndex: 3,
+                                    userSelect: 'none',
+                                  }}>{l}</div>
+                                ))}
+                              </div>
+                            </div>
+                          )
+                        })()}
+
+                        {/* Price Display */}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', gap: 2, padding: '0 10px', height: '100%' }}>
+                          <span style={{ color: '#fff', fontSize: 15, fontFamily: 'monospace', fontWeight: 900, letterSpacing: '0.5px', lineHeight: 1 }}>${currentPrice.toFixed(2)}</span>
+                          <span style={{ color: priceChangePercent >= 0 ? '#00e676' : '#ff1744', fontSize: 11, fontFamily: 'monospace', fontWeight: 700, lineHeight: 1 }}>
+                            {priceChangePercent >= 0 ? '+' : ''}{priceChangePercent.toFixed(2)}%
+                          </span>
+                        </div>
+
+                        {/* Spacer */}
+                        <div style={{ flex: 1 }} />
+
+                        {/* DRAW Button */}
+                        {(() => {
+                          const drawActive = currentDrawingTool !== 'select'
+                          return (
+                            <>
+                              <button
+                                className="mobile-dtd-btn"
+                                onClick={() => { setIsMobileGroup3Open(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup2Open(false) }}
+                                style={{
+                                  marginRight: '4px',
+                                  padding: '7px 11px', fontWeight: 800, fontSize: '11px',
+                                  borderRadius: '7px', letterSpacing: '0.08em',
+                                  textTransform: 'uppercase', cursor: 'pointer',
+                                  fontFamily: "'Inter',-apple-system,sans-serif",
+                                  display: 'flex', alignItems: 'center', gap: '5px',
+                                }}
+                              >
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={drawActive ? '#ff8500' : 'currentColor'} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'relative', zIndex: 2 }}><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>
+                              </button>
+                              <button
+                                className="mobile-dtd-btn"
+                                onClick={() => setIsDrawingToolLocked(v => !v)}
+                                style={{
+                                  marginRight: '4px',
+                                  padding: '7px 10px', fontWeight: 800, fontSize: '11px',
+                                  borderRadius: '7px', letterSpacing: '0.08em',
+                                  textTransform: 'uppercase', cursor: 'pointer',
+                                  fontFamily: "'Inter',-apple-system,sans-serif",
+                                  display: 'flex', alignItems: 'center', gap: '4px',
+                                }}
+                                title={isDrawingToolLocked ? 'Unlock tool' : 'Lock tool'}
+                              >
+                                {isDrawingToolLocked
+                                  ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ff8500" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'relative', zIndex: 2 }}><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                                  : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'relative', zIndex: 2 }}><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 9.9-1" /></svg>
+                                }
+                              </button>
+                              <button
+                                className="mobile-dtd-btn"
+                                onClick={() => setIsBackgroundVisible(v => !v)}
+                                style={{
+                                  marginRight: '4px',
+                                  padding: '7px 10px', fontWeight: 800, fontSize: '11px',
+                                  borderRadius: '7px', cursor: 'pointer',
+                                  fontFamily: "'Inter',-apple-system,sans-serif",
+                                  display: 'flex', alignItems: 'center',
+                                }}
+                                title={isBackgroundVisible ? 'Hide drawings background' : 'Show drawings background'}
+                              >
+                                {isBackgroundVisible
+                                  ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ff8500" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'relative', zIndex: 2 }}><path d="M2 12C2 12 5 5 12 5C19 5 22 12 22 12C22 12 19 19 12 19C5 19 2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg>
+                                  : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'relative', zIndex: 2 }}><path d="M3 3L21 21" /><path d="M10.5 10.677a2 2 0 0 0 2.823 2.823" /><path d="M7.362 7.561C5.68 8.875 4.496 10.618 4 12c1.17 2.769 4.032 6 8 6 1.507 0 2.91-.494 4.11-1.282" /><path d="M12 6c3.905.515 6.608 4.352 7.5 6-.34.64-.8 1.326-1.373 2" /></svg>
+                                }
+                              </button>
+                              <button
+                                className="mobile-dtd-btn"
+                                onClick={() => { if (currentHistoryIndex > 0) { const ni = currentHistoryIndex - 1; setHistoryIndex(prev => ({ ...prev, [currentSymbol]: ni })); setLwChartDrawings(prev => ({ ...prev, [currentSymbol]: currentHistory[ni] })); } }}
+                                disabled={currentHistoryIndex <= 0}
+                                style={{
+                                  marginRight: '4px',
+                                  padding: '7px 10px', fontWeight: 800, fontSize: '11px',
+                                  borderRadius: '7px', cursor: 'pointer',
+                                  fontFamily: "'Inter',-apple-system,sans-serif",
+                                  display: 'flex', alignItems: 'center',
+                                  opacity: currentHistoryIndex <= 0 ? 0.4 : 1,
+                                }}
+                                title="Undo"
+                              >
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'relative', zIndex: 2 }}><path d="M9 14L4 9L9 4" /><path d="M4 9H16C18.2091 9 20 10.7909 20 13C20 15.2091 18.2091 17 16 17H13" /></svg>
+                              </button>
+                              <button
+                                className="mobile-dtd-btn"
+                                onClick={() => { setLwChartDrawings(prev => ({ ...prev, [currentSymbol]: [] })); setDrawingHistory(prev => ({ ...prev, [currentSymbol]: [[]] })); setHistoryIndex(prev => ({ ...prev, [currentSymbol]: 0 })); setCurrentDrawingTool('select'); }}
+                                style={{
+                                  marginRight: '8px',
+                                  padding: '7px 10px', fontWeight: 800, fontSize: '11px',
+                                  borderRadius: '7px', letterSpacing: '0.08em',
+                                  textTransform: 'uppercase', cursor: 'pointer',
+                                  fontFamily: "'Inter',-apple-system,sans-serif",
+                                  display: 'flex', alignItems: 'center', gap: '4px',
+                                }}
+                                title="Clear all drawings"
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ff1744" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'relative', zIndex: 2 }}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                              </button>
+                            </>
+                          )
+                        })()}
+                      </div>,
+                      document.body
+                    )}
+
+                    {/* Mobile Ticker Search Modal */}
+                    {isMobile && isMobileTickerModalOpen && typeof document !== 'undefined' && createPortal(
+                      <div style={{
+                        position: 'fixed', inset: 0, zIndex: 2147483647,
+                        background: '#111',
+                        display: 'flex', flexDirection: 'column',
+                        paddingTop: 'env(safe-area-inset-top, 0px)',
+                      }}>
+                        {/* Search bar row */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>
+                          <input
+                            ref={mobileTickerModalInputRef}
+                            value={mobileTickerModalQuery}
+                            onChange={e => {
+                              const q = e.target.value.toUpperCase()
+                              setMobileTickerModalQuery(q)
+                              if (mobileTickerSearchDebounce.current) clearTimeout(mobileTickerSearchDebounce.current)
+                              if (!q.trim()) { setMobileTickerModalResults([]); setMobileTickerModalLoading(false); return }
+                              setMobileTickerModalLoading(true)
+                              mobileTickerSearchDebounce.current = setTimeout(async () => {
+                                try {
+                                  const res = await fetch(`/api/ticker-search?q=${encodeURIComponent(q)}`)
+                                  const data = await res.json()
+                                  setMobileTickerModalResults(data.results || [])
+                                } catch { setMobileTickerModalResults([]) }
+                                setMobileTickerModalLoading(false)
+                              }, 280)
+                            }}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter' && mobileTickerModalQuery.trim()) {
+                                const pick = mobileTickerModalResults[0]?.ticker || mobileTickerModalQuery.trim()
+                                handleSearch(pick)
+                                const next = [pick, ...mobileTickerRecents.filter(r => r !== pick)].slice(0, 8)
+                                setMobileTickerRecents(next)
+                                try { localStorage.setItem('mobileTickerRecents', JSON.stringify(next)) } catch { }
+                                setIsMobileTickerModalOpen(false)
+                              }
+                            }}
+                            placeholder="Use = to do math"
+                            autoCapitalize="characters"
+                            autoComplete="off"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            style={{
+                              flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                              borderRadius: 8, color: '#fff', fontSize: '16px', fontWeight: 500,
+                              fontFamily: 'system-ui,-apple-system,sans-serif', padding: '9px 12px',
+                              outline: 'none', caretColor: '#ff8500',
+                            }}
+                          />
+                          <button
+                            onClick={() => setIsMobileTickerModalOpen(false)}
+                            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', fontSize: '15px', fontWeight: 500, cursor: 'pointer', padding: '4px 6px', flexShrink: 0, fontFamily: 'system-ui,-apple-system,sans-serif' }}
+                          >Close</button>
+                        </div>
+
+                        {/* Results / Recents list */}
+                        <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' as any }}>
+                          {mobileTickerModalLoading && (
+                            <div style={{ padding: '20px', textAlign: 'center', color: 'rgba(255,255,255,0.35)', fontSize: '14px' }}>Searching…</div>
+                          )}
+
+                          {!mobileTickerModalLoading && mobileTickerModalQuery.trim() === '' && (
+                            <>
+                              {mobileTickerRecents.length > 0 && (
+                                <div>
+                                  <div style={{ padding: '10px 16px 4px', fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Recent</div>
+                                  {mobileTickerRecents.map(t => (
+                                    <div key={t} onClick={() => {
+                                      handleSearch(t)
+                                      setIsMobileTickerModalOpen(false)
+                                    }} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', borderBottom: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer' }}>
+                                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                                      <span style={{ fontSize: '16px', fontWeight: 700, fontFamily: 'monospace', color: '#fff', letterSpacing: '0.5px' }}>{t}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {/* Popular tickers */}
+                              <div>
+                                <div style={{ padding: '10px 16px 4px', fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Popular</div>
+                                {MOBILE_MAG7.map(t => (
+                                  <div key={t} onClick={() => {
+                                    handleSearch(t)
+                                    const next = [t, ...mobileTickerRecents.filter(r => r !== t)].slice(0, 8)
+                                    setMobileTickerRecents(next)
+                                    try { localStorage.setItem('mobileTickerRecents', JSON.stringify(next)) } catch { }
+                                    setIsMobileTickerModalOpen(false)
+                                  }} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', borderBottom: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer' }}>
+                                    <span style={{ fontSize: '16px', fontWeight: 700, fontFamily: 'monospace', color: '#fff', letterSpacing: '0.5px', minWidth: 60 }}>{t}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          )}
+
+                          {!mobileTickerModalLoading && mobileTickerModalQuery.trim() !== '' && mobileTickerModalResults.length === 0 && (
+                            <div style={{ padding: '20px', textAlign: 'center', color: 'rgba(255,255,255,0.35)', fontSize: '14px' }}>No results for "{mobileTickerModalQuery}"</div>
+                          )}
+
+                          {!mobileTickerModalLoading && mobileTickerModalResults.map(r => (
+                            <div key={r.ticker} onClick={() => {
+                              handleSearch(r.ticker)
+                              const next = [r.ticker, ...mobileTickerRecents.filter(x => x !== r.ticker)].slice(0, 8)
+                              setMobileTickerRecents(next)
+                              try { localStorage.setItem('mobileTickerRecents', JSON.stringify(next)) } catch { }
+                              setIsMobileTickerModalOpen(false)
+                            }} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', borderBottom: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer' }}>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: '16px', fontWeight: 700, fontFamily: 'monospace', color: '#fff', letterSpacing: '0.5px' }}>{r.ticker}</div>
+                                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.45)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div>
+                              </div>
+                              <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.25)', fontFamily: 'monospace', flexShrink: 0 }}>stock</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>,
                       document.body
                     )}
                   </>
@@ -34974,7 +35758,7 @@ export default function TradingViewChart({
                 <div className="flex items-center space-x-4"></div>
 
                 {/* TRADE MODE Button — market overview only */}
-                {showTradeModeButton && <TradeModeButton isActive={tradeModeActive} onClick={() => setTradeModeActive(v => !v)} />}
+                {showTradeModeButton && !isMobile && <TradeModeButton isActive={tradeModeActive} onClick={() => setTradeModeActive(v => !v)} />}
 
                 {/* GUIDE AI Button - Matches toolbar button style */}
                 <button
@@ -35005,7 +35789,7 @@ export default function TradingViewChart({
                 </button>
 
                 {/* MULTICHART LAYOUT Button - Matches toolbar button style */}
-                <div className="relative group" style={{ marginRight: '12px' }}>
+                {!isMobile && <div className="relative group" style={{ marginRight: '12px' }}>
                   <button
                     onClick={() => {
                       const layouts: ('1x1' | '1x2' | '2x2')[] = ['1x1', '1x2', '2x2']
@@ -35050,7 +35834,7 @@ export default function TradingViewChart({
                       )}
                     </svg>
                   </button>
-                </div>
+                </div>}
 
                 {/* SETTINGS Button - Matches toolbar button style */}
                 <button
@@ -35979,7 +36763,7 @@ export default function TradingViewChart({
             </div>
 
             {/* Main Chart Area — wrapper keeps flex:1 so sidebars never move */}
-            <div style={{ flex: 1, position: 'relative', minWidth: 0, height: '100%', overflow: 'hidden' }}>
+            <div style={{ flex: 1, position: 'relative', minWidth: 0, height: isMobile ? 'calc(100% - 45px)' : '100%', overflow: 'hidden' }}>
 
               {/* Trade Mode panels — absolute inside this wrapper */}
               {tradeModeActive && (
@@ -36029,7 +36813,6 @@ export default function TradingViewChart({
                 height: tradeModeActive ? '60%' : '100%',
                 marginRight: (showPATPanel && !isMobile && !hideDesktopSidebar) ? patPanelWidth : 0,
               }}>
-
                 {/* ── Animated Backgrounds ── */}
                 <style>{`
                 @keyframes star-twinkle {
@@ -36246,6 +37029,9 @@ export default function TradingViewChart({
                         transition: 'cursor 0.1s ease',
                         outline: 'none',
                         touchAction: 'none',
+                        userSelect: 'none',
+                        WebkitUserSelect: 'none',
+                        WebkitTouchCallout: 'none',
                         left: 0,
                         top: 0,
                         width: '100%',
@@ -36308,20 +37094,34 @@ export default function TradingViewChart({
                           }
                         }
                       }}
-                      // Touch Events for Mobile Support (TradingView-style: long-press = crosshair, drag = pan)
+                      // Touch Events — TradingView-style crosshair on mobile
                       onTouchStart={(e: React.TouchEvent<HTMLCanvasElement>) => {
                         if (e.touches.length === 1) {
                           e.preventDefault()
                           const touch = e.touches[0]
+                          const rect = e.currentTarget.getBoundingClientRect()
+                          const tx = touch.clientX - rect.left
+                          const ty = touch.clientY - rect.top
                           touchStartPos.current = { x: touch.clientX, y: touch.clientY }
-                          touchCrosshairActive.current = false
+                          touchIsTap.current = true
+                          touchDraggingCrosshair.current = false
+                          touchDragInitialized.current = false
 
-                          // Start long-press timer — 500ms activates crosshair mode
                           if (touchLongPressTimer.current) clearTimeout(touchLongPressTimer.current)
-                          touchLongPressTimer.current = setTimeout(() => {
-                            touchCrosshairActive.current = true
-                            // Activate crosshair at current touch position
-                            const mouseEvent = {
+
+                          // Check if touch is near the crosshair (within 44px of intersection OR within 28px of either line)
+                          const crossX = crosshairPosition.x
+                          const crossY = crosshairPosition.y
+                          const distToPoint = Math.sqrt((tx - crossX) ** 2 + (ty - crossY) ** 2)
+                          const distToVLine = Math.abs(tx - crossX)  // distance to vertical line
+                          const distToHLine = Math.abs(ty - crossY)  // distance to horizontal line
+                          const nearCrosshair = distToPoint < 44 || distToVLine < 24 || distToHLine < 24
+                          if (touchCrosshairActive.current && nearCrosshair) {
+                            // Start dragging the crosshair — don't pan
+                            touchDraggingCrosshair.current = true
+                          } else {
+                            // Start pan immediately so drag feels instant
+                            const downEvent = {
                               currentTarget: e.currentTarget,
                               button: 0,
                               clientX: touch.clientX,
@@ -36330,77 +37130,56 @@ export default function TradingViewChart({
                               metaKey: false,
                               preventDefault: () => { },
                             } as unknown as React.MouseEvent<HTMLCanvasElement>
-                            handleUnifiedMouseDown(mouseEvent)
-                            // Optional haptic feedback
-                            if (navigator.vibrate) navigator.vibrate(30)
-                          }, 500)
+                            handleUnifiedMouseDown(downEvent)
+                            touchDragInitialized.current = true
+                          }
                         } else if (e.touches.length === 2) {
-                          // Pinch starting — cancel any long-press
                           if (touchLongPressTimer.current) clearTimeout(touchLongPressTimer.current)
+                          touchDraggingCrosshair.current = false
                           touchCrosshairActive.current = false
+                          handleMouseLeave()
+                          handleMouseUp(e as any)
                         }
                       }}
                       onTouchMove={(e: React.TouchEvent<HTMLCanvasElement>) => {
-                        // Handle pinch-to-zoom gesture
                         if (e.touches.length === 2) {
                           e.preventDefault()
-                          const touch1 = e.touches[0]
-                          const touch2 = e.touches[1]
-
-                          // Calculate distance between two touches
-                          const dx = touch2.clientX - touch1.clientX
-                          const dy = touch2.clientY - touch1.clientY
-                          const distance = Math.sqrt(dx * dx + dy * dy)
-
+                          const t1 = e.touches[0], t2 = e.touches[1]
+                          const dist = Math.sqrt((t2.clientX - t1.clientX) ** 2 + (t2.clientY - t1.clientY) ** 2)
                           if (lastTouchDistance !== null) {
-                            // Calculate zoom factor based on distance change
-                            const distanceChange = distance - lastTouchDistance
-                            const scaleFactor = distanceChange > 0 ? 0.95 : 1.05
-
-                            const newCount = Math.max(
-                              20,
-                              Math.min(300, Math.round(visibleCandleCount * scaleFactor))
-                            )
-                            setVisibleCandleCount(newCount)
+                            const scaleFactor = (dist - lastTouchDistance) > 0 ? 0.95 : 1.05
+                            setVisibleCandleCount(c => Math.max(20, Math.min(300, Math.round(c * scaleFactor))))
                           }
-
-                          setLastTouchDistance(distance)
+                          setLastTouchDistance(dist)
                           return
                         }
-
-                        // Single touch
                         setLastTouchDistance(null)
                         e.preventDefault()
                         const touch = e.touches[0]
                         if (!touch) return
-
                         const mouseEvent = {
                           currentTarget: e.currentTarget,
                           clientX: touch.clientX,
                           clientY: touch.clientY,
                         } as unknown as React.MouseEvent<HTMLCanvasElement>
 
-                        if (touchCrosshairActive.current) {
-                          // Crosshair mode: update crosshair position (drag after long-press)
+                        if (touchDraggingCrosshair.current) {
+                          // Drag crosshair with finger
                           handleMouseMove(mouseEvent)
+                          touchIsTap.current = false
                         } else {
-                          // Check if moved enough to cancel long-press and pan instead
                           const start = touchStartPos.current
                           if (start) {
-                            const moved = Math.sqrt(
-                              (touch.clientX - start.x) ** 2 + (touch.clientY - start.y) ** 2
-                            )
-                            if (moved > 8) {
-                              // Cancel long-press — treat as pan
-                              if (touchLongPressTimer.current) {
-                                clearTimeout(touchLongPressTimer.current)
-                                touchLongPressTimer.current = null
+                            const moved = Math.sqrt((touch.clientX - start.x) ** 2 + (touch.clientY - start.y) ** 2)
+                            if (moved > 4) {
+                              touchIsTap.current = false
+                              // Cancel any crosshair on drag
+                              if (touchCrosshairActive.current) {
+                                touchCrosshairActive.current = false
+                                handleMouseLeave()
                               }
-                              if (activeTool) {
-                                handleCanvasMouseMove(mouseEvent)
-                              } else {
-                                handleMouseMove(mouseEvent)
-                              }
+                              if (activeTool) handleCanvasMouseMove(mouseEvent)
+                              else handleMouseMove(mouseEvent)
                             }
                           }
                         }
@@ -36408,14 +37187,55 @@ export default function TradingViewChart({
                       onTouchEnd={(e: React.TouchEvent<HTMLCanvasElement>) => {
                         e.preventDefault()
                         setLastTouchDistance(null)
-                        // Cancel any pending long-press
-                        if (touchLongPressTimer.current) {
-                          clearTimeout(touchLongPressTimer.current)
-                          touchLongPressTimer.current = null
-                        }
-                        touchCrosshairActive.current = false
+                        if (touchLongPressTimer.current) { clearTimeout(touchLongPressTimer.current); touchLongPressTimer.current = null }
+
+                        const wasDraggingCrosshair = touchDraggingCrosshair.current
+                        const wasTap = touchIsTap.current
+                        const startPos = touchStartPos.current
+
+                        touchDraggingCrosshair.current = false
+                        touchIsTap.current = false
+                        touchDragInitialized.current = false
                         touchStartPos.current = null
-                        handleMouseUp(e as any)
+
+                        if (wasDraggingCrosshair) {
+                          // Keep crosshair visible after dragging — do nothing extra
+                          return
+                        }
+
+                        if (wasTap && startPos) {
+                          // It was a tap — handle crosshair toggle
+                          const changedTouch = e.changedTouches[0]
+                          if (!changedTouch) return
+                          const rect = e.currentTarget.getBoundingClientRect()
+                          const tx = changedTouch.clientX - rect.left
+                          const ty = changedTouch.clientY - rect.top
+                          const crossX = crosshairPosition.x
+                          const crossY = crosshairPosition.y
+                          const distToPoint = Math.sqrt((tx - crossX) ** 2 + (ty - crossY) ** 2)
+                          const nearCrosshairOnTap = distToPoint < 50 || Math.abs(tx - crossX) < 28 || Math.abs(ty - crossY) < 28
+
+                          if (touchCrosshairActive.current && !nearCrosshairOnTap) {
+                            // Tap far from crosshair — dismiss it
+                            touchCrosshairActive.current = false
+                            handleMouseLeave()
+                            handleMouseUp(e as any)
+                          } else if (!touchCrosshairActive.current) {
+                            // No crosshair — place it at tap position
+                            touchCrosshairActive.current = true
+                            const moveEvent = {
+                              currentTarget: e.currentTarget,
+                              clientX: changedTouch.clientX,
+                              clientY: changedTouch.clientY,
+                            } as unknown as React.MouseEvent<HTMLCanvasElement>
+                            handleMouseMove(moveEvent)
+                            if (navigator.vibrate) navigator.vibrate(10)
+                          }
+                          // Tap near existing crosshair → do nothing, keep it
+                        } else {
+                          // Was a pan — release drag, hide crosshair
+                          handleMouseUp(e as any)
+                        }
                       }}
                       // Enhanced zoom support
                       onWheel={(e: React.WheelEvent<HTMLCanvasElement>) => {

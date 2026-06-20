@@ -3,7 +3,7 @@
 import { TbStar, TbStarFilled } from 'react-icons/tb'
 import * as XLSX from 'xlsx'
 
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -3995,6 +3995,32 @@ Stock Reaction: ${scores.stockReaction}/15`
   // Ref for screenshot capture
   const captureRef = useRef<HTMLDivElement>(null)
 
+  // Ref for the fixed Premium Control Bar
+  const controlBarRef = useRef<HTMLDivElement>(null)
+
+  // Dynamic shim height = nav height + control bar height, kept in sync via ResizeObserver
+  const [mobileShimHeight, setMobileShimHeight] = useState(120)
+
+  useLayoutEffect(() => {
+    if (!isMobileView) return
+    const cb = controlBarRef.current
+    if (!cb) return
+
+    const recalc = () => {
+      const cbBottom = cb.getBoundingClientRect().bottom
+      const containerTop = captureRef.current?.getBoundingClientRect().top ?? 0
+      setMobileShimHeight(Math.ceil(cbBottom - containerTop))
+    }
+
+    recalc()
+    const ro = new ResizeObserver(recalc)
+    ro.observe(cb)
+    const nav = document.querySelector('nav') as HTMLElement | null
+    if (nav) ro.observe(nav)
+    return () => ro.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobileView])
+
   // Download page as a clean canvas-drawn image
   const handleDownloadImage = () => {
     try {
@@ -5888,7 +5914,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         ref={captureRef}
         className={`bg-black flex flex-col ${isFlowTrackingOpen ? 'md:flex hidden' : 'flex'}`}
         style={{
-          height: showFlowTrackingInline ? 'auto' : isSidebarPanel ? 'auto' : (isMobileView ? 'calc(100vh - 56px)' : 'calc(100vh - 119px)'),
+          height: showFlowTrackingInline ? 'auto' : isSidebarPanel ? 'auto' : (isMobileView ? 'calc(100dvh - 60px)' : 'calc(100vh - 119px)'),
           minHeight: showFlowTrackingInline ? 'auto' : undefined,
           overflow: showFlowTrackingInline ? undefined : isSidebarPanel ? 'visible' : 'hidden',
 
@@ -5904,18 +5930,16 @@ Stock Reaction: ${scores.stockReaction}/15`
         {/* Premium Control Bar */}
 
         <div
+          ref={controlBarRef}
           className="bg-black border-b border-gray-700 flex-shrink-0"
           style={{
             position: isSidebarPanel ? 'sticky' : 'fixed',
-            top: isSidebarPanel ? 0 : (isMobileView ? '56px' : '119px'),
+            top: isSidebarPanel ? 0 : (isMobileView ? '0px' : '119px'),
             left: 0,
             right: 0,
             zIndex: isSidebarPanel ? 10 : 999,
-
             width: '100%',
-
             overflow: 'visible',
-
             marginTop: 0,
           }}
         >
@@ -7329,7 +7353,10 @@ Stock Reaction: ${scores.stockReaction}/15`
         </div>
 
         {/* Shim: reserves space for the fixed control bar (nav+ticker+bar height) */}
-        <div style={{ height: isSidebarPanel ? '0' : (isMobileView ? '100px' : '52px'), flexShrink: 0 }} aria-hidden="true" />
+        <div
+          style={{ height: isSidebarPanel ? '0' : (isMobileView ? `${mobileShimHeight}px` : '52px'), flexShrink: 0 }}
+          aria-hidden="true"
+        />
 
         {streamError && (
           <div className="bg-red-900/20 border-l-4 border-red-500 px-6 py-4 mx-8 my-4 rounded-r-lg">
