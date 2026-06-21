@@ -16758,11 +16758,8 @@ export default function TradingViewChart({
         const priceY = crosshairPosition.y
 
         // Price label background (right side of chart)
-        ctx.fillStyle = config.theme === 'dark' ? '#1a202c' : '#2d3748'
-        ctx.strokeStyle = config.theme === 'dark' ? '#2d3748' : '#4a5568'
-        ctx.lineWidth = 1
+        ctx.fillStyle = '#0a0a0a'
         ctx.fillRect(width - priceTextWidth - 5, priceY - 12, priceTextWidth, 24)
-        ctx.strokeRect(width - priceTextWidth - 5, priceY - 12, priceTextWidth, 24)
 
         ctx.shadowColor = 'rgba(0, 0, 0, 0.9)'
         ctx.shadowBlur = 3
@@ -16786,21 +16783,16 @@ export default function TradingViewChart({
         const dateTextWidth = ctx.measureText(dateText).width + 16
         const dateX = crosshairPosition.x
 
-        // Match drawTimeAxis: axisTop = height - 35, labelY = axisTop + 16
+        // Match drawTimeAxis: axisTop = height - 35, labelY = axisTop + 25
         const timeAxisHeight = 35
-        const xLabelY = height - timeAxisHeight + 16  // exact same as drawTimeAxis addLabel
-        const boxH = timeAxisHeight - 4              // fill the whole time-axis strip
-        const boxTop = height - timeAxisHeight + 2   // start just inside the strip top
+        const xLabelY = height - timeAxisHeight + 25
 
         // Clamp so label stays within canvas horizontally
         const labelX = Math.max(dateTextWidth / 2, Math.min(width - dateTextWidth / 2, dateX))
 
-        // Background box covers the time-axis strip at the correct Y
-        ctx.fillStyle = config.theme === 'dark' ? '#1a202c' : '#2d3748'
-        ctx.strokeStyle = config.theme === 'dark' ? '#2d3748' : '#4a5568'
-        ctx.lineWidth = 1
-        ctx.fillRect(Math.floor(labelX - dateTextWidth / 2), boxTop, Math.ceil(dateTextWidth), boxH)
-        ctx.strokeRect(Math.floor(labelX - dateTextWidth / 2), boxTop, Math.ceil(dateTextWidth), boxH)
+        // Background box
+        ctx.fillStyle = '#0a0a0a'
+        ctx.fillRect(Math.floor(labelX - dateTextWidth / 2), xLabelY - 14, Math.ceil(dateTextWidth), 18)
 
         ctx.shadowColor = 'rgba(0, 0, 0, 0.9)'
         ctx.shadowBlur = 3
@@ -21810,7 +21802,7 @@ export default function TradingViewChart({
 
         // Time axis always draws in the last timeAxisHeight pixels of the canvas
         const axisTop = timeAxisStartY ?? (height - 25)
-        const labelY = axisTop + 16
+        const labelY = axisTop + 25
         const tickStartY = axisTop + 2
         const tickEndY = axisTop + 10
 
