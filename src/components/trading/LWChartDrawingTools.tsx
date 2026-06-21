@@ -424,6 +424,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
   const pendingMousePositionRef = useRef<{ x: number; y: number } | null>(null)
   const isProcessingDragRef = useRef(false)
   const isDraggingRef = useRef(false)
+  const captureLayerRef = useRef<HTMLDivElement>(null)
   const propertiesPanelRef = useRef<HTMLDivElement>(null)
 
   // Close properties panel on click outside
@@ -516,7 +517,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     }
 
     window.addEventListener('mouseup', handleGlobalMouseUp)
-    return () => window.removeEventListener('mouseup', handleGlobalMouseUp)
+    window.addEventListener('pointerup', handleGlobalMouseUp)
+    window.addEventListener('touchend', handleGlobalMouseUp)
+    return () => {
+      window.removeEventListener('mouseup', handleGlobalMouseUp)
+      window.removeEventListener('pointerup', handleGlobalMouseUp)
+      window.removeEventListener('touchend', handleGlobalMouseUp)
+    }
   }, [])
 
   // Helper to convert data coordinates to screen coordinates
@@ -1750,7 +1757,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     }
 
     // Only handle if actively dragging something or using a drawing tool
-    if (!isDragging && currentTool === 'select') return
+    if (!isDraggingRef.current && currentTool === 'select') return
 
     // Store the latest mouse position for batched processing
     pendingMousePositionRef.current = { x, y }
@@ -3045,6 +3052,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
 
       {/* Invisible Event Capture Layer */}
       <div
+        ref={captureLayerRef}
         onClick={handleCanvasClick}
         onDoubleClick={handleCanvasDoubleClick}
         onPointerDown={handleCanvasMouseDown}
@@ -3086,6 +3094,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                 height: '100%',
                 zIndex: 1002,
                 pointerEvents: 'none',
+                touchAction: 'none',
               }}
             >
               {drawings.map((drawing) => {
@@ -3106,7 +3115,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         e.stopPropagation()
                         enableDrawingEdit(drawing.id)
                       }}
-                      onMouseDown={(e) => {
+                      onPointerDown={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
                         const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
@@ -3121,6 +3130,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           })
                           setOriginalDrawingPoints([...drawing.points])
                           setIsDragging(true)
+                          isDraggingRef.current = true
+                          captureLayerRef.current?.setPointerCapture(e.pointerId)
                         }
                       }}
                       onDoubleClick={(e) => {
@@ -3156,7 +3167,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         e.stopPropagation()
                         enableDrawingEdit(drawing.id)
                       }}
-                      onMouseDown={(e) => {
+                      onPointerDown={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
                         const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
@@ -3171,6 +3182,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           })
                           setOriginalDrawingPoints([...drawing.points])
                           setIsDragging(true)
+                          isDraggingRef.current = true
+                          captureLayerRef.current?.setPointerCapture(e.pointerId)
                         }
                       }}
                       onDoubleClick={(e) => {
@@ -3205,7 +3218,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         e.stopPropagation()
                         enableDrawingEdit(drawing.id)
                       }}
-                      onMouseDown={(e) => {
+                      onPointerDown={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
                         const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
@@ -3220,6 +3233,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           })
                           setOriginalDrawingPoints([...drawing.points])
                           setIsDragging(true)
+                          isDraggingRef.current = true
+                          captureLayerRef.current?.setPointerCapture(e.pointerId)
                         }
                       }}
                       onDoubleClick={(e) => {
@@ -3253,7 +3268,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         e.stopPropagation()
                         enableDrawingEdit(drawing.id)
                       }}
-                      onMouseDown={(e) => {
+                      onPointerDown={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
                         const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
@@ -3268,6 +3283,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           })
                           setOriginalDrawingPoints([...drawing.points])
                           setIsDragging(true)
+                          isDraggingRef.current = true
+                          captureLayerRef.current?.setPointerCapture(e.pointerId)
                         }
                       }}
                       onDoubleClick={(e) => {
@@ -3307,7 +3324,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         e.stopPropagation()
                         enableDrawingEdit(drawing.id)
                       }}
-                      onMouseDown={(e) => {
+                      onPointerDown={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
                         const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
@@ -3322,6 +3339,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           })
                           setOriginalDrawingPoints([...drawing.points])
                           setIsDragging(true)
+                          isDraggingRef.current = true
+                          captureLayerRef.current?.setPointerCapture(e.pointerId)
                         }
                       }}
                       onDoubleClick={(e) => {
@@ -3364,7 +3383,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
 
                   const hitHandlers = {
                     onClick: (e: React.MouseEvent) => { e.stopPropagation(); enableDrawingEdit(drawing.id) },
-                    onMouseDown: (e: React.MouseEvent) => {
+                    onPointerDown: (e: React.PointerEvent) => {
                       e.stopPropagation(); e.preventDefault()
                       const svgRect = (e.currentTarget as SVGElement).ownerSVGElement?.getBoundingClientRect()
                       if (svgRect && !justCompletedDrawing) {
@@ -3374,6 +3393,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         setDraggedDrawing(drawing.id); setDragOffset({ x: mx, y: my })
                         setDragStartDataPoint({ time: screenToTime ? screenToTime(mx) : 0, price: screenToPrice ? screenToPrice(my) : 0 })
                         setOriginalDrawingPoints([...drawing.points]); setIsDragging(true)
+                        isDraggingRef.current = true; captureLayerRef.current?.setPointerCapture(e.pointerId)
                       }
                     },
                     onDoubleClick: (e: React.MouseEvent) => {
@@ -3432,7 +3452,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         e.stopPropagation()
                         enableDrawingEdit(drawing.id)
                       }}
-                      onMouseDown={(e) => {
+                      onPointerDown={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
                         const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
@@ -3447,6 +3467,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           })
                           setOriginalDrawingPoints([...drawing.points])
                           setIsDragging(true)
+                          isDraggingRef.current = true
+                          captureLayerRef.current?.setPointerCapture(e.pointerId)
                         }
                       }}
                       onDoubleClick={(e) => {
@@ -3486,7 +3508,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           e.stopPropagation()
                           enableDrawingEdit(drawing.id)
                         }}
-                        onMouseDown={(e) => {
+                        onPointerDown={(e) => {
                           e.stopPropagation()
                           e.preventDefault()
                           const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
@@ -3501,6 +3523,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             })
                             setOriginalDrawingPoints([...drawing.points])
                             setIsDragging(true)
+                            isDraggingRef.current = true
+                            captureLayerRef.current?.setPointerCapture(e.pointerId)
                           }
                         }}
                         onDoubleClick={(e) => {
@@ -3529,7 +3553,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           setEditingDrawing(drawing.id)
                           setSelectedDrawing(drawing.id)
                         }}
-                        onMouseDown={(e) => {
+                        onPointerDown={(e) => {
                           e.stopPropagation()
                           e.preventDefault()
                           const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
@@ -3544,6 +3568,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             })
                             setOriginalDrawingPoints([...drawing.points])
                             setIsDragging(true)
+                            isDraggingRef.current = true
+                            captureLayerRef.current?.setPointerCapture(e.pointerId)
                           }
                         }}
                         onDoubleClick={(e) => {
@@ -3576,7 +3602,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         e.stopPropagation()
                         enableDrawingEdit(drawing.id)
                       }}
-                      onMouseDown={(e) => {
+                      onPointerDown={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
                         const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
@@ -3591,6 +3617,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           })
                           setOriginalDrawingPoints([...drawing.points])
                           setIsDragging(true)
+                          isDraggingRef.current = true
+                          captureLayerRef.current?.setPointerCapture(e.pointerId)
                         }
                       }}
                       onDoubleClick={(e) => {
@@ -3644,7 +3672,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         e.stopPropagation()
                         enableDrawingEdit(drawing.id)
                       }}
-                      onMouseDown={(e) => {
+                      onPointerDown={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
                         const svgRect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
@@ -3661,6 +3689,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           })
                           setOriginalDrawingPoints([...drawing.points])
                           setIsDragging(true)
+                          isDraggingRef.current = true
+                          captureLayerRef.current?.setPointerCapture(e.pointerId)
                         }
                       }}
                       onDoubleClick={(e) => {
@@ -3686,7 +3716,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                   const p2raw = drawing.fibReverse ? drawing.points[0] : drawing.points[1]
                   const priceRange = p2raw.price - p1raw.price
                   const svgHandlers = {
-                    onMouseDown: (e: React.MouseEvent<SVGElement>) => {
+                    onPointerDown: (e: React.PointerEvent<SVGElement>) => {
                       e.stopPropagation()
                       e.preventDefault()
                       const svgRect = (e.currentTarget as SVGElement).ownerSVGElement?.getBoundingClientRect()
@@ -3700,6 +3730,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         setDragStartDataPoint({ time: screenToTime ? screenToTime(mx) : 0, price: screenToPrice ? screenToPrice(my) : 0 })
                         setOriginalDrawingPoints([...drawing.points])
                         setIsDragging(true)
+                        isDraggingRef.current = true
+                        captureLayerRef.current?.setPointerCapture(e.pointerId)
                       }
                     },
                     onDoubleClick: (e: React.MouseEvent<SVGElement>) => {
@@ -3728,7 +3760,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                 } else if ((drawing.type === 'elliottWave' || drawing.type === 'elliottWaveABC') && drawing.points.length >= 2) {
                   const pts = drawing.points.map(p => toScreenCoords(p))
                   const svgHandlers = {
-                    onMouseDown: (e: React.MouseEvent<SVGElement>) => {
+                    onPointerDown: (e: React.PointerEvent<SVGElement>) => {
                       e.stopPropagation()
                       e.preventDefault()
                       const svgRect = (e.currentTarget as SVGElement).ownerSVGElement?.getBoundingClientRect()
@@ -3742,6 +3774,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         setDragStartDataPoint({ time: screenToTime ? screenToTime(mx) : 0, price: screenToPrice ? screenToPrice(my) : 0 })
                         setOriginalDrawingPoints([...drawing.points])
                         setIsDragging(true)
+                        isDraggingRef.current = true
+                        captureLayerRef.current?.setPointerCapture(e.pointerId)
                       }
                     },
                     onDoubleClick: (e: React.MouseEvent<SVGElement>) => {
@@ -3764,7 +3798,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                 } else if (drawing.type === 'path' && drawing.points.length >= 2) {
                   const pts = drawing.points.map(p => toScreenCoords(p))
                   const svgHandlers = {
-                    onMouseDown: (e: React.MouseEvent<SVGElement>) => {
+                    onPointerDown: (e: React.PointerEvent<SVGElement>) => {
                       e.stopPropagation()
                       e.preventDefault()
                       const svgRect = (e.currentTarget as SVGElement).ownerSVGElement?.getBoundingClientRect()
@@ -3778,6 +3812,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         setDragStartDataPoint({ time: screenToTime ? screenToTime(mx) : 0, price: screenToPrice ? screenToPrice(my) : 0 })
                         setOriginalDrawingPoints([...drawing.points])
                         setIsDragging(true)
+                        isDraggingRef.current = true
+                        captureLayerRef.current?.setPointerCapture(e.pointerId)
                       }
                     },
                     onDoubleClick: (e: React.MouseEvent<SVGElement>) => {
@@ -3833,11 +3869,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             stroke="#fff"
                             strokeWidth="2"
                             style={{ pointerEvents: 'all', cursor: 'nwse-resize' }}
-                            onMouseDown={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation()
                               e.preventDefault()
                               setDraggedControlPoint(0)
                               setIsDragging(true)
+                              isDraggingRef.current = true
+                              captureLayerRef.current?.setPointerCapture(e.pointerId)
                             }}
                           />
                           <circle
@@ -3848,11 +3886,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             stroke="#fff"
                             strokeWidth="2"
                             style={{ pointerEvents: 'all', cursor: 'nesw-resize' }}
-                            onMouseDown={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation()
                               e.preventDefault()
                               setDraggedControlPoint(1)
                               setIsDragging(true)
+                              isDraggingRef.current = true
+                              captureLayerRef.current?.setPointerCapture(e.pointerId)
                             }}
                           />
                           <circle
@@ -3863,11 +3903,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             stroke="#fff"
                             strokeWidth="2"
                             style={{ pointerEvents: 'all', cursor: 'nwse-resize' }}
-                            onMouseDown={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation()
                               e.preventDefault()
                               setDraggedControlPoint(2)
                               setIsDragging(true)
+                              isDraggingRef.current = true
+                              captureLayerRef.current?.setPointerCapture(e.pointerId)
                             }}
                           />
                           <circle
@@ -3878,11 +3920,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             stroke="#fff"
                             strokeWidth="2"
                             style={{ pointerEvents: 'all', cursor: 'nesw-resize' }}
-                            onMouseDown={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation()
                               e.preventDefault()
                               setDraggedControlPoint(3)
                               setIsDragging(true)
+                              isDraggingRef.current = true
+                              captureLayerRef.current?.setPointerCapture(e.pointerId)
                             }}
                           />
                           {/* Edge handles */}
@@ -3895,11 +3939,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             stroke="#fff"
                             strokeWidth="2"
                             style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
-                            onMouseDown={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation()
                               e.preventDefault()
                               setDraggedControlPoint(4)
                               setIsDragging(true)
+                              isDraggingRef.current = true
+                              captureLayerRef.current?.setPointerCapture(e.pointerId)
                             }}
                           />
                           <rect
@@ -3911,11 +3957,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             stroke="#fff"
                             strokeWidth="2"
                             style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
-                            onMouseDown={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation()
                               e.preventDefault()
                               setDraggedControlPoint(5)
                               setIsDragging(true)
+                              isDraggingRef.current = true
+                              captureLayerRef.current?.setPointerCapture(e.pointerId)
                             }}
                           />
                           <rect
@@ -3927,11 +3975,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             stroke="#fff"
                             strokeWidth="2"
                             style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
-                            onMouseDown={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation()
                               e.preventDefault()
                               setDraggedControlPoint(6)
                               setIsDragging(true)
+                              isDraggingRef.current = true
+                              captureLayerRef.current?.setPointerCapture(e.pointerId)
                             }}
                           />
                           <rect
@@ -3943,11 +3993,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             stroke="#fff"
                             strokeWidth="2"
                             style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
-                            onMouseDown={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation()
                               e.preventDefault()
                               setDraggedControlPoint(7)
                               setIsDragging(true)
+                              isDraggingRef.current = true
+                              captureLayerRef.current?.setPointerCapture(e.pointerId)
                             }}
                           />
                         </g>
@@ -3964,11 +4016,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             stroke="#fff"
                             strokeWidth="2"
                             style={{ pointerEvents: 'all', cursor: 'move' }}
-                            onMouseDown={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation()
                               e.preventDefault()
                               setDraggedControlPoint(0)
                               setIsDragging(true)
+                              isDraggingRef.current = true
+                              captureLayerRef.current?.setPointerCapture(e.pointerId)
                             }}
                           />
                           <circle
@@ -3979,11 +4033,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             stroke="#fff"
                             strokeWidth="2"
                             style={{ pointerEvents: 'all', cursor: 'move' }}
-                            onMouseDown={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation()
                               e.preventDefault()
                               setDraggedControlPoint(1)
                               setIsDragging(true)
+                              isDraggingRef.current = true
+                              captureLayerRef.current?.setPointerCapture(e.pointerId)
                             }}
                           />
                         </g>
@@ -4003,7 +4059,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         stroke="#fff"
                         strokeWidth="2"
                         style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
-                        onMouseDown={(e) => {
+                        onPointerDown={(e) => {
                           e.stopPropagation()
                           e.preventDefault()
                           setDraggedControlPoint(0)
@@ -4011,6 +4067,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           if (rect) {
                             setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
                             setIsDragging(true)
+                            isDraggingRef.current = true
+                            captureLayerRef.current?.setPointerCapture(e.pointerId)
                           }
                         }}
                       />
@@ -4029,7 +4087,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         stroke="#fff"
                         strokeWidth="2"
                         style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
-                        onMouseDown={(e) => {
+                        onPointerDown={(e) => {
                           e.stopPropagation()
                           e.preventDefault()
                           setDraggedControlPoint(0)
@@ -4037,6 +4095,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           if (rect) {
                             setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
                             setIsDragging(true)
+                            isDraggingRef.current = true
+                            captureLayerRef.current?.setPointerCapture(e.pointerId)
                           }
                         }}
                       />
@@ -4053,7 +4113,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         stroke="#fff"
                         strokeWidth="2"
                         style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
-                        onMouseDown={(e) => {
+                        onPointerDown={(e) => {
                           e.stopPropagation()
                           e.preventDefault()
                           setDraggedControlPoint(0)
@@ -4061,6 +4121,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           if (rect) {
                             setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
                             setIsDragging(true)
+                            isDraggingRef.current = true
+                            captureLayerRef.current?.setPointerCapture(e.pointerId)
                           }
                         }}
                       />
@@ -4077,7 +4139,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                         stroke="#fff"
                         strokeWidth="2"
                         style={{ pointerEvents: 'all', cursor: 'move' }}
-                        onMouseDown={(e) => {
+                        onPointerDown={(e) => {
                           e.stopPropagation()
                           e.preventDefault()
                           setDraggedControlPoint(0)
@@ -4085,6 +4147,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           if (rect) {
                             setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
                             setIsDragging(true)
+                            isDraggingRef.current = true
+                            captureLayerRef.current?.setPointerCapture(e.pointerId)
                           }
                         }}
                       />
@@ -4122,13 +4186,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                               <>
                                 <circle cx={screen1.x} cy={screen1.y} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
                                   style={{ pointerEvents: 'all', cursor: 'move' }}
-                                  onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(0); setIsDragging(true) }} />
+                                  onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(0); setIsDragging(true) }} />
                                 <circle cx={screen2.x} cy={screen2.y} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
                                   style={{ pointerEvents: 'all', cursor: 'move' }}
-                                  onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(1); setIsDragging(true) }} />
+                                  onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(1); setIsDragging(true) }} />
                                 <circle cx={cCtrlX} cy={cCtrlY} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
                                   style={{ pointerEvents: 'all', cursor: 'move' }}
-                                  onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(2); setIsDragging(true) }} />
+                                  onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(2); setIsDragging(true) }} />
                               </>
                             )
                           })()
@@ -4137,10 +4201,10 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             {/* Blue: time anchors — bottom corners for diagonal so they sit ON the zone */}
                             <circle cx={x1} cy={isDiag ? botL : cy} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
                               style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
-                              onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(0); setIsDragging(true) }} />
+                              onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(0); setIsDragging(true) }} />
                             <circle cx={x2} cy={isDiag ? botR : cy} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
                               style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
-                              onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(1); setIsDragging(true) }} />
+                              onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(1); setIsDragging(true) }} />
                             {isDiag ? (
                               <>
                                 {/* Left side spine */}
@@ -4148,7 +4212,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                                 {/* Yellow: left-center height handle */}
                                 <circle cx={x1} cy={lcY} r="8" fill="#facc15" stroke="#fff" strokeWidth="2"
                                   style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
-                                  onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(2); setIsDragging(true) }} />
+                                  onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(2); setIsDragging(true) }} />
                               </>
                             ) : (
                               <>
@@ -4156,7 +4220,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                                 <line x1={midX} y1={cy} x2={midX} y2={farY} stroke="#facc1555" strokeWidth="1" strokeDasharray="4 3" style={{ pointerEvents: 'none' }} />
                                 <circle cx={midX} cy={farY} r="8" fill="#facc15" stroke="#fff" strokeWidth="2"
                                   style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
-                                  onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(2); setIsDragging(true) }} />
+                                  onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(2); setIsDragging(true) }} />
                               </>
                             )}
                           </>
@@ -4183,7 +4247,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           stroke="#fff"
                           strokeWidth="2"
                           style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             e.stopPropagation()
                             e.preventDefault()
                             setDraggedControlPoint(0)
@@ -4191,6 +4255,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             if (rect) {
                               setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
                               setIsDragging(true)
+                              isDraggingRef.current = true
+                              captureLayerRef.current?.setPointerCapture(e.pointerId)
                             }
                           }}
                         />
@@ -4203,7 +4269,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           stroke="#fff"
                           strokeWidth="2"
                           style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             e.stopPropagation()
                             e.preventDefault()
                             setDraggedControlPoint(1)
@@ -4211,6 +4277,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             if (rect) {
                               setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
                               setIsDragging(true)
+                              isDraggingRef.current = true
+                              captureLayerRef.current?.setPointerCapture(e.pointerId)
                             }
                           }}
                         />
@@ -4238,12 +4306,14 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           stroke="#fff"
                           strokeWidth="2"
                           style={{ pointerEvents: 'all', cursor: 'move' }}
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             e.stopPropagation()
                             e.preventDefault()
                             setDraggedControlPoint(0)
                             setEditingDrawing(drawing.id)
                             setIsDragging(true)
+                            isDraggingRef.current = true
+                            captureLayerRef.current?.setPointerCapture(e.pointerId)
                           }}
                         />
                         {/* Corner point 2 (first line end) - Blue */}
@@ -4255,12 +4325,14 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           stroke="#fff"
                           strokeWidth="2"
                           style={{ pointerEvents: 'all', cursor: 'move' }}
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             e.stopPropagation()
                             e.preventDefault()
                             setDraggedControlPoint(1)
                             setEditingDrawing(drawing.id)
                             setIsDragging(true)
+                            isDraggingRef.current = true
+                            captureLayerRef.current?.setPointerCapture(e.pointerId)
                           }}
                         />
                         {/* Corner point 3 (second line start) - Blue */}
@@ -4272,12 +4344,14 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           stroke="#fff"
                           strokeWidth="2"
                           style={{ pointerEvents: 'all', cursor: 'move' }}
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             e.stopPropagation()
                             e.preventDefault()
                             setDraggedControlPoint(2)
                             setEditingDrawing(drawing.id)
                             setIsDragging(true)
+                            isDraggingRef.current = true
+                            captureLayerRef.current?.setPointerCapture(e.pointerId)
                           }}
                         />
                         {/* Corner point 4 (second line end) - Blue */}
@@ -4289,12 +4363,14 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           stroke="#fff"
                           strokeWidth="2"
                           style={{ pointerEvents: 'all', cursor: 'move' }}
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             e.stopPropagation()
                             e.preventDefault()
                             setDraggedControlPoint(3)
                             setEditingDrawing(drawing.id)
                             setIsDragging(true)
+                            isDraggingRef.current = true
+                            captureLayerRef.current?.setPointerCapture(e.pointerId)
                           }}
                         />
                         {/* Middle point 1 (first line) - Orange for distance adjustment */}
@@ -4306,12 +4382,14 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           stroke="#fff"
                           strokeWidth="2"
                           style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             e.stopPropagation()
                             e.preventDefault()
                             setDraggedControlPoint(4)
                             setEditingDrawing(drawing.id)
                             setIsDragging(true)
+                            isDraggingRef.current = true
+                            captureLayerRef.current?.setPointerCapture(e.pointerId)
                           }}
                         />
                         {/* Middle point 2 (second line) - Orange for distance adjustment */}
@@ -4323,12 +4401,14 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                           stroke="#fff"
                           strokeWidth="2"
                           style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
-                          onMouseDown={(e) => {
+                          onPointerDown={(e) => {
                             e.stopPropagation()
                             e.preventDefault()
                             setDraggedControlPoint(5)
                             setEditingDrawing(drawing.id)
                             setIsDragging(true)
+                            isDraggingRef.current = true
+                            captureLayerRef.current?.setPointerCapture(e.pointerId)
                           }}
                         />
                       </g>
@@ -5136,4 +5216,5 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
 }
 
 export default LWChartDrawingTools
+
 

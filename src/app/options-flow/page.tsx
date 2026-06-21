@@ -14,6 +14,15 @@ const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 // Returns the relevant trading date (YYYY-MM-DD, PST-aware).
 // Before 6:30 AM PST → roll back to the previous trading day so a post-close
 // scan from the previous session is still considered "fresh".
+// US market holidays — extend this list each year
+const US_MARKET_HOLIDAYS_SET = new Set([
+  '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18', '2025-05-26',
+  '2025-07-04', '2025-09-01', '2025-11-27', '2025-12-25',
+  '2026-01-01', '2026-01-19', '2026-02-16', '2026-04-03', '2026-05-25',
+  '2026-06-19', // Juneteenth
+  '2026-07-03', '2026-09-07', '2026-11-26', '2026-12-25',
+])
+
 const getFlowTradingDate = (): string => {
   const nowPST = new Date(
     new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
@@ -25,14 +34,12 @@ const getFlowTradingDate = (): string => {
   if (hour < 6 || (hour === 6 && minute < 30)) {
     target.setDate(target.getDate() - 1)
   }
-  // Always skip weekends so Saturday/Sunday always resolve to Friday
-  while (target.getDay() === 0 || target.getDay() === 6) {
+  // Skip weekends AND holidays
+  const toDs = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  while (target.getDay() === 0 || target.getDay() === 6 || US_MARKET_HOLIDAYS_SET.has(toDs(target))) {
     target.setDate(target.getDate() - 1)
   }
-  const y = target.getFullYear()
-  const m = String(target.getMonth() + 1).padStart(2, '0')
-  const d = String(target.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
+  return toDs(target)
 }
 
 // Persist the liveOIMap from applyLiveOI into the database, one row per ticker.
@@ -488,11 +495,7 @@ interface MarketInfo {
 
 // Client-side trading-day calculator (mirrors server getLastNTradingDays)
 const getLastNTradingDays = (n: number): string[] => {
-  const US_HOLIDAYS = new Set([
-    '2026-01-01', '2026-01-19', '2026-02-16', '2026-04-03', '2026-05-25', '2026-07-03', '2026-09-07',
-    '2026-11-26', '2026-12-25', '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18', '2025-05-26',
-    '2025-07-04', '2025-09-01', '2025-11-27', '2025-12-25',
-  ])
+  const US_HOLIDAYS = US_MARKET_HOLIDAYS_SET
   const result: string[] = []
   const pst = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
   const cur = new Date(pst)

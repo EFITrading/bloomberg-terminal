@@ -6842,6 +6842,8 @@ export default function TradingViewChart({
   // Per-symbol derived values
   const currentSymbol = config.symbol
   const currentSymbolDrawings = lwChartDrawings[currentSymbol] || []
+  const currentSymbolDrawingsRef = useRef<any[]>([])
+  currentSymbolDrawingsRef.current = currentSymbolDrawings
   const currentHistory = drawingHistory[currentSymbol] || [[]]
   const currentHistoryIndex = historyIndex[currentSymbol] ?? 0
 
@@ -7093,7 +7095,7 @@ export default function TradingViewChart({
       '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18', '2025-05-26',
       '2025-07-04', '2025-09-01', '2025-11-27', '2025-12-25',
       '2026-01-01', '2026-01-19', '2026-02-16', '2026-04-03', '2026-05-25',
-      '2026-07-03', '2026-09-07', '2026-11-26', '2026-12-25',
+      '2026-06-19', '2026-07-03', '2026-09-07', '2026-11-26', '2026-12-25',
     ]
 
     const getTradingDays = (tf: '1D' | '3D' | '1W'): string[] => {
@@ -7165,7 +7167,6 @@ export default function TradingViewChart({
       if (hour < 6 || hour > 13 || (hour === 6 && minute < 30)) return
       let timeKey: string
       if (bucketMinutes === 0) {
-        // Daily chart mode: all trades in a day map to that day's single bucket
         timeKey = timeframe === '1D' ? 'session' : dateKey
       } else if (timeframe === '1D') {
         const totalMinutes = hour * 60 + minute
@@ -7227,16 +7228,12 @@ export default function TradingViewChart({
       } else if (timeframe === '1D') {
         const [hourStr, minStr] = key.split(':')
         const hour = parseInt(hourStr)
-        const now = new Date()
-        const pstNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-        const year = pstNow.getFullYear()
-        const month = String(pstNow.getMonth() + 1).padStart(2, '0')
-        const day = String(pstNow.getDate() - 1).padStart(2, '0')
+        const [tdYear, tdMonth, tdDay] = tradingDays[0].split('-')
         // Compute actual LA UTC offset (7 in PDT/summer, 8 in PST/winter) — DST-aware
-        const utcNoon = new Date(`${year}-${month}-${day}T12:00:00Z`)
+        const utcNoon = new Date(`${tdYear}-${tdMonth}-${tdDay}T12:00:00Z`)
         const laHourAtNoon = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', hour12: false }).format(utcNoon))
         const laOffsetHours = 12 - laHourAtNoon
-        timestamp = Date.UTC(year, (pstNow.getMonth()), parseInt(day), hour + laOffsetHours, parseInt(minStr), 0, 0)
+        timestamp = Date.UTC(parseInt(tdYear), parseInt(tdMonth) - 1, parseInt(tdDay), hour + laOffsetHours, parseInt(minStr), 0, 0)
         const hour12 = hour % 12 === 0 ? 12 : hour % 12
         const ampm = hour < 12 ? 'AM' : 'PM'
         displayLabel = `${hour12}:${minStr} ${ampm}`
@@ -7300,13 +7297,12 @@ export default function TradingViewChart({
 
   // Live FlowMoves handler - Fetches and displays 4-line flow chart
   const handleLiveFlowMovesClick = async (timeframe: '1D' | '3D' | '1W' = '1D') => {
-    setIsFlowMovesLoading(true)
     try {
       const US_MARKET_HOLIDAYS_FM = [
         '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18', '2025-05-26',
         '2025-07-04', '2025-09-01', '2025-11-27', '2025-12-25',
         '2026-01-01', '2026-01-19', '2026-02-16', '2026-04-03', '2026-05-25',
-        '2026-07-03', '2026-09-07', '2026-11-26', '2026-12-25',
+        '2026-06-19', '2026-07-03', '2026-09-07', '2026-11-26', '2026-12-25',
       ]
       const getRequiredTradingDays = (tf: '1D' | '3D' | '1W'): string[] => {
         const days: string[] = []
@@ -7366,16 +7362,19 @@ export default function TradingViewChart({
                 if (missingDays.length > 0) {
                   // Some days missing — show popup so user can decide to scan or skip
                   setFlowMovesMissingDays({ days: missingDays, pendingTrades: combinedTrades, pendingTimeframe: timeframe })
+                  setIsFlowMovesLoading(false)
                   return
                 }
                 // All days available — render immediately
                 processFlowMovesTradesIntoChart(combinedTrades, timeframe, getFlowBucketMinutes(config.timeframe) ?? 5)
+                setIsFlowMovesLoading(false)
                 return
               }
             }
           }
         } catch { /* fall through to stream */ }
       }
+      setIsFlowMovesLoading(true)
       const eventSource = new EventSource(
         `/api/stream-options-flow?ticker=${symbol}&timeframe=${timeframe}`
       )
@@ -14730,6 +14729,7 @@ export default function TradingViewChart({
 
   // Drawing editor and selection state
   const [isDraggingDrawing, setIsDraggingDrawing] = useState(false)
+  const isDraggingDrawingRef = useRef(false)
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null)
   const [dragStartPosition, setDragStartPosition] = useState<{ x: number; y: number } | null>(null)
   const [originalDrawing, setOriginalDrawing] = useState<any | null>(null)
@@ -20319,13 +20319,13 @@ export default function TradingViewChart({
 
     // Draw opaque background covering the full volume area (hides all candle wicks underneath)
     ctx.fillStyle = config.backgroundColor
-    ctx.fillRect(CHART_LEFT_MARGIN, volumeStartY, chartWidth - 80, volumeEndY - volumeStartY)
-    // Subtle separator line at the top of the volume pane
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)'
+    ctx.fillRect(CHART_LEFT_MARGIN, volumeStartY, chartWidth, volumeEndY - volumeStartY)
+    // Silver separator line at the top of the volume pane
+    ctx.strokeStyle = 'rgba(192, 192, 192, 0.55)'
     ctx.lineWidth = 1
     ctx.beginPath()
     ctx.moveTo(CHART_LEFT_MARGIN, volumeStartY)
-    ctx.lineTo(CHART_LEFT_MARGIN + chartWidth - 80, volumeStartY)
+    ctx.lineTo(CHART_LEFT_MARGIN + chartWidth, volumeStartY)
     ctx.stroke()
 
     // Find max volume for scaling
@@ -20370,7 +20370,7 @@ export default function TradingViewChart({
 
     // Draw volume scale labels on the right - match price Y-axis styling
     ctx.fillStyle = config.axisStyle.yAxis.textColor
-    ctx.font = `bold ${config.axisStyle.yAxis.textSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
+    ctx.font = `bold 16px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
     ctx.textAlign = 'left'
     ctx.globalAlpha = 1.0
 
@@ -20448,9 +20448,11 @@ export default function TradingViewChart({
     ctx.stroke()
 
     // Add padding for Y-axis labels inside the box
-    const yAxisPadding = 25
-    const effectiveFlowStartY = flowStartY + yAxisPadding
-    const effectiveFlowEndY = flowEndY - yAxisPadding
+    // Top padding is larger to leave room for the toolbar buttons overlay
+    const yAxisTopPadding = 46
+    const yAxisBottomPadding = 25
+    const effectiveFlowStartY = flowStartY + yAxisTopPadding
+    const effectiveFlowEndY = flowEndY - yAxisBottomPadding
     const effectiveFlowHeight = effectiveFlowEndY - effectiveFlowStartY
 
     // Calculate candle spacing to align with price chart
@@ -20645,56 +20647,7 @@ export default function TradingViewChart({
     // Reset alpha
     ctx.globalAlpha = 1.0
 
-    // Draw line labels at the end of each line
-    const lastPoint = flowData[flowData.length - 1]
-    const lastCandleX = getNearestX(lastPoint.time)
-
-    if (lastCandleX !== undefined) {
-      ctx.font = 'bold 16px Arial'
-      ctx.textAlign = 'left'
-
-      // Calculate vertical positions to avoid overlap
-      const labelYPositions: Array<{ y: number; height: number }> = []
-
-      linesToDraw.forEach((line, index) => {
-        const value = (lastPoint as any)[line.key]
-
-        // Calculate y position based on line value
-        const targetY = valueToY(value)
-
-        // Adjust y position to avoid overlap with previously drawn labels
-        let adjustedY = targetY
-        const labelHeight = 24
-        const minSpacing = 30
-
-        for (const prevLabel of labelYPositions) {
-          if (Math.abs(adjustedY - prevLabel.y) < minSpacing) {
-            // Overlap detected, shift down
-            if (adjustedY >= prevLabel.y) {
-              adjustedY = prevLabel.y + minSpacing
-            } else {
-              adjustedY = prevLabel.y - minSpacing
-            }
-          }
-        }
-
-        labelYPositions.push({ y: adjustedY, height: labelHeight })
-
-        // Draw background box for better readability
-        const textWidth = ctx.measureText(line.name).width
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)'
-        ctx.fillRect(lastCandleX + 8, adjustedY - 14, textWidth + 12, 24)
-
-        // Draw colored label at the end of the line
-        // For net flow mode, use the color based on current value
-        if (flowChartViewMode === 'net') {
-          ctx.fillStyle = value >= 0 ? '#00FF00' : '#FF0000'
-        } else {
-          ctx.fillStyle = line.color
-        }
-        ctx.fillText(line.name, lastCandleX + 14, adjustedY + 4)
-      })
-    }
+    // Line labels are shown in the React toolbar legend overlay (not on canvas)
 
     // Draw scale labels (always visible)
     ctx.font = 'bold 18px Arial'
@@ -20714,6 +20667,8 @@ export default function TradingViewChart({
       for (let i = 0; i <= tickCount; i++) {
         const valueLevel = bottomVal + (yRange / tickCount) * i
         const y = valueToY(valueLevel)
+        // Skip ticks that fall inside the top toolbar area (46px reserved for buttons)
+        if (y < flowStartY + 46) continue
         if (valueLevel > 0) {
           ctx.fillStyle = '#00FF00'
         } else if (valueLevel < 0) {
@@ -20758,14 +20713,14 @@ export default function TradingViewChart({
 
     // Draw panel background - solid black
     ctx.fillStyle = config.bgColor
-    ctx.fillRect(CHART_LEFT_MARGIN, panelStartY, chartWidth - 120, panelHeight)
+    ctx.fillRect(CHART_LEFT_MARGIN, panelStartY, chartWidth, panelHeight)
 
     // Draw panel border at top
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'
     ctx.lineWidth = 1
     ctx.beginPath()
     ctx.moveTo(CHART_LEFT_MARGIN, panelStartY)
-    ctx.lineTo(chartWidth - 80, panelStartY)
+    ctx.lineTo(CHART_LEFT_MARGIN + chartWidth, panelStartY)
     ctx.stroke()
 
     // Title is rendered in the HTML header overlay — skip canvas title to avoid double text
@@ -20779,7 +20734,7 @@ export default function TradingViewChart({
     // Clip drawing to the effective panel area so lines never bleed into the header
     ctx.save()
     ctx.beginPath()
-    ctx.rect(CHART_LEFT_MARGIN, effectivePanelStartY, chartWidth - 80, effectivePanelHeight + 10)
+    ctx.rect(CHART_LEFT_MARGIN, effectivePanelStartY, chartWidth, effectivePanelHeight + 10)
     ctx.clip()
 
     // Calculate candle spacing to align with price chart
@@ -21835,7 +21790,7 @@ export default function TradingViewChart({
       }
 
       // Check if label is too close to chart edges
-      if (labelLeft < CHART_LEFT_MARGIN + 50 || labelRight > width - 10) {
+      if (labelLeft < CHART_LEFT_MARGIN || labelRight > width - 10) {
         return false
       }
 
@@ -23053,9 +23008,10 @@ export default function TradingViewChart({
       let hitDrawing: Drawing | null = null
       let hitResult: { hit: boolean; type: string; handle?: any } = { hit: false, type: 'none' }
 
-      // Check drawings in reverse order (front to back)
-      for (let i = drawings.length - 1; i >= 0; i--) {
-        const drawing = drawings[i]
+      // Check drawings in reverse order (front to back) — use ref for always-fresh data
+      const currentDrawings = currentSymbolDrawingsRef.current
+      for (let i = currentDrawings.length - 1; i >= 0; i--) {
+        const drawing = currentDrawings[i]
         if (drawing.isLocked) continue // Skip locked drawings
 
         const result = detectDrawingHit(x, y, drawing)
@@ -23073,14 +23029,14 @@ export default function TradingViewChart({
 
         if (hitResult.type === 'handle' && hitResult.handle) {
           // Start handle dragging
-          setIsDraggingDrawing(true)
+          isDraggingDrawingRef.current = true; setIsDraggingDrawing(true)
           setSelectedDrawing(hitDrawing)
           setOriginalDrawing({ ...hitDrawing })
           // Store which handle is being dragged
           setDragOffset({ x: hitResult.handle.x - x, y: hitResult.handle.y - y })
         } else if (hitResult.type === 'body') {
           // Start drawing dragging
-          setIsDraggingDrawing(true)
+          isDraggingDrawingRef.current = true; setIsDraggingDrawing(true)
           setSelectedDrawing(hitDrawing)
           setOriginalDrawing({ ...hitDrawing })
 
@@ -23135,10 +23091,9 @@ export default function TradingViewChart({
         lastY: y,
         lastTimestamp: performance.now(),
       }
-        ; (e.currentTarget as HTMLCanvasElement).setPointerCapture((e as any).pointerId)
+        ; try { (e.currentTarget as HTMLCanvasElement).setPointerCapture((e as any).pointerId) } catch (_) { /* pointer already released */ }
     },
     [
-      drawings,
       detectDrawingHit,
       handleDrawingSelection,
       lastClickDrawing,
@@ -23281,7 +23236,7 @@ export default function TradingViewChart({
               const ratio = 1 - (y - effectivePanelStartY) / effectivePanelHeight
               const value = panelMin + ratio * paddedRange
               const titles: Record<string, string> = { iv: 'IV', ivRank: 'IV Rank', ivPercentile: 'IV %ile', hv: 'HV' }
-              ivCrosshairLabel = `${titles[panelType]}: ${value.toFixed(1)}%`
+              ivCrosshairLabel = `${value.toFixed(1)}%`
             } else {
             }
           }
@@ -23306,7 +23261,70 @@ export default function TradingViewChart({
             const paddedRange = paddedMax - paddedMin
             const ratio = 1 - (y - effectiveStartY) / effectiveH
             const value = paddedMin + ratio * paddedRange
-            bsCrosshairLabel = `B/S: ${value > 0 ? '+' : ''}${value.toFixed(1)}`
+            bsCrosshairLabel = `${value > 0 ? '+' : ''}${value.toFixed(1)}`
+          }
+        }
+
+        // Check if cursor is in the volume bars area (bottom of price chart)
+        let volumeCrosshairLabel: string | null = null
+        {
+          const _volumeAreaH = isMobile ? 60 : 90
+          const _volumeEndY = _realPriceChartHeight
+          const _volumeStartY = _volumeEndY - _volumeAreaH
+          const _actualVolumeAreaH = _volumeAreaH - 4
+          if (y >= _volumeStartY && y <= _volumeEndY && _actualVolumeAreaH > 0) {
+            const startIdx = Math.max(0, Math.floor(scrollOffset))
+            const endIdx = Math.min(data.length, startIdx + visibleCandleCount)
+            const _visibleVols = data.slice(startIdx, endIdx).map(d => d.volume || 0).filter(v => v > 0)
+            if (_visibleVols.length > 0) {
+              const _maxVol = Math.max(..._visibleVols)
+              const _ratio = Math.max(0, Math.min(1, (_volumeEndY - y) / _actualVolumeAreaH))
+              const _volVal = _maxVol * _ratio
+              const _fmt = _volVal >= 1_000_000 ? `${(_volVal / 1_000_000).toFixed(2)}M`
+                : _volVal >= 1_000 ? `${(_volVal / 1_000).toFixed(1)}K`
+                  : _volVal.toFixed(0)
+              volumeCrosshairLabel = _fmt
+            }
+          }
+        }
+
+        // Check if cursor is in the flow chart panel
+        let flowCrosshairLabel: string | null = null
+        if (isFlowChartActive && flowChartData.length > 0 && _flowH > 0) {
+          const _flowStartY = _realPriceChartHeight
+          const _flowEndY = _realPriceChartHeight + _flowH
+          const _yAxisPadding = 25
+          const _effFlowStartY = _flowStartY + 46
+          const _effFlowEndY = _flowEndY - _yAxisPadding
+          const _effFlowH = _effFlowEndY - _effFlowStartY
+          if (y >= _flowStartY && y <= _flowEndY && _effFlowH > 0) {
+            let _topVal = 1, _bottomVal = 0
+            if (flowChartViewMode === 'detailed') {
+              const _allVals = flowChartData.flatMap(d => [d.callsPlus, d.callsMinus, d.putsPlus, d.putsMinus])
+              const _dMax = Math.max(..._allVals, 0)
+              _topVal = _dMax * 1.1 || 1
+              _bottomVal = 0
+            } else if (flowChartViewMode === 'simplified') {
+              const _dMax = Math.max(...flowChartData.map(d => d.bullishTotal), 0)
+              const _dMin = Math.min(...flowChartData.map(d => d.bearishTotal), 0)
+              _topVal = _dMax > 0 ? _dMax * 1.1 : 1
+              _bottomVal = _dMin < 0 ? _dMin * 1.1 : 0
+            } else {
+              const _dMax = Math.max(...flowChartData.map(d => d.netFlow), 0)
+              const _dMin = Math.min(...flowChartData.map(d => d.netFlow), 0)
+              _topVal = _dMax > 0 ? _dMax * 1.1 : 1
+              _bottomVal = _dMin < 0 ? _dMin * 1.1 : (_dMax > 0 ? 0 : -1)
+            }
+            const _flowRange = _topVal - _bottomVal || 1
+            const _ratio = 1 - (y - _effFlowStartY) / _effFlowH
+            const _flowVal = _bottomVal + _ratio * _flowRange
+            const _absVal = Math.abs(_flowVal)
+            const _sign = _flowVal < 0 ? '-' : _flowVal > 0 ? '+' : ''
+            const _fmtFlow = _absVal >= 1_000_000_000 ? `${_sign}$${(_absVal / 1_000_000_000).toFixed(2)}B`
+              : _absVal >= 1_000_000 ? `${_sign}$${(_absVal / 1_000_000).toFixed(1)}M`
+                : _absVal >= 1_000 ? `${_sign}$${(_absVal / 1_000).toFixed(0)}K`
+                  : `${_sign}$${_absVal.toFixed(0)}`
+            flowCrosshairLabel = _fmtFlow
           }
         }
 
@@ -23349,9 +23367,13 @@ export default function TradingViewChart({
             ? ivCrosshairLabel
             : bsCrosshairLabel
               ? bsCrosshairLabel
-              : isInFuture && seasonalProjectionPrice
-                ? `$${seasonalProjectionPrice.toFixed(2)} (Projection)`
-                : `$${price.toFixed(2)}`,
+              : volumeCrosshairLabel
+                ? volumeCrosshairLabel
+                : flowCrosshairLabel
+                  ? flowCrosshairLabel
+                  : isInFuture && seasonalProjectionPrice
+                    ? `$${seasonalProjectionPrice.toFixed(2)} (Projection)`
+                    : `$${price.toFixed(2)}`,
           date: dateStr,
           time: timeStr,
           visible: true,
@@ -23509,9 +23531,12 @@ export default function TradingViewChart({
       buySellPanelHeight,
       isFlowChartActive,
       flowChartHeight,
+      flowChartData,
+      flowChartViewMode,
       isAnyIVHVActive,
       activeIVPanelCount,
       ivPanelHeight,
+      isMobile,
       setBuySellPanelHeight,
     ]
   )
@@ -23624,7 +23649,7 @@ export default function TradingViewChart({
         }
       }
 
-      setIsDraggingDrawing(false)
+      isDraggingDrawingRef.current = false; setIsDraggingDrawing(false)
       setIsBoxZooming(false)
       setBoxZoomStart(null)
       setBoxZoomEnd(null)
@@ -30613,16 +30638,16 @@ export default function TradingViewChart({
  z-index: 1 !important;
  }
  .btn-3d-carved.active {
- background: #ff8500 !important;
- border-top: 1px solid rgba(255,200,80,0.7) !important;
- border-right: 1px solid rgba(255,133,0,0.6) !important;
- border-bottom: 1px solid rgba(180,90,0,0.5) !important;
- border-left: 1px solid rgba(255,133,0,0.6) !important;
- color: #000 !important;
- box-shadow: 0 0 12px rgba(255,102,0,0.3), 0 3px 10px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,220,120,0.45), inset 0 -1px 0 rgba(0,0,0,0.25) !important;
+ background: linear-gradient(to bottom, rgba(255,133,0,0.08) 0%, transparent 50%, rgba(0,0,0,0.4) 100%), #000000 !important;
+ border-top: 1px solid rgba(255,133,0,0.6) !important;
+ border-right: 1px solid rgba(255,133,0,0.5) !important;
+ border-bottom: 1px solid rgba(180,90,0,0.4) !important;
+ border-left: 1px solid rgba(255,133,0,0.5) !important;
+ color: #ff8500 !important;
+ box-shadow: 0 0 12px rgba(255,102,0,0.3), 0 3px 10px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,133,0,0.1), inset 0 -1px 0 rgba(0,0,0,0.9) !important;
  }
  .btn-3d-carved.active::before {
- background: linear-gradient(180deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.05) 60%, transparent 100%) !important;
+ background: linear-gradient(180deg, rgba(255,133,0,0.05) 0%, rgba(255,133,0,0.01) 60%, transparent 100%) !important;
  display: block !important;
  }
  .btn-3d-carved:hover {
@@ -30659,16 +30684,16 @@ export default function TradingViewChart({
  display: block !important;
  }
  .mobile-dtd-btn.active {
- background: #ff8500 !important;
- border-top: 1px solid rgba(255,200,80,0.7) !important;
- border-right: 1px solid rgba(255,133,0,0.6) !important;
- border-bottom: 1px solid rgba(180,90,0,0.5) !important;
- border-left: 1px solid rgba(255,133,0,0.6) !important;
- color: #000 !important;
- box-shadow: 0 0 14px rgba(255,102,0,0.35), 0 4px 12px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,220,120,0.5), inset 0 -1px 0 rgba(0,0,0,0.3) !important;
+ background: linear-gradient(175deg, #1a1a1a 0%, #080808 50%, #000000 100%) !important;
+ border-top: 1px solid rgba(255,133,0,0.7) !important;
+ border-right: 1px solid rgba(255,133,0,0.5) !important;
+ border-bottom: 1px solid rgba(180,90,0,0.4) !important;
+ border-left: 1px solid rgba(255,133,0,0.5) !important;
+ color: #ff8500 !important;
+ box-shadow: 0 0 14px rgba(255,102,0,0.3), 0 4px 12px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,133,0,0.12), inset 0 -2px 0 rgba(0,0,0,0.85) !important;
  }
  .mobile-dtd-btn.active::before {
- background: linear-gradient(180deg, rgba(255,255,255,0.25) 0%, rgba(255,255,255,0.06) 60%, transparent 100%);
+ background: linear-gradient(180deg, rgba(255,133,0,0.06) 0%, rgba(255,133,0,0.01) 60%, transparent 100%);
  display: block !important;
  }
  .mobile-dtd-btn:active {
@@ -31689,11 +31714,11 @@ export default function TradingViewChart({
                         const dtdActive: React.CSSProperties = { ...dtdBtnBase }
                         return (
                           <>
-                            <button className={`mobile-dtd-btn${(isExpectedRangeActive || isATRRangeActive || isStdDevRangeActive || isPctChanceActive) ? ' active' : ''}`} onClick={() => { setIsMobileRangeOpen(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup3Open(false); setIsMobileGexOpen(false); setIsMobileSeaxOpen(false); setIsMobileFlowsOpen(false) }} style={dtdBtnBase}>RANGE</button>
-                            <button className={`mobile-dtd-btn${(isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive) ? ' active' : ''}`} onClick={() => { setIsMobileGexOpen(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup3Open(false); setIsMobileRangeOpen(false); setIsMobileSeaxOpen(false); setIsMobileFlowsOpen(false) }} style={dtdBtnBase}>GEX</button>
-                            <button className={`mobile-dtd-btn${(isSeasonalActive || isSeasonalEventActive || !!activeSmartSignal) ? ' active' : ''}`} onClick={() => { setIsMobileSeaxOpen(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup3Open(false); setIsMobileRangeOpen(false); setIsMobileGexOpen(false); setIsMobileFlowsOpen(false); setSeaxSmartSection(null) }} style={dtdBtnBase}>SeaX</button>
-                            <button className={`mobile-dtd-btn${isFlowChartActive ? ' active' : ''}`} onClick={() => { setIsMobileFlowsOpen(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup3Open(false); setIsMobileRangeOpen(false); setIsMobileGexOpen(false); setIsMobileSeaxOpen(false) }} style={dtdBtnBase}>Flows</button>
-                            <button className={`mobile-dtd-btn${dataActive ? ' active' : ''}`} onClick={() => { setIsMobileGroup1Open(v => !v); setIsMobileGroup3Open(false); setIsMobileRangeOpen(false); setIsMobileGexOpen(false); setIsMobileSeaxOpen(false); setIsMobileFlowsOpen(false) }} style={dtdBtnBase}>Xtras</button>
+                            <button className={`mobile-dtd-btn${(isExpectedRangeActive || isATRRangeActive || isStdDevRangeActive || isPctChanceActive || isFutureExpiriesActive) ? ' active' : ''}`} onClick={() => { setIsMobileRangeOpen(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup3Open(false); setIsMobileGexOpen(false); setIsMobileSeaxOpen(false); setIsMobileFlowsOpen(false) }} style={{ ...dtdBtnBase, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{(isLoadingExpectedRange || isLoadingFutureExpiries || isLoadingPctChance) ? <svg className="animate-spin" style={{ width: 18, height: 18, flexShrink: 0 }} fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="rgba(255,133,0,0.3)" strokeWidth="3" /><path fill="#ff8500" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg> : 'RANGE'}</button>
+                            <button className={`mobile-dtd-btn${(isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive) ? ' active' : ''}`} onClick={() => { setIsMobileGexOpen(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup3Open(false); setIsMobileRangeOpen(false); setIsMobileSeaxOpen(false); setIsMobileFlowsOpen(false) }} style={{ ...dtdBtnBase, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{(isGexMapLoading || isGexMap45dLoading || isDexMapLoading || isDexMap45dLoading) ? <svg className="animate-spin" style={{ width: 18, height: 18, flexShrink: 0 }} fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="rgba(255,133,0,0.3)" strokeWidth="3" /><path fill="#ff8500" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg> : 'GEX'}</button>
+                            <button className={`mobile-dtd-btn${(isSeasonalActive || isSeasonalEventActive || !!activeSmartSignal) ? ' active' : ''}`} onClick={() => { setIsMobileSeaxOpen(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup3Open(false); setIsMobileRangeOpen(false); setIsMobileGexOpen(false); setIsMobileFlowsOpen(false); setSeaxSmartSection(null) }} style={{ ...dtdBtnBase, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{(isEventSeasonalLoading || isLoadingSeasonalProjection) ? <svg className="animate-spin" style={{ width: 18, height: 18, flexShrink: 0 }} fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="rgba(255,133,0,0.3)" strokeWidth="3" /><path fill="#ff8500" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg> : 'SeaX'}</button>
+                            <button className={`mobile-dtd-btn${isFlowChartActive ? ' active' : ''}`} onClick={() => { setIsMobileFlowsOpen(v => !v); setIsMobileGroup1Open(false); setIsMobileGroup3Open(false); setIsMobileRangeOpen(false); setIsMobileGexOpen(false); setIsMobileSeaxOpen(false) }} style={{ ...dtdBtnBase, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Flows</button>
+                            <button className={`mobile-dtd-btn${dataActive ? ' active' : ''}`} onClick={() => { setIsMobileGroup1Open(v => !v); setIsMobileGroup3Open(false); setIsMobileRangeOpen(false); setIsMobileGexOpen(false); setIsMobileSeaxOpen(false); setIsMobileFlowsOpen(false) }} style={{ ...dtdBtnBase, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{(isRRGLoading || darkPoolLoading) ? <svg className="animate-spin" style={{ width: 18, height: 18, flexShrink: 0 }} fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="rgba(255,133,0,0.3)" strokeWidth="3" /><path fill="#ff8500" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg> : 'Xtras'}</button>
                             {/* DRAW moved to secondary toolbar */}
                           </>
                         )
@@ -31731,7 +31756,7 @@ export default function TradingViewChart({
                           {/* ── SEASONALITY ── */}
                           <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>Seasonality</div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-                            <button onClick={async () => { if (isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) { setIsSeasonal10YActive(false); setIsSeasonal15YActive(false); setIsSeasonal20YActive(false); setSeasonal10YData(null); setSeasonal15YData(null); setSeasonal20YData(null); setSeasonalCandleData(null); if (!isSeasonalElectionActive) setIsSeasonalActive(false); } else { if (config.timeframe !== '1d') return; setIsLoadingSeasonalProjection(true); setIsSeasonalActive(true); setSeasonalCandleNoData(false); const result = await calculateSeasonalityCandleProjection(symbol, data); if (result === 'NOT_ENOUGH_DATA') { setSeasonalCandleNoData(true); setIsSeasonalActive(false); setIsSeasonal20YActive(false); setIsLoadingSeasonalProjection(false); return; } setSeasonalCandleData(result); setIsSeasonal20YActive(true); setIsLoadingSeasonalProjection(false); } }} className={`btn-3d-carved ${(isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', opacity: config.timeframe !== '1d' ? 0.4 : 1 }}>{isLoadingSeasonalProjection ? 'Loading…' : seasonalCandleNoData ? 'No Data' : (isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) ? 'Seasonal ✓' : config.timeframe !== '1d' ? 'Seasonal (1D)' : 'Seasonal'}</button>
+                            <button onClick={async () => { if (isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) { setIsSeasonal10YActive(false); setIsSeasonal15YActive(false); setIsSeasonal20YActive(false); setSeasonal10YData(null); setSeasonal15YData(null); setSeasonal20YData(null); setSeasonalCandleData(null); if (!isSeasonalElectionActive) setIsSeasonalActive(false); } else { if (config.timeframe !== '1d') return; setIsLoadingSeasonalProjection(true); setIsSeasonalActive(true); setSeasonalCandleNoData(false); const result = await calculateSeasonalityCandleProjection(symbol, data); if (result === 'NOT_ENOUGH_DATA') { setSeasonalCandleNoData(true); setIsSeasonalActive(false); setIsSeasonal20YActive(false); setIsLoadingSeasonalProjection(false); return; } setSeasonalCandleData(result); setIsSeasonal20YActive(true); setIsLoadingSeasonalProjection(false); } }} className={`btn-3d-carved ${(isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', opacity: config.timeframe !== '1d' ? 0.4 : 1 }}>{isLoadingSeasonalProjection ? <svg className="animate-spin" style={{ width: 16, height: 16, flexShrink: 0, display: 'inline-block' }} fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="rgba(255,133,0,0.3)" strokeWidth="3" /><path fill="#ff8500" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg> : seasonalCandleNoData ? 'No Data' : (isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) ? 'Seasonal ✓' : config.timeframe !== '1d' ? 'Seasonal (1D)' : 'Seasonal'}</button>
                             <button onClick={async () => { const n = !isSeasonalElectionActive; setIsSeasonalElectionActive(n); if (n) { if (!seasonalElectionData) { setElectionInsufficientData(false); setIsLoadingSeasonalProjection(true); const cycle = getCurrentElectionCycle(); const result = await calculateElectionCandleProjection(symbol, data, cycle); setIsLoadingSeasonalProjection(false); if (result === 'NOT_ENOUGH_DATA' || !result) { setElectionInsufficientData(true); setIsSeasonalElectionActive(false); return; } setSeasonalElectionData(result as any); } setIsSeasonalActive(true); } else { if (!isSeasonal20YActive && !isSeasonal15YActive && !isSeasonal10YActive) setIsSeasonalActive(false); } }} className={`btn-3d-carved ${isSeasonalElectionActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: electionInsufficientData ? '#f59e0b' : undefined }}>{electionInsufficientData ? 'Election N/A' : isSeasonalElectionActive ? 'Election ✓' : 'Election'}</button>
                           </div>
                           {/* ── SMART ── */}
@@ -31853,8 +31878,8 @@ export default function TradingViewChart({
                             <button onClick={() => setIsMobileRangeOpen(false)} style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#555', fontSize: '20px', cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
                           </div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-                            <button onClick={() => { const n = !isWeeklyActive; setIsWeeklyActive(n); if (n && !expectedRangeLevels && !isLoadingExpectedRange) { setIsLoadingExpectedRange(true); calculateExpectedRangeLevels(symbol).then(r => { if (r) setExpectedRangeLevels(r.levels); setIsLoadingExpectedRange(false); }); } if (n || isMonthlyActive || isCustomActive) setIsExpectedRangeActive(true); else setIsExpectedRangeActive(false); }} className={`btn-3d-carved ${isWeeklyActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Weekly{isWeeklyActive ? ' ✓' : ''}</button>
-                            <button onClick={() => { const n = !isMonthlyActive; setIsMonthlyActive(n); if (n && !expectedRangeLevels && !isLoadingExpectedRange) { setIsLoadingExpectedRange(true); calculateExpectedRangeLevels(symbol).then(r => { if (r) setExpectedRangeLevels(r.levels); setIsLoadingExpectedRange(false); }); } if (n || isWeeklyActive || isCustomActive) setIsExpectedRangeActive(true); else setIsExpectedRangeActive(false); }} className={`btn-3d-carved ${isMonthlyActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Monthly{isMonthlyActive ? ' ✓' : ''}</button>
+                            <button onClick={() => { const n = !isWeeklyActive; setIsWeeklyActive(n); if (n && !expectedRangeLevels && !isLoadingExpectedRange) { setIsLoadingExpectedRange(true); calculateExpectedRangeLevels(symbol).then(r => { if (r) setExpectedRangeLevels(r.levels); setIsLoadingExpectedRange(false); }); } if (n || isMonthlyActive || isCustomActive) setIsExpectedRangeActive(true); else setIsExpectedRangeActive(false); }} className={`btn-3d-carved ${isWeeklyActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>{isLoadingExpectedRange && !isWeeklyActive ? null : isLoadingExpectedRange && isWeeklyActive ? <svg className="animate-spin" style={{ width: 14, height: 14, flexShrink: 0 }} fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="rgba(255,133,0,0.3)" strokeWidth="3" /><path fill="#ff8500" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg> : null}<span>Weekly{isWeeklyActive ? ' ✓' : ''}</span></button>
+                            <button onClick={() => { const n = !isMonthlyActive; setIsMonthlyActive(n); if (n && !expectedRangeLevels && !isLoadingExpectedRange) { setIsLoadingExpectedRange(true); calculateExpectedRangeLevels(symbol).then(r => { if (r) setExpectedRangeLevels(r.levels); setIsLoadingExpectedRange(false); }); } if (n || isWeeklyActive || isCustomActive) setIsExpectedRangeActive(true); else setIsExpectedRangeActive(false); }} className={`btn-3d-carved ${isMonthlyActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>{isLoadingExpectedRange && isMonthlyActive ? <svg className="animate-spin" style={{ width: 14, height: 14, flexShrink: 0 }} fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="rgba(255,133,0,0.3)" strokeWidth="3" /><path fill="#ff8500" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg> : null}<span>Monthly{isMonthlyActive ? ' ✓' : ''}</span></button>
                             <button onClick={() => { const next = !isATRRangeActiveRef.current; isATRRangeActiveRef.current = next; setIsATRRangeActive(next); }} className={`btn-3d-carved ${isATRRangeActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>ATR Range{isATRRangeActive ? ' ✓' : ''}</button>
                             <button onClick={() => { const next = !isStdDevRangeActiveRef.current; isStdDevRangeActiveRef.current = next; setIsStdDevRangeActive(next); }} className={`btn-3d-carved ${isStdDevRangeActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>StdDev{isStdDevRangeActive ? ' ✓' : ''}</button>
                           </div>
@@ -31929,9 +31954,14 @@ export default function TradingViewChart({
                                   className={`btn-3d-carved ${isPctChanceActive ? 'active' : ''}`}
                                   style={{ width: '100%', padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
                                 >
-                                  {isLoadingPctChance && <svg className="animate-spin" style={{ width: 11, height: 11 }} fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" /><path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg>}
-                                  <span>% Chance{isPctChanceActive ? ' ✓' : ''}</span>
-                                  <svg style={{ width: 10, height: 10, marginLeft: 2, transition: 'transform 0.2s', transform: showMobilePctChanceCal ? 'rotate(180deg)' : 'none' }} viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                                  {isLoadingPctChance ? (
+                                    <svg className="animate-spin" style={{ width: 18, height: 18, flexShrink: 0 }} fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="rgba(255,133,0,0.3)" strokeWidth="3" /><path fill="#ff8500" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg>
+                                  ) : (
+                                    <>
+                                      <span>% Chance{isPctChanceActive ? ' ✓' : ''}</span>
+                                      <svg style={{ width: 10, height: 10, marginLeft: 2, transition: 'transform 0.2s', transform: showMobilePctChanceCal ? 'rotate(180deg)' : 'none' }} viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                                    </>
+                                  )}
                                 </button>
                                 {showMobilePctChanceCal && renderCal(
                                   pctChanceCalMonth, setPctChanceCalMonth, pctChanceCustomDate, pctChanceAvailExpiries,
@@ -31959,8 +31989,14 @@ export default function TradingViewChart({
                               className={`btn-3d-carved ${isCustomActive ? 'active' : ''}`}
                               style={{ width: '100%', padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
                             >
-                              <span>Custom{isCustomActive ? ' ✓' : ''}</span>
-                              <svg style={{ width: 10, height: 10, marginLeft: 2, transition: 'transform 0.2s', transform: showCustomDatePicker ? 'rotate(180deg)' : 'none' }} viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                              {isLoadingFutureExpiries ? (
+                                <svg className="animate-spin" style={{ width: 18, height: 18, flexShrink: 0 }} fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="rgba(255,133,0,0.3)" strokeWidth="3" /><path fill="#ff8500" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg>
+                              ) : (
+                                <>
+                                  <span>Custom{isCustomActive ? ' ✓' : ''}</span>
+                                  <svg style={{ width: 10, height: 10, marginLeft: 2, transition: 'transform 0.2s', transform: showCustomDatePicker ? 'rotate(180deg)' : 'none' }} viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                                </>
+                              )}
                             </button>
                             {showCustomDatePicker && (() => {
                               const today = new Date(); today.setHours(0, 0, 0, 0)
@@ -32003,18 +32039,45 @@ export default function TradingViewChart({
                             {showCustomDatePicker && pendingCustomDate && (
                               <button
                                 onClick={() => {
-                                  setIsLoadingExpectedRange(true)
+                                  setCustomExpirationDate(pendingCustomDate)
                                   setIsCustomActive(true)
-                                  setIsExpectedRangeActive(true)
-                                  calculateExpectedRangeLevels(symbol, pendingCustomDate).then(result => {
-                                    if (result) setExpectedRangeLevels(result.levels)
-                                    setIsLoadingExpectedRange(false)
+                                  setIsLoadingFutureExpiries(true)
+                                  calculateFutureExpiriesLevels(symbol, pendingCustomDate).then(results => {
+                                    futureExpiriesLevelsRef.current = results
+                                    isFutureExpiriesActiveRef.current = results.length > 0
+                                    setFutureExpiriesLevels(results)
+                                    setIsFutureExpiriesActive(results.length > 0)
+                                    setIsLoadingFutureExpiries(false)
+                                    requestAnimationFrame(() => renderChartRef.current())
                                   })
                                   setShowCustomDatePicker(false)
                                 }}
                                 className="btn-3d-carved"
-                                style={{ width: '100%', marginTop: '8px', padding: '10px', borderRadius: '6px', background: 'rgba(255,133,0,0.15)', border: '1px solid rgba(255,133,0,0.5)', color: '#ff8500', fontSize: '12px', fontWeight: '800', letterSpacing: '1px', cursor: 'pointer' }}
-                              >SCAN — {pendingCustomDate}</button>
+                                style={{ width: '100%', marginTop: '8px', padding: '10px', borderRadius: '6px', background: 'rgba(255,133,0,0.15)', border: '1px solid rgba(255,133,0,0.5)', color: '#ff8500', fontSize: '12px', fontWeight: '800', letterSpacing: '1px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                              >
+                                {isLoadingFutureExpiries && <svg className="animate-spin" style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" /><path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg>}
+                                SCAN — {pendingCustomDate}
+                              </button>
+                            )}
+                            {isCustomActive && customExpirationDate && (
+                              <div style={{ marginTop: '8px', padding: '8px 12px', background: '#000000', borderRadius: '4px', border: '1px solid rgba(255, 133, 0, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                                <span style={{ color: '#ff8500', fontSize: '12px', fontWeight: '600' }}>
+                                  {customExpirationDate.split('-').slice(1).join('/') + '/' + customExpirationDate.split('-')[0]}
+                                </span>
+                                <button
+                                  onClick={() => {
+                                    setIsCustomActive(false)
+                                    setCustomExpirationDate('')
+                                    setPendingCustomDate('')
+                                    isFutureExpiriesActiveRef.current = false
+                                    futureExpiriesLevelsRef.current = []
+                                    setIsFutureExpiriesActive(false)
+                                    setFutureExpiriesLevels([])
+                                    requestAnimationFrame(() => renderChartRef.current())
+                                  }}
+                                  style={{ background: 'transparent', border: 'none', color: '#ff8500', fontSize: '20px', fontWeight: '700', cursor: 'pointer', padding: '0 4px', lineHeight: '1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                >×</button>
+                              </div>
                             )}
                           </div>
                         </div>
@@ -32032,24 +32095,16 @@ export default function TradingViewChart({
                           </div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                             <button onClick={() => { handleGexMapClick() }} className={`btn-3d-carved ${isGexMapActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                              {isGexMapLoading && <svg className="animate-spin" style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" /><path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg>}
-                              <span>{isGexMapLoading ? 'Load…' : 'GEX MAP'}</span>
-                              {isGexMapActive && !isGexMapLoading && <span onClick={(e) => { e.stopPropagation(); setIsGexMapActive(false); setGexMapData(null) }} style={{ color: '#ff8500', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}>×</span>}
+                              {isGexMapLoading ? <svg className="animate-spin" style={{ width: 16, height: 16, flexShrink: 0 }} fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="rgba(255,133,0,0.3)" strokeWidth="3" /><path fill="#ff8500" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg> : <><span>GEX MAP</span>{isGexMapActive && <span onClick={(e) => { e.stopPropagation(); setIsGexMapActive(false); setGexMapData(null) }} style={{ color: '#ff8500', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}>×</span>}</>}
                             </button>
                             <button onClick={() => { handleGexMap45dClick() }} className={`btn-3d-carved ${isGexMap45dActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                              {isGexMap45dLoading && <svg className="animate-spin" style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" /><path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg>}
-                              <span>{isGexMap45dLoading ? 'Load…' : 'GEX 45D'}</span>
-                              {isGexMap45dActive && !isGexMap45dLoading && <span onClick={(e) => { e.stopPropagation(); setIsGexMap45dActive(false); setGexMap45dData(null) }} style={{ color: '#ff8500', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}>×</span>}
+                              {isGexMap45dLoading ? <svg className="animate-spin" style={{ width: 16, height: 16, flexShrink: 0 }} fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="rgba(255,133,0,0.3)" strokeWidth="3" /><path fill="#ff8500" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg> : <><span>GEX 45D</span>{isGexMap45dActive && <span onClick={(e) => { e.stopPropagation(); setIsGexMap45dActive(false); setGexMap45dData(null) }} style={{ color: '#ff8500', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}>×</span>}</>}
                             </button>
                             <button onClick={() => { handleDexMapClick() }} className={`btn-3d-carved ${isDexMapActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                              {isDexMapLoading && <svg className="animate-spin" style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" /><path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg>}
-                              <span>{isDexMapLoading ? 'Load…' : 'DEX MAP'}</span>
-                              {isDexMapActive && !isDexMapLoading && <span onClick={(e) => { e.stopPropagation(); setIsDexMapActive(false); setDexMapData(null) }} style={{ color: '#ff8500', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}>×</span>}
+                              {isDexMapLoading ? <svg className="animate-spin" style={{ width: 16, height: 16, flexShrink: 0 }} fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="rgba(255,133,0,0.3)" strokeWidth="3" /><path fill="#ff8500" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg> : <><span>DEX MAP</span>{isDexMapActive && <span onClick={(e) => { e.stopPropagation(); setIsDexMapActive(false); setDexMapData(null) }} style={{ color: '#ff8500', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}>×</span>}</>}
                             </button>
                             <button onClick={() => { handleDexMap45dClick() }} className={`btn-3d-carved ${isDexMap45dActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                              {isDexMap45dLoading && <svg className="animate-spin" style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" /><path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg>}
-                              <span>{isDexMap45dLoading ? 'Load…' : 'DEX 45D'}</span>
-                              {isDexMap45dActive && !isDexMap45dLoading && <span onClick={(e) => { e.stopPropagation(); setIsDexMap45dActive(false); setDexMap45dData(null) }} style={{ color: '#ff8500', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}>×</span>}
+                              {isDexMap45dLoading ? <svg className="animate-spin" style={{ width: 16, height: 16, flexShrink: 0 }} fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="rgba(255,133,0,0.3)" strokeWidth="3" /><path fill="#ff8500" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg> : <><span>DEX 45D</span>{isDexMap45dActive && <span onClick={(e) => { e.stopPropagation(); setIsDexMap45dActive(false); setDexMap45dData(null) }} style={{ color: '#ff8500', fontSize: '16px', fontWeight: 700, lineHeight: 1 }}>×</span>}</>}
                             </button>
                           </div>
                         </div>
@@ -34277,7 +34332,7 @@ export default function TradingViewChart({
                 <button
                   ref={flowMovesButtonRef}
                   onClick={() => setIsFlowMovesDropdownOpen(!isFlowMovesDropdownOpen)}
-                  className={`btn-3d-carved btn-drawings relative group flex items-center space-x-2 ${isFlowChartActive ? 'active' : ''}`}
+                  className={`btn-3d-carved relative group flex items-center space-x-2 ${isFlowChartActive ? 'btn-drawings active' : ''}`}
                   style={{
                     padding: '10px 14px',
                     fontWeight: '700',
@@ -37037,7 +37092,7 @@ export default function TradingViewChart({
                         width: '100%',
                         height: '100%',
                       }}
-                      onMouseDown={handleUnifiedMouseDown}
+                      onMouseDown={(e) => handleMouseDown(e as unknown as React.MouseEvent)}
                       onContextMenu={(e: React.MouseEvent<HTMLCanvasElement>) => {
                         e.preventDefault()
                         const x = e.nativeEvent.offsetX
@@ -37130,7 +37185,7 @@ export default function TradingViewChart({
                               metaKey: false,
                               preventDefault: () => { },
                             } as unknown as React.MouseEvent<HTMLCanvasElement>
-                            handleUnifiedMouseDown(downEvent)
+                            handleMouseDown(downEvent as unknown as React.MouseEvent)
                             touchDragInitialized.current = true
                           }
                         } else if (e.touches.length === 2) {
@@ -37179,7 +37234,11 @@ export default function TradingViewChart({
                                 handleMouseLeave()
                               }
                               if (activeTool) handleCanvasMouseMove(mouseEvent)
-                              else handleMouseMove(mouseEvent)
+                              else if (isDraggingDrawingRef.current) {
+                                handleMouseMove(mouseEvent)
+                              } else {
+                                handleMouseMove(mouseEvent)
+                              }
                             }
                           }
                         }
@@ -37483,8 +37542,8 @@ export default function TradingViewChart({
                       <div
                         className="absolute z-[1001]"
                         style={{
-                          left: '60px',
-                          bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0) + flowChartHeight - 36}px`,
+                          left: isMobile ? '4px' : '60px',
+                          bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0) + flowChartHeight + 25 - (isMobile ? 36 : 44)}px`,
                           transition: isDraggingFlowChart ? 'none' : 'bottom 0.1s ease-out',
                         }}
                       >
@@ -37494,8 +37553,8 @@ export default function TradingViewChart({
                             display: 'flex',
                             flexDirection: 'row',
                             alignItems: 'center',
-                            gap: '5px',
-                            padding: '5px',
+                            gap: isMobile ? 2 : 5,
+                            padding: isMobile ? '3px' : '5px',
                             borderRadius: '14px',
                             background: 'linear-gradient(180deg, rgba(10,10,10,0.98) 0%, rgba(3,3,3,0.99) 100%)',
                             border: '1px solid rgba(255,255,255,0.1)',
@@ -37510,23 +37569,23 @@ export default function TradingViewChart({
                             style={{
                               display: 'flex',
                               alignItems: 'center',
-                              gap: '8px',
-                              padding: '8px 16px',
+                              gap: 4,
+                              padding: isMobile ? '4px 7px' : '8px 16px',
                               borderRadius: '9px',
                               border: 'none',
                               cursor: 'pointer',
-                              fontSize: '14px',
+                              fontSize: isMobile ? 11 : 14,
                               fontWeight: 700,
                               letterSpacing: '0.4px',
                               transition: 'all 0.15s ease',
-                              background: 'transparent',
-                              color: flowChartViewMode === 'net' ? '#FF8800' : '#ffffff',
+                              background: flowChartViewMode === 'net' ? 'rgba(255,136,0,0.15)' : 'transparent',
+                              color: flowChartViewMode === 'net' ? '#FF8800' : '#aaaaaa',
                             }}
                           >
-                            <svg width="16" height="16" viewBox="0 0 12 12" fill="none">
-                              <path d="M1 8 Q3 4 6 6 Q9 8 11 3" stroke={flowChartViewMode === 'net' ? '#FF8800' : '#ffffff'} strokeWidth="1.5" strokeLinecap="round" fill="none" />
-                            </svg>
-                            Net Flow
+                            {!isMobile && <svg width={16} height={16} viewBox="0 0 12 12" fill="none">
+                              <path d="M1 8 Q3 4 6 6 Q9 8 11 3" stroke={flowChartViewMode === 'net' ? '#FF8800' : '#aaaaaa'} strokeWidth="1.5" strokeLinecap="round" fill="none" />
+                            </svg>}
+                            {isMobile ? 'NET' : 'Net Flow'}
                           </button>
 
                           {/* Divider */}
@@ -37539,23 +37598,23 @@ export default function TradingViewChart({
                             style={{
                               display: 'flex',
                               alignItems: 'center',
-                              gap: '8px',
-                              padding: '8px 16px',
+                              gap: 4,
+                              padding: isMobile ? '4px 7px' : '8px 16px',
                               borderRadius: '9px',
                               border: 'none',
                               cursor: 'pointer',
-                              fontSize: '14px',
+                              fontSize: isMobile ? 11 : 14,
                               fontWeight: 700,
                               letterSpacing: '0.4px',
                               transition: 'all 0.15s ease',
-                              background: 'transparent',
-                              color: flowChartViewMode === 'simplified' ? '#FF8800' : '#ffffff',
+                              background: flowChartViewMode === 'simplified' ? 'rgba(255,136,0,0.15)' : 'transparent',
+                              color: flowChartViewMode === 'simplified' ? '#FF8800' : '#aaaaaa',
                             }}
                           >
-                            <svg width="16" height="16" viewBox="0 0 12 12" fill="none">
-                              <path d="M6 10 L6 2 M3 5 L6 2 L9 5" stroke={flowChartViewMode === 'simplified' ? '#FF8800' : '#ffffff'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            Bull/Bear
+                            {!isMobile && <svg width={16} height={16} viewBox="0 0 12 12" fill="none">
+                              <path d="M6 10 L6 2 M3 5 L6 2 L9 5" stroke={flowChartViewMode === 'simplified' ? '#FF8800' : '#aaaaaa'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>}
+                            {isMobile ? 'B/B' : 'Bull/Bear'}
                           </button>
 
                           {/* Divider */}
@@ -37568,25 +37627,25 @@ export default function TradingViewChart({
                             style={{
                               display: 'flex',
                               alignItems: 'center',
-                              gap: '8px',
-                              padding: '8px 16px',
+                              gap: 4,
+                              padding: isMobile ? '4px 7px' : '8px 16px',
                               borderRadius: '9px',
                               border: 'none',
                               cursor: 'pointer',
-                              fontSize: '14px',
+                              fontSize: isMobile ? 11 : 14,
                               fontWeight: 700,
                               letterSpacing: '0.4px',
                               transition: 'all 0.15s ease',
-                              background: 'transparent',
-                              color: flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff',
+                              background: flowChartViewMode === 'detailed' ? 'rgba(255,136,0,0.15)' : 'transparent',
+                              color: flowChartViewMode === 'detailed' ? '#FF8800' : '#aaaaaa',
                             }}
                           >
-                            <svg width="16" height="16" viewBox="0 0 12 12" fill="none">
-                              <rect x="1" y="7" width="2.5" height="4" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff'} />
-                              <rect x="4.75" y="4" width="2.5" height="7" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff'} />
-                              <rect x="8.5" y="1" width="2.5" height="10" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : 'rgba(255,255,255,0.6)'} />
-                            </svg>
-                            BUY/SELL+
+                            {!isMobile && <svg width={16} height={16} viewBox="0 0 12 12" fill="none">
+                              <rect x="1" y="7" width="2.5" height="4" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : '#aaaaaa'} />
+                              <rect x="4.75" y="4" width="2.5" height="7" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : '#aaaaaa'} />
+                              <rect x="8.5" y="1" width="2.5" height="10" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : 'rgba(200,200,200,0.5)'} />
+                            </svg>}
+                            {isMobile ? '4L' : 'BUY/SELL+'}
                           </button>
                         </div>
                       </div>
@@ -38113,13 +38172,66 @@ export default function TradingViewChart({
                       )
                     })()}
 
+                    {/* Inline legend centered between left & right flow toolbar pills */}
+                    {isFlowChartActive && (() => {
+                      const legendItems: { label: string; color: string }[] =
+                        flowChartViewMode === 'detailed'
+                          ? [
+                            { label: isMobile ? 'B.Calls' : 'Bullish Calls', color: flowLineColors.callsPlus },
+                            { label: isMobile ? 'Br.Calls' : 'Bearish Calls', color: flowLineColors.callsMinus },
+                            { label: isMobile ? 'B.Puts' : 'Bullish Puts', color: flowLineColors.putsPlus },
+                            { label: isMobile ? 'Br.Puts' : 'Bearish Puts', color: flowLineColors.putsMinus },
+                          ]
+                          : flowChartViewMode === 'simplified'
+                            ? [
+                              { label: isMobile ? 'Bull' : 'Bull Total', color: flowLineColors.bullishTotal },
+                              { label: isMobile ? 'Bear' : 'Bear Total', color: flowLineColors.bearishTotal },
+                            ]
+                            : [
+                              { label: 'Net Flow', color: flowChartData.length > 0 && flowChartData[flowChartData.length - 1]?.netFlow >= 0 ? '#00FF00' : '#FF0000' },
+                            ]
+                      return (
+                        <div
+                          className="absolute z-[1001]"
+                          style={{
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0) + flowChartHeight + 25 - (isMobile ? 36 : 44)}px`,
+                            transition: isDraggingFlowChart ? 'none' : 'bottom 0.1s ease-out',
+                            pointerEvents: 'none',
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: legendItems.length === 4 ? '1fr 1fr' : `repeat(${legendItems.length}, auto)`,
+                              gap: isMobile ? '4px 10px' : '5px 14px',
+                              padding: isMobile ? '6px 10px' : '7px 12px',
+                              borderRadius: '10px',
+                              background: 'rgba(0,0,0,0.75)',
+                              border: '1px solid rgba(255,255,255,0.08)',
+                              backdropFilter: 'blur(10px)',
+                              alignItems: 'center',
+                            }}
+                          >
+                            {legendItems.map(({ label, color }) => (
+                              <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                <div style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                                <span style={{ fontSize: 11, color: '#cccccc', whiteSpace: 'nowrap', fontWeight: 600, letterSpacing: '0.3px' }}>{label}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })()}
+
                     {/* Right-side controls for IntraFlow panel: settings, maximize, X */}
                     {isFlowChartActive && (
                       <div
                         className="absolute z-[1001]"
                         style={{
-                          right: '90px',
-                          bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0) + flowChartHeight - 36}px`,
+                          right: isMobile ? '4px' : '90px',
+                          bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0) + flowChartHeight + 25 - (isMobile ? 36 : 44)}px`,
                           transition: isDraggingFlowChart ? 'none' : 'bottom 0.1s ease-out',
                         }}
                       >
@@ -38129,7 +38241,7 @@ export default function TradingViewChart({
                             flexDirection: 'row',
                             alignItems: 'center',
                             gap: '2px',
-                            padding: '4px',
+                            padding: isMobile ? '3px' : '4px',
                             borderRadius: '14px',
                             background: 'linear-gradient(180deg, rgba(10,10,10,0.98) 0%, rgba(3,3,3,0.99) 100%)',
                             border: '1px solid rgba(255,255,255,0.1)',
@@ -38143,7 +38255,7 @@ export default function TradingViewChart({
                             title="Line color settings"
                             style={{
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              width: '34px', height: '34px', borderRadius: '9px', border: 'none',
+                              width: isMobile ? '28px' : '34px', height: isMobile ? '28px' : '34px', borderRadius: '9px', border: 'none',
                               cursor: 'pointer', background: showFlowSettings ? 'rgba(255,136,0,0.15)' : 'transparent',
                               color: showFlowSettings ? '#FF8800' : '#ffffff', transition: 'all 0.15s ease',
                             }}
@@ -38171,7 +38283,7 @@ export default function TradingViewChart({
                             title={flowChartMaximized ? 'Restore panel' : 'Maximize panel'}
                             style={{
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              width: '34px', height: '34px', borderRadius: '9px', border: 'none',
+                              width: isMobile ? '28px' : '34px', height: isMobile ? '28px' : '34px', borderRadius: '9px', border: 'none',
                               cursor: 'pointer', background: 'transparent',
                               color: '#ffffff', transition: 'all 0.15s ease',
                             }}
@@ -38193,7 +38305,7 @@ export default function TradingViewChart({
                             title="Close IntraFlow panel"
                             style={{
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              width: '34px', height: '34px', borderRadius: '9px', border: 'none',
+                              width: isMobile ? '28px' : '34px', height: isMobile ? '28px' : '34px', borderRadius: '9px', border: 'none',
                               cursor: 'pointer', background: 'transparent',
                               color: 'rgba(255,80,80,0.8)', transition: 'all 0.15s ease',
                             }}
