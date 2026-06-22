@@ -423,22 +423,36 @@ thead.col-thead {
 }
 
 .col-hdr {
-    background: linear-gradient(180deg, #2a2a2a 0%, #111 28%, #030303 58%, #000 100%);
+    background: linear-gradient(
+        180deg,
+        #0d1f3c 0%,
+        #071428 20%,
+        #040d1a 45%,
+        #020810 70%,
+        #000 100%
+    );
     box-shadow:
-        inset 0 2px 0 rgba(255, 255, 255, 0.16),
-        inset 0 -2px 5px rgba(0, 0, 0, 0.85);
+        inset 0 1px 0 rgba(255, 255, 255, 0.55),
+        inset 0 2px 8px rgba(100, 160, 255, 0.08),
+        inset 0 -3px 8px rgba(0, 0, 0, 0.95),
+        2px 0 0 0 #ff8500;
     color: #ff8500;
     font-size: 17px;
     font-weight: 800;
     letter-spacing: 1.8px;
     text-transform: uppercase;
     text-align: center;
-    border-right: 1px solid #ff8500;
+    border-top: none;
+    border-right: 2px solid #ff8500;
+    border-bottom: 2px solid #ff8500;
+    border-left: none;
     white-space: nowrap;
-    padding: 12px 16px;
-    transition: color 0.15s ease;
+    padding: 9px 16px;
+    transition: none;
     font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
     user-select: none;
+    cursor: default;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 0 10px rgba(255, 133, 0, 0.25);
 }
 
 .col-hdr>div {
@@ -451,27 +465,50 @@ thead.col-thead {
 }
 
 .col-hdr:hover>div>svg {
-    animation: col-icon-float 0.65s ease-in-out infinite;
+    animation: col-icon-float 2.4s ease-in-out infinite;
 }
 
 .col-hdr.col-sortable:hover {
-    background: linear-gradient(180deg, #2a1a00 0%, #150c00 30%, #060300 60%, #000 100%) !important;
+    background: linear-gradient(
+        180deg,
+        #0d1f3c 0%,
+        #071428 20%,
+        #040d1a 45%,
+        #020810 70%,
+        #000 100%
+    ) !important;
     box-shadow:
-        inset 0 2px 0 rgba(255, 133, 0, 0.22),
-        inset 0 -2px 5px rgba(0, 0, 0, 0.9) !important;
-    color: #ffb733 !important;
+        inset 0 1px 0 rgba(255, 255, 255, 0.55),
+        inset 0 2px 8px rgba(100, 160, 255, 0.08),
+        inset 0 -3px 8px rgba(0, 0, 0, 0.95),
+        2px 0 0 0 #ff8500 !important;
+    color: #ff8500 !important;
 }
 
 .col-hdr.col-active {
-    background: linear-gradient(180deg, #301e00 0%, #190f00 30%, #070400 60%, #000 100%) !important;
+    background: linear-gradient(
+        180deg,
+        #0d1f3c 0%,
+        #071428 20%,
+        #040d1a 45%,
+        #020810 70%,
+        #000 100%
+    ) !important;
     box-shadow:
-        inset 0 2px 0 rgba(255, 133, 0, 0.28),
-        inset 0 -2px 5px rgba(0, 0, 0, 0.95) !important;
-    color: #ffb733 !important;
+        inset 0 1px 0 rgba(255, 255, 255, 0.55),
+        inset 0 2px 8px rgba(100, 160, 255, 0.08),
+        inset 0 -3px 8px rgba(0, 0, 0, 0.95),
+        2px 0 0 0 #ff8500 !important;
+    color: #ff8500 !important;
 }
 
 .col-hdr:last-child {
     border-right: none;
+}
+
+.options-flow-table {
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */

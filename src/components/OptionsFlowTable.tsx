@@ -416,6 +416,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   const [itemsPerPage] = useState<number>(250)
 
+  const [showMobilePicksDropdown, setShowMobilePicksDropdown] = useState(false)
+
   const [quickFilters, setQuickFilters] = useState<{
     otm: boolean
 
@@ -6019,122 +6021,175 @@ Stock Reaction: ${scores.stockReaction}/15`
                 />
               </div>
 
-              {/* Right side buttons */}
+              {/* Right side buttons — order: PICKS, ALGO, TRACK, FILTER, ⋮ */}
 
               <div className="flex items-center gap-2">
-                {/* LEAP Button - mobile */}
-                <button
-                  onClick={async () => {
-                    const newState = !leapActive
-                    setLeapActive(newState)
-                    if (efiHighlightsActive) setEfiHighlightsActive(false)
-                    if (newState) {
-                      setModeLoadingStep({ mode: 'LEAP', step: 'Calculating Relative Strength...' })
-                      await new Promise<void>(r => setTimeout(r, 0))
-                      const rsData = await calculateLeapRS(filteredAndSortedData)
-                      setLeapRsData(rsData)
-                      const leapQualified = filteredAndSortedData.filter(meetsLeapCriteria)
-                      const tickers = [...new Set(leapQualified.map(t => t.underlying_ticker))]
-                      setModeLoadingStep({ mode: 'LEAP', step: 'Fetching 52-Week Ranges...' })
-                      await new Promise<void>(r => setTimeout(r, 0))
-                      const [wkData, seasonData] = await Promise.all([
-                        fetchLeap52wkData(tickers),
-                        (async () => {
-                          setModeLoadingStep({ mode: 'LEAP', step: 'Analyzing Seasonality...' })
-                          return fetchLeapSeasonalData(tickers)
-                        })(),
-                      ])
-                      setLeap52wkData(wkData)
-                      setLeapSeasonalData(seasonData)
-                      setModeLoadingStep(null)
-                    } else {
-                      setModeLoadingStep(null)
-                    }
-                  }}
-                  className="px-2 font-black uppercase transition-all duration-200 flex items-center gap-1 hover:scale-[1.02] active:scale-[0.98] focus:outline-none"
-                  style={{
-                    height: '40px',
-                    background: leapActive
-                      ? 'linear-gradient(180deg, #00c9ff 0%, #0099cc 50%, #007aa3 100%)'
-                      : 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
-                    border: leapActive ? '1px solid #00e5ff' : '2px solid #2a2a2a',
-                    borderRadius: '4px',
-                    fontSize: '10px',
-                    letterSpacing: '0.5px',
-                    fontWeight: '900',
-                    boxShadow: leapActive
-                      ? 'inset 0 1px 0 rgba(255,255,255,0.4), 0 0 10px rgba(0,200,255,0.4)'
-                      : 'inset 0 2px 8px rgba(0,0,0,0.9)',
-                    color: leapActive ? '#000000' : '#00c9ff',
-                  }}
-                >
-                  Leap Picks
-                </button>
-
-                {/* Highlights Button */}
-
-                <button
-                  onClick={async () => {
-                    const newState = !efiHighlightsActive
-                    setEfiHighlightsActive(newState)
-                    if (newState) {
-                      setLeapActive(false)
-                      setModeLoadingStep({ mode: 'EFI', step: 'Calculating Relative Strength...' })
-                      const efiTrades = filteredAndSortedData.filter(meetsEfiCriteria)
-                      const rsData = await calculateRelativeStrength(efiTrades)
-                      setRelativeStrengthData(rsData)
-                      setModeLoadingStep(null)
-                    } else {
-                      setModeLoadingStep(null)
-                    }
-                  }}
-                  className="px-2 text-white font-black uppercase transition-all duration-200 flex items-center gap-1 hover:scale-[1.02] active:scale-[0.98] focus:outline-none"
-                  style={{
-                    height: '40px',
-
-                    background: efiHighlightsActive
-                      ? 'linear-gradient(180deg, #ff9500 0%, #ff8500 50%, #ff7500 100%)'
-                      : 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
-
-                    border: efiHighlightsActive ? '1px solid #ffaa00' : '2px solid #2a2a2a',
-
-                    borderRadius: '4px',
-
-                    fontSize: '10px',
-
-                    letterSpacing: '0.5px',
-
-                    fontWeight: '900',
-
-                    boxShadow: efiHighlightsActive
-                      ? 'inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 0 rgba(0, 0, 0, 0.3)'
-                      : 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-                  }}
-                >
-                  <svg
-                    className={`w-3 h-3 transition-all duration-200 ${efiHighlightsActive ? 'text-black' : 'text-orange-500'}`}
-                    fill={efiHighlightsActive ? 'currentColor' : 'none'}
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                    strokeWidth={2}
+                {/* PICKS Dropdown — Leap Picks + Swing Picks */}
+                <div style={{ position: 'relative' }}>
+                  <button
+                    onClick={() => setShowMobilePicksDropdown(v => !v)}
+                    className="px-2 font-black uppercase transition-all duration-200 flex items-center gap-1 focus:outline-none"
+                    style={{
+                      height: '40px',
+                      background: leapActive
+                        ? 'linear-gradient(180deg, #00b4d8 0%, #0077b6 100%)'
+                        : efiHighlightsActive
+                          ? 'linear-gradient(180deg, #f5c518 0%, #d4a017 100%)'
+                          : 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
+                      border: leapActive
+                        ? '1px solid #00d4ff'
+                        : efiHighlightsActive
+                          ? '1px solid #f5c518'
+                          : '2px solid #2a2a2a',
+                      borderRadius: '4px',
+                      fontSize: '10px',
+                      letterSpacing: '0.5px',
+                      fontWeight: '900',
+                      color: (leapActive || efiHighlightsActive) ? '#000' : '#fff',
+                      boxShadow: (leapActive || efiHighlightsActive)
+                        ? 'inset 0 1px 0 rgba(255,255,255,0.35), 0 2px 8px rgba(0,0,0,0.6)'
+                        : 'inset 0 2px 8px rgba(0,0,0,0.9)',
+                    }}
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
-                    />
-                  </svg>
+                    {/* icon */}
+                    {leapActive ? (
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" /><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
+                      </svg>
+                    ) : efiHighlightsActive ? (
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" />
+                      </svg>
+                    ) : (
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" fill="currentColor" />
+                      </svg>
+                    )}
+                    <span>{leapActive ? 'LEAP' : efiHighlightsActive ? 'SWING' : 'PICKS'}</span>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
+                  </button>
+                  {showMobilePicksDropdown && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '44px',
+                        left: 0,
+                        zIndex: 9999,
+                        background: '#0d0d0d',
+                        border: '1px solid #252525',
+                        borderRadius: '8px',
+                        minWidth: '160px',
+                        boxShadow: '0 12px 32px rgba(0,0,0,0.95)',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      {/* Leap Picks */}
+                      <button
+                        onClick={async () => {
+                          setShowMobilePicksDropdown(false)
+                          const newState = !leapActive
+                          setLeapActive(newState)
+                          if (efiHighlightsActive) setEfiHighlightsActive(false)
+                          if (newState) {
+                            setModeLoadingStep({ mode: 'LEAP', step: 'Calculating Relative Strength...' })
+                            await new Promise<void>(r => setTimeout(r, 0))
+                            const rsData = await calculateLeapRS(filteredAndSortedData)
+                            setLeapRsData(rsData)
+                            const leapQualified = filteredAndSortedData.filter(meetsLeapCriteria)
+                            const tickers = [...new Set(leapQualified.map(t => t.underlying_ticker))]
+                            setModeLoadingStep({ mode: 'LEAP', step: 'Fetching 52-Week Ranges...' })
+                            await new Promise<void>(r => setTimeout(r, 0))
+                            const [wkData, seasonData] = await Promise.all([
+                              fetchLeap52wkData(tickers),
+                              (async () => {
+                                setModeLoadingStep({ mode: 'LEAP', step: 'Analyzing Seasonality...' })
+                                return fetchLeapSeasonalData(tickers)
+                              })(),
+                            ])
+                            setLeap52wkData(wkData)
+                            setLeapSeasonalData(seasonData)
+                            setModeLoadingStep(null)
+                          } else {
+                            setModeLoadingStep(null)
+                          }
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '11px 14px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          background: leapActive ? 'rgba(0,180,216,0.15)' : 'transparent',
+                          border: 'none',
+                          borderBottom: '1px solid #1c1c1c',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {/* Cyan rocket icon */}
+                        <span style={{ display: 'flex', alignItems: 'center', color: '#00b4d8', flexShrink: 0 }}>
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" /><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
+                          </svg>
+                        </span>
+                        <span style={{ color: leapActive ? '#00d4ff' : '#ccc', fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', textTransform: 'uppercase' }}>Leap Picks</span>
+                        {leapActive && (
+                          <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', color: '#00d4ff' }}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                          </span>
+                        )}
+                      </button>
+                      {/* Swing Picks */}
+                      <button
+                        onClick={async () => {
+                          setShowMobilePicksDropdown(false)
+                          const newState = !efiHighlightsActive
+                          setEfiHighlightsActive(newState)
+                          if (newState) {
+                            setLeapActive(false)
+                            setModeLoadingStep({ mode: 'EFI', step: 'Calculating Relative Strength...' })
+                            const efiTrades = filteredAndSortedData.filter(meetsEfiCriteria)
+                            const rsData = await calculateRelativeStrength(efiTrades)
+                            setRelativeStrengthData(rsData)
+                            setModeLoadingStep(null)
+                          } else {
+                            setModeLoadingStep(null)
+                          }
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '11px 14px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          background: efiHighlightsActive ? 'rgba(245,197,24,0.12)' : 'transparent',
+                          border: 'none',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {/* Gold trending-up icon */}
+                        <span style={{ display: 'flex', alignItems: 'center', color: '#f5c518', flexShrink: 0 }}>
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" />
+                          </svg>
+                        </span>
+                        <span style={{ color: efiHighlightsActive ? '#f5c518' : '#ccc', fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', textTransform: 'uppercase' }}>Swing Picks</span>
+                        {efiHighlightsActive && (
+                          <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', color: '#f5c518' }}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                          </span>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
 
-                  <span style={{ color: efiHighlightsActive ? '#000000' : '#ffffff' }}>
-                    HIGHLIGHTS
-                  </span>
-                </button>
-
-                {/* Notable Button - mobile, shown when EFI Highlights active */}
+                {/* Notable Button - shown when Swing Picks active */}
                 {efiHighlightsActive && (
                   <button
                     onClick={() => setNotableFilterActive(!notableFilterActive)}
-                    className="px-2 font-black uppercase transition-all duration-200 flex items-center hover:scale-[1.02] active:scale-[0.98] focus:outline-none"
+                    className="px-2 font-black uppercase transition-all duration-200 flex items-center focus:outline-none"
                     style={{
                       height: '40px',
                       background: notableFilterActive
@@ -6146,101 +6201,84 @@ Stock Reaction: ${scores.stockReaction}/15`
                       letterSpacing: '0.5px',
                       fontWeight: '900',
                       boxShadow: notableFilterActive
-                        ? '0 0 10px rgba(255, 215, 0, 0.5), inset 0 2px 8px rgba(0, 0, 0, 0.3)'
-                        : 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-                      color: notableFilterActive ? '#000000' : '#FFD700',
+                        ? '0 0 10px rgba(255,215,0,0.5), inset 0 2px 8px rgba(0,0,0,0.3)'
+                        : 'inset 0 2px 8px rgba(0,0,0,0.9)',
+                      color: notableFilterActive ? '#000' : '#FFD700',
                     }}
                   >
                     NOTABLE
                   </button>
                 )}
 
-                {/* Filter Button */}
-
-                <button
-                  onClick={() => {
-                    setIsFilterDialogOpen(true)
-                  }}
-                  className="px-2 text-white font-black uppercase transition-all duration-200 flex items-center gap-1 hover:scale-[1.02] active:scale-[0.98] focus:outline-none"
-                  style={{
-                    height: '40px',
-
-                    background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
-
-                    border: '2px solid #ff8500',
-
-                    borderRadius: '4px',
-
-                    fontSize: '10px',
-
-                    letterSpacing: '0.5px',
-
-                    fontWeight: '900',
-
-                    boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-                  }}
-                >
-                  <svg
-                    className="w-3 h-3 text-orange-500"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                    strokeWidth={2.5}
+                {/* Algo Flow Button */}
+                {onAlgoFlowClick && (
+                  <button
+                    onClick={onAlgoFlowClick}
+                    className="px-2 font-black uppercase transition-all duration-200 flex items-center gap-1 focus:outline-none"
+                    style={{
+                      height: '40px',
+                      background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
+                      border: '2px solid #2a2a2a',
+                      borderRadius: '4px',
+                      fontSize: '10px',
+                      letterSpacing: '0.5px',
+                      fontWeight: '900',
+                      color: '#ffaa55',
+                      boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.9)',
+                    }}
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
-                    />
-                  </svg>
-
-                  <span>FILTER</span>
-                </button>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                    </svg>
+                    <span>ALGO</span>
+                  </button>
+                )}
 
                 {/* Flow Tracking Button */}
-
                 <button
                   onClick={() => setIsFlowTrackingOpen(!isFlowTrackingOpen)}
-                  className={`px-2 text-white font-black uppercase transition-all duration-200 flex items-center gap-1 hover:scale-[1.02] active:scale-[0.98] focus:outline-none`}
+                  className="px-2 text-white font-black uppercase transition-all duration-200 flex items-center gap-1 focus:outline-none"
                   style={{
                     height: '40px',
-
                     background: isFlowTrackingOpen
                       ? 'linear-gradient(180deg, #10b981 0%, #059669 100%)'
-                      : 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
-
-                    border: isFlowTrackingOpen ? '2px solid #10b981' : '2px solid #6b7280',
-
+                      : 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
+                    border: isFlowTrackingOpen ? '2px solid #10b981' : '2px solid #2a2a2a',
                     borderRadius: '4px',
-
                     fontSize: '10px',
-
                     letterSpacing: '0.5px',
-
                     fontWeight: '900',
-
-                    boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
+                    boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.9)',
                   }}
                 >
-                  <svg
-                    className="w-3 h-3 text-green-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                    strokeWidth={2.5}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                    />
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={isFlowTrackingOpen ? '#000' : '#10b981'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
-
                   <span>TRACK</span>
                 </button>
 
-                {/* Mobile Dropdown Menu - see OptionsFlowMobileMenu.tsx */}
+                {/* Filter Button */}
+                <button
+                  onClick={() => setIsFilterDialogOpen(true)}
+                  className="px-2 text-white font-black uppercase transition-all duration-200 flex items-center gap-1 focus:outline-none"
+                  style={{
+                    height: '40px',
+                    background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
+                    border: '2px solid #2a2a2a',
+                    borderRadius: '4px',
+                    fontSize: '10px',
+                    letterSpacing: '0.5px',
+                    fontWeight: '900',
+                    boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.9)',
+                  }}
+                >
+                  <svg width="12" height="12" fill="none" stroke="#ff8500" viewBox="0 0 24 24" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                  </svg>
+                  <span>FILTER</span>
+                </button>
 
+                {/* Mobile Dropdown Menu - see OptionsFlowMobileMenu.tsx */}
                 <OptionsFlowMobileMenu
                   variant="fixed"
                   loading={loading}
@@ -7800,7 +7838,7 @@ Stock Reaction: ${scores.stockReaction}/15`
             <div
               className="table-scroll-container custom-scrollbar overflow-y-auto overflow-x-auto"
               style={{
-                height: isMobileView ? 'calc(100vh - 156px)' : 'calc(100vh - 171px)',
+                height: isMobileView ? 'calc(100vh - 200px)' : 'calc(100vh - 171px)',
                 overflowY: 'auto',
                 overflowX: 'auto',
                 paddingBottom: '100px',
@@ -7812,19 +7850,19 @@ Stock Reaction: ${scores.stockReaction}/15`
                   <tr>
                     {/* TIME */}
                     <th
-                      className={`col-hdr col-sortable text-left${sortField === 'trade_timestamp' ? ' col-active' : ''}`}
+                      className="col-hdr col-sortable text-left"
                       onClick={() => handleSort('trade_timestamp')}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg className="hidden md:block animate-pulse" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FF6600" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /><circle cx="12" cy="12" r="2" fill="#FF6600" opacity="0.4" /></svg>
                         <span className="hidden md:inline">TIME</span>
-                        <span className="md:hidden">SYMBOL</span>
+                        <span className="md:hidden" style={{ fontWeight: 900, fontSize: '15px' }}>SYMBOL</span>
                       </div>
                     </th>
 
                     {/* SYMBOL */}
                     <th
-                      className={`col-hdr col-sortable hidden md:table-cell text-left${sortField === 'underlying_ticker' ? ' col-active' : ''}`}
+                      className="col-hdr col-sortable hidden md:table-cell text-left"
                       onClick={() => handleSort('underlying_ticker')}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -7840,13 +7878,13 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                     {/* CALL/PUT */}
                     <th
-                      className={`col-hdr col-sortable text-left${sortField === 'type' ? ' col-active' : ''}`}
+                      className="col-hdr col-sortable text-left"
                       onClick={() => handleSort('type')}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg className="hidden md:block" width="12" height="12" viewBox="0 0 24 24" fill="none" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M7 16V4m0 0L3 8m4-4l4 4" stroke="#22c55e" /><path d="M17 8v12m0 0l4-4m-4 4l-4-4" stroke="#ef4444" /></svg>
                         <span className="hidden md:inline">{notableFilterActive ? 'C/P' : 'CALL / PUT'}</span>
-                        <span className="md:hidden">C/P</span>
+                        <span className="md:hidden" style={{ fontWeight: 900, fontSize: '15px' }}>C/P</span>
                         <span className="hidden md:inline-flex" style={{ alignItems: 'center', marginLeft: 1 }}>
                           {sortField === 'type' && (
                             <svg width="7" height="8" viewBox="0 0 7 8" fill="currentColor" aria-hidden="true">{sortDirection === 'asc' ? <path d="M3.5 1L7 7H0Z" /> : <path d="M3.5 7L0 1H7Z" />}</svg>
@@ -7857,7 +7895,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                     {/* STRIKE */}
                     <th
-                      className={`col-hdr col-sortable hidden md:table-cell text-left${sortField === 'strike' ? ' col-active' : ''}`}
+                      className="col-hdr col-sortable hidden md:table-cell text-left"
                       onClick={() => handleSort('strike')}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -7873,12 +7911,12 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                     {/* SIZE */}
                     <th
-                      className={`col-hdr col-sortable text-left${sortField === 'trade_size' ? ' col-active' : ''}`}
+                      className="col-hdr col-sortable text-left"
                       onClick={() => handleSort('trade_size')}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg className="hidden md:block" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#a855f7" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></svg>
-                        SIZE
+                        <span style={{ fontWeight: 900, fontSize: '15px' }}>SIZE</span>
                         <span style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 1 }}>
                           {sortField === 'trade_size' && (
                             <svg width="7" height="8" viewBox="0 0 7 8" fill="currentColor" aria-hidden="true">{sortDirection === 'asc' ? <path d="M3.5 1L7 7H0Z" /> : <path d="M3.5 7L0 1H7Z" />}</svg>
@@ -7889,7 +7927,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                     {/* PREMIUM */}
                     <th
-                      className={`col-hdr col-sortable hidden md:table-cell text-left${sortField === 'total_premium' ? ' col-active' : ''}`}
+                      className="col-hdr col-sortable hidden md:table-cell text-left"
                       onClick={() => handleSort('total_premium')}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -7905,13 +7943,13 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                     {/* EXPIRATION */}
                     <th
-                      className={`col-hdr col-sortable text-left${sortField === 'expiry' ? ' col-active' : ''}`}
+                      className="col-hdr col-sortable text-left"
                       onClick={() => handleSort('expiry')}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg className="hidden md:block" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /><line x1="8" y1="14" x2="8" y2="14" strokeWidth="3" /><line x1="12" y1="14" x2="12" y2="14" strokeWidth="3" /></svg>
                         <span className="hidden md:inline">EXPIRATION</span>
-                        <span className="md:hidden">EXPIRY</span>
+                        <span className="md:hidden" style={{ fontWeight: 900, fontSize: '15px' }}>EXPIRY</span>
                         <span className="hidden md:inline-flex" style={{ alignItems: 'center', marginLeft: 1 }}>
                           {sortField === 'expiry' && (
                             <svg width="7" height="8" viewBox="0 0 7 8" fill="currentColor" aria-hidden="true">{sortDirection === 'asc' ? <path d="M3.5 1L7 7H0Z" /> : <path d="M3.5 7L0 1H7Z" />}</svg>
@@ -7922,13 +7960,13 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                     {/* SPOT ? CURR */}
                     <th
-                      className={`col-hdr col-sortable text-left${sortField === 'spot_price' ? ' col-active' : ''}`}
+                      className="col-hdr col-sortable text-left"
                       onClick={() => handleSort('spot_price')}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg className="hidden md:block" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
                         <span className="hidden md:inline">SPOT → CURR</span>
-                        <span className="md:hidden">SPOT</span>
+                        <span className="md:hidden" style={{ fontWeight: 900, fontSize: '15px' }}>SPOT</span>
                         <span className="hidden md:inline-flex" style={{ alignItems: 'center', marginLeft: 1 }}>
                           {sortField === 'spot_price' && (
                             <svg width="7" height="8" viewBox="0 0 7 8" fill="currentColor" aria-hidden="true">{sortDirection === 'asc' ? <path d="M3.5 1L7 7H0Z" /> : <path d="M3.5 7L0 1H7Z" />}</svg>
@@ -7947,7 +7985,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                     {/* TYPE */}
                     <th
-                      className={`col-hdr col-sortable hidden md:table-cell text-left${sortField === 'trade_type' ? ' col-active' : ''}`}
+                      className="col-hdr col-sortable hidden md:table-cell text-left"
                       onClick={() => handleSort('trade_type')}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -7984,7 +8022,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     {/* Conditional: GRADE / LEAP */}
                     {(efiHighlightsActive || leapActive) && (
                       <th
-                        className={`col-hdr col-sortable text-left${sortField === (leapActive ? 'leap_grade' : 'positioning_grade') ? ' col-active' : ''}`}
+                        className="col-hdr col-sortable text-left"
                         onClick={() => handleSort(leapActive ? 'leap_grade' : 'positioning_grade')}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -10738,6 +10776,113 @@ Stock Reaction: ${scores.stockReaction}/15`
             dealerZoneCache={dealerZoneCache}
             liveFlows={trackedFlows}
           />
+        </div>
+      )}
+
+      {/* Mobile Pagination Bar — fixed just above the bottom tab bar */}
+      {isMobileView && !isSidebarPanel && !isFlowTrackingOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 60,
+            left: 0,
+            right: 0,
+            height: '44px',
+            zIndex: 998,
+            background: 'rgba(0,0,0,0.97)',
+            borderTop: '1px solid #1f2937',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingLeft: '12px',
+            paddingRight: '12px',
+            gap: '8px',
+          }}
+        >
+          {/* Trade counter */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+            <span style={{ color: '#ff8500', fontWeight: '700', fontFamily: 'monospace', fontSize: '13px' }}>
+              {filteredAndSortedData.length.toLocaleString()}
+            </span>
+            <span style={{ color: '#555', fontSize: '10px', letterSpacing: '0.12em', textTransform: 'uppercase' }}>trades</span>
+          </div>
+
+          {/* Page info */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '3px', color: '#8a8a8a', fontFamily: 'monospace', fontSize: '12px', flexShrink: 0 }}>
+            <span style={{ color: '#ccc' }}>{currentPage}</span>
+            <span style={{ color: '#444' }}>/</span>
+            <span>{totalPages}</span>
+          </div>
+
+          {/* Pagination buttons */}
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <button
+                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                style={{
+                  width: '32px', height: '32px',
+                  background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)',
+                  border: '1px solid rgba(255,255,255,0.16)',
+                  borderRadius: '5px',
+                  color: currentPage === 1 ? '#333' : '#aaa',
+                  fontSize: '16px',
+                  cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                ‹
+              </button>
+
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let pageNum
+                if (totalPages <= 5) pageNum = i + 1
+                else if (currentPage <= 3) pageNum = i + 1
+                else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i
+                else pageNum = currentPage - 2 + i
+                return (
+                  <button
+                    key={pageNum}
+                    onClick={() => setCurrentPage(pageNum)}
+                    style={{
+                      width: '32px', height: '32px',
+                      background: currentPage === pageNum ? 'rgba(255,133,0,0.9)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)',
+                      border: currentPage === pageNum ? '1px solid rgba(255,133,0,0.9)' : '1px solid rgba(255,255,255,0.16)',
+                      borderRadius: '5px',
+                      color: currentPage === pageNum ? '#000' : '#aaa',
+                      fontSize: '11px',
+                      fontWeight: currentPage === pageNum ? '700' : '500',
+                      fontFamily: 'monospace',
+                      cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {pageNum}
+                  </button>
+                )
+              })}
+
+              <button
+                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                style={{
+                  width: '32px', height: '32px',
+                  background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)',
+                  border: '1px solid rgba(255,255,255,0.16)',
+                  borderRadius: '5px',
+                  color: currentPage === totalPages ? '#333' : '#aaa',
+                  fontSize: '16px',
+                  cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                ›
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -1139,11 +1139,24 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
           'DEC',
         ]
 
-        // Mobile detection: show only 4 months
-        const { isMobile, monthsToShow } = getSeasonaxMainChartMobile()
+        // Mobile detection: adapt label density to zoom level
+        const { isMobile } = getSeasonaxMainChartMobile()
+
+        // Compute visible day range from zoom + pan
+        // zoomedX = 0.5 + (baseX - 0.5) * zoomLevel + panOffset
+        // visible when zoomedX in [0, 1] => baseX in [(0 - 0.5 - panOffset)/zoomLevel + 0.5, (1 - 0.5 - panOffset)/zoomLevel + 0.5]
+        const visibleStartNorm = (0 - 0.5 - panOffset) / zoomLevel + 0.5
+        const visibleEndNorm = (1 - 0.5 - panOffset) / zoomLevel + 0.5
+        const visibleDays = (visibleEndNorm - visibleStartNorm) * 365
+
+        // Pick step: show every N months so labels are never crowded
+        // At full year view (~365 days) on mobile: step=3; zoomed to ~180 days: step=2; <90 days: step=1
+        const step = isMobile
+          ? (visibleDays > 270 ? 3 : visibleDays > 150 ? 2 : 1)
+          : 1
 
         monthStarts.forEach((dayOfYear, index) => {
-          if (index < monthNames.length && monthsToShow.includes(index)) {
+          if (index < monthNames.length && index % step === 0) {
             const chartCenter = 0.5
             const baseX = dayOfYear / 365
             const zoomedX = chartCenter + (baseX - chartCenter) * zoomLevel + panOffset

@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface MonthlyData {
   month: string;
@@ -13,6 +13,8 @@ interface Period30Day {
   return: number;
   startDate: string;
   endDate: string;
+  startDay?: number;
+  endDay?: number;
 }
 
 interface HorizontalMonthlyReturnsProps {
@@ -25,6 +27,14 @@ interface HorizontalMonthlyReturnsProps {
   onElectionPeriodChange?: (period: string) => void;
   onSweetSpotClick?: () => void;
   onPainPointClick?: () => void;
+  onBullish30DClick?: () => void;
+  onBearish30DClick?: () => void;
+  sweetSpotActive?: boolean;
+  painPointActive?: boolean;
+  bullish30DActive?: boolean;
+  bearish30DActive?: boolean;
+  sweetSpotCard?: { dates: string; returnPct: number } | null;
+  painPointCard?: { dates: string; returnPct: number } | null;
   onMonthClick?: (monthIndex: number, monthName: string) => void;
   isFullscreen?: boolean;
 }
@@ -39,9 +49,24 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
   onElectionPeriodChange,
   onSweetSpotClick,
   onPainPointClick,
+  onBullish30DClick,
+  onBearish30DClick,
+  sweetSpotActive = false,
+  painPointActive = false,
+  bullish30DActive = false,
+  bearish30DActive = false,
+  sweetSpotCard,
+  painPointCard,
   onMonthClick,
   isFullscreen = false,
 }) => {
+  const [isMobileView, setIsMobileView] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobileView(window.innerWidth <= 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
   const FULL_MONTH_NAMES: Record<string, string> = {
     'Jan': 'January', 'Feb': 'February', 'Mar': 'March', 'Apr': 'April',
     'May': 'May', 'Jun': 'June', 'Jul': 'July', 'Aug': 'August',
@@ -208,10 +233,25 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
         justifyContent: 'center'
       }}>
         {/* Left column - BULLISH 30-day period */}
-        <div className="period-column left-column" style={{ flexShrink: 0 }}>
+        <div className="period-column left-column" style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: isMobileView ? '4px' : undefined }}>
+          {isMobileView && sweetSpotCard && (
+            <div
+              className={`period-item bullish-period${sweetSpotActive ? ' active' : ''}`}
+              onClick={onSweetSpotClick}
+              style={{ cursor: onSweetSpotClick ? 'pointer' : 'default', opacity: sweetSpotActive ? 1 : 0.85, outline: sweetSpotActive ? '1px solid #00ff00' : 'none' }}
+            >
+              <div className="period-label bullish-label">Sweet Spot</div>
+              <div className="period-date">{sweetSpotCard.dates.replace(/\s*\(\d+ days\)/, '')}</div>
+              <div className="period-return bullish">{(sweetSpotCard.returnPct >= 0 ? '+' : '') + sweetSpotCard.returnPct.toFixed(2) + '%'}</div>
+            </div>
+          )}
           {best30DayPeriod && (
-            <div className="period-item bullish-period">
-              <div className="period-label bullish-label">BULLISH</div>
+            <div
+              className={`period-item bullish-period${isMobileView && bullish30DActive ? ' active' : ''}`}
+              onClick={isMobileView ? onBullish30DClick : undefined}
+              style={{ cursor: isMobileView && onBullish30DClick ? 'pointer' : 'default', outline: isMobileView && bullish30DActive ? '1px solid #00ff00' : 'none' }}
+            >
+              <div className="period-label bullish-label">{isMobileView ? 'Bullish 30D' : 'BULLISH'}</div>
               <div className="period-date">{best30DayPeriod.startDate} - {best30DayPeriod.endDate}</div>
               <div className="period-return bullish">{formatPercentage(best30DayPeriod.return)}</div>
             </div>
@@ -327,12 +367,27 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
         </div>
 
         {/* Right column - BEARISH 30-day period */}
-        <div className="period-column right-column" style={{ flexShrink: 0 }}>
+        <div className="period-column right-column" style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: isMobileView ? '4px' : undefined }}>
           {worst30DayPeriod && (
-            <div className="period-item bearish-period">
-              <div className="period-label bearish-label">BEARISH</div>
+            <div
+              className={`period-item bearish-period${isMobileView && bearish30DActive ? ' active' : ''}`}
+              onClick={isMobileView ? onBearish30DClick : undefined}
+              style={{ cursor: isMobileView && onBearish30DClick ? 'pointer' : 'default', outline: isMobileView && bearish30DActive ? '1px solid #ff4444' : 'none' }}
+            >
+              <div className="period-label bearish-label">{isMobileView ? 'Bearish 30D' : 'BEARISH'}</div>
               <div className="period-date">{worst30DayPeriod.startDate} - {worst30DayPeriod.endDate}</div>
               <div className="period-return bearish">{formatPercentage(worst30DayPeriod.return)}</div>
+            </div>
+          )}
+          {isMobileView && painPointCard && (
+            <div
+              className={`period-item bearish-period${painPointActive ? ' active' : ''}`}
+              onClick={onPainPointClick}
+              style={{ cursor: onPainPointClick ? 'pointer' : 'default', opacity: painPointActive ? 1 : 0.85, outline: painPointActive ? '1px solid #ff4444' : 'none' }}
+            >
+              <div className="period-label bearish-label">Pain Point</div>
+              <div className="period-date">{painPointCard.dates.replace(/\s*\(\d+ days\)/, '')}</div>
+              <div className="period-return bearish">{(painPointCard.returnPct >= 0 ? '+' : '') + painPointCard.returnPct.toFixed(2) + '%'}</div>
             </div>
           )}
         </div>

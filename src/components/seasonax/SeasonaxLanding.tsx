@@ -49,6 +49,14 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   const [bestMode, setBestMode] = useState(false) // Track if showing BEST scan results
   const [expandedKey, setExpandedKey] = useState<string | null>(null) // Track which card is expanded
   const autoStartTriggered = useRef(false)
+  const [isMobileView, setIsMobileView] = useState(false)
+  const [mobileSide, setMobileSide] = useState<'bullish' | 'bearish'>('bullish')
+  useEffect(() => {
+    const check = () => setIsMobileView(window.innerWidth <= 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
 
   // Handle external filters
   useEffect(() => {
@@ -61,7 +69,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   useEffect(() => {
     if (autoStart && !autoStartTriggered.current && !hasScanned) {
       autoStartTriggered.current = true
-      console.log('🚀 Auto-starting seasonal scan from sidebar')
       loadMarketData(initialMarket)
     }
   }, [autoStart])
@@ -148,7 +155,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
 
           return opp
         } catch (error) {
-          console.warn(`Error checking 52-week status for ${opp.symbol}:`, error)
           return opp
         }
       })
@@ -169,7 +175,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   const loadMarketData = async (selectedMarket?: string) => {
     try {
       // Load fresh data directly from SeasonalScreenerService
-      console.log('📊 Loading fresh seasonal data...')
 
       // Import market indices and service
       const { default: SeasonalScreenerService } = await import('@/lib/seasonalScreenerService')
@@ -179,7 +184,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       // Get market-specific stocks
       const market = selectedMarket || activeMarket
       const marketStocks = getMarketStocks(market)
-      console.log(`📊 Scanning ${market}: ${marketStocks.length} stocks`)
 
       setHasScanned(true)
       setLoading(true)
@@ -273,13 +277,11 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
         }
       } catch (error) {
         const errorMsg = `Failed to start seasonal screening: ${error instanceof Error ? error.message : 'Unknown error'}`
-        console.error(` ${errorMsg}`)
         setError(errorMsg)
         setLoading(false)
         setShowWebsite(false)
       }
     } catch (outerError) {
-      console.error('Failed to load seasonalScreenerService:', outerError)
       setError(
         `Failed to initialize screener: ${outerError instanceof Error ? outerError.message : 'Unknown error'}`
       )
@@ -290,7 +292,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   // Load seasoned multi-timeframe data - scan 5Y, 10Y, 15Y, 20Y and find stocks with 60%+ win rate on 2+ timeframes
   const loadSeasonedData = async (selectedMarket?: string) => {
     try {
-      console.log('🌟 Starting SEASONED multi-timeframe scan...')
 
       const { default: SeasonalScreenerService } = await import('@/lib/seasonalScreenerService')
       const { getMarketStocks } = await import('@/lib/marketIndices')
@@ -320,7 +321,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       // Scan each timeframe
       for (let i = 0; i < timeframes.length; i++) {
         const years = timeframes[i]
-        console.log(`📊 Scanning ${years}Y timeframe...`)
 
         setStreamStatus(`🌟 Scanning ${years}Y timeframe (${i + 1}/4)...`)
 
@@ -388,10 +388,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
         }
       })
 
-      console.log(
-        `✅ SEASONED SCAN Complete! Found ${seasonedOpportunities.length} multi-timeframe qualified stocks`
-      )
-
       if (seasonedOpportunities.length > 0) {
         // Check 52-week status
         setStreamStatus('🔍 Checking 52-week high/low status...')
@@ -415,7 +411,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
         setShowWebsite(false)
       }
     } catch (error) {
-      console.error('SEASONED scan failed:', error)
       setError(`SEASONED scan failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
       setLoading(false)
       setSeasonedMode(false)
@@ -423,7 +418,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   }
 
   const handleScreenerStart = (market: string) => {
-    console.log(`Starting screener for ${market}`)
     setActiveMarket(market)
     setSeasonedMode(false)
     loadMarketData(market)
@@ -432,7 +426,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   // Load best bullish and bearish for each timeframe - scan 5Y, 10Y, 15Y, 20Y and find best of each
   const loadBestData = async (selectedMarket?: string) => {
     try {
-      console.log('🏆 Starting BEST scan - Top bullish & bearish for each timeframe...')
 
       const { default: SeasonalScreenerService } = await import('@/lib/seasonalScreenerService')
       const { getMarketStocks } = await import('@/lib/marketIndices')
@@ -459,7 +452,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       // Scan each timeframe
       for (let i = 0; i < timeframes.length; i++) {
         const years = timeframes[i]
-        console.log(`📊 Scanning ${years}Y timeframe for best trades...`)
 
         setStreamStatus(`🏆 Scanning ${years}Y timeframe (${i + 1}/4)...`)
 
@@ -494,8 +486,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
             )
             if (bullishPatterns.length > 0) {
               const bestBullish = bullishPatterns.reduce((prev, curr) => {
-                const prevReturn = Math.abs(prev.averageReturn || prev.avgReturn || 0)
-                const currReturn = Math.abs(curr.averageReturn || curr.avgReturn || 0)
+                const prevReturn = Math.abs(prev.averageReturn || 0)
+                const currReturn = Math.abs(curr.averageReturn || 0)
                 return currReturn > prevReturn ? curr : prev
               })
               bestResults.push({
@@ -511,8 +503,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
             )
             if (bearishPatterns.length > 0) {
               const bestBearish = bearishPatterns.reduce((prev, curr) => {
-                const prevReturn = Math.abs(prev.averageReturn || prev.avgReturn || 0)
-                const currReturn = Math.abs(curr.averageReturn || curr.avgReturn || 0)
+                const prevReturn = Math.abs(prev.averageReturn || 0)
+                const currReturn = Math.abs(curr.averageReturn || 0)
                 return currReturn > prevReturn ? curr : prev
               })
               bestResults.push({
@@ -524,8 +516,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
           }
         }
       }
-
-      console.log(`✅ BEST SCAN Complete! Found ${bestResults.length} best picks`)
 
       if (bestResults.length > 0) {
         // Check 52-week status
@@ -557,7 +547,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
         setShowWebsite(false)
       }
     } catch (error) {
-      console.error('BEST scan failed:', error)
       setError(`BEST scan failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
       setLoading(false)
       setSeasonedMode(false)
@@ -565,13 +554,11 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   }
 
   const handleSeasonedScan = (market: string) => {
-    console.log(`Starting SEASONED scan for ${market}`)
     setActiveMarket(market)
     loadSeasonedData(market)
   }
 
   const handleBestScan = (market: string) => {
-    console.log(`Starting BEST scan for ${market}`)
     setActiveMarket(market)
     loadBestData(market)
   }
@@ -619,11 +606,51 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
 
   return (
     <div className="seasonax-container" style={{ marginTop: '-40px' }}>
-      {/* Hide scrollbars CSS */}
+      {/* Hide scrollbars CSS + mobile 2-col grid */}
       <style>
         {`
  .results-grid-split::-webkit-scrollbar {
  display: none;
+ }
+ @media (max-width: 768px) {
+   .seasonax-container { margin-top: 0 !important; }
+   .split-results-container {
+     flex-direction: column !important;
+     height: calc(100dvh - 145px) !important;
+     overflow: hidden !important;
+     border: none !important;
+     border-radius: 0 !important;
+   }
+   .bullish-section, .bearish-section, .seasoned-section {
+     flex: 1 !important;
+     height: 100% !important;
+     min-height: 0 !important;
+     overflow: hidden !important;
+     max-width: 100% !important;
+   }
+   .split-results-container .golden-separator { display: none !important; }
+   .results-grid-split {
+     display: flex !important;
+     flex-direction: column !important;
+     gap: 4px !important;
+     padding: 4px !important;
+     height: 100% !important;
+     overflow-y: auto !important;
+     overflow-x: hidden !important;
+     -webkit-overflow-scrolling: touch !important;
+   }
+   .results-grid-split > div {
+     flex-shrink: 0 !important;
+   }
+   .section-header-split { padding: 4px 6px !important; min-height: 36px !important; }
+   .section-title { font-size: 8px !important; gap: 3px !important; letter-spacing: 0.04em !important; }
+   .section-title svg { width: 12px !important; height: 12px !important; flex-shrink: 0 !important; }
+   .section-title .count { font-size: 8px !important; }
+   .pro-results { padding: 0 !important; }
+   .opp-symbol { font-size: 13px !important; letter-spacing: 0.5px !important; }
+   .opp-winrate { font-size: 10px !important; }
+   .opp-row-winrate, .opp-row-corr { font-size: 9px !important; }
+   .opp-expected-positive, .opp-expected-negative { font-size: 10px !important; }
  }
  `}
       </style>
@@ -647,44 +674,77 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
         {!hasScanned ? (
           <div className="pro-empty-state"></div>
         ) : displayedOpportunities.length > 0 ? (
-          <div
-            className="split-results-container"
-            style={{
-              border: '3px solid #FFD700',
-              borderRadius: '12px',
-              height: '82vh',
-              overflow: 'hidden',
-              display: 'flex',
-              marginTop: sidebarMode ? '20px' : '0',
-            }}
-          >
-            {(() => {
-              // SEASONED MODE - Split by bullish/bearish like regular mode
-              if (seasonedMode) {
-                const bullishOpps = displayedOpportunities.filter(
-                  (opp) => (opp.averageReturn || opp.avgReturn || 0) >= 0
-                )
-                const bearishOpps = displayedOpportunities.filter(
-                  (opp) => (opp.averageReturn || opp.avgReturn || 0) < 0
-                )
+          <>
+            {/* Mobile bullish/bearish toggle */}
+            {isMobileView && (
+              <div style={{ display: 'flex', gap: 0, background: '#000', borderBottom: '1px solid #222' }}>
+                <button
+                  onClick={() => setMobileSide('bullish')}
+                  style={{
+                    flex: 1, padding: '8px 4px', fontSize: 9, fontWeight: 800,
+                    fontFamily: '"JetBrains Mono",monospace', letterSpacing: '0.06em',
+                    textTransform: 'uppercase', cursor: 'pointer', border: 'none',
+                    borderBottom: mobileSide === 'bullish' ? '2px solid #00FF88' : '2px solid transparent',
+                    background: mobileSide === 'bullish' ? 'rgba(0,255,136,0.08)' : 'transparent',
+                    color: mobileSide === 'bullish' ? '#00FF88' : 'rgba(255,255,255,0.45)',
+                  }}
+                >
+                  🟢 BULLISH ({displayedOpportunities.filter(o => (o.averageReturn || o.avgReturn || 0) >= 0).length})
+                </button>
+                <button
+                  onClick={() => setMobileSide('bearish')}
+                  style={{
+                    flex: 1, padding: '8px 4px', fontSize: 9, fontWeight: 800,
+                    fontFamily: '"JetBrains Mono",monospace', letterSpacing: '0.06em',
+                    textTransform: 'uppercase', cursor: 'pointer', border: 'none',
+                    borderBottom: mobileSide === 'bearish' ? '2px solid #FF4444' : '2px solid transparent',
+                    background: mobileSide === 'bearish' ? 'rgba(255,68,68,0.08)' : 'transparent',
+                    color: mobileSide === 'bearish' ? '#FF4444' : 'rgba(255,255,255,0.45)',
+                  }}
+                >
+                  🔴 BEARISH ({displayedOpportunities.filter(o => (o.averageReturn || o.avgReturn || 0) < 0).length})
+                </button>
+              </div>
+            )}
+            <div
+              className="split-results-container"
+              style={{
+                border: isMobileView ? 'none' : '3px solid #FFD700',
+                borderRadius: isMobileView ? '0' : '12px',
+                height: isMobileView ? 'calc(100dvh - 145px)' : '82vh',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'row',
+                marginTop: sidebarMode ? '20px' : '0',
+              }}
+            >
+              {(() => {
+                // SEASONED MODE - Split by bullish/bearish like regular mode
+                if (seasonedMode) {
+                  const bullishOpps = displayedOpportunities.filter(
+                    (opp) => (opp.averageReturn || opp.avgReturn || 0) >= 0
+                  )
+                  const bearishOpps = displayedOpportunities.filter(
+                    (opp) => (opp.averageReturn || opp.avgReturn || 0) < 0
+                  )
 
-                return (
-                  <>
-                    {/* Left Column - Bullish Seasoned */}
-                    <div
-                      className="seasoned-section"
-                      style={{
-                        flex: 1,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        height: '100%',
-                        minHeight: 0,
-                      }}
-                    >
-                      <div className="section-header-split seasoned-header">
-                        <div className="section-title">
-                          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-                            <style>{`
+                  return (
+                    <>
+                      {/* Left Column - Bullish Seasoned */}
+                      <div
+                        className="seasoned-section"
+                        style={{
+                          flex: 1,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          height: '100%',
+                          minHeight: 0,
+                        }}
+                      >
+                        <div className="section-header-split seasoned-header">
+                          <div className="section-title">
+                            <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                              <style>{`
                               @keyframes sl-rocket-rise { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-3px)} }
                               @keyframes sl-flame { 0%,100%{opacity:1;transform:scaleY(1)} 50%{opacity:0.6;transform:scaleY(0.7)} }
                               @keyframes sl-trail { 0%{opacity:0;transform:scaleX(0)} 60%{opacity:1;transform:scaleX(1)} 100%{opacity:0;transform:scaleX(1)} }
@@ -692,13 +752,196 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                               .sl-flame { animation: sl-flame 0.4s ease-in-out infinite; transform-origin: 14px 20px; }
                               .sl-trail { animation: sl-trail 1.8s ease-in-out infinite; transform-origin: 14px 20px; }
                             `}</style>
-                            <g className="sl-rocket-g">
-                              <path d="M14 4 C14 4 9 10 9 16 L14 20 L19 16 C19 10 14 4 14 4Z" fill="#00FF88" opacity="0.9" />
-                              <circle cx="14" cy="13" r="2.5" fill="#000" opacity="0.6" />
-                              <path d="M9 16 L6 18 L9 19Z" fill="#00CC66" />
-                              <path d="M19 16 L22 18 L19 19Z" fill="#00CC66" />
-                              <path className="sl-flame" d="M12 20 Q14 25 16 20 Q14 23 12 20Z" fill="#FFD700" />
+                              <g className="sl-rocket-g">
+                                <path d="M14 4 C14 4 9 10 9 16 L14 20 L19 16 C19 10 14 4 14 4Z" fill="#00FF88" opacity="0.9" />
+                                <circle cx="14" cy="13" r="2.5" fill="#000" opacity="0.6" />
+                                <path d="M9 16 L6 18 L9 19Z" fill="#00CC66" />
+                                <path d="M19 16 L22 18 L19 19Z" fill="#00CC66" />
+                                <path className="sl-flame" d="M12 20 Q14 25 16 20 Q14 23 12 20Z" fill="#FFD700" />
+                              </g>
+                            </svg>
+                            BULLISH SEASONALITY
+                            <span className="count">({bullishOpps.length})</span>
+                          </div>
+                        </div>
+                        <div
+                          className="results-grid-split"
+                          style={{
+                            overflowY: 'auto',
+                            overflowX: 'hidden',
+                            height: 'calc(82vh - 70px)',
+                          }}
+                        >
+                          {bullishOpps.map((opportunity, index) => {
+                            const qualifyingCount = (opportunity as any).qualifyingTimeframes || 0
+                            const timeframeYears =
+                              (opportunity as any).timeframe ||
+                              (opportunity as any).years ||
+                              selectedYears
+                            const cardKey = `bullish-${opportunity.symbol}-${index}`
+                            return (
+                              <OpportunityCard
+                                key={cardKey}
+                                pattern={opportunity}
+                                rank={index + 1}
+                                isTopBullish={false}
+                                isTopBearish={false}
+                                sidebarMode={sidebarMode}
+                                seasonedQualifying={qualifyingCount}
+                                years={timeframeYears}
+                                hideBestBadge={bestMode}
+                                multiframeYears={timeframeYears}
+                                isExpanded={expandedKey === cardKey}
+                                onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
+                              />
+                            )
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Golden Vertical Separator */}
+                      <div className="golden-separator">
+                        <div className="separator-line"></div>
+                        <div className="separator-orb">
+                          <div className="orb-inner"></div>
+                        </div>
+                      </div>
+
+                      {/* Right Column - Bearish Seasoned */}
+                      <div
+                        className="seasoned-section"
+                        style={{
+                          flex: 1,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          height: '100%',
+                          minHeight: 0,
+                        }}
+                      >
+                        <div className="section-header-split seasoned-header">
+                          <div className="section-title">
+                            <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                              <style>{`
+                              @keyframes sl-bear-pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.06)} }
+                              @keyframes sl-claw { 0%{transform:translateY(0)} 40%{transform:translateY(2px)} 100%{transform:translateY(0)} }
+                              .sl-bear-body { animation: sl-bear-pulse 2s ease-in-out infinite; transform-origin: 14px 14px; }
+                              .sl-claw1 { animation: sl-claw 2s 0s ease-in-out infinite; transform-origin: 10px 20px; }
+                              .sl-claw2 { animation: sl-claw 2s 0.3s ease-in-out infinite; transform-origin: 14px 21px; }
+                              .sl-claw3 { animation: sl-claw 2s 0.6s ease-in-out infinite; transform-origin: 18px 20px; }
+                            `}</style>
+                              <g className="sl-bear-body">
+                                <path d="M7 10 Q14 5 21 10 L22 20 Q14 24 6 20Z" fill="#FF4444" opacity="0.85" />
+                                <circle cx="10" cy="8" r="2.5" fill="#FF4444" />
+                                <circle cx="18" cy="8" r="2.5" fill="#FF4444" />
+                                <circle cx="10.5" cy="13" r="1.2" fill="#1a0000" />
+                                <circle cx="17.5" cy="13" r="1.2" fill="#1a0000" />
+                              </g>
+                              <line className="sl-claw1" x1="10" y1="20" x2="9" y2="24" stroke="#FF6666" strokeWidth="1.5" strokeLinecap="round" />
+                              <line className="sl-claw2" x1="14" y1="21" x2="14" y2="25" stroke="#FF6666" strokeWidth="1.5" strokeLinecap="round" />
+                              <line className="sl-claw3" x1="18" y1="20" x2="19" y2="24" stroke="#FF6666" strokeWidth="1.5" strokeLinecap="round" />
+                            </svg>
+                            BEARISH SEASONALITY
+                            <span className="count">({bearishOpps.length})</span>
+                          </div>
+                        </div>
+                        <div
+                          className="results-grid-split"
+                          style={{
+                            overflowY: 'auto',
+                            overflowX: 'hidden',
+                            height: 'calc(82vh - 70px)',
+                          }}
+                        >
+                          {bearishOpps.map((opportunity, index) => {
+                            const qualifyingCount = (opportunity as any).qualifyingTimeframes || 0
+                            const timeframeYears =
+                              (opportunity as any).timeframe ||
+                              (opportunity as any).years ||
+                              selectedYears
+                            const cardKey = `bearish-${opportunity.symbol}-${index}`
+                            return (
+                              <OpportunityCard
+                                key={cardKey}
+                                pattern={opportunity}
+                                rank={index + 1}
+                                isTopBullish={false}
+                                isTopBearish={false}
+                                sidebarMode={sidebarMode}
+                                seasonedQualifying={qualifyingCount}
+                                years={timeframeYears}
+                                hideBestBadge={bestMode}
+                                multiframeYears={timeframeYears}
+                                isExpanded={expandedKey === cardKey}
+                                onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
+                              />
+                            )
+                          })}
+                        </div>
+                      </div>
+                    </>
+                  )
+                }
+
+                // REGULAR MODE - Bullish/Bearish split
+                const bullishOpps = displayedOpportunities.filter(
+                  (opp) => (opp.averageReturn || opp.avgReturn || 0) >= 0
+                )
+                const bearishOpps = displayedOpportunities.filter(
+                  (opp) => (opp.averageReturn || opp.avgReturn || 0) < 0
+                )
+
+                const topBullish =
+                  bullishOpps.length > 0
+                    ? bullishOpps.reduce((prev, curr) => {
+                      const prevScore = (prev.winRate + ((prev as any).correlation || 0)) / 2
+                      const currScore = (curr.winRate + ((curr as any).correlation || 0)) / 2
+                      return currScore > prevScore ? curr : prev
+                    })
+                    : null
+
+                const topBearish =
+                  bearishOpps.length > 0
+                    ? bearishOpps.reduce((prev, curr) => {
+                      const prevScore = (prev.winRate + ((prev as any).correlation || 0)) / 2
+                      const currScore = (curr.winRate + ((curr as any).correlation || 0)) / 2
+                      return currScore > prevScore ? curr : prev
+                    })
+                    : null
+
+                return (
+                  <>
+                    {/* Bullish Section - Left Side */}
+                    <div
+                      className="bullish-section"
+                      style={{
+                        flex: 1,
+                        display: isMobileView && mobileSide !== 'bullish' ? 'none' : 'flex',
+                        flexDirection: 'column',
+                        height: '100%',
+                        minHeight: 0,
+                      }}
+                    >
+                      <div className="section-header-split bullish-header" style={{ display: isMobileView ? 'none' : undefined }}>
+                        <div className="section-title">
+                          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                            <style>{`
+                            @keyframes sl-arrow-up { 0%,100%{transform:translateY(0);opacity:1} 50%{transform:translateY(-4px);opacity:0.7} }
+                            @keyframes sl-bar-grow { 0%,100%{transform:scaleY(1)} 50%{transform:scaleY(1.15)} }
+                            @keyframes sl-spark { 0%,100%{opacity:0;transform:scale(0)} 50%{opacity:1;transform:scale(1)} }
+                            .sl-arrow { animation: sl-arrow-up 1.4s ease-in-out infinite; transform-origin: 14px 8px; }
+                            .sl-bar1 { animation: sl-bar-grow 1.4s 0s ease-in-out infinite; transform-origin: 8px 22px; }
+                            .sl-bar2 { animation: sl-bar-grow 1.4s 0.2s ease-in-out infinite; transform-origin: 14px 22px; }
+                            .sl-bar3 { animation: sl-bar-grow 1.4s 0.4s ease-in-out infinite; transform-origin: 20px 22px; }
+                            .sl-spark { animation: sl-spark 1.4s ease-in-out infinite; transform-origin: 14px 6px; }
+                          `}</style>
+                            <rect className="sl-bar1" x="6" y="16" width="5" height="6" rx="1" fill="#00FF88" opacity="0.7" />
+                            <rect className="sl-bar2" x="11.5" y="12" width="5" height="10" rx="1" fill="#00FF88" opacity="0.85" />
+                            <rect className="sl-bar3" x="17" y="8" width="5" height="14" rx="1" fill="#00FF88" />
+                            <g className="sl-arrow">
+                              <polyline points="10,10 14,5 18,10" stroke="#00FF88" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                              <line x1="14" y1="5" x2="14" y2="14" stroke="#00FF88" strokeWidth="2" strokeLinecap="round" />
                             </g>
+                            <circle className="sl-spark" cx="14" cy="3" r="1.5" fill="#FFD700" />
                           </svg>
                           BULLISH SEASONALITY
                           <span className="count">({bullishOpps.length})</span>
@@ -713,23 +956,24 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                         }}
                       >
                         {bullishOpps.map((opportunity, index) => {
-                          const qualifyingCount = (opportunity as any).qualifyingTimeframes || 0
+                          const isTopBullish = topBullish
+                            ? opportunity.symbol === topBullish.symbol
+                            : false
                           const timeframeYears =
                             (opportunity as any).timeframe ||
                             (opportunity as any).years ||
                             selectedYears
+                          const cardKey = `bullish-${opportunity.symbol}-${index}`
                           return (
                             <OpportunityCard
                               key={cardKey}
                               pattern={opportunity}
                               rank={index + 1}
-                              isTopBullish={false}
+                              isTopBullish={isTopBullish}
                               isTopBearish={false}
                               sidebarMode={sidebarMode}
-                              seasonedQualifying={qualifyingCount}
-                              years={timeframeYears}
                               hideBestBadge={bestMode}
-                              multiframeYears={multiframeYears}
+                              years={timeframeYears}
                               isExpanded={expandedKey === cardKey}
                               onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
                             />
@@ -746,38 +990,38 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                       </div>
                     </div>
 
-                    {/* Right Column - Bearish Seasoned */}
+                    {/* Bearish Section - Right Side */}
                     <div
-                      className="seasoned-section"
+                      className="bearish-section"
                       style={{
                         flex: 1,
-                        display: 'flex',
+                        display: isMobileView && mobileSide !== 'bearish' ? 'none' : 'flex',
                         flexDirection: 'column',
                         height: '100%',
                         minHeight: 0,
                       }}
                     >
-                      <div className="section-header-split seasoned-header">
+                      <div className="section-header-split bearish-header" style={{ display: isMobileView ? 'none' : undefined }}>
                         <div className="section-title">
                           <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
                             <style>{`
-                              @keyframes sl-bear-pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.06)} }
-                              @keyframes sl-claw { 0%{transform:translateY(0)} 40%{transform:translateY(2px)} 100%{transform:translateY(0)} }
-                              .sl-bear-body { animation: sl-bear-pulse 2s ease-in-out infinite; transform-origin: 14px 14px; }
-                              .sl-claw1 { animation: sl-claw 2s 0s ease-in-out infinite; transform-origin: 10px 20px; }
-                              .sl-claw2 { animation: sl-claw 2s 0.3s ease-in-out infinite; transform-origin: 14px 21px; }
-                              .sl-claw3 { animation: sl-claw 2s 0.6s ease-in-out infinite; transform-origin: 18px 20px; }
-                            `}</style>
-                            <g className="sl-bear-body">
-                              <path d="M7 10 Q14 5 21 10 L22 20 Q14 24 6 20Z" fill="#FF4444" opacity="0.85" />
-                              <circle cx="10" cy="8" r="2.5" fill="#FF4444" />
-                              <circle cx="18" cy="8" r="2.5" fill="#FF4444" />
-                              <circle cx="10.5" cy="13" r="1.2" fill="#1a0000" />
-                              <circle cx="17.5" cy="13" r="1.2" fill="#1a0000" />
+                            @keyframes sl-arrow-dn { 0%,100%{transform:translateY(0);opacity:1} 50%{transform:translateY(4px);opacity:0.7} }
+                            @keyframes sl-bar-shrink { 0%,100%{transform:scaleY(1)} 50%{transform:scaleY(0.85)} }
+                            @keyframes sl-drip { 0%,60%{opacity:0;transform:translateY(0)} 80%{opacity:1;transform:translateY(3px)} 100%{opacity:0;transform:translateY(5px)} }
+                            .sl-dn-arrow { animation: sl-arrow-dn 1.4s ease-in-out infinite; transform-origin: 14px 20px; }
+                            .sl-rbar1 { animation: sl-bar-shrink 1.4s 0.4s ease-in-out infinite; transform-origin: 8px 6px; }
+                            .sl-rbar2 { animation: sl-bar-shrink 1.4s 0.2s ease-in-out infinite; transform-origin: 14px 6px; }
+                            .sl-rbar3 { animation: sl-bar-shrink 1.4s 0s ease-in-out infinite; transform-origin: 20px 6px; }
+                            .sl-drip { animation: sl-drip 1.4s ease-in-out infinite; }
+                          `}</style>
+                            <rect className="sl-rbar1" x="6" y="6" width="5" height="14" rx="1" fill="#FF4444" />
+                            <rect className="sl-rbar2" x="11.5" y="6" width="5" height="10" rx="1" fill="#FF4444" opacity="0.85" />
+                            <rect className="sl-rbar3" x="17" y="6" width="5" height="6" rx="1" fill="#FF4444" opacity="0.7" />
+                            <g className="sl-dn-arrow">
+                              <polyline points="10,18 14,23 18,18" stroke="#FF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                              <line x1="14" y1="23" x2="14" y2="14" stroke="#FF4444" strokeWidth="2" strokeLinecap="round" />
                             </g>
-                            <line className="sl-claw1" x1="10" y1="20" x2="9" y2="24" stroke="#FF6666" strokeWidth="1.5" strokeLinecap="round" />
-                            <line className="sl-claw2" x1="14" y1="21" x2="14" y2="25" stroke="#FF6666" strokeWidth="1.5" strokeLinecap="round" />
-                            <line className="sl-claw3" x1="18" y1="20" x2="19" y2="24" stroke="#FF6666" strokeWidth="1.5" strokeLinecap="round" />
+                            <circle className="sl-drip" cx="14" cy="25" r="1.5" fill="#FF6666" />
                           </svg>
                           BEARISH SEASONALITY
                           <span className="count">({bearishOpps.length})</span>
@@ -792,23 +1036,24 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                         }}
                       >
                         {bearishOpps.map((opportunity, index) => {
-                          const qualifyingCount = (opportunity as any).qualifyingTimeframes || 0
+                          const isTopBearish = topBearish
+                            ? opportunity.symbol === topBearish.symbol
+                            : false
                           const timeframeYears =
                             (opportunity as any).timeframe ||
                             (opportunity as any).years ||
                             selectedYears
+                          const cardKey = `bearish-${opportunity.symbol}-${index}`
                           return (
                             <OpportunityCard
                               key={cardKey}
                               pattern={opportunity}
                               rank={index + 1}
                               isTopBullish={false}
-                              isTopBearish={false}
-                              sidebarMode={sidebarMode}
-                              seasonedQualifying={qualifyingCount}
-                              years={timeframeYears}
+                              isTopBearish={isTopBearish}
                               hideBestBadge={bestMode}
-                              multiframeYears={multiframeYears}
+                              sidebarMode={sidebarMode}
+                              years={timeframeYears}
                               isExpanded={expandedKey === cardKey}
                               onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
                             />
@@ -818,191 +1063,9 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                     </div>
                   </>
                 )
-              }
-
-              // REGULAR MODE - Bullish/Bearish split
-              const bullishOpps = displayedOpportunities.filter(
-                (opp) => (opp.averageReturn || opp.avgReturn || 0) >= 0
-              )
-              const bearishOpps = displayedOpportunities.filter(
-                (opp) => (opp.averageReturn || opp.avgReturn || 0) < 0
-              )
-
-              const topBullish =
-                bullishOpps.length > 0
-                  ? bullishOpps.reduce((prev, curr) => {
-                    const prevScore = (prev.winRate + ((prev as any).correlation || 0)) / 2
-                    const currScore = (curr.winRate + ((curr as any).correlation || 0)) / 2
-                    return currScore > prevScore ? curr : prev
-                  })
-                  : null
-
-              const topBearish =
-                bearishOpps.length > 0
-                  ? bearishOpps.reduce((prev, curr) => {
-                    const prevScore = (prev.winRate + ((prev as any).correlation || 0)) / 2
-                    const currScore = (curr.winRate + ((curr as any).correlation || 0)) / 2
-                    return currScore > prevScore ? curr : prev
-                  })
-                  : null
-
-              return (
-                <>
-                  {/* Bullish Section - Left Side */}
-                  <div
-                    className="bullish-section"
-                    style={{
-                      flex: 1,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      height: '100%',
-                      minHeight: 0,
-                    }}
-                  >
-                    <div className="section-header-split bullish-header">
-                      <div className="section-title">
-                        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-                          <style>{`
-                            @keyframes sl-arrow-up { 0%,100%{transform:translateY(0);opacity:1} 50%{transform:translateY(-4px);opacity:0.7} }
-                            @keyframes sl-bar-grow { 0%,100%{transform:scaleY(1)} 50%{transform:scaleY(1.15)} }
-                            @keyframes sl-spark { 0%,100%{opacity:0;transform:scale(0)} 50%{opacity:1;transform:scale(1)} }
-                            .sl-arrow { animation: sl-arrow-up 1.4s ease-in-out infinite; transform-origin: 14px 8px; }
-                            .sl-bar1 { animation: sl-bar-grow 1.4s 0s ease-in-out infinite; transform-origin: 8px 22px; }
-                            .sl-bar2 { animation: sl-bar-grow 1.4s 0.2s ease-in-out infinite; transform-origin: 14px 22px; }
-                            .sl-bar3 { animation: sl-bar-grow 1.4s 0.4s ease-in-out infinite; transform-origin: 20px 22px; }
-                            .sl-spark { animation: sl-spark 1.4s ease-in-out infinite; transform-origin: 14px 6px; }
-                          `}</style>
-                          <rect className="sl-bar1" x="6" y="16" width="5" height="6" rx="1" fill="#00FF88" opacity="0.7" />
-                          <rect className="sl-bar2" x="11.5" y="12" width="5" height="10" rx="1" fill="#00FF88" opacity="0.85" />
-                          <rect className="sl-bar3" x="17" y="8" width="5" height="14" rx="1" fill="#00FF88" />
-                          <g className="sl-arrow">
-                            <polyline points="10,10 14,5 18,10" stroke="#00FF88" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                            <line x1="14" y1="5" x2="14" y2="14" stroke="#00FF88" strokeWidth="2" strokeLinecap="round" />
-                          </g>
-                          <circle className="sl-spark" cx="14" cy="3" r="1.5" fill="#FFD700" />
-                        </svg>
-                        BULLISH SEASONALITY
-                        <span className="count">({bullishOpps.length})</span>
-                      </div>
-                    </div>
-                    <div
-                      className="results-grid-split"
-                      style={{
-                        overflowY: 'auto',
-                        overflowX: 'hidden',
-                        height: 'calc(82vh - 70px)',
-                      }}
-                    >
-                      {bullishOpps.map((opportunity, index) => {
-                        const isTopBullish = topBullish
-                          ? opportunity.symbol === topBullish.symbol
-                          : false
-                        const timeframeYears =
-                          (opportunity as any).timeframe ||
-                          (opportunity as any).years ||
-                          selectedYears
-                        const cardKey = `bullish-${opportunity.symbol}-${index}`
-                        return (
-                          <OpportunityCard
-                            key={cardKey}
-                            pattern={opportunity}
-                            rank={index + 1}
-                            isTopBullish={isTopBullish}
-                            isTopBearish={false}
-                            sidebarMode={sidebarMode}
-                            hideBestBadge={bestMode}
-                            years={timeframeYears}
-                            isExpanded={expandedKey === cardKey}
-                            onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
-                          />
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Golden Vertical Separator */}
-                  <div className="golden-separator">
-                    <div className="separator-line"></div>
-                    <div className="separator-orb">
-                      <div className="orb-inner"></div>
-                    </div>
-                  </div>
-
-                  {/* Bearish Section - Right Side */}
-                  <div
-                    className="bearish-section"
-                    style={{
-                      flex: 1,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      height: '100%',
-                      minHeight: 0,
-                    }}
-                  >
-                    <div className="section-header-split bearish-header">
-                      <div className="section-title">
-                        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-                          <style>{`
-                            @keyframes sl-arrow-dn { 0%,100%{transform:translateY(0);opacity:1} 50%{transform:translateY(4px);opacity:0.7} }
-                            @keyframes sl-bar-shrink { 0%,100%{transform:scaleY(1)} 50%{transform:scaleY(0.85)} }
-                            @keyframes sl-drip { 0%,60%{opacity:0;transform:translateY(0)} 80%{opacity:1;transform:translateY(3px)} 100%{opacity:0;transform:translateY(5px)} }
-                            .sl-dn-arrow { animation: sl-arrow-dn 1.4s ease-in-out infinite; transform-origin: 14px 20px; }
-                            .sl-rbar1 { animation: sl-bar-shrink 1.4s 0.4s ease-in-out infinite; transform-origin: 8px 6px; }
-                            .sl-rbar2 { animation: sl-bar-shrink 1.4s 0.2s ease-in-out infinite; transform-origin: 14px 6px; }
-                            .sl-rbar3 { animation: sl-bar-shrink 1.4s 0s ease-in-out infinite; transform-origin: 20px 6px; }
-                            .sl-drip { animation: sl-drip 1.4s ease-in-out infinite; }
-                          `}</style>
-                          <rect className="sl-rbar1" x="6" y="6" width="5" height="14" rx="1" fill="#FF4444" />
-                          <rect className="sl-rbar2" x="11.5" y="6" width="5" height="10" rx="1" fill="#FF4444" opacity="0.85" />
-                          <rect className="sl-rbar3" x="17" y="6" width="5" height="6" rx="1" fill="#FF4444" opacity="0.7" />
-                          <g className="sl-dn-arrow">
-                            <polyline points="10,18 14,23 18,18" stroke="#FF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                            <line x1="14" y1="23" x2="14" y2="14" stroke="#FF4444" strokeWidth="2" strokeLinecap="round" />
-                          </g>
-                          <circle className="sl-drip" cx="14" cy="25" r="1.5" fill="#FF6666" />
-                        </svg>
-                        BEARISH SEASONALITY
-                        <span className="count">({bearishOpps.length})</span>
-                      </div>
-                    </div>
-                    <div
-                      className="results-grid-split"
-                      style={{
-                        overflowY: 'auto',
-                        overflowX: 'hidden',
-                        height: 'calc(82vh - 70px)',
-                      }}
-                    >
-                      {bearishOpps.map((opportunity, index) => {
-                        const isTopBearish = topBearish
-                          ? opportunity.symbol === topBearish.symbol
-                          : false
-                        const timeframeYears =
-                          (opportunity as any).timeframe ||
-                          (opportunity as any).years ||
-                          selectedYears
-                        const cardKey = `bearish-${opportunity.symbol}-${index}`
-                        return (
-                          <OpportunityCard
-                            key={cardKey}
-                            pattern={opportunity}
-                            rank={index + 1}
-                            isTopBullish={false}
-                            isTopBearish={isTopBearish}
-                            hideBestBadge={bestMode}
-                            sidebarMode={sidebarMode}
-                            years={timeframeYears}
-                            isExpanded={expandedKey === cardKey}
-                            onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
-                          />
-                        )
-                      })}
-                    </div>
-                  </div>
-                </>
-              )
-            })()}
-          </div>
+              })()}
+            </div>
+          </>
         ) : error ? (
           <div className="pro-error">
             <div className="error-icon"></div>

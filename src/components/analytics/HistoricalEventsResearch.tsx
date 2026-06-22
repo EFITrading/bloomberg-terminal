@@ -86,8 +86,6 @@ interface EventStats {
   gold: InstrumentData | null
   uso: InstrumentData | null
   tlt: InstrumentData | null
-  dxy: InstrumentData | null
-  vix: InstrumentData | null
   loading: boolean
   error: string | null
 }
@@ -100,7 +98,7 @@ interface InstrumentDef {
   apiTicker: string // what we send to /api/historical-data
   label: string
   color: string
-  group: 'Equities' | 'Sectors' | 'FX & Vol'
+  group: 'Equities' | 'Sectors'
 }
 
 const ALL_INSTRUMENTS: InstrumentDef[] = [
@@ -123,14 +121,11 @@ const ALL_INSTRUMENTS: InstrumentDef[] = [
   { ticker: 'XLRE', apiTicker: 'XLRE', label: 'Real Estate', color: '#67e8f9', group: 'Sectors' },
   { ticker: 'XLC', apiTicker: 'XLC', label: 'Comm. Services', color: '#c084fc', group: 'Sectors' },
   { ticker: 'GLD', apiTicker: 'GLD', label: 'Gold', color: '#eab308', group: 'Sectors' },
-  // FX & Vol
-  { ticker: 'DXY', apiTicker: 'UUP', label: 'USD Index', color: '#38bdf8', group: 'FX & Vol' },
-  { ticker: 'VIX', apiTicker: 'VIXY', label: 'VIX (VIXY)', color: '#ef4444', group: 'FX & Vol' },
 ]
 
 const INSTRUMENT_GROUPS: Array<
-  'Equities' | 'Sectors' | 'FX & Vol'
-> = ['Equities', 'Sectors', 'FX & Vol']
+  'Equities' | 'Sectors'
+> = ['Equities', 'Sectors']
 
 const GROUP_COLORS: Record<string, string> = {
   Equities: '#FF6B00',
@@ -249,28 +244,21 @@ async function fetchBars(ticker: string, startDate: string, endDate: string): Pr
   const e = end.toISOString().split('T')[0]
 
   const url = `/api/historical-data?symbol=${ticker}&startDate=${s}&endDate=${e}&timeframe=1d`
-  console.log(`[HER] fetchBars → ${ticker} | url: ${url}`)
 
   let res: Response
   try {
     res = await fetch(url)
   } catch (err) {
-    console.error(`[HER] fetchBars NETWORK ERROR for ${ticker}:`, err)
     throw err
   }
-
-  console.log(`[HER] fetchBars response ${ticker}: status=${res.status} ok=${res.ok}`)
   if (!res.ok) {
     const text = await res.text().catch(() => '(no body)')
-    console.error(`[HER] fetchBars HTTP error for ${ticker}: ${res.status} — ${text}`)
     throw new Error(`Failed to fetch ${ticker}: ${res.status}`)
   }
 
   const json = await res.json()
-  console.log(`[HER] fetchBars ${ticker}: json keys=${Object.keys(json).join(',')}, results=${Array.isArray(json.results) ? json.results.length : 'N/A'}`)
 
   if (!json.results || !Array.isArray(json.results)) {
-    console.warn(`[HER] fetchBars ${ticker}: no results array — full response:`, json)
     return []
   }
 
@@ -285,8 +273,6 @@ async function fetchBars(ticker: string, startDate: string, endDate: string): Pr
       volume: r.v,
     }))
     .sort((a: PriceBar, b: PriceBar) => a.timestamp - b.timestamp)
-
-  console.log(`[HER] fetchBars ${ticker}: parsed ${bars.length} bars (${bars[0]?.date} → ${bars[bars.length - 1]?.date})`)
   return bars
 }
 
@@ -373,6 +359,13 @@ const StatCard = ({ label, value, color }: { label: string; value: string; color
 export default function HistoricalEventsResearch() {
   const [activeTab, setActiveTab] = useState<'events' | 'screener' | 'research'>('events')
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isMobileView, setIsMobileView] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobileView(window.innerWidth <= 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
   const [selectedCategory, setSelectedCategory] = useState<EventCategory | 'All'>('All')
   const [selectedEvent, setSelectedEvent] = useState<MarketEvent | null>(null)
   const [stats, setStats] = useState<EventStats>({
@@ -394,8 +387,6 @@ export default function HistoricalEventsResearch() {
     gold: null,
     uso: null,
     tlt: null,
-    dxy: null,
-    vix: null,
     loading: false,
     error: null,
   })
@@ -426,8 +417,6 @@ export default function HistoricalEventsResearch() {
     GLD: 'gold',
     USO: 'uso',
     TLT: 'tlt',
-    DXY: 'dxy',
-    VIX: 'vix',
   }
 
   // ── Filtering ─────────────────────────────────────────────────────────────
@@ -463,25 +452,16 @@ export default function HistoricalEventsResearch() {
       gold: null,
       uso: null,
       tlt: null,
-      dxy: null,
-      vix: null,
       loading: true,
       error: null,
     })
 
-    console.log(`[HER] loadEventData: event="${event.name}" start=${event.startDate} end=${event.endDate}`)
-    console.log(`[HER] fetching ${ALL_INSTRUMENTS.length} instruments:`, ALL_INSTRUMENTS.map(i => i.apiTicker))
-
     const results = await Promise.allSettled(
       ALL_INSTRUMENTS.map((ins) => fetchBars(ins.apiTicker, event.startDate, event.endDate))
     )
-
-    console.log('[HER] allSettled results:')
     results.forEach((r, i) => {
       if (r.status === 'fulfilled') {
-        console.log(`  [HER] ${ALL_INSTRUMENTS[i].ticker}: ✓ ${r.value.length} bars`)
       } else {
-        console.error(`  [HER] ${ALL_INSTRUMENTS[i].ticker}: ✗ rejected —`, r.reason)
       }
     })
 
@@ -495,7 +475,6 @@ export default function HistoricalEventsResearch() {
       const key = INSTR_KEY_MAP[ins.ticker]
       const result = results[i]
       if (result.status === 'fulfilled' && result.value.length >= 2) {
-        console.log(`[HER] building stats for ${ins.ticker}: duringStart=${offsetDate(event.startDate, -10)} duringEnd=${offsetDate(event.startDate, 10)}`)
         const allBars = result.value
 
         // 'During' window: ±10 calendar days around the event START DATE
@@ -505,7 +484,6 @@ export default function HistoricalEventsResearch() {
         const duringBars = sliceBars(allBars, duringStart, duringEnd)
         const d = buildPeriodStats(duringBars.length >= 2 ? duringBars : sliceBars(allBars, duringStart, offsetDate(duringEnd, 5)))
         if (!d) {
-          console.warn(`[HER] ${ins.ticker}: buildPeriodStats returned null for during window — skipping`)
           update[key] = null
           return
         }
@@ -529,7 +507,6 @@ export default function HistoricalEventsResearch() {
         }
       } else {
         if (result.status === 'fulfilled') {
-          console.warn(`[HER] ${ins.ticker}: only ${result.value.length} bars — need ≥2, setting null`)
         }
         update[key] = null
       }
@@ -605,15 +582,15 @@ export default function HistoricalEventsResearch() {
         {[
           {
             id: 'events' as const,
-            label: 'RESEARCH HISTORICAL EVENTS',
+            label: isMobileView ? 'EVENTS' : 'RESEARCH HISTORICAL EVENTS',
             icon: (
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width={isMobileView ? 16 : 22} height={isMobileView ? 16 : 22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="2" y1="12" x2="5" y2="12" />
                 <polyline className="her-wave-anim" points="5 12 8 5 11 19 14 8 17 12 20 12 22 12" />
               </svg>
             ),
           },
-          {
+          ...(!isMobileView ? [{
             id: 'screener' as const,
             label: 'SEASONALITY SCANNER',
             icon: (
@@ -624,12 +601,12 @@ export default function HistoricalEventsResearch() {
                 <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
               </svg>
             ),
-          },
+          }] : []),
           {
             id: 'research' as const,
-            label: 'PATTERN RESEARCH',
+            label: isMobileView ? 'PATTERNS' : 'PATTERN RESEARCH',
             icon: (
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <svg width={isMobileView ? 16 : 22} height={isMobileView ? 16 : 22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <circle cx="11" cy="11" r="7" className="her-pulse-ring" />
                 <line className="her-scan-line" x1="7" y1="11" x2="15" y2="11" strokeWidth="1.5" />
                 <path d="m19 19-3.5-3.5" strokeWidth="2.5" />
@@ -648,23 +625,23 @@ export default function HistoricalEventsResearch() {
               }}
               style={{
                 flex: 1,
-                padding: isFullscreen ? '28px 16px 16px' : '20px 16px',
+                padding: isMobileView ? '10px 8px' : isFullscreen ? '28px 16px 16px' : '20px 16px',
                 background: isActive
                   ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
                   : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
                 border: isActive ? '2px solid #FF6B00' : '2px solid rgba(255,255,255,0.15)',
-                borderRight: index < 2 ? (isActive ? '2px solid #FF6B00' : '1px solid rgba(255,255,255,0.08)') : undefined,
+                borderRight: index < (isMobileView ? 1 : 2) ? (isActive ? '2px solid #FF6B00' : '1px solid rgba(255,255,255,0.08)') : undefined,
                 color: isActive ? '#FF6B00' : '#FFFFFF',
-                fontSize: 16,
+                fontSize: isMobileView ? 11 : 16,
                 fontWeight: 900,
-                letterSpacing: '0.15em',
+                letterSpacing: isMobileView ? '0.05em' : '0.15em',
                 textTransform: 'uppercase',
                 cursor: 'pointer',
                 display: 'flex',
                 flexDirection: 'row',
                 alignItems: isFullscreen ? 'flex-end' : 'center',
                 justifyContent: 'center',
-                gap: 12,
+                gap: isMobileView ? 4 : 12,
                 fontFamily: '"Roboto Mono", monospace',
                 position: 'relative',
                 overflow: 'hidden',
@@ -684,8 +661,8 @@ export default function HistoricalEventsResearch() {
             </button>
           )
         })}
-        {/* FULLSCREEN TOGGLE — hidden on screener tab */}
-        {activeTab !== 'screener' && <button
+        {/* FULLSCREEN TOGGLE — hidden on screener tab and on mobile */}
+        {!isMobileView && activeTab !== 'screener' && <button
           onClick={() => setIsFullscreen((f) => !f)}
           title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           style={{
@@ -739,114 +716,88 @@ export default function HistoricalEventsResearch() {
           {/* ROW 1: Title + Stats + Search */}
           <div
             style={{
-              padding: '16px 24px',
+              padding: isMobileView ? '8px 12px' : '16px 24px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              gap: 20,
+              gap: isMobileView ? 8 : 20,
               background: '#000000',
               borderBottom: '1px solid #1a1a1a',
               flexShrink: 0,
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              <div
-                style={{
-                  width: 42,
-                  height: 42,
-                  background: 'linear-gradient(135deg, #1d4ed8 0%, #7c3aed 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  boxShadow: '0 0 0 1px rgba(124,58,237,0.4), inset 0 1px 0 rgba(255,255,255,0.2)',
-                }}
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#fff"
-                  strokeWidth="2.5"
-                  strokeLinecap="square"
-                >
-                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-                </svg>
-              </div>
-              <div>
-                <div
+            <div style={{ display: 'flex', alignItems: 'center', gap: isMobileView ? 8 : 16, minWidth: 0, flex: 1 }}>
+              {isMobileView && selectedEvent ? (
+                <button
+                  onClick={() => setSelectedEvent(null)}
                   style={{
-                    color: '#FFFFFF',
-                    fontSize: 18,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#FF6B00',
+                    fontSize: 11,
                     fontWeight: 800,
-                    letterSpacing: '0.12em',
+                    letterSpacing: '0.08em',
                     textTransform: 'uppercase',
-                    lineHeight: 1,
                     fontFamily: '"Roboto Mono", monospace',
+                    cursor: 'pointer',
+                    padding: 0,
+                    flexShrink: 0,
                   }}
                 >
-                  Historical Market Events
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6 }}>
-                  <span
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <polyline points="15 18 9 12 15 6" />
+                  </svg>
+                  BACK
+                </button>
+              ) : (
+                <>
+                  {!isMobileView && <div
                     style={{
-                      color: '#FF6B00',
-                      fontSize: 13,
-                      fontWeight: 700,
-                      letterSpacing: '0.1em',
-                      textTransform: 'uppercase',
-                      fontFamily: '"Roboto Mono", monospace',
+                      width: 42,
+                      height: 42,
+                      background: 'linear-gradient(135deg, #1d4ed8 0%, #7c3aed 100%)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      boxShadow: '0 0 0 1px rgba(124,58,237,0.4), inset 0 1px 0 rgba(255,255,255,0.2)',
                     }}
                   >
-                    {filteredEvents.length} Events
-                  </span>
-                  <span style={{ color: '#444', fontSize: 13 }}>|</span>
-                  <span
-                    style={{
-                      color: '#888',
-                      fontSize: 12,
-                      fontWeight: 600,
-                      letterSpacing: '0.06em',
-                      textTransform: 'uppercase',
-                      fontFamily: '"Roboto Mono", monospace',
-                    }}
-                  >
-                    2004 – Present
-                  </span>
-                  <span style={{ color: '#444', fontSize: 13 }}>|</span>
-                  <span
-                    style={{
-                      color: '#888',
-                      fontSize: 12,
-                      fontWeight: 600,
-                      letterSpacing: '0.06em',
-                      textTransform: 'uppercase',
-                      fontFamily: '"Roboto Mono", monospace',
-                    }}
-                  >
-                    Multi-Asset Analysis
-                  </span>
-                </div>
-              </div>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="square">
+                      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                    </svg>
+                  </div>}
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{
+                        color: '#FFFFFF',
+                        fontSize: isMobileView ? 11 : 18,
+                        fontWeight: 800,
+                        letterSpacing: isMobileView ? '0.06em' : '0.12em',
+                        textTransform: 'uppercase',
+                        lineHeight: 1,
+                        fontFamily: '"Roboto Mono", monospace',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {isMobileView ? 'HIST. EVENTS' : 'Historical Market Events'}
+                    </div>
+                    {!isMobileView && <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
+                      <span style={{ color: '#888', fontSize: 12, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', fontFamily: '"Roboto Mono", monospace' }}>2004 – Present</span>
+                      <span style={{ color: '#444', fontSize: 13 }}>|</span>
+                      <span style={{ color: '#888', fontSize: 12, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', fontFamily: '"Roboto Mono", monospace' }}>Multi-Asset Analysis</span>
+                    </div>}
+                  </div>
+                </>
+              )}
             </div>
             <div style={{ position: 'relative', flexShrink: 0 }}>
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#888"
-                strokeWidth="2"
-                strokeLinecap="square"
-                style={{
-                  position: 'absolute',
-                  left: 12,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  pointerEvents: 'none',
-                }}
-              >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2" strokeLinecap="square" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
                 <circle cx="11" cy="11" r="8" />
                 <line x1="21" y1="21" x2="16.65" y2="16.65" />
               </svg>
@@ -854,15 +805,15 @@ export default function HistoricalEventsResearch() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search events..."
+                placeholder={isMobileView ? 'Search...' : 'Search events...'}
                 style={{
                   background: '#0a0a0a',
                   border: '1px solid #2a2a2a',
                   color: '#FFFFFF',
-                  padding: '10px 14px 10px 36px',
-                  fontSize: 13,
+                  padding: isMobileView ? '7px 10px 7px 28px' : '10px 14px 10px 36px',
+                  fontSize: isMobileView ? 11 : 13,
                   outline: 'none',
-                  width: 240,
+                  width: isMobileView ? 110 : 240,
                   fontFamily: '"Roboto Mono", monospace',
                   letterSpacing: '0.05em',
                   boxShadow: 'inset 0 1px 4px rgba(0,0,0,0.6)',
@@ -876,12 +827,14 @@ export default function HistoricalEventsResearch() {
           <div
             style={{
               display: 'flex',
-              flexWrap: 'wrap',
-              justifyContent: 'center',
+              flexWrap: isMobileView ? 'nowrap' : 'wrap',
+              justifyContent: isMobileView ? 'flex-start' : 'center',
+              overflowX: isMobileView ? 'auto' : 'visible',
               gap: 0,
               background: '#000000',
               borderBottom: '1px solid #1a1a1a',
               flexShrink: 0,
+              WebkitOverflowScrolling: 'touch',
             }}
           >
             {(['All', ...EVENT_CATEGORIES] as Array<EventCategory | 'All'>).map((cat) => {
@@ -893,19 +846,20 @@ export default function HistoricalEventsResearch() {
                   className="her-cat-btn"
                   onClick={() => setSelectedCategory(cat)}
                   style={{
-                    padding: '12px 16px',
+                    padding: isMobileView ? '8px 10px' : '12px 16px',
                     background: isActive ? `${color}18` : 'transparent',
                     border: 'none',
                     borderBottom: isActive ? `3px solid ${color}` : '3px solid transparent',
                     color: isActive ? color : '#FFFFFF',
-                    fontSize: 18,
+                    fontSize: isMobileView ? 10 : 18,
                     fontWeight: isActive ? 800 : 600,
                     cursor: 'pointer',
-                    letterSpacing: '0.08em',
+                    letterSpacing: '0.06em',
                     textTransform: 'uppercase',
                     fontFamily: '"Roboto Mono", monospace',
                     whiteSpace: 'nowrap',
                     transition: 'all 0.12s',
+                    flexShrink: 0,
                   }}
                 >
                   {cat}
@@ -915,15 +869,19 @@ export default function HistoricalEventsResearch() {
           </div>
 
           {/* ── MAIN BODY: event list + detail panel ───────────────────── */}
-          <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+          <div style={{ display: 'flex', flex: 1, minHeight: 0, flexDirection: isMobileView ? 'column' : 'row' }}>
             {/* ── EVENT LIST ─────────────────────────────────────────── */}
             <div
               style={{
-                width: 300,
-                minWidth: 260,
-                borderRight: '1px solid #1a1a1a',
+                width: isMobileView ? '100%' : 300,
+                minWidth: isMobileView ? 0 : 260,
+                flex: isMobileView ? 1 : undefined,
+                minHeight: isMobileView ? 0 : undefined,
+                borderRight: isMobileView ? 'none' : '1px solid #1a1a1a',
+                borderBottom: isMobileView && selectedEvent ? '1px solid #1a1a1a' : 'none',
                 overflowY: 'auto',
                 background: '#030303',
+                display: isMobileView && selectedEvent ? 'none' : undefined,
               }}
             >
               {filteredEvents.length === 0 && (
@@ -1022,7 +980,7 @@ export default function HistoricalEventsResearch() {
             </div>
 
             {/* ── DETAIL PANEL ─────────────────────────────────────────── */}
-            <div style={{ flex: 1, overflowY: 'auto', background: '#000', padding: '20px 22px' }}>
+            <div style={{ flex: 1, overflowY: 'auto', background: '#000', padding: isMobileView ? '10px 10px' : '20px 22px', display: isMobileView && !selectedEvent ? 'none' : undefined }}>
               {!selectedEvent ? (
                 <div
                   style={{
@@ -1091,8 +1049,8 @@ export default function HistoricalEventsResearch() {
                       background: 'linear-gradient(135deg, #0a0a0a 0%, #080808 100%)',
                       border: `1px solid ${CATEGORY_COLORS[selectedEvent.category]}25`,
                       borderLeft: `4px solid ${CATEGORY_COLORS[selectedEvent.category]}`,
-                      padding: '16px 18px',
-                      marginBottom: 16,
+                      padding: isMobileView ? '10px 12px' : '16px 18px',
+                      marginBottom: isMobileView ? 10 : 16,
                       boxShadow: `inset 0 1px 0 rgba(255,255,255,0.04), 0 4px 20px rgba(0,0,0,0.6)`,
                     }}
                   >
@@ -1145,17 +1103,17 @@ export default function HistoricalEventsResearch() {
                         <div
                           style={{
                             color: CATEGORY_COLORS[selectedEvent.category],
-                            fontSize: 20,
+                            fontSize: isMobileView ? 13 : 20,
                             fontWeight: 800,
                             letterSpacing: '-0.3px',
-                            marginBottom: 10,
+                            marginBottom: isMobileView ? 6 : 10,
                             lineHeight: 1.2,
                           }}
                         >
                           {selectedEvent.name}
                         </div>
                         <div
-                          style={{ color: '#aaa', fontSize: 13, lineHeight: 1.7 }}
+                          style={{ color: '#aaa', fontSize: isMobileView ? 11 : 13, lineHeight: 1.6 }}
                         >
                           {selectedEvent.description}
                         </div>
@@ -1268,7 +1226,7 @@ export default function HistoricalEventsResearch() {
                   <div style={{
                     display: 'flex',
                     gap: 0,
-                    marginBottom: 20,
+                    marginBottom: isMobileView ? 10 : 20,
                     background: 'linear-gradient(180deg, #141414 0%, #0a0a0a 100%)',
                     border: '1px solid #222',
                     borderRadius: 2,
@@ -1276,45 +1234,125 @@ export default function HistoricalEventsResearch() {
                     boxShadow: '0 4px 16px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06)',
                   }}>
                     {[
-                      { key: 'pre30' as PeriodKey, label: '-30D BEFORE', color: '#a855f7' },
-                      { key: 'pre10' as PeriodKey, label: '-10D BEFORE', color: '#f472b6' },
-                      { key: 'during' as PeriodKey, label: 'DURING EVENT', color: '#ef4444' },
-                      { key: 'post30' as PeriodKey, label: '+30D AFTER', color: '#22c55e' },
-                      { key: 'full' as PeriodKey, label: 'FULL TIMELINE', color: '#3b82f6' },
-                    ].map((p, idx, arr) => {
+                      { key: 'pre30' as PeriodKey, label: isMobileView ? '-30D' : '-30D BEFORE', color: '#a855f7' },
+                      { key: 'pre10' as PeriodKey, label: isMobileView ? '-10D' : '-10D BEFORE', color: '#f472b6' },
+                      { key: 'during' as PeriodKey, label: isMobileView ? 'EVENT' : 'DURING EVENT', color: '#ef4444' },
+                      { key: 'post30' as PeriodKey, label: isMobileView ? '+30D' : '+30D AFTER', color: '#22c55e' },
+                      { key: 'full' as PeriodKey, label: isMobileView ? '' : 'FULL TIMELINE', color: '#3b82f6' },
+                    ].map((p, idx) => {
                       const isActive = activePeriod === p.key
+                      const isFullMobile = isMobileView && p.key === 'full'
                       return (
                         <button
                           key={p.key}
                           className="her-period-btn"
-                          onClick={() => setActivePeriod(p.key)}
+                          onClick={() => {
+                            if (isFullMobile) {
+                              setOpenGroup(openGroup === '__settings__' ? null : '__settings__')
+                            } else {
+                              setActivePeriod(p.key)
+                            }
+                          }}
                           style={{
                             flex: 1,
-                            padding: '16px 8px',
+                            padding: isMobileView ? '9px 2px' : '16px 8px',
                             background: 'transparent',
                             borderTop: 'none',
-                            borderBottom: isActive ? `2px solid #FF6B00` : '2px solid transparent',
+                            borderBottom: isFullMobile
+                              ? (openGroup === '__settings__' ? '2px solid #FF6B00' : '2px solid transparent')
+                              : (isActive ? `2px solid #FF6B00` : '2px solid transparent'),
                             borderLeft: idx === 0 ? 'none' : '1px solid #1a1a1a',
                             borderRight: 'none',
-                            color: isActive ? '#FF6B00' : 'rgba(255,255,255,0.45)',
-                            fontSize: 19,
+                            color: isFullMobile
+                              ? (openGroup === '__settings__' ? '#FF6B00' : 'rgba(255,255,255,0.45)')
+                              : (isActive ? '#FF6B00' : 'rgba(255,255,255,0.45)'),
+                            fontSize: isMobileView ? 12 : 25,
                             fontWeight: 800,
                             cursor: 'pointer',
-                            letterSpacing: '1px',
+                            letterSpacing: isMobileView ? '0.04em' : '1px',
                             textTransform: 'uppercase',
                             fontFamily: '"Roboto Mono", monospace',
                             whiteSpace: 'nowrap',
                             transition: 'all 0.15s',
                             boxShadow: 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
                           }}
                         >
-                          {p.label}
+                          {isFullMobile ? (
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                              <line x1="4" y1="6" x2="20" y2="6" />
+                              <circle cx="8" cy="6" r="2.5" fill="currentColor" stroke="none" />
+                              <line x1="4" y1="12" x2="20" y2="12" />
+                              <circle cx="13" cy="12" r="2.5" fill="currentColor" stroke="none" />
+                              <line x1="4" y1="18" x2="20" y2="18" />
+                              <circle cx="9" cy="18" r="2.5" fill="currentColor" stroke="none" />
+                            </svg>
+                          ) : p.label}
                         </button>
                       )
                     })}
                   </div>
 
-
+                  {/* ── MOBILE INSTRUMENT SETTINGS DROPDOWN (triggered from period bar) ── */}
+                  {isMobileView && openGroup === '__settings__' && (
+                    <>
+                      <div style={{ position: 'fixed', inset: 0, zIndex: 149 }} onClick={() => setOpenGroup(null)} />
+                      <div style={{
+                        position: 'fixed',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        zIndex: 150,
+                        background: '#161616',
+                        border: '1px solid #2a2a2a',
+                        boxShadow: '0 8px 40px rgba(0,0,0,0.9)',
+                        width: 'min(320px, 90vw)',
+                        maxHeight: '70vh',
+                        overflowY: 'auto',
+                        borderRadius: 4,
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #222', background: '#111' }}>
+                          <span style={{ color: '#FF6B00', fontSize: 11, fontWeight: 800, letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: '"Roboto Mono", monospace' }}>INSTRUMENTS</span>
+                          <button onClick={() => setOpenGroup(null)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '0 2px' }}>✕</button>
+                        </div>
+                        {INSTRUMENT_GROUPS.map((group) => {
+                          const groupInstruments = (allWithData as { ins: InstrumentDef; d: InstrumentData | null }[]).filter(({ ins }) => ins.group === group)
+                          if (!groupInstruments.length) return null
+                          const enabledCount = groupInstruments.filter(({ ins }) => activeInstruments.includes(ins.ticker)).length
+                          return (
+                            <div key={group}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', background: `${GROUP_COLORS[group]}12`, borderBottom: `1px solid ${GROUP_COLORS[group]}25`, borderTop: '1px solid #1e1e1e' }}>
+                                <span style={{ color: GROUP_COLORS[group], fontSize: 10, fontWeight: 800, letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: '"Roboto Mono", monospace', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: GROUP_COLORS[group], display: 'inline-block', flexShrink: 0 }} />
+                                  {group} <span style={{ color: '#555', fontWeight: 600 }}>({enabledCount}/{groupInstruments.length})</span>
+                                </span>
+                                <div style={{ display: 'flex', gap: 4 }}>
+                                  <button onClick={(e) => { e.stopPropagation(); setActiveInstruments((prev) => { const t = groupInstruments.map(({ ins }) => ins.ticker); return [...prev.filter(x => !t.includes(x)), ...t] }) }} style={{ background: '#111', border: '1px solid #222', color: '#fff', fontSize: 9, fontWeight: 700, padding: '3px 7px', cursor: 'pointer', fontFamily: '"Roboto Mono", monospace', letterSpacing: '0.5px' }}>ALL</button>
+                                  <button onClick={(e) => { e.stopPropagation(); setActiveInstruments((prev) => { const t = groupInstruments.map(({ ins }) => ins.ticker); return prev.filter(x => !t.includes(x)) }) }} style={{ background: '#111', border: '1px solid #222', color: '#555', fontSize: 9, fontWeight: 700, padding: '3px 7px', cursor: 'pointer', fontFamily: '"Roboto Mono", monospace', letterSpacing: '0.5px' }}>NONE</button>
+                                </div>
+                              </div>
+                              {groupInstruments.map(({ ins, d }) => {
+                                const on = activeInstruments.includes(ins.ticker)
+                                const ret = d?.[activePeriod]?.totalReturn ?? 0
+                                return (
+                                  <div key={ins.ticker} onClick={() => setActiveInstruments((prev) => on ? prev.filter(t => t !== ins.ticker) : [...prev, ins.ticker])} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer', background: on ? `${ins.color}0a` : 'transparent', borderBottom: '1px solid #141414', transition: 'background 0.1s' }}>
+                                    <div style={{ width: 13, height: 13, border: `1.5px solid ${on ? ins.color : '#333'}`, background: on ? ins.color : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                      {on && <span style={{ color: '#000', fontSize: 8, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+                                    </div>
+                                    <div style={{ width: 12, height: 2, background: ins.color, borderRadius: 1, flexShrink: 0 }} />
+                                    <span style={{ color: on ? '#fff' : '#555', fontSize: 12, fontWeight: 700, flex: 1 }}>{ins.label}</span>
+                                    <span style={{ color: ret >= 0 ? '#00e676' : '#ff1744', fontSize: 12, fontWeight: 800 }}>{ret >= 0 ? '+' : ''}{ret.toFixed(2)}%</span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </>
+                  )}
 
                   {/* ── LOADING ───────────────────────────────────────── */}
                   {stats.loading && (
@@ -1398,173 +1436,124 @@ export default function HistoricalEventsResearch() {
 
                         return (
                           <div style={{ marginBottom: 14 }}>
-                            {/* ── GROUP DROPDOWN LEGEND ── */}
-                            <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-                              {INSTRUMENT_GROUPS.map((group) => {
-                                const groupInstruments = allWithData.filter(({ ins }) => ins.group === group)
-                                if (!groupInstruments.length) return null
-                                const enabledCount = groupInstruments.filter(({ ins }) => activeInstruments.includes(ins.ticker)).length
-                                const isOpen = openGroup === group
-                                return (
-                                  <div key={group} style={{ position: 'relative' }}>
-                                    <button
-                                      onClick={() => setOpenGroup(isOpen ? null : group)}
-                                      style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 8,
-                                        padding: '9px 16px',
-                                        background: isOpen
-                                          ? `linear-gradient(180deg, ${GROUP_COLORS[group]}22 0%, ${GROUP_COLORS[group]}0d 100%)`
-                                          : 'linear-gradient(180deg, #1a1a1a 0%, #111 100%)',
-                                        border: `1px solid ${isOpen ? GROUP_COLORS[group] : '#252525'}`,
-                                        color: '#fff',
-                                        fontSize: 15,
-                                        fontWeight: 700,
-                                        cursor: 'pointer',
-                                        letterSpacing: '0.6px',
-                                        textTransform: 'uppercase',
-                                        fontFamily: '"Roboto Mono", monospace',
-                                        boxShadow: isOpen
-                                          ? `0 0 10px ${GROUP_COLORS[group]}20`
-                                          : '0 2px 6px rgba(0,0,0,0.4)',
-                                        transition: 'all 0.15s',
-                                      }}
-                                    >
-                                      <span style={{ width: 10, height: 10, borderRadius: '50%', background: GROUP_COLORS[group], flexShrink: 0 }} />
-                                      {group}
-                                      <span style={{
-                                        background: enabledCount > 0 ? GROUP_COLORS[group] : '#333',
-                                        color: enabledCount > 0 ? '#000' : '#666',
-                                        fontSize: 12,
-                                        fontWeight: 900,
-                                        padding: '2px 6px',
-                                        borderRadius: 2,
-                                        minWidth: 20,
-                                        textAlign: 'center',
-                                      }}>
-                                        {enabledCount}/{groupInstruments.length}
-                                      </span>
-                                      <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>{isOpen ? '▲' : '▼'}</span>
-                                    </button>
-
-                                    {isOpen && (
-                                      <div style={{
-                                        position: 'absolute',
-                                        top: '100%',
-                                        left: 0,
-                                        zIndex: 50,
-                                        marginTop: 4,
-                                        background: 'linear-gradient(180deg, #181818 0%, #111 100%)',
-                                        border: `1px solid ${GROUP_COLORS[group]}40`,
-                                        boxShadow: `0 8px 24px rgba(0,0,0,0.7), 0 0 0 1px ${GROUP_COLORS[group]}15`,
-                                        minWidth: 200,
-                                        overflow: 'hidden',
-                                      }}>
-                                        {/* Select all / none */}
-                                        <div style={{
-                                          display: 'flex',
-                                          borderBottom: '1px solid #1e1e1e',
-                                          padding: '6px 10px',
-                                          gap: 8,
-                                        }}>
-                                          <button
-                                            onClick={() => setActiveInstruments((prev) => {
-                                              const tickers = groupInstruments.map(({ ins }) => ins.ticker)
-                                              const others = prev.filter((t) => !tickers.includes(t))
-                                              return [...others, ...tickers]
-                                            })}
-                                            style={{ flex: 1, background: '#111', border: '1px solid #222', color: '#fff', fontSize: 13, fontWeight: 700, padding: '6px 0', cursor: 'pointer', letterSpacing: '0.5px', fontFamily: '"Roboto Mono", monospace' }}
-                                          >ALL</button>
-                                          <button
-                                            onClick={() => setActiveInstruments((prev) => {
-                                              const tickers = groupInstruments.map(({ ins }) => ins.ticker)
-                                              return prev.filter((t) => !tickers.includes(t))
-                                            })}
-                                            style={{ flex: 1, background: '#111', border: '1px solid #222', color: '#666', fontSize: 13, fontWeight: 700, padding: '6px 0', cursor: 'pointer', letterSpacing: '0.5px', fontFamily: '"Roboto Mono", monospace' }}
-                                          >NONE</button>
-                                        </div>
-                                        {groupInstruments.map(({ ins, d }) => {
-                                          const on = activeInstruments.includes(ins.ticker)
-                                          const ret = d![activePeriod]?.totalReturn ?? 0
-                                          return (
-                                            <div
-                                              key={ins.ticker}
-                                              onClick={() => setActiveInstruments((prev) =>
-                                                on ? prev.filter((t) => t !== ins.ticker) : [...prev, ins.ticker]
-                                              )}
-                                              style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: 9,
-                                                padding: '8px 12px',
-                                                cursor: 'pointer',
-                                                background: on ? `${ins.color}0a` : 'transparent',
-                                                borderBottom: '1px solid #141414',
-                                                transition: 'background 0.1s',
-                                              }}
-                                            >
-                                              {/* Checkbox */}
-                                              <div style={{
-                                                width: 14,
-                                                height: 14,
-                                                border: `1.5px solid ${on ? ins.color : '#333'}`,
-                                                background: on ? ins.color : 'transparent',
-                                                flexShrink: 0,
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                              }}>
-                                                {on && <span style={{ color: '#000', fontSize: 9, fontWeight: 900, lineHeight: 1 }}>✓</span>}
-                                              </div>
-                                              <div style={{ width: 14, height: 2, background: ins.color, borderRadius: 1, flexShrink: 0 }} />
-                                              <span style={{ color: on ? '#fff' : '#555', fontSize: 15, fontWeight: 700, flex: 1 }}>
-                                                {ins.label}
-                                              </span>
-                                              <span style={{ color: ret >= 0 ? '#00e676' : '#ff1744', fontSize: 15, fontWeight: 800 }}>
-                                                {ret >= 0 ? '+' : ''}{ret.toFixed(2)}%
-                                              </span>
+                            {/* ── INSTRUMENT SETTINGS ICON ── */}
+                            <div style={{ position: 'relative', display: isMobileView ? 'none' : 'flex', alignItems: 'center', marginBottom: 10 }}>
+                              <button
+                                onClick={() => setOpenGroup(openGroup === '__settings__' ? null : '__settings__')}
+                                title="Filter instruments"
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 6,
+                                  padding: isMobileView ? '6px 10px' : '8px 14px',
+                                  background: openGroup === '__settings__' ? 'rgba(255,107,0,0.12)' : 'linear-gradient(180deg, #1a1a1a 0%, #111 100%)',
+                                  border: `1px solid ${openGroup === '__settings__' ? '#FF6B00' : '#252525'}`,
+                                  color: openGroup === '__settings__' ? '#FF6B00' : '#888',
+                                  cursor: 'pointer',
+                                  borderRadius: 2,
+                                  transition: 'all 0.15s',
+                                }}
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                                  <line x1="4" y1="6" x2="20" y2="6" />
+                                  <circle cx="8" cy="6" r="2.5" fill="currentColor" stroke="none" />
+                                  <line x1="4" y1="12" x2="20" y2="12" />
+                                  <circle cx="13" cy="12" r="2.5" fill="currentColor" stroke="none" />
+                                  <line x1="4" y1="18" x2="20" y2="18" />
+                                  <circle cx="9" cy="18" r="2.5" fill="currentColor" stroke="none" />
+                                </svg>
+                                <span style={{ fontSize: isMobileView ? 10 : 11, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', fontFamily: '"Roboto Mono", monospace' }}>
+                                  {activeInstruments.length}/{allWithData.length}
+                                </span>
+                              </button>
+                              {openGroup === '__settings__' && (
+                                <>
+                                  <div style={{ position: 'fixed', inset: 0, zIndex: 49 }} onClick={() => setOpenGroup(null)} />
+                                  <div style={{
+                                    position: 'absolute',
+                                    top: '100%',
+                                    left: 0,
+                                    zIndex: 50,
+                                    marginTop: 4,
+                                    background: '#161616',
+                                    border: '1px solid #2a2a2a',
+                                    boxShadow: '0 8px 32px rgba(0,0,0,0.8)',
+                                    minWidth: isMobileView ? 260 : 340,
+                                    maxHeight: isMobileView ? 320 : 440,
+                                    overflowY: 'auto',
+                                    borderRadius: 2,
+                                  }}>
+                                    {INSTRUMENT_GROUPS.map((group) => {
+                                      const groupInstruments = allWithData.filter(({ ins }) => ins.group === group)
+                                      if (!groupInstruments.length) return null
+                                      const enabledCount = groupInstruments.filter(({ ins }) => activeInstruments.includes(ins.ticker)).length
+                                      return (
+                                        <div key={group}>
+                                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', background: `${GROUP_COLORS[group]}12`, borderBottom: `1px solid ${GROUP_COLORS[group]}25`, borderTop: '1px solid #1e1e1e' }}>
+                                            <span style={{ color: GROUP_COLORS[group], fontSize: 10, fontWeight: 800, letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: '"Roboto Mono", monospace', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                              <span style={{ width: 7, height: 7, borderRadius: '50%', background: GROUP_COLORS[group], display: 'inline-block', flexShrink: 0 }} />
+                                              {group} <span style={{ color: '#555', fontWeight: 600 }}>({enabledCount}/{groupInstruments.length})</span>
+                                            </span>
+                                            <div style={{ display: 'flex', gap: 4 }}>
+                                              <button onClick={(e) => { e.stopPropagation(); setActiveInstruments((prev) => { const t = groupInstruments.map(({ ins }) => ins.ticker); return [...prev.filter(x => !t.includes(x)), ...t] }) }} style={{ background: '#111', border: '1px solid #222', color: '#fff', fontSize: 9, fontWeight: 700, padding: '3px 7px', cursor: 'pointer', fontFamily: '"Roboto Mono", monospace', letterSpacing: '0.5px' }}>ALL</button>
+                                              <button onClick={(e) => { e.stopPropagation(); setActiveInstruments((prev) => { const t = groupInstruments.map(({ ins }) => ins.ticker); return prev.filter(x => !t.includes(x)) }) }} style={{ background: '#111', border: '1px solid #222', color: '#555', fontSize: 9, fontWeight: 700, padding: '3px 7px', cursor: 'pointer', fontFamily: '"Roboto Mono", monospace', letterSpacing: '0.5px' }}>NONE</button>
                                             </div>
-                                          )
-                                        })}
-                                      </div>
-                                    )}
+                                          </div>
+                                          {groupInstruments.map(({ ins, d }) => {
+                                            const on = activeInstruments.includes(ins.ticker)
+                                            const ret = d![activePeriod]?.totalReturn ?? 0
+                                            return (
+                                              <div key={ins.ticker} onClick={() => setActiveInstruments((prev) => on ? prev.filter(t => t !== ins.ticker) : [...prev, ins.ticker])} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', cursor: 'pointer', background: on ? `${ins.color}0a` : 'transparent', borderBottom: '1px solid #141414', transition: 'background 0.1s' }}>
+                                                <div style={{ width: 13, height: 13, border: `1.5px solid ${on ? ins.color : '#333'}`, background: on ? ins.color : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                  {on && <span style={{ color: '#000', fontSize: 8, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+                                                </div>
+                                                <div style={{ width: 12, height: 2, background: ins.color, borderRadius: 1, flexShrink: 0 }} />
+                                                <span style={{ color: on ? '#fff' : '#555', fontSize: 12, fontWeight: 700, flex: 1 }}>{ins.label}</span>
+                                                <span style={{ color: ret >= 0 ? '#00e676' : '#ff1744', fontSize: 12, fontWeight: 800 }}>{ret >= 0 ? '+' : ''}{ret.toFixed(2)}%</span>
+                                              </div>
+                                            )
+                                          })}
+                                        </div>
+                                      )
+                                    })}
                                   </div>
-                                )
-                              })}
-                              {/* Close dropdown on outside area click */}
-                              {openGroup && (
-                                <div
-                                  style={{ position: 'fixed', inset: 0, zIndex: 49 }}
-                                  onClick={() => setOpenGroup(null)}
-                                />
+                                </>
                               )}
                             </div>
 
                             {active.length > 0 ? (
-                              <ResponsiveContainer width="100%" height={675}>
+                              <ResponsiveContainer width="100%" height={isMobileView ? 358 : 1101}>
                                 <LineChart
                                   data={chartData}
-                                  margin={{ top: 12, right: 110, bottom: 8, left: 8 }}
+                                  margin={{ top: 22, right: isMobileView ? 28 : 80, bottom: 4, left: 0 }}
                                 >
                                   <XAxis
                                     dataKey="date"
-                                    tick={{ fill: '#ffffff', fontSize: 22, fontFamily: '"Roboto Mono", monospace' }}
+                                    tick={{ fill: '#ffffff', fontSize: isMobileView ? 12 : 29, fontFamily: '"Roboto Mono", monospace', fontWeight: 700 }}
                                     tickLine={{ stroke: '#333' }}
                                     axisLine={{ stroke: '#333' }}
                                     interval="preserveStartEnd"
-                                    minTickGap={40}
+                                    minTickGap={isMobileView ? 20 : 40}
                                   />
                                   <YAxis
                                     orientation="left"
-                                    domain={['auto', 'auto']}
+                                    domain={[
+                                      (dataMin: number) => {
+                                        const delta = 100 - dataMin
+                                        return parseFloat((100 - delta * 1.1).toFixed(2))
+                                      },
+                                      (dataMax: number) => {
+                                        const delta = dataMax - 100
+                                        return parseFloat((100 + delta * 1.1).toFixed(2))
+                                      },
+                                    ]}
                                     tickFormatter={(v: number) =>
                                       `${v >= 100 ? '+' : ''}${(v - 100).toFixed(0)}%`
                                     }
-                                    tick={{ fill: '#ffffff', fontSize: 22, fontFamily: '"Roboto Mono", monospace' }}
+                                    tick={{ fill: '#ffffff', fontSize: isMobileView ? 13 : 31, fontFamily: '"Roboto Mono", monospace', fontWeight: 700 }}
                                     tickLine={{ stroke: '#333' }}
                                     axisLine={{ stroke: '#333' }}
-                                    width={72}
+                                    width={isMobileView ? 40 : 80}
                                   />
                                   <Tooltip
                                     contentStyle={{
@@ -1582,7 +1571,7 @@ export default function HistoricalEventsResearch() {
                                     itemStyle={{ padding: '2px 0', fontSize: 12 }}
                                   />
                                   <ReferenceLine y={100} stroke="#2a2a2a" strokeDasharray="4 4" strokeWidth={1} />
-                                  <ReferenceLine x="D0" stroke="#FF6B00" strokeWidth={1.5} label={{ value: 'EVENT', position: 'top', fill: '#FF6B00', fontSize: 10, fontWeight: 700, fontFamily: '"Roboto Mono", monospace' }} />
+                                  <ReferenceLine x="D0" stroke="#FF6B00" strokeWidth={1.5} strokeDasharray="5 4" label={{ value: 'EVENT', position: 'top', fill: '#FF6B00', fontSize: 10, fontWeight: 700, fontFamily: '"Roboto Mono", monospace' }} />
                                   {(() => {
                                     const endPos: Record<string, { x: number; y: number; color: string }> = {}
                                     return active.map(({ ins }, lineIndex) => (
@@ -1601,7 +1590,7 @@ export default function HistoricalEventsResearch() {
                                           // all lines have written — run collision avoidance
                                           const items = Object.entries(endPos).map(([ticker, p]) => ({ ticker, x: p.x, y: p.y, color: p.color }))
                                           items.sort((a, b) => a.y - b.y)
-                                          const minGap = 26
+                                          const minGap = isMobileView ? 13 : 16
                                           for (let pass = 0; pass < 300; pass++) {
                                             let moved = false
                                             for (let i = 1; i < items.length; i++) {
@@ -1617,20 +1606,37 @@ export default function HistoricalEventsResearch() {
                                           }
                                           return (
                                             <g>
-                                              {items.map(item => (
-                                                <text
-                                                  key={item.ticker}
-                                                  x={item.x + 10}
-                                                  y={item.y}
-                                                  fill={item.color}
-                                                  fontSize={20}
-                                                  fontFamily='"Roboto Mono", monospace'
-                                                  fontWeight={700}
-                                                  dominantBaseline="middle"
-                                                >
-                                                  {item.ticker}
-                                                </text>
-                                              ))}
+                                              {items.map(item => {
+                                                const fs = isMobileView ? 10 : 22
+                                                const pad = isMobileView ? 3 : 5
+                                                const w = item.ticker.length * (isMobileView ? 6.2 : 13)
+                                                const h = fs + pad * 2
+                                                const x = item.x + (isMobileView ? 4 : 8)
+                                                return (
+                                                  <g key={item.ticker}>
+                                                    <rect
+                                                      x={x - 2}
+                                                      y={item.y - h / 2}
+                                                      width={w + 4}
+                                                      height={h}
+                                                      fill="#000000"
+                                                      rx={2}
+                                                    />
+                                                    <text
+                                                      x={x}
+                                                      y={item.y}
+                                                      fill={item.color}
+                                                      fontSize={fs}
+                                                      fontFamily='"Roboto Mono", monospace'
+                                                      fontWeight={900}
+                                                      dominantBaseline="middle"
+                                                      fillOpacity={1}
+                                                    >
+                                                      {item.ticker}
+                                                    </text>
+                                                  </g>
+                                                )
+                                              })}
                                             </g>
                                           )
                                         }) as never}

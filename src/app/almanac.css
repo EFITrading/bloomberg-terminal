@@ -110,8 +110,8 @@
 }
 
 /* Hide mobile controls on desktop by default */
-.almanac-mobile-controls {
-  display: none !important;
+.almanac-mobile-controls-wrapper {
+  display: block;
 }
 
 .almanac-daily-chart .chart-controls-row {

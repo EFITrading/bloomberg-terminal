@@ -84,12 +84,16 @@ interface SeasonalAnalysis {
       return: number
       startDate: string
       endDate: string
+      startDay: number
+      endDay: number
     }
     worst30DayPeriod?: {
       period: string
       return: number
       startDate: string
       endDate: string
+      startDay: number
+      endDay: number
     }
   }
 }
@@ -180,6 +184,11 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null)
   const [selectedMonthName, setSelectedMonthName] = useState<string>('')
   const { isMobileView } = useSeasonalityChartMobile()
+  const [mobileMonthsOpen, setMobileMonthsOpen] = useState(false)
+  const [bullish30DActive, setBullish30DActive] = useState(false)
+  const [bearish30DActive, setBearish30DActive] = useState(false)
+  const [sweetSpotCard, setSweetSpotCard] = useState<{ dates: string; returnPct: number } | null>(null)
+  const [painPointCard, setPainPointCard] = useState<{ dates: string; returnPct: number } | null>(null)
   const [availableYears, setAvailableYears] = useState<number[]>([1, 3, 5, 10, 15, 20]) // Dynamic based on actual data
   const [showCurrentYearLine, setShowCurrentYearLine] = useState<boolean>(false)
   const [currentYearMode, setCurrentYearMode] = useState<'off' | 'raw' | 'benchmarked'>('off')
@@ -650,8 +659,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
           spyComparison: {
             ...(valid[0].spyComparison ?? {}),
             monthlyData: avgMonthlyData,
-            best30DayPeriod: { period: avgBest.period, return: avgBest.avgReturn * 30, startDate: avgBest.startDate, endDate: avgBest.endDate },
-            worst30DayPeriod: { period: avgWorst.period, return: avgWorst.avgReturn * 30, startDate: avgWorst.startDate, endDate: avgWorst.endDate },
+            best30DayPeriod: { period: avgBest.period, return: avgBest.avgReturn * 30, startDate: avgBest.startDate, endDate: avgBest.endDate, startDay: avgBest.startDay, endDay: avgBest.endDay },
+            worst30DayPeriod: { period: avgWorst.period, return: avgWorst.avgReturn * 30, startDate: avgWorst.startDate, endDate: avgWorst.endDate, startDay: avgWorst.startDay, endDay: avgWorst.endDay },
           } as ElectionCycleData['spyComparison'],
         }
 
@@ -659,6 +668,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
         const { bestSweetSpot, worstPainPoint } = analyzeLongTermPatterns(avgDailyData)
         setSweetSpotPeriod({ startDay: bestSweetSpot.startDay, endDay: bestSweetSpot.endDay, period: bestSweetSpot.period })
         setPainPointPeriod({ startDay: worstPainPoint.startDay, endDay: worstPainPoint.endDay, period: worstPainPoint.period })
+        setSweetSpotCard({ dates: bestSweetSpot.period, returnPct: bestSweetSpot.totalReturn })
+        setPainPointCard({ dates: worstPainPoint.period, returnPct: worstPainPoint.totalReturn })
         setSweetSpotActive(false)
         setPainPointActive(false)
 
@@ -878,6 +889,13 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       )
 
       setSeasonalData(processedData)
+
+      // Always compute sweet spot / pain point cards for mobile 4-card display
+      if (processedData.dailyData?.length) {
+        const { bestSweetSpot, worstPainPoint } = analyzeLongTermPatterns(processedData.dailyData)
+        setSweetSpotCard({ dates: bestSweetSpot.period, returnPct: bestSweetSpot.totalReturn })
+        setPainPointCard({ dates: worstPainPoint.period, returnPct: worstPainPoint.totalReturn })
+      }
 
       // Auto-apply pre-selected sweet spot / pain point
       if (sweetSpotActive && processedData.dailyData?.length) {
@@ -1282,12 +1300,16 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
           return: bestPeriod.avgReturn * 30, // Convert daily average to 30-day period return
           startDate: bestPeriod.startDate,
           endDate: bestPeriod.endDate,
+          startDay: bestPeriod.startDay,
+          endDay: bestPeriod.endDay,
         },
         worst30DayPeriod: {
           period: worstPeriod.period,
           return: worstPeriod.avgReturn * 30, // Convert daily average to 30-day period return
           startDate: worstPeriod.startDate,
           endDate: worstPeriod.endDate,
+          startDay: worstPeriod.startDay,
+          endDay: worstPeriod.endDay,
         },
       },
     }
@@ -1611,6 +1633,38 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       period: worstPainPoint.period,
     })
     setPainPointActive(true)
+  }
+
+  const handleBullish30DClick = () => {
+    const period = seasonalData?.spyComparison?.best30DayPeriod
+    if (!period) return
+    if (bullish30DActive) {
+      setSweetSpotPeriod(null)
+      setBullish30DActive(false)
+      return
+    }
+    setSweetSpotPeriod({ startDay: period.startDay, endDay: period.endDay, period: period.period })
+    setSweetSpotActive(false)
+    setBullish30DActive(true)
+    setBearish30DActive(false)
+    setPainPointPeriod(null)
+    setPainPointActive(false)
+  }
+
+  const handleBearish30DClick = () => {
+    const period = seasonalData?.spyComparison?.worst30DayPeriod
+    if (!period) return
+    if (bearish30DActive) {
+      setPainPointPeriod(null)
+      setBearish30DActive(false)
+      return
+    }
+    setPainPointPeriod({ startDay: period.startDay, endDay: period.endDay, period: period.period })
+    setPainPointActive(false)
+    setBearish30DActive(true)
+    setBullish30DActive(false)
+    setSweetSpotPeriod(null)
+    setSweetSpotActive(false)
   }
 
   const handleSettingsChange = (newSettings: Partial<ChartSettings>) => {
@@ -2052,6 +2106,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
               onCompareSubmit={handleCompareSubmit}
               onQuickScan={handleQuickScan}
               isFullscreen={isFullscreen}
+              onMonthsToggle={isMobileView && !isFullscreen ? () => setMobileMonthsOpen(v => !v) : undefined}
+              monthsOpen={mobileMonthsOpen}
             />
           </div>
 
@@ -2059,7 +2115,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
             (isElectionMode
               ? electionData?.spyComparison?.monthlyData
               : seasonalData?.spyComparison?.monthlyData) && (
-              <div className={isFullscreen ? 'monthly-returns-fullscreen-wrapper' : undefined}>
+              <div className={isFullscreen ? 'monthly-returns-fullscreen-wrapper' : isMobileView ? (mobileMonthsOpen ? 'mobile-months-open' : 'mobile-months-closed') : undefined}>
                 <HorizontalMonthlyReturns
                   monthlyData={
                     isElectionMode
@@ -2068,6 +2124,16 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                   }
                   best30DayPeriod={seasonalData?.spyComparison?.best30DayPeriod}
                   worst30DayPeriod={seasonalData?.spyComparison?.worst30DayPeriod}
+                  onSweetSpotClick={handleSweetSpotClick}
+                  onPainPointClick={handlePainPointClick}
+                  onBullish30DClick={handleBullish30DClick}
+                  onBearish30DClick={handleBearish30DClick}
+                  sweetSpotActive={sweetSpotActive}
+                  painPointActive={painPointActive}
+                  bullish30DActive={bullish30DActive}
+                  bearish30DActive={bearish30DActive}
+                  sweetSpotCard={sweetSpotCard}
+                  painPointCard={painPointCard}
                   onMonthClick={handleMonthClick}
                   isFullscreen={isFullscreen}
                 />
@@ -2307,7 +2373,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                             <div
                               style={{
                                 padding: '4px 12px',
-                                fontSize: '12px',
+                                fontSize: isMobileView ? '4.5px' : '12px',
                                 fontWeight: '900',
                                 color: trendSync.color,
                                 letterSpacing: '1px',
@@ -2320,9 +2386,9 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                             <div
                               style={{
                                 padding: '4px 12px',
-                                fontSize: '9px',
+                                fontSize: isMobileView ? '4px' : '9px',
                                 fontWeight: '700',
-                                color: 'rgba(255,255,255,0.75)',
+                                color: isMobileView ? '#ffffff' : 'rgba(255,255,255,0.75)',
                                 letterSpacing: '0.8px',
                                 textTransform: 'uppercase',
                               }}

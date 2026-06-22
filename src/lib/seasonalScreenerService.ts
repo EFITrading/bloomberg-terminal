@@ -55,7 +55,6 @@ class SeasonalScreenerService {
     onProgress?: (processed: number, total: number, found: SeasonalOpportunity[], currentSymbol?: string) => void,
     marketSymbols?: string[] // NEW: Optional market-specific symbols
   ): Promise<SeasonalOpportunity[]> {
-    console.log(` PROFESSIONAL BULK API: Fetch-all-then-process approach for 5-10 second completion!`);
 
     const opportunities: SeasonalOpportunity[] = [];
 
@@ -67,11 +66,8 @@ class SeasonalScreenerService {
     const actualMaxStocks = Math.min(maxStocks, symbolList.length);
     const stocksToProcess = symbolList.slice(0, actualMaxStocks);
 
-    console.log(` Processing ${stocksToProcess.length} stocks${marketSymbols ? ' (market-specific)' : ' (default list)'}...`);
-
     try {
       // PHASE 1: Bulk fetch ALL historical data in 2-3 seconds
-      console.log(`» PHASE 1: Bulk fetching historical data for ${stocksToProcess.length} symbols...`);
 
       const symbols = ['SPY', ...stocksToProcess.map(s => s.symbol)];
       const allHistoricalData = await this.fetchBulkHistoricalData(symbols, years);
@@ -81,10 +77,8 @@ class SeasonalScreenerService {
       if (!spyData?.results?.length) {
         throw new Error('Failed to get SPY data for comparison');
       }
-      console.log(` SPY benchmark loaded: ${spyData.results.length} data points`);
 
       // PHASE 2: Local processing (2-3 seconds)
-      console.log(`📊 PHASE 2: Local processing of ${allHistoricalData.size - 1} loaded datasets...`);
 
       let processedCount = 0;
       const totalStocks = stocksToProcess.length;
@@ -116,10 +110,8 @@ class SeasonalScreenerService {
 
             }
           } catch (error) {
-            console.warn(` Error processing ${stock.symbol}:`, error);
           }
         } else {
-          console.warn(` No data for ${stock.symbol}`);
         }
 
         processedCount++;
@@ -137,7 +129,6 @@ class SeasonalScreenerService {
       return sortedOpportunities;
 
     } catch (error) {
-      console.error(' Professional bulk processing failed:', error);
       return [];
     }
   }
@@ -148,8 +139,6 @@ class SeasonalScreenerService {
     years: number
   ): Promise<Map<string, any>> {
     const dataMap = new Map<string, any>();
-
-    console.log(` BULK API: Fetching ${symbols.length} symbols using optimized bulk requests...`);
 
     try {
       const startTime = Date.now();
@@ -162,18 +151,13 @@ class SeasonalScreenerService {
         batches.push(symbols.slice(i, i + batchSize));
       }
 
-      console.log(` BULK PROCESSING: ${symbols.length} symbols in ${batches.length} requests of ${batchSize} each...`);
-
       // Process all batches with the existing bulk API endpoint
       for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
         const batch = batches[batchIndex];
         const batchStart = Date.now();
 
-        console.log(` Bulk request ${batchIndex + 1}/${batches.length}: ${batch.length} symbols...`);
-
         try {
           // Use POST request to bulk endpoint with larger payload
-          console.log(` Sending bulk request for ${batch.length} symbols...`);
 
           const response = await fetch('/api/bulk-historical-data', {
             method: 'POST',
@@ -186,22 +170,14 @@ class SeasonalScreenerService {
 
           if (!response.ok) {
             const errorText = await response.text();
-            console.error(` Bulk request ${batchIndex + 1} failed: ${response.status} - ${errorText}`);
             throw new Error(`Bulk request ${batchIndex + 1} failed: ${response.status}`);
           }
 
           const batchResponse = await response.json();
-          console.log(` Bulk response received:`, {
-            success: batchResponse.success,
-            dataKeys: batchResponse.data ? Object.keys(batchResponse.data).length : 0,
-            errors: batchResponse.errors?.length || 0
-          });
-
           // Handle the bulk endpoint response format: {success: true, data: {...}}
           const batchData = batchResponse.success ? batchResponse.data : batchResponse;
 
           if (!batchData || typeof batchData !== 'object') {
-            console.error(` Invalid batch data received:`, batchResponse);
             throw new Error('Invalid batch data received from API');
           }
 
@@ -215,13 +191,11 @@ class SeasonalScreenerService {
                 batchSuccessCount++;
 
               } else {
-                console.warn(` ${symbol}: No results in data`);
               }
             }
           }
 
           const batchTime = Date.now() - batchStart;
-          console.log(` Bulk request ${batchIndex + 1} complete: ${batchSuccessCount}/${batch.length} symbols in ${(batchTime / 1000).toFixed(1)}s - Total: ${dataMap.size}`);
 
           // Very small delay between batches to avoid overwhelming server
           if (batchIndex < batches.length - 1) {
@@ -229,16 +203,13 @@ class SeasonalScreenerService {
           }
 
         } catch (batchError: any) {
-          console.error(` Bulk request ${batchIndex + 1} failed:`, batchError.message);
           // Continue with next batch rather than failing completely
         }
       }
 
       const totalTime = Date.now() - startTime;
-      console.log(` BULK PROCESSING COMPLETE: ${dataMap.size}/${symbols.length} symbols in ${(totalTime / 1000).toFixed(1)}s (${((dataMap.size / symbols.length) * 100).toFixed(1)}% success)`);
 
     } catch (error: any) {
-      console.error(` Bulk processing failed:`, error.message);
       throw error;
     }
 
@@ -350,7 +321,6 @@ class SeasonalScreenerService {
 
       return null;
     } catch (error) {
-      console.warn(` Local processing failed for ${stock.symbol}:`, error);
       return null;
     }
   }
@@ -437,7 +407,6 @@ class SeasonalScreenerService {
       return null;
 
     } catch (error) {
-      console.warn(` Error processing ${stock.symbol}:`, error);
       return null;
     }
   }
@@ -453,7 +422,6 @@ class SeasonalScreenerService {
     const batchOpportunities: SeasonalOpportunity[] = [];
 
     try {
-      console.log(` [Batch ${batchNumber}] Processing ${stocks.length} symbols sequentially...`);
 
       // Process stocks one by one to prevent overwhelming the browser
       for (let i = 0; i < stocks.length; i++) {
@@ -465,7 +433,6 @@ class SeasonalScreenerService {
           // Get stock data with throttling
           const stockData = await this.polygonService.getBulkHistoricalData(stock.symbol, 30);
           if (!stockData?.results?.length) {
-            console.warn(` [Batch ${batchNumber}] No data for ${stock.symbol}`);
             continue;
           }
 
@@ -543,16 +510,12 @@ class SeasonalScreenerService {
           await new Promise(resolve => setTimeout(resolve, 50));
 
         } catch (error) {
-          console.warn(` [Batch ${batchNumber}] Error processing ${stock.symbol}:`, error);
           continue;
         }
       }
-
-      console.log(` [Batch ${batchNumber}] Completed! Found ${batchOpportunities.length} qualified opportunities from ${stocks.length} symbols`);
       return batchOpportunities;
 
     } catch (error) {
-      console.error(` [Batch ${batchNumber}] Batch processing failed:`, error);
       return [];
     }
   }
@@ -674,7 +637,6 @@ class SeasonalScreenerService {
         years
       );
     } catch (error) {
-      console.error(`Error processing bulk data for ${symbol}:`, error);
       return null;
     }
   }
@@ -714,7 +676,6 @@ class SeasonalScreenerService {
         years
       );
     } catch (error) {
-      console.error(`Error analyzing ${symbol}:`, error);
       return null;
     }
   }

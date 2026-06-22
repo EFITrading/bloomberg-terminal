@@ -1472,6 +1472,15 @@ export default function AiSuitePage() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [copied, setCopied] = useState(false);
+  // Mobile
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileTab, setMobileTab] = useState<'editor' | 'scripts' | 'console' | 'ai'>('editor');
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth <= 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
 
   const consoleEndRef = useRef<HTMLDivElement>(null);
   const aiEndRef = useRef<HTMLDivElement>(null);
@@ -1809,6 +1818,312 @@ export default function AiSuitePage() {
   const categoryColor: Record<string, string> = {
     FLOW: '#ff6600', VOL: '#cc44ff', MACRO: '#00aaff',
   };
+
+  // ── MOBILE RENDER ────────────────────────────────────────────────────────────
+  if (isMobile) {
+    const mobileBtnBase: React.CSSProperties = {
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+      background: 'linear-gradient(180deg, #1e1e1e 0%, #070707 100%)',
+      border: '1px solid #2e2e2e', borderRadius: 4, color: '#ddd', cursor: 'pointer',
+      fontFamily: 'inherit', padding: '6px 14px', fontSize: 12, fontWeight: 600,
+      boxShadow: '0 2px 5px rgba(0,0,0,0.85), inset 0 1px 0 rgba(255,255,255,0.05)',
+    };
+
+    // Script library panel content (shared between mobile and desktop)
+    const scriptLibrary = (
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* Sub-tabs */}
+        <div style={{ display: 'flex', borderBottom: '1px solid #1a1a1a', flexShrink: 0 }}>
+          {(['mine', 'tpl', 'community'] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)} style={{
+              flex: 1, padding: '10px 0', background: tab === t ? '#0e0800' : '#060606',
+              border: 'none', borderBottom: tab === t ? '2px solid #ff6600' : '2px solid transparent',
+              color: tab === t ? '#ff6600' : '#666', fontSize: 11, fontWeight: 800,
+              cursor: 'pointer', fontFamily: 'inherit', letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+            }}>
+              {t === 'mine' ? 'Mine' : t === 'tpl' ? 'Templates' : 'Community'}
+            </button>
+          ))}
+        </div>
+        {tab === 'mine' && (
+          <div style={{ padding: '8px' }}>
+            <input value={scriptSearch} onChange={e => setScriptSearch(e.target.value)}
+              placeholder="Search scripts..." style={{
+                width: '100%', background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 4,
+                color: '#ccc', fontSize: 12, padding: '7px 10px', fontFamily: 'inherit',
+                boxSizing: 'border-box', outline: 'none',
+              }} />
+          </div>
+        )}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '6px' }}>
+          {tab === 'mine' && (
+            filteredSaved.length === 0
+              ? <div style={{ padding: '40px 16px', textAlign: 'center', color: '#666', fontSize: 13 }}>
+                  {scriptSearch ? 'No matches.' : 'No saved scripts yet.'}
+                </div>
+              : filteredSaved.map(s => (
+                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 9px', borderRadius: 4, cursor: 'pointer', marginBottom: 2, background: '#0a0a0a', border: '1px solid #141414' }}
+                  onClick={() => { handleLoad(s.name, s.code); setMobileTab('editor'); }}>
+                  <span style={{ color: '#444', flexShrink: 0, display: 'flex' }}>{Icon.file}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: '#fff', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
+                    <div style={{ fontSize: 10, color: '#666', marginTop: 2 }}>{new Date(s.savedAt).toLocaleDateString()} · {s.code.split('\n').length}L</div>
+                  </div>
+                  <button onClick={e => { e.stopPropagation(); handleDelete(s.id); }}
+                    style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', padding: 4, display: 'flex' }}>{Icon.trash}</button>
+                </div>
+              ))
+          )}
+          {tab === 'tpl' && (() => {
+            const TPL_COLORS: Record<string, string> = { 'tpl-g1': '#4da6ff', 'tpl-g2': '#4dffb0', 'tpl-g3': '#ffb84d', 'tpl-g4': '#c084fc', 'tpl-g5': '#4df3ff', 'tpl-dark': '#ff6600', 'tpl-light': '#f59e0b' };
+            return TEMPLATES.map(t => {
+              const accent = TPL_COLORS[t.id] ?? '#ff6600';
+              return (
+                <div key={t.id} style={{ padding: '14px', marginBottom: 8, borderRadius: 5, border: `1px solid ${accent}38`, cursor: 'pointer', background: '#060606' }}
+                  onClick={() => { handleLoad(t.name, t.code); setMobileTab('editor'); }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                    <div style={{ width: 7, height: 7, borderRadius: '50%', background: accent, boxShadow: `0 0 7px ${accent}99` }} />
+                    <div style={{ fontSize: 14, color: accent, fontWeight: 700 }}>{t.name}</div>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#aaa', lineHeight: 1.6 }}>{(t as any).desc}</div>
+                </div>
+              );
+            });
+          })()}
+          {tab === 'community' && COMMUNITY_SCRIPTS.map(s => (
+            <div key={s.id} style={{ padding: '12px', marginBottom: 8, borderRadius: 4, border: '1px solid #181818', background: '#050505' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
+                <div style={{ fontSize: 13, color: '#fff', fontWeight: 800, flex: 1 }}>{s.name}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 3, background: '#111', border: '1px solid #2a2a2a', borderRadius: 3, padding: '2px 6px', marginLeft: 6 }}>
+                  <span style={{ color: '#ff6600', display: 'flex' }}>{Icon.star}</span>
+                  <span style={{ fontSize: 10, color: '#fff', fontWeight: 700 }}>{s.stars}</span>
+                </div>
+              </div>
+              <div style={{ fontSize: 11, color: '#bbb', lineHeight: 1.5, marginBottom: 10 }}>{s.desc}</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => { handleLoad(s.name, s.code); setMobileTab('editor'); }}
+                  style={{ ...mobileBtnBase, flex: 1, fontSize: 11 }}>{Icon.download}&nbsp;LOAD</button>
+                <button onClick={() => { handleRunCode(s.code); setMobileTab('console'); }} disabled={running}
+                  style={{ ...mobileBtnBase, flex: 1, fontSize: 11, color: '#ff6600', border: '1px solid #ff660055', opacity: running ? 0.4 : 1 }}>{Icon.play}&nbsp;RUN</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#000', color: '#fff', fontFamily: '"Inter", system-ui, sans-serif', overflow: 'hidden' }}>
+        <style>{`
+          ::-webkit-scrollbar { width: 3px; height: 3px; }
+          ::-webkit-scrollbar-track { background: transparent; }
+          ::-webkit-scrollbar-thumb { background: #1c1c1c; border-radius: 2px; }
+          @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+          .efi-pulse { animation: pulse 1.2s ease-in-out infinite; }
+          @keyframes toastIn { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform: translateY(0); } }
+          .efi-toast { animation: toastIn 0.2s ease; }
+        `}</style>
+
+        {/* TOASTS */}
+        <div style={{ position: 'fixed', bottom: 60, right: 12, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 6, pointerEvents: 'none' }}>
+          {toasts.map(t => (
+            <div key={t.id} className="efi-toast" style={{
+              padding: '8px 12px', borderRadius: 4, fontSize: 12, fontWeight: 600,
+              background: t.type === 'success' ? '#0a1a00' : t.type === 'error' ? '#1a0000' : '#0a0a0f',
+              border: `1px solid ${t.type === 'success' ? '#1a4000' : t.type === 'error' ? '#440000' : '#1a1a2a'}`,
+              color: t.type === 'success' ? '#44cc66' : t.type === 'error' ? '#ff4422' : '#88aaff',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.8)',
+            }}>{t.text}</div>
+          ))}
+        </div>
+
+        {/* MOBILE HEADER */}
+        <div style={{ display: 'flex', alignItems: 'center', padding: '0 12px', height: 48, borderBottom: '1px solid #1a1a1a', background: '#030303', flexShrink: 0, gap: 10 }}>
+          <span style={{ fontSize: 15, fontWeight: 900, fontFamily: '"JetBrains Mono", monospace', lineHeight: 1 }}>
+            <span style={{ color: '#ff6600' }}>EFI</span><span style={{ color: '#fff' }}>.STUDIO</span>
+          </span>
+          <div style={{ flex: 1 }} />
+          {/* Script name - compact */}
+          <input value={scriptName} onChange={e => setScriptName(e.target.value)}
+            style={{ background: 'none', border: 'none', borderBottom: '1px solid #2a2a2a', outline: 'none', color: '#aaa', fontSize: 11, fontFamily: '"JetBrains Mono", monospace', width: 100, padding: '2px 3px' }}
+            placeholder="Script name..." />
+          <button onClick={handleSave} style={{ ...mobileBtnBase, padding: '6px 10px' }}>{Icon.save}</button>
+          <button onClick={handleRun} disabled={running} style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            background: 'linear-gradient(180deg, #1a1a1a 0%, #060606 100%)',
+            border: '1px solid #ff6600', borderRadius: 4, color: '#ff6600',
+            fontWeight: 800, fontSize: 12, padding: '7px 16px', cursor: running ? 'default' : 'pointer',
+            letterSpacing: '0.1em', fontFamily: 'inherit', opacity: running ? 0.7 : 1,
+          }}>
+            <span className={running ? 'efi-pulse' : ''}>{running ? Icon.stop : Icon.play}</span>
+            {running ? 'RUN…' : 'RUN'}
+          </button>
+        </div>
+
+        {/* MOBILE BODY — single active panel */}
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+
+          {/* EDITOR panel */}
+          {mobileTab === 'editor' && (
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              {/* Compact editor toolbar */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderBottom: '1px solid #1a1a1a', background: '#080808', flexShrink: 0, height: 36, overflowX: 'auto' }}>
+                <button onClick={handleCopyCode} style={{ ...mobileBtnBase, padding: '4px 10px', fontSize: 11, gap: 4 }}>
+                  {copied ? Icon.check : Icon.copy}<span>{copied ? 'Copied' : 'Copy'}</span>
+                </button>
+                <button onClick={handleFormat} style={{ ...mobileBtnBase, padding: '4px 10px', fontSize: 11, gap: 4 }}>
+                  {Icon.format}<span>Format</span>
+                </button>
+                <button onClick={() => setWordWrap(w => w === 'off' ? 'on' : 'off')}
+                  style={{ ...mobileBtnBase, padding: '4px 10px', fontSize: 11, gap: 4, color: wordWrap === 'on' ? '#ff6600' : '#ddd', border: `1px solid ${wordWrap === 'on' ? '#ff660044' : '#2e2e2e'}` }}>
+                  {Icon.wrap}<span>Wrap</span>
+                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginLeft: 4 }}>
+                  <button onClick={() => setEditorFontSize(f => Math.max(10, f - 1))} style={{ ...mobileBtnBase, padding: '4px 7px', fontSize: 14, fontWeight: 800 }}>-</button>
+                  <span style={{ fontSize: 11, color: '#aaa', minWidth: 22, textAlign: 'center', fontFamily: '"JetBrains Mono", monospace' }}>{editorFontSize}</span>
+                  <button onClick={() => setEditorFontSize(f => Math.min(22, f + 1))} style={{ ...mobileBtnBase, padding: '4px 7px', fontSize: 14, fontWeight: 800 }}>+</button>
+                </div>
+                {running && <span className="efi-pulse" style={{ fontSize: 11, color: '#ff6600', fontWeight: 700, fontFamily: '"JetBrains Mono", monospace', marginLeft: 4, flexShrink: 0 }}>RUNNING…</span>}
+                {execTime !== null && !running && <span style={{ fontSize: 10, color: '#44bb66', fontFamily: '"JetBrains Mono", monospace', marginLeft: 4, flexShrink: 0 }}>✓ {execTime < 1000 ? execTime + 'ms' : (execTime / 1000).toFixed(2) + 's'}</span>}
+              </div>
+              <MonacoEditor height="100%" language="javascript" value={code} onChange={v => setCode(v ?? '')}
+                onMount={handleMount} options={{ ...monacoOptions, minimap: { enabled: false } }} theme="vs-dark"
+                loading={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#030303', color: '#555', fontSize: 11, fontFamily: '"JetBrains Mono", monospace' }}>LOADING EDITOR...</div>}
+              />
+            </div>
+          )}
+
+          {/* SCRIPTS panel */}
+          {mobileTab === 'scripts' && scriptLibrary}
+
+          {/* CONSOLE panel */}
+          {mobileTab === 'console' && (
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', background: '#050505' }}>
+              {/* Console header */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderBottom: '1px solid #1a1a1a', flexShrink: 0, background: '#060606' }}>
+                {(['all', 'log', 'warn', 'error'] as const).map(f => (
+                  <button key={f} onClick={() => setLogFilter(f)} style={{
+                    background: logFilter === f ? '#161616' : 'transparent',
+                    border: logFilter === f ? '1px solid #2a2a2a' : '1px solid transparent',
+                    borderRadius: 3, padding: '3px 8px', fontSize: 10, fontWeight: 700,
+                    cursor: 'pointer', fontFamily: 'inherit', letterSpacing: '0.06em',
+                    color: logFilter === f ? (f === 'error' ? '#ff4422' : f === 'warn' ? '#ffcc00' : '#fff') : '#666',
+                  }}>
+                    {f.toUpperCase()}
+                    {f === 'error' && logCounts.errors > 0 && <span style={{ marginLeft: 3, background: '#3a0000', color: '#ff4422', borderRadius: 2, padding: '0 3px', fontSize: 9 }}>{logCounts.errors}</span>}
+                    {f === 'warn' && logCounts.warns > 0 && <span style={{ marginLeft: 3, background: '#2a2000', color: '#ddaa00', borderRadius: 2, padding: '0 3px', fontSize: 9 }}>{logCounts.warns}</span>}
+                  </button>
+                ))}
+                <div style={{ flex: 1 }} />
+                <button onClick={() => setLogs([])} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', display: 'flex', padding: 3 }}>{Icon.close}</button>
+              </div>
+              {/* Log entries */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+                {filteredLogs.length === 0
+                  ? <div style={{ color: '#555', fontSize: 12, padding: '20px 16px', fontFamily: '"JetBrains Mono", monospace' }}>
+                      {logs.length === 0 ? 'Run a script to see output here.' : 'No entries match filter.'}
+                    </div>
+                  : filteredLogs.map(entry => (
+                    <div key={entry.id} style={{ padding: '1px 12px', fontFamily: '"JetBrains Mono", monospace', fontSize: 12 }}>
+                      {entry.type === 'html' ? (
+                        <div style={{ margin: '6px 0' }} dangerouslySetInnerHTML={{ __html: entry.message }} />
+                      ) : entry.type === 'table' && entry.tableData && entry.tableData.length > 0 ? (
+                        <div style={{ overflowX: 'auto', margin: '5px 0' }}>
+                          <table style={{ borderCollapse: 'collapse', fontSize: 11 }}>
+                            <thead><tr>{Object.keys(entry.tableData[0] ?? {}).map(k => (
+                              <th key={k} style={{ padding: '5px 12px', textAlign: 'left', borderBottom: '1px solid #161616', color: '#ff6600', fontWeight: 700, whiteSpace: 'nowrap', fontSize: 10 }}>{k}</th>
+                            ))}</tr></thead>
+                            <tbody>{entry.tableData.map((row, i) => (
+                              <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : '#040404' }}>
+                                {Object.values(row).map((v, j) => (
+                                  <td key={j} style={{ padding: '4px 12px', borderBottom: '1px solid #080808', whiteSpace: 'nowrap', fontSize: 11, color: '#d0d0d0' }}>{String(v)}</td>
+                                ))}
+                              </tr>
+                            ))}</tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', padding: '2px 0' }}>
+                          <span style={{ color: '#444', fontSize: 9, flexShrink: 0 }}>{fmtTime(entry.timestamp)}</span>
+                          <span style={{ color: entry.type === 'error' ? '#ff4422' : entry.type === 'warn' ? '#cc9900' : entry.type === 'success' ? '#44bb66' : '#d0d0d0', lineHeight: 1.5, wordBreak: 'break-word' }}>
+                            {entry.message}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                <div ref={consoleEndRef} />
+              </div>
+            </div>
+          )}
+
+          {/* AI panel */}
+          {mobileTab === 'ai' && (
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', background: '#060606' }}>
+              <div style={{ flex: 1, overflowY: 'auto', padding: '12px 12px 6px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {aiMsgs.map((m, i) => (
+                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                    {m.role === 'ai' && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+                        <span style={{ color: '#ff6600', display: 'flex' }}>{Icon.aiSparkle}</span>
+                        <span style={{ fontSize: 10, color: '#aaa', fontWeight: 700 }}>EFI AI</span>
+                      </div>
+                    )}
+                    <div style={{ maxWidth: '95%', padding: '8px 10px', borderRadius: m.role === 'user' ? '6px 6px 2px 6px' : '2px 6px 6px 6px', fontSize: 13, lineHeight: 1.7, background: m.role === 'user' ? '#0a0a0a' : 'transparent', border: m.role === 'user' ? '1px solid #1a1a1a' : 'none', color: m.role === 'user' ? '#fff' : '#ddd', fontFamily: '"Inter", sans-serif', whiteSpace: 'pre-wrap' }}>
+                      {m.text}
+                    </div>
+                  </div>
+                ))}
+                {aiLoading && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0' }}>
+                    <span className="efi-pulse" style={{ color: '#ff6600', display: 'flex' }}>{Icon.aiSparkle}</span>
+                    <span style={{ color: '#aaa', fontSize: 12, fontFamily: '"JetBrains Mono", monospace' }}>Thinking…</span>
+                  </div>
+                )}
+                <div ref={aiEndRef} />
+              </div>
+              <div style={{ padding: '8px 10px', borderTop: '1px solid #141414', flexShrink: 0 }}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
+                  <textarea value={aiInput} onChange={e => setAiInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAI(); } }}
+                    placeholder="Describe a script idea…" rows={3}
+                    style={{ flex: 1, background: '#0a0a0a', border: '1px solid #1c1c1c', borderRadius: 4, color: '#ddd', fontSize: 13, fontFamily: '"Inter", sans-serif', padding: '8px 10px', resize: 'none', lineHeight: 1.55, outline: 'none' }}
+                  />
+                  <button onClick={handleAI} disabled={aiLoading || !aiInput.trim()} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, background: aiInput.trim() ? '#0e0600' : '#060606', border: `1px solid ${aiInput.trim() ? '#ff660066' : '#1a1a1a'}`, borderRadius: 4, color: aiInput.trim() ? '#ff6600' : '#333', cursor: aiInput.trim() ? 'pointer' : 'default', flexShrink: 0 }}>
+                    {Icon.send}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* MOBILE BOTTOM TAB BAR */}
+        <div style={{ display: 'flex', borderTop: '1px solid #1a1a1a', background: '#030303', flexShrink: 0, height: 52 }}>
+          {([
+            { key: 'editor', icon: Icon.code, label: 'EDITOR' },
+            { key: 'scripts', icon: Icon.file, label: 'SCRIPTS' },
+            { key: 'console', icon: Icon.terminal, label: 'OUTPUT' },
+            { key: 'ai', icon: Icon.bot, label: 'AI' },
+          ] as const).map(({ key, icon, label }) => (
+            <button key={key} onClick={() => setMobileTab(key)} style={{
+              flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3,
+              background: 'none', border: 'none', cursor: 'pointer',
+              borderTop: mobileTab === key ? '2px solid #ff6600' : '2px solid transparent',
+              color: mobileTab === key ? '#ff6600' : '#555',
+            }}>
+              <span style={{ display: 'flex' }}>{icon}</span>
+              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.1em', fontFamily: '"JetBrains Mono", monospace' }}>{label}</span>
+              {key === 'console' && logCounts.errors > 0 && (
+                <span style={{ position: 'absolute', marginTop: -14, marginLeft: 18, background: '#ff4422', color: '#fff', borderRadius: 8, fontSize: 8, fontWeight: 800, padding: '1px 4px', minWidth: 12, textAlign: 'center' }}>{logCounts.errors}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{

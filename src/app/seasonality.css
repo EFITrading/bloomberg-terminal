@@ -1620,7 +1620,7 @@ body * {
 }
 
 .seasonax-search-input {
-  width: 88px;
+  width: 66px;
   height: 38px !important;
   min-height: 38px !important;
   max-height: 38px !important;
@@ -5748,16 +5748,33 @@ button,
   }
 
   .mobile-view {
-    display: block !important;
+    display: flex !important;
+    flex-direction: column !important;
+    min-height: calc(100dvh - 120px) !important;
   }
 
-  /* Mobile tabs styling */
+  /* Tab bar button color overrides — must beat global button resets */
+  .mobile-view>div:first-child button[data-active="true"] {
+    color: #ff6600 !important;
+  }
+
+  .mobile-view>div:first-child button[data-active="false"] {
+    color: #ffffff !important;
+  }
+
+  .mobile-panel-content {
+    min-height: calc(100dvh - 160px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Mobile tabs styling — now handled by inline styles in DataDrivenMobileLayout.tsx */
   .mobile-tabs-list {
     display: grid !important;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     width: 100%;
-    background-color: rgba(0, 0, 0, 0.4) !important;
-    border: 1px solid rgba(255, 102, 0, 0.3);
+    background-color: #030303 !important;
+    border-bottom: 1px solid #1a1a1a;
     padding: 4px;
     height: auto !important;
     margin-bottom: 8px;
@@ -5781,267 +5798,453 @@ button,
     padding: 0px;
   }
 
-  /* Mobile Seasonality Chart Customization */
+  /* ── seasonax-container: fills the panel, flex column ── */
+  /* Force all text white inside mobile wrapper */
+  .mobile-seasonality-wrapper,
+  .mobile-seasonality-wrapper * {
+    color: #ffffff;
+  }
+
+  /* Exceptions: keep colored labels */
+  .mobile-seasonality-wrapper .period-label.bullish-label,
+  .mobile-seasonality-wrapper .month-label.best-month,
+  .mobile-seasonality-wrapper .period-return.bullish,
+  .mobile-seasonality-wrapper .return-value.positive {
+    color: #00ff00 !important;
+  }
+
+  .mobile-seasonality-wrapper .period-label.bearish-label,
+  .mobile-seasonality-wrapper .month-label.worst-month,
+  .mobile-seasonality-wrapper .period-return.bearish,
+  .mobile-seasonality-wrapper .return-value.negative {
+    color: #ff4444 !important;
+  }
+
   .mobile-seasonality-wrapper .seasonax-container {
     padding: 0 !important;
+    margin-top: 8px !important;
+    height: calc(100dvh - 118px) !important;
+    min-height: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
   }
 
-  /* ROW 1: ALL controls in ONE row - LEFT aligned */
-  .mobile-seasonality-wrapper .header-group.search-compare-group,
-  .mobile-seasonality-wrapper .seasonax-header>div:nth-child(2),
-  .mobile-seasonality-wrapper .sweet-pain-buttons {
-    display: inline-flex !important;
-    flex-direction: row !important;
-    gap: 3px !important;
-    align-items: center !important;
-    vertical-align: middle !important;
-  }
-
-  /* Force header row 1 to be single line - ALL CONTROLS IN ONE ROW */
-  .mobile-seasonality-wrapper .seasonax-header {
-    display: block !important;
-    padding: 4px 2px !important;
-    margin-bottom: 4px;
-    white-space: nowrap !important;
-    text-align: left !important;
-  }
-
-  /* Make first row a single flex container - LEFT aligned */
-  .mobile-seasonality-wrapper .seasonax-header>div:first-child,
-  .mobile-seasonality-wrapper .seasonax-header>div:nth-child(2),
-  .mobile-seasonality-wrapper .seasonax-header>div:nth-child(3) {
-    display: inline-flex !important;
-    width: auto !important;
-    margin: 0 !important;
-    margin-right: 2px !important;
-    vertical-align: middle !important;
-    justify-content: flex-start !important;
-  }
-
-  /* Force all row 1 items inline and left-aligned */
-  .mobile-seasonality-wrapper .header-group.search-compare-group>*,
-  .mobile-seasonality-wrapper .seasonax-header>div:nth-child(2)>*,
-  .mobile-seasonality-wrapper .sweet-pain-buttons>* {
-    display: inline-block !important;
-    margin: 0 2px 0 0 !important;
-    float: none !important;
-  }
-
-  /* Make search bar same size as other controls */
-  .mobile-seasonality-wrapper .seasonax-symbol-search {
-    max-width: 70px !important;
-  }
-
-  .mobile-seasonality-wrapper .seasonax-symbol-search input {
-    font-size: 9px !important;
-    padding: 2px 4px !important;
-    height: 22px !important;
-    width: 70px !important;
-  }
-
-  /* Hide "COMPARE" text, show only "+" - same size as search */
-  .mobile-seasonality-wrapper .compare-btn {
-    padding: 0 8px !important;
-    font-size: 0 !important;
-    min-width: 30px !important;
-    height: 22px !important;
-    max-height: 22px !important;
-    min-height: 22px !important;
-    line-height: 22px !important;
-    text-indent: -9999px !important;
+  /* Chart grid fills remaining space */
+  .mobile-seasonality-wrapper .seasonax-container>div:last-child {
+    flex: 1 !important;
+    min-height: 0 !important;
     overflow: hidden !important;
-    position: relative !important;
-    vertical-align: middle !important;
-    display: inline-flex !important;
+  }
+
+  /* ── HEADER: stacked column ── */
+  .mobile-seasonality-wrapper .seasonax-header {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 4px !important;
+    padding: 6px 8px 4px !important;
+    margin: 0 !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;
+    left: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  .mobile-seasonality-wrapper .seasonax-header .header-group {
+    display: block !important;
+    width: 100% !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* Election + CUR YR dropdowns escape the overflow-x:auto scroll container via fixed positioning */
+  .mobile-seasonality-wrapper .election-dropdown,
+  .mobile-seasonality-wrapper .seasonax-search-dropdown {
+    position: fixed !important;
+    top: 100px !important;
+    left: 8px !important;
+    right: 8px !important;
+    width: auto !important;
+    z-index: 99999 !important;
+    font-size: 12px !important;
+    border-radius: 8px !important;
+  }
+
+  .mobile-seasonality-wrapper .election-dropdown .election-option {
+    font-size: 12px !important;
+    padding: 10px 14px !important;
+    letter-spacing: 0.02em !important;
+  }
+
+  .mobile-seasonality-wrapper .election-dropdown .search-section-title {
+    font-size: 10px !important;
+    padding: 6px 14px !important;
+  }
+
+  .mobile-seasonality-wrapper .seasonax-search-dropdown .search-result-item,
+  .mobile-seasonality-wrapper .seasonax-search-dropdown .search-section-title {
+    font-size: 12px !important;
+    padding: 10px 14px !important;
+  }
+
+  .mobile-seasonality-wrapper .seasonax-symbol-search {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
     align-items: center !important;
+    gap: 5px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+    -webkit-overflow-scrolling: touch !important;
+    position: relative !important;
+  }
+
+  /* ROW 1: Search + Years + Election + Compare */
+  .mobile-seasonality-wrapper .seasonax-symbol-search>div:first-child {
+    display: contents !important;
+  }
+
+  .mobile-seasonality-wrapper .seasonax-symbol-search>div:first-child>* {
+    flex-shrink: 0 !important;
+  }
+
+  /* ROW 2: Sweet Spot + Pain Point + Current Year — inline with row 1 */
+  .mobile-seasonality-wrapper .seasonax-symbol-search>div:last-child {
+    display: contents !important;
+  }
+
+  .mobile-seasonality-wrapper .seasonax-symbol-search>div:last-child>* {
+    flex-shrink: 0 !important;
+  }
+
+  /* Search input */
+  .mobile-seasonality-wrapper .seasonax-symbol-search input {
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    padding: 0 10px !important;
+    height: 30px !important;
+    min-height: 30px !important;
+    max-height: 30px !important;
+    width: 54px !important;
+    min-width: 54px !important;
+    background: linear-gradient(180deg, #1a1a1a 0%, #000000 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.18) !important;
+    border-radius: 6px !important;
+    color: #fff !important;
+    letter-spacing: 0.04em !important;
+    -webkit-font-smoothing: antialiased !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 1px 3px rgba(0, 0, 0, 0.8) !important;
+  }
+
+  /* ALL buttons + selects — uniform 30px crisp pill */
+  .mobile-seasonality-wrapper .seasonax-header button,
+  .mobile-seasonality-wrapper .seasonax-header select,
+  .mobile-seasonality-wrapper .election-btn,
+  .mobile-seasonality-wrapper .compare-btn,
+  .mobile-seasonality-wrapper .sweet-spot-btn,
+  .mobile-seasonality-wrapper .pain-point-btn {
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.06em !important;
+    padding: 0 10px !important;
+    height: 30px !important;
+    min-height: 30px !important;
+    max-height: 30px !important;
+    line-height: 30px !important;
+    white-space: nowrap !important;
+    color: #ffffff !important;
+    background: linear-gradient(180deg, #1a1a1a 0%, #000000 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.18) !important;
+    border-radius: 6px !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 1px 3px rgba(0, 0, 0, 0.8) !important;
+    text-shadow: none !important;
+    filter: none !important;
+    -webkit-font-smoothing: antialiased !important;
+    transform: none !important;
+    cursor: pointer !important;
+    transition: background 0.12s, border-color 0.12s !important;
+  }
+
+  /* Active state */
+  .mobile-seasonality-wrapper .seasonax-header button.active,
+  .mobile-seasonality-wrapper .compare-btn.active,
+  .mobile-seasonality-wrapper .election-btn.active,
+  .mobile-seasonality-wrapper .sweet-spot-btn.active,
+  .mobile-seasonality-wrapper .pain-point-btn.active {
+    background: linear-gradient(180deg, #222222 0%, #0a0a0a 100%) !important;
+    border-color: rgba(255, 255, 255, 0.4) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 0 6px rgba(255, 255, 255, 0.06) !important;
+    color: #ffffff !important;
+  }
+
+  /* Election inactive = white, not grey */
+  .mobile-seasonality-wrapper .election-btn.inactive,
+  .mobile-seasonality-wrapper .election-btn.inactive .election-text {
+    color: #ffffff !important;
+  }
+
+  /* election-text span inherits size */
+  .mobile-seasonality-wrapper .election-btn .election-text {
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    -webkit-font-smoothing: antialiased !important;
+  }
+
+  /* Monthly returns wrapper */
+  .mobile-seasonality-wrapper .seasonax-header>div:not(.header-group) {
+    width: 100% !important;
+    overflow: visible !important;
+    flex-shrink: 0 !important;
+    position: relative !important;
+  }
+
+  /* Toggle wrapper needs relative positioning for the centered + button */
+  .mobile-seasonality-wrapper .mobile-months-closed,
+  .mobile-seasonality-wrapper .mobile-months-open {
+    position: relative !important;
+  }
+
+  /* Default (closed): 4 cards in one row */
+  .mobile-seasonality-wrapper .mobile-months-closed .monthly-returns-container {
+    display: none !important;
+  }
+
+  .mobile-seasonality-wrapper .mobile-months-closed .period-column {
+    display: flex !important;
+    flex-direction: row !important;
+    gap: 4px !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* Spread the two column groups to opposite ends */
+  .mobile-seasonality-wrapper .mobile-months-closed .monthly-returns-main-container {
+    width: 100% !important;
+    justify-content: space-between !important;
+  }
+
+  /* Open: show month grid, hide BULLISH+BEARISH cards */
+  .mobile-seasonality-wrapper .mobile-months-open .period-column {
+    display: none !important;
+  }
+
+  .mobile-seasonality-wrapper .mobile-months-open .monthly-returns-container {
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  /* When months open, month grid fills full width */
+  .mobile-seasonality-wrapper .mobile-months-open .monthly-returns-main-container {
     justify-content: center !important;
   }
 
-  .mobile-seasonality-wrapper .compare-btn::before {
-    content: '+' !important;
-    font-size: 14px !important;
-    position: absolute !important;
-    left: 50% !important;
-    top: 50% !important;
-    transform: translate(-50%, -50%) !important;
-    text-indent: 0 !important;
-    line-height: 1 !important;
-  }
-
-  /* ALL controls same exact size - dropdowns, buttons */
-  .mobile-seasonality-wrapper .election-dropdown,
-  .mobile-seasonality-wrapper .years-selector select,
-  .mobile-seasonality-wrapper .election-dropdown button,
-  .mobile-seasonality-wrapper .election-dropdown select,
-  .mobile-seasonality-wrapper select,
-  .mobile-seasonality-wrapper button {
-    font-size: 9px !important;
-    padding: 2px 4px !important;
-    height: 22px !important;
-    line-height: 18px !important;
-    max-width: none !important;
-    box-sizing: border-box !important;
-  }
-
-  /* Force election mode button specifically to match */
-  .mobile-seasonality-wrapper .seasonax-controls button,
-  .mobile-seasonality-wrapper .seasonax-controls select,
-  .mobile-seasonality-wrapper .seasonax-controls .election-mode-btn,
-  .mobile-seasonality-wrapper [class*='election'] button,
-  .mobile-seasonality-wrapper [class*='election'] select {
-    font-size: 8px !important;
-    padding: 2px 3px !important;
-    height: 22px !important;
-    line-height: 18px !important;
-    min-height: 22px !important;
-    max-height: 22px !important;
-    max-width: 125px !important;
-    width: auto !important;
-  }
-
-  .mobile-seasonality-wrapper .sweet-spot-btn,
-  .mobile-seasonality-wrapper .pain-point-btn {
-    font-size: 0 !important;
-    padding: 2px 5px !important;
-    height: 22px !important;
-    line-height: 18px !important;
-    white-space: nowrap;
-    text-indent: -9999px !important;
-    overflow: hidden !important;
-    position: relative !important;
-  }
-
-  /* Change button text to "Sweet" and "Pain" */
-  .mobile-seasonality-wrapper .sweet-spot-btn::before {
-    content: 'Sweet' !important;
-    font-size: 9px !important;
-    position: absolute !important;
-    left: 50% !important;
-    top: 50% !important;
-    transform: translate(-50%, -50%) !important;
-    text-indent: 0 !important;
-    white-space: nowrap !important;
-  }
-
-  .mobile-seasonality-wrapper .pain-point-btn::before {
-    content: 'Pain' !important;
-    font-size: 9px !important;
-    position: absolute !important;
-    left: 50% !important;
-    top: 50% !important;
-    transform: translate(-50%, -50%) !important;
-    text-indent: 0 !important;
-    white-space: nowrap !important;
-  }
-
-  /* ROW 2: Monthly returns - SEPARATE ROW below buttons, LEFT aligned */
+  /* ── HorizontalMonthlyReturns: 3-column layout, horizontally scrollable ── */
   .mobile-seasonality-wrapper .horizontal-monthly-returns {
     width: 100% !important;
-    margin: 10px 0 8px 0 !important;
-    padding: 0 !important;
-    transform: scale(0.55);
-    transform-origin: top left !important;
-    width: 182% !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+    margin: 0 !important;
+    padding: 2px 0 !important;
+    transform: none !important;
     position: static !important;
     display: block !important;
-    clear: both !important;
-    left: 0 !important;
-    top: auto !important;
   }
 
-  /* Reduce gap between bullish 30d and monthly boxes */
-  .mobile-seasonality-wrapper .horizontal-monthly-returns>div {
-    gap: 0px !important;
+  /* Keep 3-column row: [BULLISH card] [month grid] [BEARISH card] */
+  .mobile-seasonality-wrapper .monthly-returns-main-container {
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    gap: 8px !important;
+    width: max-content !important;
+    min-width: 100% !important;
   }
 
-  .mobile-seasonality-wrapper .horizontal-monthly-returns [style*='display: flex'] {
-    gap: 0px !important;
-  }
-
-  /* Ensure monthly returns stay in header, never overlay chart */
-  .mobile-seasonality-wrapper .seasonax-header .horizontal-monthly-returns {
-    position: static !important;
-    margin-bottom: 8px !important;
-    float: none !important;
-  }
-
-  /* Ensure chart starts below header */
-  .mobile-seasonality-wrapper .seasonax-container>div:last-child {
-    clear: both !important;
-    margin-top: 8px !important;
-  }
-
-  /* Target the grid layout and force single column */
-  .mobile-seasonality-wrapper .seasonax-container>div:last-child {
+  .mobile-seasonality-wrapper .period-item.bullish-period,
+  .mobile-seasonality-wrapper .period-item.bearish-period {
     display: flex !important;
     flex-direction: column !important;
-    gap: 0 !important;
+    align-items: center !important;
+    gap: 2px !important;
+    padding: 5px 6px !important;
+    border-radius: 5px !important;
+    width: fit-content !important;
+    min-width: 0 !important;
+  }
+
+  .mobile-seasonality-wrapper .period-item.bullish-period {
+    background: #001a00 !important;
+    border: 1px solid rgba(0, 255, 0, 0.35) !important;
+  }
+
+  .mobile-seasonality-wrapper .period-item.bearish-period {
+    background: #1a0000 !important;
+    border: 1px solid rgba(255, 60, 60, 0.4) !important;
+  }
+
+  .mobile-seasonality-wrapper .period-label {
+    font-size: 12px !important;
+    font-weight: 900 !important;
+    letter-spacing: 0.05em !important;
+    -webkit-font-smoothing: antialiased !important;
+  }
+
+  .mobile-seasonality-wrapper .period-label.bullish-label {
+    color: #00ff00 !important;
+  }
+
+  .mobile-seasonality-wrapper .period-label.bearish-label {
+    color: #ff4444 !important;
+  }
+
+  .mobile-seasonality-wrapper .period-date {
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    color: #ffffff !important;
+    white-space: nowrap !important;
+    text-align: center !important;
+  }
+
+  .mobile-seasonality-wrapper .period-return {
+    font-size: 13px !important;
+    font-weight: 800 !important;
+    padding: 2px 5px !important;
+    border-radius: 3px !important;
+    -webkit-font-smoothing: antialiased !important;
+  }
+
+  .mobile-seasonality-wrapper .period-return.bullish {
+    color: #00ff00 !important;
+    background: rgba(0, 255, 0, 0.12) !important;
+  }
+
+  .mobile-seasonality-wrapper .period-return.bearish {
+    color: #ff4444 !important;
+    background: rgba(255, 0, 0, 0.12) !important;
+  }
+
+  /* Month grid: 2 rows of 6, compact boxes */
+  .mobile-seasonality-wrapper .monthly-returns-container {
+    flex-direction: column !important;
+    gap: 5px !important;
+    flex-shrink: 0 !important;
     width: 100% !important;
   }
 
-  /* Hide the second child which is the screener column */
+  .mobile-seasonality-wrapper .monthly-returns-row {
+    display: flex !important;
+    flex-direction: row !important;
+    gap: 5px !important;
+    flex-wrap: nowrap !important;
+    width: 100% !important;
+  }
+
+  .mobile-seasonality-wrapper .monthly-return-item {
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    padding: 6px 4px !important;
+    border-radius: 6px !important;
+    flex-shrink: 0 !important;
+    border: 1px solid rgba(255, 255, 255, 0.18) !important;
+    background: linear-gradient(180deg, #1a1a1a 0%, #000000 100%) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+  }
+
+  .mobile-seasonality-wrapper .month-label {
+    font-size: 10px !important;
+    font-weight: 900 !important;
+    margin-bottom: 4px !important;
+    letter-spacing: 0.04em !important;
+    -webkit-font-smoothing: antialiased !important;
+    color: #ffffff !important;
+  }
+
+  .mobile-seasonality-wrapper .month-label.best-month {
+    color: #00ff00 !important;
+  }
+
+  .mobile-seasonality-wrapper .month-label.worst-month {
+    color: #ff4444 !important;
+  }
+
+  .mobile-seasonality-wrapper .return-value {
+    font-size: 10px !important;
+    font-weight: 800 !important;
+    padding: 2px 3px !important;
+    -webkit-font-smoothing: antialiased !important;
+  }
+
+  /* ── Chart column: full width, fills remaining height ── */
   .mobile-seasonality-wrapper .seasonax-container>div:last-child>div:nth-child(2) {
     display: none !important;
   }
 
-  /* Make first column (charts) full width */
   .mobile-seasonality-wrapper .seasonax-container>div:last-child>div:first-child {
     width: 100% !important;
     min-width: 100% !important;
+    height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
   }
 
-  /* Hide the second div inside first column (monthly almanac chart) */
   .mobile-seasonality-wrapper .seasonax-container>div:last-child>div:first-child>div:nth-child(2) {
     display: none !important;
   }
 
-  /* Make main chart taller */
+  .mobile-seasonality-wrapper .seasonax-container>div:last-child>div:first-child>div:first-child {
+    flex: 1 !important;
+    min-height: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
   .mobile-seasonality-wrapper .seasonax-container>div:last-child>div:first-child>div:first-child>div {
-    max-height: 550px !important;
-    height: 550px !important;
+    flex: 1 !important;
+    height: 100% !important;
+    max-height: none !important;
     width: 100% !important;
   }
 
-  /* Compact spacing */
   .data-driven-container {
     padding: 4px !important;
   }
+
+  .mobile-seasonality-wrapper .main-chart-container {
+    padding-bottom: 1px !important;
+  }
 }
 
-/* Extra small mobile devices */
+/* Extra small (≤480px) */
 @media (max-width: 480px) {
-  .mobile-tab-trigger {
-    font-size: 10px !important;
-    padding: 6px 3px !important;
-  }
-
   .mobile-seasonality-wrapper .seasonax-symbol-search input {
-    font-size: 9px !important;
-    padding: 3px 5px !important;
-    height: 22px !important;
+    width: 52px !important;
+    min-width: 52px !important;
   }
 
+  .mobile-seasonality-wrapper .seasonax-header button,
+  .mobile-seasonality-wrapper .seasonax-header select,
+  .mobile-seasonality-wrapper .election-btn,
   .mobile-seasonality-wrapper .compare-btn {
-    font-size: 11px !important;
-    padding: 3px 6px !important;
-    height: 22px !important;
+    font-size: 9px !important;
+    height: 28px !important;
+    min-height: 28px !important;
+    max-height: 28px !important;
+    line-height: 28px !important;
+    padding: 0 8px !important;
   }
 
-  .mobile-seasonality-wrapper .sweet-spot-btn,
-  .mobile-seasonality-wrapper .pain-point-btn {
-    font-size: 8px !important;
-    padding: 3px 6px !important;
-    height: 22px !important;
-  }
-
-  .mobile-seasonality-wrapper .horizontal-monthly-returns {
-    transform: scale(0.6);
-    width: 167% !important;
-  }
-
-  .mobile-seasonality-wrapper .seasonax-container>div:last-child>div:first-child>div:first-child>div {
-    max-height: 480px !important;
-    height: 480px !important;
+  .mobile-seasonality-wrapper .monthly-return-item {
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+    max-width: none !important;
   }
 
   .data-driven-container {

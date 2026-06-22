@@ -63,13 +63,25 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
   const [show10Y, setShow10Y] = useState(true)
   const [showElection, setShowElection] = useState(true)
   const [activeView, setActiveView] = useState<'chart' | 'calendar' | 'table'>('chart')
+  const [isMobileView, setIsMobileView] = useState(false)
+  const isMobileViewRef = useRef(false)
+  useEffect(() => {
+    const check = () => {
+      const m = window.innerWidth <= 768
+      setIsMobileView(m)
+      isMobileViewRef.current = m
+    }
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null)
-  const [zoomLevel, setZoomLevel] = useState(1)
-  const [panOffset, setPanOffset] = useState(0)
-  const [isDragging, setIsDragging] = useState(false)
-  const [dragStart, setDragStart] = useState<{ x: number; offset: number } | null>(null)
+  const [zoomRange, setZoomRange] = useState({ start: 0, end: 1 })
+  const [isPanning, setIsPanning] = useState(false)
+  const [panStart, setPanStart] = useState({ x: 0, rangeStart: 0, rangeEnd: 1 })
   const [showEventPerformance, setShowEventPerformance] = useState(false)
   const [selectedEvent, setSelectedEvent] = useState<string | null>(null)
   const [eventPerformanceData, setEventPerformanceData] = useState<
@@ -147,9 +159,11 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     } else {
       setSelectedPattern(null)
       setShowPatternPerformance(false)
-      setPatternPerformanceData([])
+      setPatternPerformanceData(prev => prev.length === 0 ? prev : [])
     }
-  }, [externalSelectedPatterns, symbol])
+  // Use .join(',') so a new [] reference doesn't re-trigger this effect
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalSelectedPatterns?.join(','), symbol])
 
   useEffect(() => {
     if (seasonalData.length > 0 && canvasRef.current && activeView === 'chart') {
@@ -177,51 +191,84 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
       const x = e.clientX - rect.left
       const y = e.clientY - rect.top
 
-      if (isDragging && dragStart) {
-        const deltaX = x - dragStart.x
-        const maxPan = (zoomLevel - 1) * 0.5 + 0.3 // Extra 0.3 for extended range beyond month
-        const newOffset = Math.max(
-          -maxPan,
-          Math.min(maxPan, dragStart.offset + deltaX / canvas.width)
-        )
-        setPanOffset(newOffset)
-      } else {
-        setMousePos({ x, y })
+      if (isPanning) {
+        const paddingLeft = isMobileViewRef.current ? 45 : 60
+        const paddingRight = isMobileViewRef.current ? 58 : 72
+        const chartAreaWidth = canvas.clientWidth - paddingLeft - paddingRight
+        if (chartAreaWidth <= 0) return
+        const dx = (x - panStart.x) / chartAreaWidth
+        const rangeSize = panStart.rangeEnd - panStart.rangeStart
+        let newStart = panStart.rangeStart - dx
+        let newEnd = panStart.rangeEnd - dx
+        if (newStart < 0) { newStart = 0; newEnd = rangeSize }
+        if (newEnd > 1) { newEnd = 1; newStart = 1 - rangeSize }
+        setZoomRange({ start: newStart, end: newEnd })
+        return
       }
+      setMousePos({ x, y })
     }
 
     const handleMouseDown = (e: MouseEvent) => {
       const rect = canvas.getBoundingClientRect()
       const x = e.clientX - rect.left
-      setIsDragging(true)
-      setDragStart({ x, offset: panOffset })
+      const y = e.clientY - rect.top
+      // Ticker label click/tap — toggle individual lines (mobile and desktop)
+      {
+        const zones = (canvas as any).labelTapZones as Array<{x1: number, x2: number, y1: number, y2: number, key: string}> | undefined
+        if (zones) {
+          for (const zone of zones) {
+            if (x >= zone.x1 && x <= zone.x2 && y >= zone.y1 && y <= zone.y2) {
+              switch (zone.key) {
+                case '25Y': case 'DIA': case 'DIA_E': setShowMaxYears(v => !v); return
+                case '15Y': case 'SPY': case 'SPY_E': setShow15Y(v => !v); return
+                case '10Y': case 'QQQ': case 'QQQ_E': setShow10Y(v => !v); return
+                case 'E':   case 'IWM': case 'IWM_E': setShowElection(v => !v); return
+              }
+            }
+          }
+        }
+      }
+      setIsPanning(true)
+      setPanStart({ x, rangeStart: zoomRange.start, rangeEnd: zoomRange.end })
       canvas.style.cursor = 'grabbing'
     }
 
     const handleMouseUp = () => {
-      setIsDragging(false)
-      setDragStart(null)
+      setIsPanning(false)
       canvas.style.cursor = 'grab'
     }
 
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault()
-      const zoomSpeed = 0.001
-      const delta = -e.deltaY * zoomSpeed
-      const newZoom = Math.max(1, Math.min(5, zoomLevel + delta))
+      e.stopPropagation()
 
-      if (newZoom === 1) {
-        setPanOffset(0)
-      }
+      const rect = canvas.getBoundingClientRect()
+      const mouseX = e.clientX - rect.left
+      const paddingLeft = isMobileViewRef.current ? 45 : 60
+      const paddingRight = isMobileViewRef.current ? 58 : 72
+      const chartAreaWidth = canvas.clientWidth - paddingLeft - paddingRight
 
-      setZoomLevel(newZoom)
+      if (mouseX < paddingLeft || mouseX > paddingLeft + chartAreaWidth) return
+
+      const mousePos = (mouseX - paddingLeft) / chartAreaWidth
+      const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9
+      const currentRange = zoomRange.end - zoomRange.start
+      const newRange = Math.min(1, Math.max(0.02, currentRange * zoomFactor))
+
+      const pivot = zoomRange.start + currentRange * mousePos
+      let newStart = pivot - newRange * mousePos
+      let newEnd = newStart + newRange
+
+      if (newStart < 0) { newStart = 0; newEnd = newRange }
+      if (newEnd > 1) { newEnd = 1; newStart = 1 - newRange }
+
+      setZoomRange({ start: newStart, end: newEnd })
     }
 
     const handleMouseLeave = () => {
       setMousePos(null)
-      if (isDragging) {
-        setIsDragging(false)
-        setDragStart(null)
+      if (isPanning) {
+        setIsPanning(false)
         canvas.style.cursor = 'grab'
       }
     }
@@ -231,12 +278,14 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
         const rect = canvas.getBoundingClientRect()
         const x = e.clientX - rect.left
         const y = e.clientY - rect.top
-
         const btn = (canvas as any).patternDetailsButton
         if (x >= btn.x && x <= btn.x + btn.width && y >= btn.y && y <= btn.y + btn.height) {
           setShowPatternDetails(true)
+          return
         }
       }
+      // Double-click resets zoom
+      setZoomRange({ start: 0, end: 1 })
     }
 
     canvas.addEventListener('mousemove', handleMouseMove)
@@ -255,7 +304,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
       canvas.removeEventListener('wheel', handleWheel)
       canvas.removeEventListener('dblclick', handleDoubleClick)
     }
-  }, [isDragging, zoomLevel, panOffset, dragStart])
+  }, [isPanning, zoomRange, panStart])
 
   useEffect(() => {
     if (seasonalData.length > 0 && activeView === 'chart') {
@@ -263,8 +312,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     }
   }, [
     mousePos,
-    zoomLevel,
-    panOffset,
+    zoomRange,
     seasonalData,
     activeView,
     showMaxYears,
@@ -909,8 +957,8 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     // CRITICAL: 70px bottom padding ensures x-axis labels never get cropped
     const isMobileView = width < 768
     const PADDING = isMobileView
-      ? { top: 20, right: 65, bottom: 70, left: 10 }
-      : { top: 20, right: 10, bottom: 70, left: 60 }
+      ? { top: 20, right: 58, bottom: 28, left: 45 }
+      : { top: 20, right: 72, bottom: 70, left: 60 }
     const chartWidth = width - PADDING.left - PADDING.right
     const chartHeight = height - PADDING.top - PADDING.bottom
 
@@ -956,15 +1004,9 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     } else {
       // Determine visible trading day range based on zoom and pan for seasonal data
       const getVisibleRange = () => {
-        if (zoomLevel === 1) return { start: 1, end: maxTradingDays }
-
-        const chartCenter = 0.5
-        const visibleStart = Math.max(0, (0 - panOffset - chartCenter) / zoomLevel + chartCenter)
-        const visibleEnd = Math.min(1, (1 - panOffset - chartCenter) / zoomLevel + chartCenter)
-
         return {
-          start: Math.max(1, Math.floor(visibleStart * (maxTradingDays - 1)) + 1),
-          end: Math.min(maxTradingDays, Math.ceil(visibleEnd * (maxTradingDays - 1)) + 1),
+          start: Math.max(1, Math.floor(zoomRange.start * (maxTradingDays - 1)) + 1),
+          end: Math.min(maxTradingDays, Math.ceil(zoomRange.end * (maxTradingDays - 1)) + 1),
         }
       }
 
@@ -1011,19 +1053,16 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     }
 
     // Helper functions for positioning with zoom and pan
+    const rangeSize = zoomRange.end - zoomRange.start
     const getX = (tradingDay: number) => {
-      const chartCenter = 0.5
       const baseX = (tradingDay - 1) / (maxTradingDays - 1)
-      const zoomedX = chartCenter + (baseX - chartCenter) * zoomLevel + panOffset
-      return PADDING.left + zoomedX * chartWidth
+      return PADDING.left + ((baseX - zoomRange.start) / rangeSize) * chartWidth
     }
 
     // Simpler X calculation for event data - just spread points evenly
     const getEventX = (index: number, totalPoints: number) => {
-      const chartCenter = 0.5
       const baseX = index / (totalPoints - 1)
-      const zoomedX = chartCenter + (baseX - chartCenter) * zoomLevel + panOffset
-      return PADDING.left + zoomedX * chartWidth
+      return PADDING.left + ((baseX - zoomRange.start) / rangeSize) * chartWidth
     }
 
     const getY = (value: number) => {
@@ -1035,7 +1074,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     ctx.lineWidth = 1
     ctx.fillStyle = '#FFFFFF'
     ctx.font = `bold ${isFullscreen ? '20' : '16'}px "JetBrains Mono", monospace`
-    ctx.textAlign = isMobileView ? 'left' : 'right'
+    ctx.textAlign = 'right'
 
     const numHLines = 8
     for (let i = 0; i <= numHLines; i++) {
@@ -1046,11 +1085,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
       ctx.stroke()
 
       const value = maxValue - ((maxValue - minValue) / numHLines) * i
-      if (isMobileView) {
-        ctx.fillText(`${value.toFixed(1)}%`, width - PADDING.right + 8, y + 5)
-      } else {
-        ctx.fillText(`${value.toFixed(1)}%`, PADDING.left - 8, y + 5)
-      }
+      ctx.fillText(`${value.toFixed(1)}%`, PADDING.left - 6, y + 5)
     }
 
     // Draw zero line
@@ -1073,6 +1108,9 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
       'Russell 2000': '#FF5722',
     }
 
+    // End-of-line ticker labels — populated during line drawing, rendered after ctx.restore()
+    const endLabels: Array<{label: string, color: string, key: string, active: boolean, endY: number}> = []
+
     // Save context and create clipping region for chart area (prevents lines from drawing over y-axis)
     ctx.save()
     ctx.beginPath()
@@ -1081,14 +1119,19 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
 
     // Draw data lines (only if event or pattern performance is not active)
     if (!showEventPerformance && !showPatternPerformance) {
+      // In isIndex mode, reuse showMaxYears/show15Y/show10Y/showElection as per-symbol toggles
+      const indexVisibility: Record<string, boolean> = {
+        'DJIA': showMaxYears, 'S&P 500': show15Y, 'NASDAQ': show10Y, 'Russell 2000': showElection,
+      }
       seasonalData.forEach((index) => {
+        if (isIndex && indexVisibility[index.name] === false) return
         // For individual stocks, use white for max, orange for 10Y, pink for 15Y
         const whiteColor = isIndex ? colors[index.name] || '#FFFFFF' : '#FFFFFF'
         const orangeColor = '#FF6600'
         const pinkColor = '#00BCD4'
         const electionColor = isIndex ? colors[index.name] || '#FFFFFF' : '#FFD700'
 
-        if (showMaxYears) {
+        if (isIndex || showMaxYears) {
           // Determine if we should show white line (max years)
           // Check if there's any difference between max and 10Y/15Y data
           const hasDistinct10Y = index.dailyData.some(
@@ -1116,7 +1159,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           }
         }
 
-        if (show15Y) {
+        if (!isIndex && show15Y) {
           // Draw cyan line (15 years)
           ctx.strokeStyle = pinkColor
           ctx.lineWidth = 2
@@ -1132,7 +1175,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           ctx.stroke()
         }
 
-        if (show10Y) {
+        if (!isIndex && show10Y) {
           // Draw orange line (10 years)
           ctx.strokeStyle = orangeColor
           ctx.lineWidth = 2
@@ -1165,6 +1208,33 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           ctx.setLineDash([])
         }
       })
+
+      // Collect end-of-line label positions for right-side ticker labels
+      {
+        const shortNames: Record<string, string> = { 'DJIA': 'DIA', 'S&P 500': 'SPY', 'NASDAQ': 'QQQ', 'Russell 2000': 'IWM' }
+        const clampY = (v: number) => Math.max(PADDING.top + 6, Math.min(height - PADDING.bottom - 6, v))
+        if (isIndex) {
+          seasonalData.forEach((index) => {
+            const short = shortNames[index.name] || index.name
+            const col = colors[index.name] || '#FFFFFF'
+            const vis = indexVisibility[index.name] !== false
+            const lp = index.dailyData[index.dailyData.length - 1]
+            if (!lp) return
+            endLabels.push({ label: short,        color: col, key: short,        active: vis, endY: clampY(getY(lp.cumulativeReturn)) })
+            endLabels.push({ label: short + ' E', color: col, key: short + '_E', active: vis, endY: clampY(getY(lp.postElectionCumulative)) })
+          })
+        } else {
+          const d = seasonalData[0]?.dailyData
+          if (d && d.length > 0) {
+            const lp = d[d.length - 1]
+            const clamp = clampY
+            endLabels.push({ label: '25Y', color: '#FFFFFF', key: '25Y', active: showMaxYears ?? true, endY: clamp(getY(lp.cumulativeReturn)) })
+            endLabels.push({ label: '15Y', color: '#00BCD4', key: '15Y', active: show15Y,             endY: clamp(getY(lp.cumulativeReturn15Y)) })
+            endLabels.push({ label: '10Y', color: '#FF6600', key: '10Y', active: show10Y,             endY: clamp(getY(lp.cumulativeReturn10Y)) })
+            endLabels.push({ label: 'E',   color: '#FFD700', key: 'E',   active: showElection,        endY: clamp(getY(lp.postElectionCumulative)) })
+          }
+        }
+      }
     }
 
     // Draw event performance overlay if active
@@ -1306,13 +1376,56 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     ctx.restore()
     // ─────────────────────────────────────────────────────────────────────────
 
+    // ── End-of-line ticker labels (right padding, tap/click to toggle) ────────
+    if (endLabels.length > 0) {
+      const labelFontSize = isMobileView ? 10 : 11
+      const rightEdge = width - PADDING.right
+      ctx.save()
+      ctx.font = `bold ${labelFontSize}px "JetBrains Mono", monospace`
+      ctx.textBaseline = 'middle'
+      // Sort by Y and push apart overlapping labels
+      endLabels.sort((a, b) => a.endY - b.endY)
+      const minSp = labelFontSize + 4
+      for (let i = 1; i < endLabels.length; i++) {
+        if (endLabels[i].endY - endLabels[i - 1].endY < minSp)
+          endLabels[i].endY = endLabels[i - 1].endY + minSp
+      }
+      const labelTapZones: Array<{x1: number, x2: number, y1: number, y2: number, key: string}> = []
+      endLabels.forEach((item) => {
+        const alpha = item.active ? 1 : 0.35
+        ctx.globalAlpha = alpha
+        // Connector tick
+        ctx.strokeStyle = item.color
+        ctx.lineWidth = 1
+        ctx.setLineDash([])
+        ctx.beginPath()
+        ctx.moveTo(rightEdge, item.endY)
+        ctx.lineTo(rightEdge + 4, item.endY)
+        ctx.stroke()
+        // Label
+        ctx.fillStyle = item.color
+        ctx.textAlign = 'left'
+        ctx.fillText(item.label, rightEdge + 5, item.endY)
+        const tw = ctx.measureText(item.label).width
+        labelTapZones.push({ x1: rightEdge - 4, x2: rightEdge + 6 + tw, y1: item.endY - 10, y2: item.endY + 10, key: item.key })
+      })
+      ctx.globalAlpha = 1
+      ;(canvas as any).labelTapZones = labelTapZones
+      ctx.restore()
+    } else {
+      ;(canvas as any).labelTapZones = []
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
     // Draw X-axis labels in the bottom padding area
     ctx.fillStyle = '#FFFFFF'
     ctx.font = `bold ${isFullscreen ? '19' : '15'}px "JetBrains Mono", monospace`
     ctx.textAlign = 'center'
 
-    const xAxisY = height - PADDING.bottom + 35 // Position labels in the 70px bottom padding
     const { isMobile } = getAlmanacDailyChartMobile()
+    const xAxisY = isMobile
+      ? height - PADDING.bottom + 16  // 28px bottom: center label at +16 from chart base
+      : height - PADDING.bottom + 35  // 70px bottom: original position
 
     if (showEventPerformance && eventPerformanceData.length > 0) {
       // For event performance
@@ -1369,15 +1482,21 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     } else {
       // For seasonal data
       if (isMobile) {
-        // Mobile: Show only 3 dates (start, middle, end)
+        // Mobile: dynamic density — more labels when zoomed in
         const dailyData = seasonalData[0]?.dailyData || []
-        const indices = [0, Math.floor(dailyData.length / 2), dailyData.length - 1]
-        indices.forEach((i) => {
-          const point = dailyData[i]
-          if (point) {
-            const x = getX(point.tradingDay)
-            ctx.fillText(point.date, x, xAxisY)
-          }
+        const visibleFraction = zoomRange.end - zoomRange.start
+        const step = visibleFraction >= 0.8 ? Math.ceil(dailyData.length / 3)
+                   : visibleFraction >= 0.4 ? Math.ceil(dailyData.length / 6)
+                   : Math.ceil(dailyData.length / 12)
+        let lastDrawnX = -Infinity
+        dailyData.forEach((point, i) => {
+          if (i % step !== 0 && i !== dailyData.length - 1) return
+          const x = getX(point.tradingDay)
+          if (x < PADDING.left - 5 || x > width - PADDING.right + 5) return
+          if (x - lastDrawnX < 32) return // skip if too close to previous label
+          ctx.textAlign = 'center'
+          ctx.fillText(point.date, x, xAxisY)
+          lastDrawnX = x
         })
       } else {
         // Desktop: Show dates at regular intervals
@@ -1390,6 +1509,8 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
         })
       }
     }
+
+
 
     // Draw crosshair
     if (mousePos) {
@@ -1418,11 +1539,10 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
         ctx.stroke()
         ctx.setLineDash([])
 
-        // Calculate trading day from mouse position accounting for zoom and pan
-        const chartCenter = 0.5
+        // Calculate trading day from mouse position accounting for zoom
         const normalizedX = (mouseX - PADDING.left) / chartWidth
-        const unzoomedX = (normalizedX - panOffset - chartCenter) / zoomLevel + chartCenter
-        const tradingDay = Math.round(unzoomedX * (maxTradingDays - 1)) + 1
+        const baseX = zoomRange.start + normalizedX * (zoomRange.end - zoomRange.start)
+        const tradingDay = Math.round(baseX * (maxTradingDays - 1)) + 1
         const dataPoint = seasonalData[0]?.dailyData.find((d) => d.tradingDay === tradingDay)
 
         // Calculate percentage from mouse position
@@ -1435,7 +1555,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           ctx.textAlign = 'center'
           ctx.textBaseline = 'middle'
           const textWidth = ctx.measureText(dateText).width
-          const labelY = height - PADDING.bottom + 22
+          const labelY = isMobileView ? height - PADDING.bottom + 14 : height - PADDING.bottom + 22
 
           ctx.fillStyle = '#000000'
           ctx.fillRect(mouseX - textWidth / 2 - 8, labelY - 13, textWidth + 16, 26)
@@ -1461,13 +1581,21 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
   }
 
   return (
-    <div className="almanac-daily-chart" style={{ position: 'relative', overflow: 'visible' }}>
+    <div
+      className="almanac-daily-chart"
+      style={isMobileView
+        ? { display: 'flex', flexDirection: 'column', height: 'calc(100dvh - 136px)', overflow: 'hidden', padding: 0, minHeight: 0 }
+        : { position: 'relative', overflow: 'visible' }
+      }
+    >
       <div
         className="chart-header-row"
-        style={{ position: 'relative', zIndex: 5000, overflow: 'visible' }}
+        style={{ position: 'relative', zIndex: 5000, overflow: 'visible', flexShrink: 0 }}
       >
-        {/* Mobile Controls - Complete Redesign */}
-        <AlmanacMobileControls
+        {/* Mobile Controls — rendered only when isMobileView to bypass almanac.css display:none */}
+        {isMobileView && (
+          <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+            <AlmanacMobileControls
           selectedMonth={selectedMonth}
           setSelectedMonth={setSelectedMonth}
           onMonthChange={onMonthChange}
@@ -1493,10 +1621,12 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           setPatternPerformanceData={setPatternPerformanceData}
           calculatePatternPerformance={calculatePatternPerformance}
           symbol={symbol}
-        />
+            />
+          </div>
+        )}
 
         {/* Desktop: All controls in one clean row */}
-        <div
+        {!isMobileView && <div
           className="chart-controls-row chart-controls-desktop desktop-only-btn"
           data-active-view={activeView}
           style={{
@@ -1836,10 +1966,11 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
               <option value="move-18-22-down-annual">18-22% DOWN (Annual)</option>
             </optgroup>
           </select>
-        </div>
+        </div>}
       </div>
 
-      <div className="chart-container" ref={containerRef}>
+      <div className="chart-container" ref={containerRef}
+        style={isMobileView ? { flex: 1, minHeight: 0, height: undefined } : undefined}>
         {loading && (
           <div className="chart-loading">
             <div className="loading-spinner"></div>

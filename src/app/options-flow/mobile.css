@@ -28,15 +28,27 @@
   }
 
   /* Compact table cells for mobile */
+  .options-flow-table {
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+  }
+
   .options-flow-table thead {
-    background: #000 !important;
+    background: transparent !important;
   }
 
   .options-flow-table thead th {
-    padding: 8px 4px !important;
+    padding: 1px 4px !important;
     font-size: 13px !important;
     white-space: nowrap;
-    background: #000 !important;
+    border-right: 2px solid #ff8500 !important;
+    border-left: none !important;
+    border-top: none !important;
+    border-bottom: 2px solid #ff8500 !important;
+  }
+
+  .options-flow-table thead th:last-child {
+    border-right: none !important;
   }
 
   .options-flow-table tbody td {

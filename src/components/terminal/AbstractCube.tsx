@@ -6,9 +6,10 @@ import MiniMarketHeatmap from './MiniMarketHeatmap'
 import './AbstractCube.css'
 
 export default function AbstractCube() {
-  const [time, setTime] = useState(new Date())
+  const [time, setTime] = useState<Date | null>(null)
 
   useEffect(() => {
+    setTime(new Date())
     const timer = setInterval(() => setTime(new Date()), 1000)
     return () => clearInterval(timer)
   }, [])
@@ -25,11 +26,11 @@ export default function AbstractCube() {
           </span>
         </div>
         <div className="market-time">
-          {time.toLocaleTimeString('en-US', {
+          {time ? time.toLocaleTimeString('en-US', {
             hour: '2-digit',
             minute: '2-digit',
             second: '2-digit',
-          })}
+          }) : '--:--:-- --'}
         </div>
       </div>
 

@@ -102,6 +102,8 @@ interface SeasonaxSymbolSearchProps {
   painPointActive?: boolean
   onSweetSpotToggle?: () => void
   onPainPointToggle?: () => void
+  onMonthsToggle?: () => void
+  monthsOpen?: boolean
   currentYearMode?: 'off' | 'raw' | 'benchmarked'
   onCurrentYearModeChange?: (mode: 'off' | 'raw' | 'benchmarked') => void
   isCompareMode?: boolean
@@ -128,6 +130,8 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
   painPointActive = false,
   onSweetSpotToggle,
   onPainPointToggle,
+  onMonthsToggle,
+  monthsOpen = false,
   currentYearMode = 'off' as 'off' | 'raw' | 'benchmarked',
   onCurrentYearModeChange,
   isCompareMode,
@@ -143,12 +147,20 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
   const [isElectionDropdownOpen, setIsElectionDropdownOpen] = useState<boolean>(false)
   const [isYearsDropdownOpen, setIsYearsDropdownOpen] = useState<boolean>(false)
   const [isCurrentYearDropdownOpen, setIsCurrentYearDropdownOpen] = useState<boolean>(false)
+  const [isXtraDropdownOpen, setIsXtraDropdownOpen] = useState<boolean>(false)
   const [localElectionPeriod, setLocalElectionPeriod] = useState<string>(externalElectionPeriod || 'Normal Mode')
   const [recentSymbols] = useState<string[]>(['MSFT', 'AAPL', 'GOOGL', 'AMZN', 'TSLA', 'NVDA'])
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [isSearching, setIsSearching] = useState<boolean>(false)
   const [activeQuickScan, setActiveQuickScan] = useState<string | null>(null)
   const [activeSectorScan, setActiveSectorScan] = useState<string | null>(null)
+  const [isMobileView, setIsMobileView] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobileView(window.innerWidth <= 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchRef = useRef<HTMLDivElement>(null)
 
@@ -162,6 +174,7 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
         setIsElectionDropdownOpen(false)
         setIsYearsDropdownOpen(false)
         setIsCurrentYearDropdownOpen(false)
+        setIsXtraDropdownOpen(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -428,7 +441,7 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
             title="Select data period"
           >
             {availableYears.map((y) => (
-              <option key={y} value={`${y} years`}>{y} {y === 1 ? 'Year' : 'Years'} Data</option>
+              <option key={y} value={`${y} years`}>{isMobileView ? `${y} Years` : `${y} ${y === 1 ? 'Year' : 'Years'} Data`}</option>
             ))}
           </select>
         )}
@@ -436,9 +449,9 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
         <div className={`election-dropdown-container${isElectionDropdownOpen ? ' open' : ''}`}>
           <button
             className={`election-btn${isElectionActive ? ' active' : ' inactive'}`}
-            onClick={() => { setIsElectionDropdownOpen(!isElectionDropdownOpen); setIsOpen(false) }}
+            onClick={() => { setIsElectionDropdownOpen(!isElectionDropdownOpen); setIsOpen(false); setIsXtraDropdownOpen(false) }}
           >
-            <span className="election-text">{isElectionActive ? displayElection : 'Election Modes'}</span>
+            <span className="election-text">{isElectionActive ? displayElection : (isMobileView ? 'Election' : 'Election Modes')}</span>
             <span className="dropdown-arrow">▼</span>
           </button>
           {isElectionDropdownOpen && (
@@ -452,28 +465,12 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
                   {period}
                 </div>
               ))}
-              {/* Quick scans only shown in dropdown in normal mode; in fullscreen they're rendered as buttons */}
-              {!isFullscreen && (
-                <>
-                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', margin: '4px 0' }} />
-                  <div className="search-section-title" style={{ padding: '4px 12px', fontSize: '9px', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em' }}>QUICK SCANS</div>
-                  {QUICK_SCANS.map((scan) => (
-                    <div
-                      key={scan.name}
-                      className={`election-option${activeQuickScan === scan.name ? ' selected' : ''}`}
-                      style={{ color: activeQuickScan === scan.name ? scan.color : 'rgba(255,255,255,0.75)' }}
-                      onMouseDown={() => { handleQuickScanClick(scan); setIsElectionDropdownOpen(false) }}
-                    >
-                      <span style={{ marginRight: '6px', fontSize: '13px' }}>{scan.icon}</span>{scan.label}
-                    </div>
-                  ))}
-                </>
-              )}
+
             </div>
           )}
         </div>
 
-        {onCompareClick !== undefined && (
+        {!isMobileView && onCompareClick !== undefined && (
           isCompareMode ? (
             <>
               <div style={{ width: '1px', background: 'rgba(255,102,0,0.5)', alignSelf: 'stretch', margin: '6px 2px' }} />
@@ -494,7 +491,7 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
               <button onClick={onCompareClick} className="compare-btn" style={{ minWidth: 'unset', padding: '0 6px' }}>×</button>
             </>
           ) : (
-            <button onClick={onCompareClick} className="compare-btn" title="Compare with another symbol">Compare</button>
+            !isMobileView && <button onClick={onCompareClick} className="compare-btn" title="Compare with another symbol">Compare</button>
           )
         )}
 
@@ -579,7 +576,7 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
       {/* Row 2 (normal mode only): Sweet Spot + Pain Point + Current Year */}
       {!isFullscreen && (onSweetSpotToggle || onPainPointToggle || onCurrentYearModeChange) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'nowrap' }}>
-          {onSweetSpotToggle && (
+          {onSweetSpotToggle && !isMobileView && (
             <button
               className={`sweet-spot-btn compare-btn${sweetSpotActive ? ' active' : ''}`}
               onClick={() => { onSweetSpotToggle(); setIsOpen(false) }}
@@ -588,7 +585,7 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
               ★ Sweet Spot
             </button>
           )}
-          {onPainPointToggle && (
+          {onPainPointToggle && !isMobileView && (
             <button
               className={`pain-point-btn compare-btn${painPointActive ? ' active' : ''}`}
               onClick={() => { onPainPointToggle(); setIsOpen(false) }}
@@ -607,8 +604,10 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
                   color: currentYearMode !== 'off' ? '#00D4FF' : undefined,
                 }}
               >
-                {currentYearMode === 'benchmarked' ? '⊨ Benchmarked' : '⊨ Current Year'}
-                {currentYearMode !== 'off' && ' ✓'}
+                {isMobileView
+                  ? (currentYearMode !== 'off' ? 'CUR YR ✓' : 'CUR YR')
+                  : (currentYearMode === 'benchmarked' ? '⊨ Benchmarked' : '⊨ Current Year')}
+                {!isMobileView && currentYearMode !== 'off' && ' ✓'}
                 <span style={{ fontSize: '8px', marginLeft: '4px', opacity: 0.7 }}>▼</span>
               </button>
               {isCurrentYearDropdownOpen && (
@@ -628,6 +627,41 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
                 </div>
               )}
             </div>
+          )}
+          {isMobileView && (
+            <div style={{ position: 'relative', display: 'inline-block' }}>
+              <button
+                className={`compare-btn${isXtraDropdownOpen ? ' active' : ''}`}
+                onClick={() => { setIsXtraDropdownOpen(v => !v); setIsCurrentYearDropdownOpen(false); setIsElectionDropdownOpen(false); setIsOpen(false) }}
+                title="Quick Scans"
+              >
+                Xtra <span style={{ fontSize: '8px', marginLeft: '2px', opacity: 0.7 }}>▼</span>
+              </button>
+              {isXtraDropdownOpen && (
+                <div className="election-dropdown" style={{ minWidth: '160px' }}>
+                  <div className="search-section-title" style={{ padding: '4px 12px', fontSize: '9px', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em' }}>QUICK SCANS</div>
+                  {QUICK_SCANS.map((scan) => (
+                    <div
+                      key={scan.name}
+                      className={`election-option${activeQuickScan === scan.name ? ' selected' : ''}`}
+                      style={{ color: activeQuickScan === scan.name ? scan.color : 'rgba(255,255,255,0.75)' }}
+                      onMouseDown={() => { handleQuickScanClick(scan); setIsXtraDropdownOpen(false) }}
+                    >
+                      <span style={{ marginRight: '6px', fontSize: '13px' }}>{scan.icon}</span>{scan.label}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {isMobileView && onMonthsToggle && (
+            <button
+              className={`compare-btn${monthsOpen ? ' active' : ''}`}
+              onClick={onMonthsToggle}
+              title="Toggle monthly returns"
+            >
+              {monthsOpen ? <>Months <span style={{ fontSize: '16px', fontWeight: 900, lineHeight: 1 }}>−</span></> : <>Months <span style={{ fontSize: '16px', fontWeight: 900, lineHeight: 1 }}>+</span></>}
+            </button>
           )}
         </div>
       )}
