@@ -102,7 +102,7 @@ export default function DataDrivenMobileLayout() {
       )}
 
       {active === 'screener' && (
-        <div style={PANEL_STYLE}>
+        <div style={PANEL_STYLE} className="mobile-dd-screener-panel">
           <SeasonaxLanding />
         </div>
       )}

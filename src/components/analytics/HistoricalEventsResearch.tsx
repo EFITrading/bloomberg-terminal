@@ -244,21 +244,28 @@ async function fetchBars(ticker: string, startDate: string, endDate: string): Pr
   const e = end.toISOString().split('T')[0]
 
   const url = `/api/historical-data?symbol=${ticker}&startDate=${s}&endDate=${e}&timeframe=1d`
+  console.log(`[HER] fetchBars → ${ticker} | url: ${url}`)
 
   let res: Response
   try {
     res = await fetch(url)
   } catch (err) {
+    console.error(`[HER] fetchBars NETWORK ERROR for ${ticker}:`, err)
     throw err
   }
+
+  console.log(`[HER] fetchBars response ${ticker}: status=${res.status} ok=${res.ok}`)
   if (!res.ok) {
     const text = await res.text().catch(() => '(no body)')
+    console.error(`[HER] fetchBars HTTP error for ${ticker}: ${res.status} — ${text}`)
     throw new Error(`Failed to fetch ${ticker}: ${res.status}`)
   }
 
   const json = await res.json()
+  console.log(`[HER] fetchBars ${ticker}: json keys=${Object.keys(json).join(',')}, results=${Array.isArray(json.results) ? json.results.length : 'N/A'}`)
 
   if (!json.results || !Array.isArray(json.results)) {
+    console.warn(`[HER] fetchBars ${ticker}: no results array — full response:`, json)
     return []
   }
 
@@ -273,6 +280,8 @@ async function fetchBars(ticker: string, startDate: string, endDate: string): Pr
       volume: r.v,
     }))
     .sort((a: PriceBar, b: PriceBar) => a.timestamp - b.timestamp)
+
+  console.log(`[HER] fetchBars ${ticker}: parsed ${bars.length} bars (${bars[0]?.date} → ${bars[bars.length - 1]?.date})`)
   return bars
 }
 
@@ -456,12 +465,19 @@ export default function HistoricalEventsResearch() {
       error: null,
     })
 
+    console.log(`[HER] loadEventData: event="${event.name}" start=${event.startDate} end=${event.endDate}`)
+    console.log(`[HER] fetching ${ALL_INSTRUMENTS.length} instruments:`, ALL_INSTRUMENTS.map(i => i.apiTicker))
+
     const results = await Promise.allSettled(
       ALL_INSTRUMENTS.map((ins) => fetchBars(ins.apiTicker, event.startDate, event.endDate))
     )
+
+    console.log('[HER] allSettled results:')
     results.forEach((r, i) => {
       if (r.status === 'fulfilled') {
+        console.log(`  [HER] ${ALL_INSTRUMENTS[i].ticker}: ✓ ${r.value.length} bars`)
       } else {
+        console.error(`  [HER] ${ALL_INSTRUMENTS[i].ticker}: ✗ rejected —`, r.reason)
       }
     })
 
@@ -475,6 +491,7 @@ export default function HistoricalEventsResearch() {
       const key = INSTR_KEY_MAP[ins.ticker]
       const result = results[i]
       if (result.status === 'fulfilled' && result.value.length >= 2) {
+        console.log(`[HER] building stats for ${ins.ticker}: duringStart=${offsetDate(event.startDate, -10)} duringEnd=${offsetDate(event.startDate, 10)}`)
         const allBars = result.value
 
         // 'During' window: ±10 calendar days around the event START DATE
@@ -484,6 +501,7 @@ export default function HistoricalEventsResearch() {
         const duringBars = sliceBars(allBars, duringStart, duringEnd)
         const d = buildPeriodStats(duringBars.length >= 2 ? duringBars : sliceBars(allBars, duringStart, offsetDate(duringEnd, 5)))
         if (!d) {
+          console.warn(`[HER] ${ins.ticker}: buildPeriodStats returned null for during window — skipping`)
           update[key] = null
           return
         }
@@ -507,6 +525,7 @@ export default function HistoricalEventsResearch() {
         }
       } else {
         if (result.status === 'fulfilled') {
+          console.warn(`[HER] ${ins.ticker}: only ${result.value.length} bars — need ≥2, setting null`)
         }
         update[key] = null
       }
@@ -731,20 +750,11 @@ export default function HistoricalEventsResearch() {
                 <button
                   onClick={() => setSelectedEvent(null)}
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    background: 'transparent',
-                    border: 'none',
-                    color: '#FF6B00',
-                    fontSize: 11,
-                    fontWeight: 800,
-                    letterSpacing: '0.08em',
-                    textTransform: 'uppercase',
-                    fontFamily: '"Roboto Mono", monospace',
-                    cursor: 'pointer',
-                    padding: 0,
-                    flexShrink: 0,
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    background: 'transparent', border: 'none', color: '#FF6B00',
+                    fontSize: 11, fontWeight: 800, letterSpacing: '0.08em',
+                    textTransform: 'uppercase', fontFamily: '"Roboto Mono", monospace',
+                    cursor: 'pointer', padding: 0, flexShrink: 0,
                   }}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
@@ -754,37 +764,11 @@ export default function HistoricalEventsResearch() {
                 </button>
               ) : (
                 <>
-                  {!isMobileView && <div
-                    style={{
-                      width: 42,
-                      height: 42,
-                      background: 'linear-gradient(135deg, #1d4ed8 0%, #7c3aed 100%)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                      boxShadow: '0 0 0 1px rgba(124,58,237,0.4), inset 0 1px 0 rgba(255,255,255,0.2)',
-                    }}
-                  >
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="square">
-                      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-                    </svg>
+                  {!isMobileView && <div style={{ width: 42, height: 42, background: 'linear-gradient(135deg, #1d4ed8 0%, #7c3aed 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 0 0 1px rgba(124,58,237,0.4), inset 0 1px 0 rgba(255,255,255,0.2)' }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="square"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>
                   </div>}
                   <div style={{ minWidth: 0 }}>
-                    <div
-                      style={{
-                        color: '#FFFFFF',
-                        fontSize: isMobileView ? 11 : 18,
-                        fontWeight: 800,
-                        letterSpacing: isMobileView ? '0.06em' : '0.12em',
-                        textTransform: 'uppercase',
-                        lineHeight: 1,
-                        fontFamily: '"Roboto Mono", monospace',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
+                    <div style={{ color: '#FFFFFF', fontSize: isMobileView ? 11 : 18, fontWeight: 800, letterSpacing: isMobileView ? '0.06em' : '0.12em', textTransform: 'uppercase', lineHeight: 1, fontFamily: '"Roboto Mono", monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {isMobileView ? 'HIST. EVENTS' : 'Historical Market Events'}
                     </div>
                     {!isMobileView && <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
@@ -798,72 +782,24 @@ export default function HistoricalEventsResearch() {
             </div>
             <div style={{ position: 'relative', flexShrink: 0 }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2" strokeLinecap="square" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
               </svg>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={isMobileView ? 'Search...' : 'Search events...'}
-                style={{
-                  background: '#0a0a0a',
-                  border: '1px solid #2a2a2a',
-                  color: '#FFFFFF',
-                  padding: isMobileView ? '7px 10px 7px 28px' : '10px 14px 10px 36px',
-                  fontSize: isMobileView ? 11 : 13,
-                  outline: 'none',
-                  width: isMobileView ? 110 : 240,
-                  fontFamily: '"Roboto Mono", monospace',
-                  letterSpacing: '0.05em',
-                  boxShadow: 'inset 0 1px 4px rgba(0,0,0,0.6)',
-                }}
+              <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder={isMobileView ? 'Search...' : 'Search events...'}
+                style={{ background: '#0a0a0a', border: '1px solid #2a2a2a', color: '#FFFFFF', padding: isMobileView ? '7px 10px 7px 28px' : '10px 14px 10px 36px', fontSize: isMobileView ? 11 : 13, outline: 'none', width: isMobileView ? 110 : 240, fontFamily: '"Roboto Mono", monospace', letterSpacing: '0.05em', boxShadow: 'inset 0 1px 4px rgba(0,0,0,0.6)' }}
               />
             </div>
           </div>
 
           {/* ── CATEGORY FILTERS ───────────────────────────────────────── */}
           {/* ROW 2: CATEGORY FILTERS */}
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: isMobileView ? 'nowrap' : 'wrap',
-              justifyContent: isMobileView ? 'flex-start' : 'center',
-              overflowX: isMobileView ? 'auto' : 'visible',
-              gap: 0,
-              background: '#000000',
-              borderBottom: '1px solid #1a1a1a',
-              flexShrink: 0,
-              WebkitOverflowScrolling: 'touch',
-            }}
-          >
+          <div style={{ display: 'flex', flexWrap: isMobileView ? 'nowrap' : 'wrap', justifyContent: isMobileView ? 'flex-start' : 'center', overflowX: isMobileView ? 'auto' : 'visible', gap: 0, background: '#000000', borderBottom: '1px solid #1a1a1a', flexShrink: 0, WebkitOverflowScrolling: 'touch' as any }}>
             {(['All', ...EVENT_CATEGORIES] as Array<EventCategory | 'All'>).map((cat) => {
               const isActive = selectedCategory === cat
               const color = cat === 'All' ? '#FF6B00' : CATEGORY_COLORS[cat]
               return (
-                <button
-                  key={cat}
-                  className="her-cat-btn"
-                  onClick={() => setSelectedCategory(cat)}
-                  style={{
-                    padding: isMobileView ? '8px 10px' : '12px 16px',
-                    background: isActive ? `${color}18` : 'transparent',
-                    border: 'none',
-                    borderBottom: isActive ? `3px solid ${color}` : '3px solid transparent',
-                    color: isActive ? color : '#FFFFFF',
-                    fontSize: isMobileView ? 10 : 18,
-                    fontWeight: isActive ? 800 : 600,
-                    cursor: 'pointer',
-                    letterSpacing: '0.06em',
-                    textTransform: 'uppercase',
-                    fontFamily: '"Roboto Mono", monospace',
-                    whiteSpace: 'nowrap',
-                    transition: 'all 0.12s',
-                    flexShrink: 0,
-                  }}
-                >
-                  {cat}
-                </button>
+                <button key={cat} className="her-cat-btn" onClick={() => setSelectedCategory(cat)}
+                  style={{ padding: isMobileView ? '8px 10px' : '12px 16px', background: isActive ? `${color}18` : 'transparent', border: 'none', borderBottom: isActive ? `3px solid ${color}` : '3px solid transparent', color: isActive ? color : '#FFFFFF', fontSize: isMobileView ? 10 : 18, fontWeight: isActive ? 800 : 600, cursor: 'pointer', letterSpacing: '0.06em', textTransform: 'uppercase', fontFamily: '"Roboto Mono", monospace', whiteSpace: 'nowrap', transition: 'all 0.12s', flexShrink: 0 }}
+                >{cat}</button>
               )
             })}
           </div>
@@ -878,7 +814,6 @@ export default function HistoricalEventsResearch() {
                 flex: isMobileView ? 1 : undefined,
                 minHeight: isMobileView ? 0 : undefined,
                 borderRight: isMobileView ? 'none' : '1px solid #1a1a1a',
-                borderBottom: isMobileView && selectedEvent ? '1px solid #1a1a1a' : 'none',
                 overflowY: 'auto',
                 background: '#030303',
                 display: isMobileView && selectedEvent ? 'none' : undefined,
@@ -1100,21 +1035,10 @@ export default function HistoricalEventsResearch() {
                             {eventDurationDays(selectedEvent).toLocaleString()} days
                           </span>
                         </div>
-                        <div
-                          style={{
-                            color: CATEGORY_COLORS[selectedEvent.category],
-                            fontSize: isMobileView ? 13 : 20,
-                            fontWeight: 800,
-                            letterSpacing: '-0.3px',
-                            marginBottom: isMobileView ? 6 : 10,
-                            lineHeight: 1.2,
-                          }}
-                        >
+                        <div style={{ color: CATEGORY_COLORS[selectedEvent.category], fontSize: isMobileView ? 13 : 20, fontWeight: 800, letterSpacing: '-0.3px', marginBottom: isMobileView ? 6 : 10, lineHeight: 1.2 }}>
                           {selectedEvent.name}
                         </div>
-                        <div
-                          style={{ color: '#aaa', fontSize: isMobileView ? 11 : 13, lineHeight: 1.6 }}
-                        >
+                        <div style={{ color: '#aaa', fontSize: isMobileView ? 11 : 13, lineHeight: 1.7 }}>
                           {selectedEvent.description}
                         </div>
                         {selectedEvent.keyDates && selectedEvent.keyDates.length > 0 && (
@@ -1223,16 +1147,7 @@ export default function HistoricalEventsResearch() {
                   </div>
 
                   {/* ── PERIOD SELECTOR ───────────────────────────────── */}
-                  <div style={{
-                    display: 'flex',
-                    gap: 0,
-                    marginBottom: isMobileView ? 10 : 20,
-                    background: 'linear-gradient(180deg, #141414 0%, #0a0a0a 100%)',
-                    border: '1px solid #222',
-                    borderRadius: 2,
-                    overflow: 'hidden',
-                    boxShadow: '0 4px 16px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06)',
-                  }}>
+                  <div style={{ display: 'flex', gap: 0, marginBottom: isMobileView ? 10 : 20, background: 'linear-gradient(180deg, #141414 0%, #0a0a0a 100%)', border: '1px solid #222', borderRadius: 2, overflow: 'hidden', boxShadow: '0 4px 16px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06)' }}>
                     {[
                       { key: 'pre30' as PeriodKey, label: isMobileView ? '-30D' : '-30D BEFORE', color: '#a855f7' },
                       { key: 'pre10' as PeriodKey, label: isMobileView ? '-10D' : '-10D BEFORE', color: '#f472b6' },
@@ -1243,51 +1158,18 @@ export default function HistoricalEventsResearch() {
                       const isActive = activePeriod === p.key
                       const isFullMobile = isMobileView && p.key === 'full'
                       return (
-                        <button
-                          key={p.key}
-                          className="her-period-btn"
+                        <button key={p.key} className="her-period-btn"
                           onClick={() => {
-                            if (isFullMobile) {
-                              setOpenGroup(openGroup === '__settings__' ? null : '__settings__')
-                            } else {
-                              setActivePeriod(p.key)
-                            }
+                            if (isFullMobile) { setOpenGroup(openGroup === '__settings__' ? null : '__settings__') }
+                            else { setActivePeriod(p.key) }
                           }}
-                          style={{
-                            flex: 1,
-                            padding: isMobileView ? '9px 2px' : '16px 8px',
-                            background: 'transparent',
-                            borderTop: 'none',
-                            borderBottom: isFullMobile
-                              ? (openGroup === '__settings__' ? '2px solid #FF6B00' : '2px solid transparent')
-                              : (isActive ? `2px solid #FF6B00` : '2px solid transparent'),
-                            borderLeft: idx === 0 ? 'none' : '1px solid #1a1a1a',
-                            borderRight: 'none',
-                            color: isFullMobile
-                              ? (openGroup === '__settings__' ? '#FF6B00' : 'rgba(255,255,255,0.45)')
-                              : (isActive ? '#FF6B00' : 'rgba(255,255,255,0.45)'),
-                            fontSize: isMobileView ? 12 : 25,
-                            fontWeight: 800,
-                            cursor: 'pointer',
-                            letterSpacing: isMobileView ? '0.04em' : '1px',
-                            textTransform: 'uppercase',
-                            fontFamily: '"Roboto Mono", monospace',
-                            whiteSpace: 'nowrap',
-                            transition: 'all 0.15s',
-                            boxShadow: 'none',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
+                          style={{ flex: 1, padding: isMobileView ? '9px 2px' : '16px 8px', background: 'transparent', borderTop: 'none', borderBottom: isFullMobile ? (openGroup === '__settings__' ? '2px solid #FF6B00' : '2px solid transparent') : (isActive ? '2px solid #FF6B00' : '2px solid transparent'), borderLeft: idx === 0 ? 'none' : '1px solid #1a1a1a', borderRight: 'none', color: isFullMobile ? (openGroup === '__settings__' ? '#FF6B00' : 'rgba(255,255,255,0.45)') : (isActive ? '#FF6B00' : 'rgba(255,255,255,0.45)'), fontSize: isMobileView ? 12 : 25, fontWeight: 800, cursor: 'pointer', letterSpacing: isMobileView ? '0.04em' : '1px', textTransform: 'uppercase', fontFamily: '"Roboto Mono", monospace', whiteSpace: 'nowrap', transition: 'all 0.15s', boxShadow: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                         >
                           {isFullMobile ? (
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                              <line x1="4" y1="6" x2="20" y2="6" />
-                              <circle cx="8" cy="6" r="2.5" fill="currentColor" stroke="none" />
-                              <line x1="4" y1="12" x2="20" y2="12" />
-                              <circle cx="13" cy="12" r="2.5" fill="currentColor" stroke="none" />
-                              <line x1="4" y1="18" x2="20" y2="18" />
-                              <circle cx="9" cy="18" r="2.5" fill="currentColor" stroke="none" />
+                              <line x1="4" y1="6" x2="20" y2="6" /><circle cx="8" cy="6" r="2.5" fill="currentColor" stroke="none" />
+                              <line x1="4" y1="12" x2="20" y2="12" /><circle cx="13" cy="12" r="2.5" fill="currentColor" stroke="none" />
+                              <line x1="4" y1="18" x2="20" y2="18" /><circle cx="9" cy="18" r="2.5" fill="currentColor" stroke="none" />
                             </svg>
                           ) : p.label}
                         </button>
@@ -1295,52 +1177,41 @@ export default function HistoricalEventsResearch() {
                     })}
                   </div>
 
-                  {/* ── MOBILE INSTRUMENT SETTINGS DROPDOWN (triggered from period bar) ── */}
+                  {/* ── MOBILE INSTRUMENT SETTINGS DROPDOWN ── */}
                   {isMobileView && openGroup === '__settings__' && (
                     <>
                       <div style={{ position: 'fixed', inset: 0, zIndex: 149 }} onClick={() => setOpenGroup(null)} />
-                      <div style={{
-                        position: 'fixed',
-                        top: '50%',
-                        left: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        zIndex: 150,
-                        background: '#161616',
-                        border: '1px solid #2a2a2a',
-                        boxShadow: '0 8px 40px rgba(0,0,0,0.9)',
-                        width: 'min(320px, 90vw)',
-                        maxHeight: '70vh',
-                        overflowY: 'auto',
-                        borderRadius: 4,
-                      }}>
+                      <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 150, background: '#161616', border: '1px solid #2a2a2a', boxShadow: '0 8px 40px rgba(0,0,0,0.9)', width: 'min(320px, 90vw)', maxHeight: '70vh', overflowY: 'auto', borderRadius: 4 }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #222', background: '#111' }}>
                           <span style={{ color: '#FF6B00', fontSize: 11, fontWeight: 800, letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: '"Roboto Mono", monospace' }}>INSTRUMENTS</span>
                           <button onClick={() => setOpenGroup(null)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '0 2px' }}>✕</button>
                         </div>
                         {INSTRUMENT_GROUPS.map((group) => {
-                          const groupInstruments = (allWithData as { ins: InstrumentDef; d: InstrumentData | null }[]).filter(({ ins }) => ins.group === group)
-                          if (!groupInstruments.length) return null
-                          const enabledCount = groupInstruments.filter(({ ins }) => activeInstruments.includes(ins.ticker)).length
+                          const gInstr = ALL_INSTRUMENTS.filter(ins => ins.group === group).filter(ins => {
+                            const d = stats[INSTR_KEY_MAP[ins.ticker] as keyof typeof stats] as InstrumentData | null
+                            return !!d && (d[activePeriod]?.indexed?.length ?? 0) > 0
+                          })
+                          if (!gInstr.length) return null
+                          const ec = gInstr.filter(ins => activeInstruments.includes(ins.ticker)).length
                           return (
                             <div key={group}>
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', background: `${GROUP_COLORS[group]}12`, borderBottom: `1px solid ${GROUP_COLORS[group]}25`, borderTop: '1px solid #1e1e1e' }}>
                                 <span style={{ color: GROUP_COLORS[group], fontSize: 10, fontWeight: 800, letterSpacing: '0.8px', textTransform: 'uppercase', fontFamily: '"Roboto Mono", monospace', display: 'flex', alignItems: 'center', gap: 6 }}>
                                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: GROUP_COLORS[group], display: 'inline-block', flexShrink: 0 }} />
-                                  {group} <span style={{ color: '#555', fontWeight: 600 }}>({enabledCount}/{groupInstruments.length})</span>
+                                  {group} <span style={{ color: '#555', fontWeight: 600 }}>({ec}/{gInstr.length})</span>
                                 </span>
                                 <div style={{ display: 'flex', gap: 4 }}>
-                                  <button onClick={(e) => { e.stopPropagation(); setActiveInstruments((prev) => { const t = groupInstruments.map(({ ins }) => ins.ticker); return [...prev.filter(x => !t.includes(x)), ...t] }) }} style={{ background: '#111', border: '1px solid #222', color: '#fff', fontSize: 9, fontWeight: 700, padding: '3px 7px', cursor: 'pointer', fontFamily: '"Roboto Mono", monospace', letterSpacing: '0.5px' }}>ALL</button>
-                                  <button onClick={(e) => { e.stopPropagation(); setActiveInstruments((prev) => { const t = groupInstruments.map(({ ins }) => ins.ticker); return prev.filter(x => !t.includes(x)) }) }} style={{ background: '#111', border: '1px solid #222', color: '#555', fontSize: 9, fontWeight: 700, padding: '3px 7px', cursor: 'pointer', fontFamily: '"Roboto Mono", monospace', letterSpacing: '0.5px' }}>NONE</button>
+                                  <button onClick={(e) => { e.stopPropagation(); setActiveInstruments((prev) => { const t = gInstr.map(ins => ins.ticker); return [...prev.filter(x => !t.includes(x)), ...t] }) }} style={{ background: '#111', border: '1px solid #222', color: '#fff', fontSize: 9, fontWeight: 700, padding: '3px 7px', cursor: 'pointer', fontFamily: '"Roboto Mono", monospace' }}>ALL</button>
+                                  <button onClick={(e) => { e.stopPropagation(); setActiveInstruments((prev) => { const t = gInstr.map(ins => ins.ticker); return prev.filter(x => !t.includes(x)) }) }} style={{ background: '#111', border: '1px solid #222', color: '#555', fontSize: 9, fontWeight: 700, padding: '3px 7px', cursor: 'pointer', fontFamily: '"Roboto Mono", monospace' }}>NONE</button>
                                 </div>
                               </div>
-                              {groupInstruments.map(({ ins, d }) => {
+                              {gInstr.map(ins => {
                                 const on = activeInstruments.includes(ins.ticker)
+                                const d = stats[INSTR_KEY_MAP[ins.ticker] as keyof typeof stats] as InstrumentData | null
                                 const ret = d?.[activePeriod]?.totalReturn ?? 0
                                 return (
                                   <div key={ins.ticker} onClick={() => setActiveInstruments((prev) => on ? prev.filter(t => t !== ins.ticker) : [...prev, ins.ticker])} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer', background: on ? `${ins.color}0a` : 'transparent', borderBottom: '1px solid #141414', transition: 'background 0.1s' }}>
-                                    <div style={{ width: 13, height: 13, border: `1.5px solid ${on ? ins.color : '#333'}`, background: on ? ins.color : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                      {on && <span style={{ color: '#000', fontSize: 8, fontWeight: 900, lineHeight: 1 }}>✓</span>}
-                                    </div>
+                                    <div style={{ width: 13, height: 13, border: `1.5px solid ${on ? ins.color : '#333'}`, background: on ? ins.color : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{on && <span style={{ color: '#000', fontSize: 8, fontWeight: 900, lineHeight: 1 }}>✓</span>}</div>
                                     <div style={{ width: 12, height: 2, background: ins.color, borderRadius: 1, flexShrink: 0 }} />
                                     <span style={{ color: on ? '#fff' : '#555', fontSize: 12, fontWeight: 700, flex: 1 }}>{ins.label}</span>
                                     <span style={{ color: ret >= 0 ? '#00e676' : '#ff1744', fontSize: 12, fontWeight: 800 }}>{ret >= 0 ? '+' : ''}{ret.toFixed(2)}%</span>
@@ -1353,6 +1224,8 @@ export default function HistoricalEventsResearch() {
                       </div>
                     </>
                   )}
+
+
 
                   {/* ── LOADING ───────────────────────────────────────── */}
                   {stats.loading && (
@@ -1438,51 +1311,20 @@ export default function HistoricalEventsResearch() {
                           <div style={{ marginBottom: 14 }}>
                             {/* ── INSTRUMENT SETTINGS ICON ── */}
                             <div style={{ position: 'relative', display: isMobileView ? 'none' : 'flex', alignItems: 'center', marginBottom: 10 }}>
-                              <button
-                                onClick={() => setOpenGroup(openGroup === '__settings__' ? null : '__settings__')}
-                                title="Filter instruments"
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 6,
-                                  padding: isMobileView ? '6px 10px' : '8px 14px',
-                                  background: openGroup === '__settings__' ? 'rgba(255,107,0,0.12)' : 'linear-gradient(180deg, #1a1a1a 0%, #111 100%)',
-                                  border: `1px solid ${openGroup === '__settings__' ? '#FF6B00' : '#252525'}`,
-                                  color: openGroup === '__settings__' ? '#FF6B00' : '#888',
-                                  cursor: 'pointer',
-                                  borderRadius: 2,
-                                  transition: 'all 0.15s',
-                                }}
+                              <button onClick={() => setOpenGroup(openGroup === '__settings__' ? null : '__settings__')} title="Filter instruments"
+                                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: openGroup === '__settings__' ? 'rgba(255,107,0,0.12)' : 'linear-gradient(180deg, #1a1a1a 0%, #111 100%)', border: `1px solid ${openGroup === '__settings__' ? '#FF6B00' : '#252525'}`, color: openGroup === '__settings__' ? '#FF6B00' : '#888', cursor: 'pointer', borderRadius: 2, transition: 'all 0.15s' }}
                               >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                                  <line x1="4" y1="6" x2="20" y2="6" />
-                                  <circle cx="8" cy="6" r="2.5" fill="currentColor" stroke="none" />
-                                  <line x1="4" y1="12" x2="20" y2="12" />
-                                  <circle cx="13" cy="12" r="2.5" fill="currentColor" stroke="none" />
-                                  <line x1="4" y1="18" x2="20" y2="18" />
-                                  <circle cx="9" cy="18" r="2.5" fill="currentColor" stroke="none" />
+                                  <line x1="4" y1="6" x2="20" y2="6" /><circle cx="8" cy="6" r="2.5" fill="currentColor" stroke="none" />
+                                  <line x1="4" y1="12" x2="20" y2="12" /><circle cx="13" cy="12" r="2.5" fill="currentColor" stroke="none" />
+                                  <line x1="4" y1="18" x2="20" y2="18" /><circle cx="9" cy="18" r="2.5" fill="currentColor" stroke="none" />
                                 </svg>
-                                <span style={{ fontSize: isMobileView ? 10 : 11, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', fontFamily: '"Roboto Mono", monospace' }}>
-                                  {activeInstruments.length}/{allWithData.length}
-                                </span>
+                                <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', fontFamily: '"Roboto Mono", monospace' }}>{activeInstruments.length}/{allWithData.length}</span>
                               </button>
                               {openGroup === '__settings__' && (
                                 <>
                                   <div style={{ position: 'fixed', inset: 0, zIndex: 49 }} onClick={() => setOpenGroup(null)} />
-                                  <div style={{
-                                    position: 'absolute',
-                                    top: '100%',
-                                    left: 0,
-                                    zIndex: 50,
-                                    marginTop: 4,
-                                    background: '#161616',
-                                    border: '1px solid #2a2a2a',
-                                    boxShadow: '0 8px 32px rgba(0,0,0,0.8)',
-                                    minWidth: isMobileView ? 260 : 340,
-                                    maxHeight: isMobileView ? 320 : 440,
-                                    overflowY: 'auto',
-                                    borderRadius: 2,
-                                  }}>
+                                  <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 50, marginTop: 4, background: '#161616', border: '1px solid #2a2a2a', boxShadow: '0 8px 32px rgba(0,0,0,0.8)', minWidth: 340, maxHeight: 440, overflowY: 'auto', borderRadius: 2 }}>
                                     {INSTRUMENT_GROUPS.map((group) => {
                                       const groupInstruments = allWithData.filter(({ ins }) => ins.group === group)
                                       if (!groupInstruments.length) return null
@@ -1495,8 +1337,8 @@ export default function HistoricalEventsResearch() {
                                               {group} <span style={{ color: '#555', fontWeight: 600 }}>({enabledCount}/{groupInstruments.length})</span>
                                             </span>
                                             <div style={{ display: 'flex', gap: 4 }}>
-                                              <button onClick={(e) => { e.stopPropagation(); setActiveInstruments((prev) => { const t = groupInstruments.map(({ ins }) => ins.ticker); return [...prev.filter(x => !t.includes(x)), ...t] }) }} style={{ background: '#111', border: '1px solid #222', color: '#fff', fontSize: 9, fontWeight: 700, padding: '3px 7px', cursor: 'pointer', fontFamily: '"Roboto Mono", monospace', letterSpacing: '0.5px' }}>ALL</button>
-                                              <button onClick={(e) => { e.stopPropagation(); setActiveInstruments((prev) => { const t = groupInstruments.map(({ ins }) => ins.ticker); return prev.filter(x => !t.includes(x)) }) }} style={{ background: '#111', border: '1px solid #222', color: '#555', fontSize: 9, fontWeight: 700, padding: '3px 7px', cursor: 'pointer', fontFamily: '"Roboto Mono", monospace', letterSpacing: '0.5px' }}>NONE</button>
+                                              <button onClick={(e) => { e.stopPropagation(); setActiveInstruments((prev) => { const t = groupInstruments.map(({ ins }) => ins.ticker); return [...prev.filter(x => !t.includes(x)), ...t] }) }} style={{ background: '#111', border: '1px solid #222', color: '#fff', fontSize: 9, fontWeight: 700, padding: '3px 7px', cursor: 'pointer', fontFamily: '"Roboto Mono", monospace' }}>ALL</button>
+                                              <button onClick={(e) => { e.stopPropagation(); setActiveInstruments((prev) => { const t = groupInstruments.map(({ ins }) => ins.ticker); return prev.filter(x => !t.includes(x)) }) }} style={{ background: '#111', border: '1px solid #222', color: '#555', fontSize: 9, fontWeight: 700, padding: '3px 7px', cursor: 'pointer', fontFamily: '"Roboto Mono", monospace' }}>NONE</button>
                                             </div>
                                           </div>
                                           {groupInstruments.map(({ ins, d }) => {
@@ -1504,9 +1346,7 @@ export default function HistoricalEventsResearch() {
                                             const ret = d![activePeriod]?.totalReturn ?? 0
                                             return (
                                               <div key={ins.ticker} onClick={() => setActiveInstruments((prev) => on ? prev.filter(t => t !== ins.ticker) : [...prev, ins.ticker])} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', cursor: 'pointer', background: on ? `${ins.color}0a` : 'transparent', borderBottom: '1px solid #141414', transition: 'background 0.1s' }}>
-                                                <div style={{ width: 13, height: 13, border: `1.5px solid ${on ? ins.color : '#333'}`, background: on ? ins.color : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                  {on && <span style={{ color: '#000', fontSize: 8, fontWeight: 900, lineHeight: 1 }}>✓</span>}
-                                                </div>
+                                                <div style={{ width: 13, height: 13, border: `1.5px solid ${on ? ins.color : '#333'}`, background: on ? ins.color : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{on && <span style={{ color: '#000', fontSize: 8, fontWeight: 900, lineHeight: 1 }}>✓</span>}</div>
                                                 <div style={{ width: 12, height: 2, background: ins.color, borderRadius: 1, flexShrink: 0 }} />
                                                 <span style={{ color: on ? '#fff' : '#555', fontSize: 12, fontWeight: 700, flex: 1 }}>{ins.label}</span>
                                                 <span style={{ color: ret >= 0 ? '#00e676' : '#ff1744', fontSize: 12, fontWeight: 800 }}>{ret >= 0 ? '+' : ''}{ret.toFixed(2)}%</span>
@@ -1523,37 +1363,31 @@ export default function HistoricalEventsResearch() {
 
                             {active.length > 0 ? (
                               <ResponsiveContainer width="100%" height={isMobileView ? 358 : 1101}>
-                                <LineChart
-                                  data={chartData}
-                                  margin={{ top: 22, right: isMobileView ? 28 : 80, bottom: 4, left: 0 }}
-                                >
-                                  <XAxis
-                                    dataKey="date"
-                                    tick={{ fill: '#ffffff', fontSize: isMobileView ? 12 : 29, fontFamily: '"Roboto Mono", monospace', fontWeight: 700 }}
-                                    tickLine={{ stroke: '#333' }}
-                                    axisLine={{ stroke: '#333' }}
-                                    interval="preserveStartEnd"
-                                    minTickGap={isMobileView ? 20 : 40}
+                                <LineChart data={chartData} margin={{ top: 22, right: isMobileView ? 28 : 80, bottom: 4, left: 0 }}>
+                                  <XAxis dataKey="date"
+                                    tick={{ fill: '#ffffff', fontSize: isMobileView ? 12 : 29, fontFamily: '"Roboto Mono", monospace' }}
+                                    tickLine={{ stroke: '#333' }} axisLine={{ stroke: '#333' }}
+                                    interval="preserveStartEnd" minTickGap={isMobileView ? 20 : 40}
                                   />
-                                  <YAxis
-                                    orientation="left"
-                                    domain={[
-                                      (dataMin: number) => {
-                                        const delta = 100 - dataMin
-                                        return parseFloat((100 - delta * 1.1).toFixed(2))
-                                      },
-                                      (dataMax: number) => {
-                                        const delta = dataMax - 100
-                                        return parseFloat((100 + delta * 1.1).toFixed(2))
-                                      },
-                                    ]}
-                                    tickFormatter={(v: number) =>
-                                      `${v >= 100 ? '+' : ''}${(v - 100).toFixed(0)}%`
-                                    }
-                                    tick={{ fill: '#ffffff', fontSize: isMobileView ? 13 : 31, fontFamily: '"Roboto Mono", monospace', fontWeight: 700 }}
-                                    tickLine={{ stroke: '#333' }}
-                                    axisLine={{ stroke: '#333' }}
-                                    width={isMobileView ? 40 : 80}
+                                  <YAxis orientation="left"
+                                    domain={((data: Array<Record<string, number | string>>) => {
+                                      let mn = Infinity, mx = -Infinity
+                                      data.forEach(row => {
+                                        Object.entries(row).forEach(([k, v]) => {
+                                          if (k !== 'date' && k !== '_dayOffset' && typeof v === 'number') {
+                                            if (v < mn) mn = v
+                                            if (v > mx) mx = v
+                                          }
+                                        })
+                                      })
+                                      if (!isFinite(mn)) return ['auto', 'auto']
+                                      const pad = Math.max((mx - 100) * 0.1, (100 - mn) * 0.1, 0.2)
+                                      return [mn - pad, mx + pad]
+                                    })(chartData) as [number, number]}
+                                    tickFormatter={(v: number) => `${v >= 100 ? '+' : ''}${(v - 100).toFixed(0)}%`}
+                                    tick={{ fill: '#ffffff', fontSize: isMobileView ? 11 : 26, fontFamily: '"Roboto Mono", monospace' }}
+                                    tickLine={{ stroke: '#333' }} axisLine={{ stroke: '#333' }}
+                                    width={isMobileView ? 36 : 72}
                                   />
                                   <Tooltip
                                     contentStyle={{
@@ -1614,24 +1448,8 @@ export default function HistoricalEventsResearch() {
                                                 const x = item.x + (isMobileView ? 4 : 8)
                                                 return (
                                                   <g key={item.ticker}>
-                                                    <rect
-                                                      x={x - 2}
-                                                      y={item.y - h / 2}
-                                                      width={w + 4}
-                                                      height={h}
-                                                      fill="#000000"
-                                                      rx={2}
-                                                    />
-                                                    <text
-                                                      x={x}
-                                                      y={item.y}
-                                                      fill={item.color}
-                                                      fontSize={fs}
-                                                      fontFamily='"Roboto Mono", monospace'
-                                                      fontWeight={900}
-                                                      dominantBaseline="middle"
-                                                      fillOpacity={1}
-                                                    >
+                                                    <rect x={x - 2} y={item.y - h / 2} width={w + 4} height={h} fill="#000000" rx={2} />
+                                                    <text x={x} y={item.y} fill={item.color} fontSize={fs} fontFamily='"Roboto Mono", monospace' fontWeight={900} dominantBaseline="middle" fillOpacity={1}>
                                                       {item.ticker}
                                                     </text>
                                                   </g>

@@ -4664,6 +4664,13 @@ label {
   scrollbar-color: rgba(160, 160, 160, 0.5) rgba(255, 255, 255, 0.04);
 }
 
+/* Mobile data-driven screener: full-size cards, no zoom reduction */
+@media (max-width: 768px) {
+  .mobile-dd-screener-panel .results-grid-split>* {
+    flex-shrink: 0;
+  }
+}
+
 /* GOLDEN SEPARATOR */
 .golden-separator {
   position: relative;
@@ -5823,7 +5830,7 @@ button,
   .mobile-seasonality-wrapper .seasonax-container {
     padding: 0 !important;
     margin-top: 8px !important;
-    height: calc(100dvh - 118px) !important;
+    height: calc((100dvh - 190px) * 1.13) !important;
     min-height: 0 !important;
     display: flex !important;
     flex-direction: column !important;
@@ -6218,7 +6225,11 @@ button,
   }
 
   .mobile-seasonality-wrapper .main-chart-container {
-    padding-bottom: 1px !important;
+    padding: 0 !important;
+    border: none !important;
+    overflow: hidden !important;
+    max-height: 100% !important;
+    height: 100% !important;
   }
 }
 

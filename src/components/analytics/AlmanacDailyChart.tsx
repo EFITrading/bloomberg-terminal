@@ -161,8 +161,8 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
       setShowPatternPerformance(false)
       setPatternPerformanceData(prev => prev.length === 0 ? prev : [])
     }
-  // Use .join(',') so a new [] reference doesn't re-trigger this effect
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Use .join(',') so a new [] reference doesn't re-trigger this effect
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalSelectedPatterns?.join(','), symbol])
 
   useEffect(() => {
@@ -214,7 +214,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
       const y = e.clientY - rect.top
       // Ticker label click/tap — toggle individual lines (mobile and desktop)
       {
-        const zones = (canvas as any).labelTapZones as Array<{x1: number, x2: number, y1: number, y2: number, key: string}> | undefined
+        const zones = (canvas as any).labelTapZones as Array<{ x1: number, x2: number, y1: number, y2: number, key: string }> | undefined
         if (zones) {
           for (const zone of zones) {
             if (x >= zone.x1 && x <= zone.x2 && y >= zone.y1 && y <= zone.y2) {
@@ -222,7 +222,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
                 case '25Y': case 'DIA': case 'DIA_E': setShowMaxYears(v => !v); return
                 case '15Y': case 'SPY': case 'SPY_E': setShow15Y(v => !v); return
                 case '10Y': case 'QQQ': case 'QQQ_E': setShow10Y(v => !v); return
-                case 'E':   case 'IWM': case 'IWM_E': setShowElection(v => !v); return
+                case 'E': case 'IWM': case 'IWM_E': setShowElection(v => !v); return
               }
             }
           }
@@ -1109,7 +1109,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     }
 
     // End-of-line ticker labels — populated during line drawing, rendered after ctx.restore()
-    const endLabels: Array<{label: string, color: string, key: string, active: boolean, endY: number}> = []
+    const endLabels: Array<{ label: string, color: string, key: string, active: boolean, endY: number }> = []
 
     // Save context and create clipping region for chart area (prevents lines from drawing over y-axis)
     ctx.save()
@@ -1220,7 +1220,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
             const vis = indexVisibility[index.name] !== false
             const lp = index.dailyData[index.dailyData.length - 1]
             if (!lp) return
-            endLabels.push({ label: short,        color: col, key: short,        active: vis, endY: clampY(getY(lp.cumulativeReturn)) })
+            endLabels.push({ label: short, color: col, key: short, active: vis, endY: clampY(getY(lp.cumulativeReturn)) })
             endLabels.push({ label: short + ' E', color: col, key: short + '_E', active: vis, endY: clampY(getY(lp.postElectionCumulative)) })
           })
         } else {
@@ -1229,9 +1229,9 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
             const lp = d[d.length - 1]
             const clamp = clampY
             endLabels.push({ label: '25Y', color: '#FFFFFF', key: '25Y', active: showMaxYears ?? true, endY: clamp(getY(lp.cumulativeReturn)) })
-            endLabels.push({ label: '15Y', color: '#00BCD4', key: '15Y', active: show15Y,             endY: clamp(getY(lp.cumulativeReturn15Y)) })
-            endLabels.push({ label: '10Y', color: '#FF6600', key: '10Y', active: show10Y,             endY: clamp(getY(lp.cumulativeReturn10Y)) })
-            endLabels.push({ label: 'E',   color: '#FFD700', key: 'E',   active: showElection,        endY: clamp(getY(lp.postElectionCumulative)) })
+            endLabels.push({ label: '15Y', color: '#00BCD4', key: '15Y', active: show15Y, endY: clamp(getY(lp.cumulativeReturn15Y)) })
+            endLabels.push({ label: '10Y', color: '#FF6600', key: '10Y', active: show10Y, endY: clamp(getY(lp.cumulativeReturn10Y)) })
+            endLabels.push({ label: 'E', color: '#FFD700', key: 'E', active: showElection, endY: clamp(getY(lp.postElectionCumulative)) })
           }
         }
       }
@@ -1390,7 +1390,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
         if (endLabels[i].endY - endLabels[i - 1].endY < minSp)
           endLabels[i].endY = endLabels[i - 1].endY + minSp
       }
-      const labelTapZones: Array<{x1: number, x2: number, y1: number, y2: number, key: string}> = []
+      const labelTapZones: Array<{ x1: number, x2: number, y1: number, y2: number, key: string }> = []
       endLabels.forEach((item) => {
         const alpha = item.active ? 1 : 0.35
         ctx.globalAlpha = alpha
@@ -1410,10 +1410,10 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
         labelTapZones.push({ x1: rightEdge - 4, x2: rightEdge + 6 + tw, y1: item.endY - 10, y2: item.endY + 10, key: item.key })
       })
       ctx.globalAlpha = 1
-      ;(canvas as any).labelTapZones = labelTapZones
+        ; (canvas as any).labelTapZones = labelTapZones
       ctx.restore()
     } else {
-      ;(canvas as any).labelTapZones = []
+      ; (canvas as any).labelTapZones = []
     }
     // ──────────────────────────────────────────────────────────────────────────
 
@@ -1486,8 +1486,8 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
         const dailyData = seasonalData[0]?.dailyData || []
         const visibleFraction = zoomRange.end - zoomRange.start
         const step = visibleFraction >= 0.8 ? Math.ceil(dailyData.length / 3)
-                   : visibleFraction >= 0.4 ? Math.ceil(dailyData.length / 6)
-                   : Math.ceil(dailyData.length / 12)
+          : visibleFraction >= 0.4 ? Math.ceil(dailyData.length / 6)
+            : Math.ceil(dailyData.length / 12)
         let lastDrawnX = -Infinity
         dailyData.forEach((point, i) => {
           if (i % step !== 0 && i !== dailyData.length - 1) return
@@ -1596,31 +1596,31 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
         {isMobileView && (
           <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
             <AlmanacMobileControls
-          selectedMonth={selectedMonth}
-          setSelectedMonth={setSelectedMonth}
-          onMonthChange={onMonthChange}
-          activeView={activeView}
-          setActiveView={setActiveView}
-          showMaxYears={showMaxYears}
-          show15Y={show15Y}
-          show10Y={show10Y}
-          showElection={showElection}
-          setShowMaxYears={setShowMaxYears}
-          setShow15Y={setShow15Y}
-          setShow10Y={setShow10Y}
-          setShowElection={setShowElection}
-          selectedEvent={selectedEvent}
-          setSelectedEvent={setSelectedEvent}
-          setShowEventPerformance={setShowEventPerformance}
-          setEventPerformanceData={setEventPerformanceData}
-          calculateEventPerformance={calculateEventPerformance}
-          selectedPattern={selectedPattern}
-          setSelectedPattern={setSelectedPattern}
-          setShowPatternPerformance={setShowPatternPerformance}
-          setShowEventPerformanceForPattern={setShowEventPerformance}
-          setPatternPerformanceData={setPatternPerformanceData}
-          calculatePatternPerformance={calculatePatternPerformance}
-          symbol={symbol}
+              selectedMonth={selectedMonth}
+              setSelectedMonth={setSelectedMonth}
+              onMonthChange={onMonthChange}
+              activeView={activeView}
+              setActiveView={setActiveView}
+              showMaxYears={showMaxYears}
+              show15Y={show15Y}
+              show10Y={show10Y}
+              showElection={showElection}
+              setShowMaxYears={setShowMaxYears}
+              setShow15Y={setShow15Y}
+              setShow10Y={setShow10Y}
+              setShowElection={setShowElection}
+              selectedEvent={selectedEvent}
+              setSelectedEvent={setSelectedEvent}
+              setShowEventPerformance={setShowEventPerformance}
+              setEventPerformanceData={setEventPerformanceData}
+              calculateEventPerformance={calculateEventPerformance}
+              selectedPattern={selectedPattern}
+              setSelectedPattern={setSelectedPattern}
+              setShowPatternPerformance={setShowPatternPerformance}
+              setShowEventPerformanceForPattern={setShowEventPerformance}
+              setPatternPerformanceData={setPatternPerformanceData}
+              calculatePatternPerformance={calculatePatternPerformance}
+              symbol={symbol}
             />
           </div>
         )}

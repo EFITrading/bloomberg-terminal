@@ -388,12 +388,74 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
     canvas.addEventListener('wheel', handleWheel, { passive: false })
     canvas.style.cursor = 'grab'
 
+    // ── Touch support (pan + pinch-to-zoom) ──────────────────────────────
+    let lastTouchDist = 0
+    let lastTouchX = 0
+
+    const handleTouchStart = (e: TouchEvent) => {
+      e.preventDefault()
+      if (e.touches.length === 1) {
+        const rect = canvas.getBoundingClientRect()
+        lastTouchX = e.touches[0].clientX - rect.left
+        setIsDragging(true)
+        setDragStart({ x: lastTouchX, offset: panOffset })
+      } else if (e.touches.length === 2) {
+        lastTouchDist = Math.hypot(
+          e.touches[1].clientX - e.touches[0].clientX,
+          e.touches[1].clientY - e.touches[0].clientY
+        )
+        setIsDragging(false)
+        setDragStart(null)
+      }
+    }
+
+    const handleTouchMove = (e: TouchEvent) => {
+      e.preventDefault()
+      const rect = canvas.getBoundingClientRect()
+      if (e.touches.length === 1) {
+        const x = e.touches[0].clientX - rect.left
+        if (dragStart) {
+          const deltaX = x - dragStart.x
+          const maxPan = (zoomLevel - 1) * 0.5
+          const newOffset = Math.max(-maxPan, Math.min(maxPan, dragStart.offset + deltaX / canvas.width))
+          setPanOffset(newOffset)
+        }
+      } else if (e.touches.length === 2) {
+        const dist = Math.hypot(
+          e.touches[1].clientX - e.touches[0].clientX,
+          e.touches[1].clientY - e.touches[0].clientY
+        )
+        if (lastTouchDist > 0) {
+          const scale = dist / lastTouchDist
+          const newZoom = Math.max(1, Math.min(5, zoomLevel * scale))
+          if (newZoom === 1) setPanOffset(0)
+          setZoomLevel(newZoom)
+        }
+        lastTouchDist = dist
+      }
+    }
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length === 0) {
+        setIsDragging(false)
+        setDragStart(null)
+        lastTouchDist = 0
+      }
+    }
+
+    canvas.addEventListener('touchstart', handleTouchStart, { passive: false })
+    canvas.addEventListener('touchmove', handleTouchMove, { passive: false })
+    canvas.addEventListener('touchend', handleTouchEnd, { passive: false })
+
     return () => {
       canvas.removeEventListener('mousemove', handleMouseMove)
       canvas.removeEventListener('mousedown', handleMouseDown)
       canvas.removeEventListener('mouseup', handleMouseUp)
       canvas.removeEventListener('mouseleave', handleMouseLeave)
       canvas.removeEventListener('wheel', handleWheel)
+      canvas.removeEventListener('touchstart', handleTouchStart)
+      canvas.removeEventListener('touchmove', handleTouchMove)
+      canvas.removeEventListener('touchend', handleTouchEnd)
     }
   }, [isDragging, zoomLevel, panOffset, dragStart])
 

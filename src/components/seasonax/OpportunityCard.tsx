@@ -173,6 +173,7 @@ const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean }>
 
     // ── X-axis day labels
     ctx.fillStyle = '#FFFFFF'
+    ctx.globalAlpha = 1
     ctx.font = 'bold 14px "JetBrains Mono", "Courier New", monospace'
     ctx.textAlign = 'center'
     const xTicks: number[] = [0]
@@ -211,9 +212,54 @@ const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean }>
       if (newZoom === 1) setPanOffset(0)
       setZoomLevel(newZoom)
     }
+    let lastTouchDist: number | null = null
+    const onTouchStart = (e: TouchEvent) => {
+      e.preventDefault()
+      if (e.touches.length === 1) {
+        const rect = canvas.getBoundingClientRect()
+        setIsDragging(true)
+        setDragStart({ x: e.touches[0].clientX - rect.left, offset: panOffset })
+      } else if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX
+        const dy = e.touches[0].clientY - e.touches[1].clientY
+        lastTouchDist = Math.sqrt(dx * dx + dy * dy)
+      }
+    }
+    const onTouchMove = (e: TouchEvent) => {
+      e.preventDefault()
+      if (e.touches.length === 1 && isDragging && dragStart) {
+        const rect = canvas.getBoundingClientRect()
+        const maxPan = (zoomLevel - 1) * 0.5 + 0.1
+        setPanOffset(Math.max(-maxPan, Math.min(maxPan, dragStart.offset + (e.touches[0].clientX - rect.left - dragStart.x) / rect.width)))
+      } else if (e.touches.length === 2 && lastTouchDist !== null) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX
+        const dy = e.touches[0].clientY - e.touches[1].clientY
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        const scale = dist / lastTouchDist
+        lastTouchDist = dist
+        setZoomLevel((z) => {
+          const next = Math.max(1, Math.min(10, z * scale))
+          if (next === 1) setPanOffset(0)
+          return next
+        })
+      }
+    }
+    const onTouchEnd = () => {
+      lastTouchDist = null
+      setIsDragging(false)
+      setDragStart(null)
+    }
     canvas.addEventListener('wheel', onWheel, { passive: false })
-    return () => canvas.removeEventListener('wheel', onWheel)
-  }, [zoomLevel])
+    canvas.addEventListener('touchstart', onTouchStart, { passive: false })
+    canvas.addEventListener('touchmove', onTouchMove, { passive: false })
+    canvas.addEventListener('touchend', onTouchEnd)
+    return () => {
+      canvas.removeEventListener('wheel', onWheel)
+      canvas.removeEventListener('touchstart', onTouchStart)
+      canvas.removeEventListener('touchmove', onTouchMove)
+      canvas.removeEventListener('touchend', onTouchEnd)
+    }
+  }, [zoomLevel, panOffset, isDragging, dragStart])
 
   const onMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = canvasRef.current!.getBoundingClientRect()
@@ -327,14 +373,6 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
 
   // ── Premium add-ons for 70%+ win rate ─────────────────────────────────────
   const isHighWinRate = pattern.winRate >= 70
-  const chartDebugRef = useRef<HTMLDivElement>(null)
-  const [isMobileView, setIsMobileView] = useState(false)
-  useEffect(() => {
-    const check = () => setIsMobileView(window.innerWidth <= 768)
-    check()
-    window.addEventListener('resize', check)
-    return () => window.removeEventListener('resize', check)
-  }, [])
   const [attractionInfo, setAttractionInfo] = useState<AttractionInfo | null>(null)
   const [attractionLoading, setAttractionLoading] = useState(false)
   const [miniChart, setMiniChart] = useState<MiniChartState | null>(null)
@@ -887,9 +925,9 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
             : `2px solid ${isBest ? (isTopBullish ? '#00FF88' : '#FF4444') : borderColor}`,
           outline: isBest ? '1px solid #FFD700' : 'none',
           outlineOffset: '2px',
-          padding: isHighWinRate ? '0' : isMobileView ? '6px' : '12px',
+          padding: isHighWinRate ? '0' : '12px',
           borderRadius: '10px',
-          overflow: isExpanded ? 'visible' : (isHighWinRate && !isMobileView) ? 'hidden' : 'visible',
+          overflow: isExpanded ? 'visible' : isHighWinRate ? 'hidden' : 'visible',
           position: 'relative',
           transition: 'all 0.35s cubic-bezier(0.23,1,0.32,1)',
           boxShadow: isHighWinRate
@@ -951,18 +989,18 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
-                      padding: isMobileView ? '5px 7px' : '11px 14px 10px',
+                      padding: '11px 14px 10px',
                       background: '#000000',
                     }}
                   >
                     {/* LEFT: Ticker + badges */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: isMobileView ? '3px' : '7px', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', flexShrink: 0 }}>
                       <div
                         className="opp-symbol"
                         style={{
-                          fontSize: isMobileView ? '12px' : '28px',
+                          fontSize: '28px',
                           fontWeight: '900',
-                          letterSpacing: isMobileView ? '0.5px' : '2px',
+                          letterSpacing: '2px',
                           fontFamily: "'Courier New',monospace",
                           color: tickerColor,
                           textShadow: `0 0 20px ${tickerColor}88, 0 0 40px ${tickerColor}33`,
@@ -996,14 +1034,12 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                         flex: 1,
                         textAlign: 'center',
                         fontFamily: "'Courier New',monospace",
-                        fontSize: isMobileView ? '8px' : '14px',
+                        fontSize: '14px',
                         fontWeight: 'bold',
                         color: '#ffffff',
-                        letterSpacing: isMobileView ? '0.2px' : '1px',
-                        padding: isMobileView ? '0 4px' : '0 14px',
+                        letterSpacing: '1px',
+                        padding: '0 14px',
                         whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -1067,9 +1103,9 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                       <div
                         className="opp-symbol"
                         style={{
-                          fontSize: isMobileView ? '12px' : '26px',
+                          fontSize: '26px',
                           fontWeight: 'bold',
-                          letterSpacing: isMobileView ? '0.5px' : '1px',
+                          letterSpacing: '1px',
                           fontFamily: 'monospace',
                           color: tickerColor,
                           textShadow: `0 0 15px ${tickerColor === '#FFD700' ? 'rgba(255, 215, 0, 0.6)' : tickerColor === '#00FF88' ? 'rgba(0, 255, 136, 0.6)' : tickerColor === '#00d4ff' ? 'rgba(0, 212, 255, 0.6)' : 'rgba(255, 102, 0, 0.6)'}`,
@@ -1142,9 +1178,9 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                   </div>
                   <div
                     style={{
-                      fontSize: sidebarMode ? '22px' : isMobileView ? '7px' : '11px',
+                      fontSize: sidebarMode ? '22px' : '11px',
                       color: sidebarMode ? '#ffffff' : '#999999',
-                      marginBottom: isMobileView ? '6px' : '14px',
+                      marginBottom: '14px',
                       fontFamily: 'monospace',
                       letterSpacing: '0.5px',
                       textAlign: 'center',
@@ -1334,31 +1370,32 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                         style={{
                           flex: 1,
                           textAlign: 'center',
-                          padding: isMobileView ? '4px 3px' : '9px 8px',
+                          padding: '9px 8px',
                           borderRight: `1px solid ${isPositive ? 'rgba(0,255,136,0.12)' : 'rgba(255,68,68,0.12)'}`,
                         }}
                       >
-                        <div
-                          style={{
-                            fontSize: isMobileView ? '6px' : '7px',
-                            color: '#ffffff',
-                            fontFamily: "'Courier New',monospace",
-                            letterSpacing: isMobileView ? '0.5px' : '1.5px',
-                            marginBottom: '2px',
-                          }}
-                        >
-                          WIN RATE
-                        </div>
-                        <div
-                          className="opp-row-winrate"
-                          style={{
-                            fontSize: isMobileView ? '11px' : '18px',
-                            fontWeight: '900',
-                            fontFamily: "'Courier New',monospace",
-                            lineHeight: 1,
-                          }}
-                        >
-                          {wr.toFixed(0)}%
+                        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '4px' }}>
+                          <div
+                            style={{
+                              fontSize: '6px',
+                              color: '#ffffff',
+                              fontFamily: "'Courier New',monospace",
+                              letterSpacing: '1px',
+                            }}
+                          >
+                            WIN RATE
+                          </div>
+                          <div
+                            className="opp-row-winrate"
+                            style={{
+                              fontSize: '12px',
+                              fontWeight: '900',
+                              fontFamily: "'Courier New',monospace",
+                              lineHeight: 1,
+                            }}
+                          >
+                            {wr.toFixed(0)}%
+                          </div>
                         </div>
                       </div>
                       {(pattern as any).fiftyTwoWeekStatus && (
@@ -1397,28 +1434,29 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                         </div>
                       )}
                       {trendSync && (
-                        <div style={{ flex: 1, textAlign: 'center', padding: isMobileView ? '4px 3px' : '9px 8px' }}>
-                          <div
-                            style={{
-                              fontSize: isMobileView ? '6px' : '7px',
-                              color: '#ffffff',
-                              fontFamily: "'Courier New',monospace",
-                              letterSpacing: isMobileView ? '0.5px' : '1.5px',
-                              marginBottom: '2px',
-                            }}
-                          >
-                            CORRELATION
-                          </div>
-                          <div
-                            className="opp-row-corr"
-                            style={{
-                              fontSize: isMobileView ? '11px' : '18px',
-                              fontWeight: '900',
-                              fontFamily: "'Courier New',monospace",
-                              lineHeight: 1,
-                            }}
-                          >
-                            {trendSync.score}%
+                        <div style={{ flex: 1, textAlign: 'center', padding: '9px 8px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '4px' }}>
+                            <div
+                              style={{
+                                fontSize: '6px',
+                                color: '#ffffff',
+                                fontFamily: "'Courier New',monospace",
+                                letterSpacing: '1px',
+                              }}
+                            >
+                              CORRELATION
+                            </div>
+                            <div
+                              className="opp-row-corr"
+                              style={{
+                                fontSize: '12px',
+                                fontWeight: '900',
+                                fontFamily: "'Courier New',monospace",
+                                lineHeight: 1,
+                              }}
+                            >
+                              {trendSync.score}%
+                            </div>
                           </div>
                         </div>
                       )}
@@ -1427,11 +1465,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                 })()}
 
                 {/* ── Chart: full-bleed terminal display ── */}
-                <div
-                  ref={chartDebugRef}
-                  style={{ height: isMobileView ? '330px' : '215px', position: 'relative', background: '#000000' }}
-                  {...(isMobileView ? { 'data-debug-chart': 'true' } as any : {})}
-                >
+                <div style={{ height: typeof window !== 'undefined' && window.innerWidth <= 768 ? '154px' : '215px', position: 'relative', background: '#000000' }}>
                   {miniChartLoading ? (
                     <div
                       style={{
@@ -1535,7 +1569,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                         <div
                           key={label}
                           style={{
-                            padding: isMobileView ? '5px 2px' : '10px 4px',
+                            padding: '10px 4px',
                             textAlign: 'center',
                             borderRight:
                               i < cells.length - 1 ? '1px solid rgba(255,255,255,0.07)' : 'none',
@@ -1544,11 +1578,11 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                         >
                           <div
                             style={{
-                              fontSize: isMobileView ? '5px' : '7px',
+                              fontSize: '7px',
                               color: '#ffffff',
                               fontFamily: "'Courier New',monospace",
-                              letterSpacing: isMobileView ? '0.5px' : '1.5px',
-                              marginBottom: isMobileView ? '2px' : '5px',
+                              letterSpacing: '1.5px',
+                              marginBottom: '5px',
                               textTransform: 'uppercase',
                             }}
                           >
@@ -1557,7 +1591,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                           <div
                             className={cls}
                             style={{
-                              fontSize: isMobileView ? '9px' : '14px',
+                              fontSize: '14px',
                               fontFamily: "'Courier New',monospace",
                               fontWeight: 'bold',
                             }}
@@ -1591,8 +1625,8 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                             display: 'flex',
                             alignItems: 'center',
                             flexWrap: 'nowrap',
-                            gap: isMobileView ? '4px' : '8px',
-                            padding: isMobileView ? '5px 7px' : '9px 14px',
+                            gap: '8px',
+                            padding: '9px 14px',
                             background: `linear-gradient(90deg, ${isCall ? 'rgba(0,255,136,0.06)' : 'rgba(255,68,68,0.06)'} 0%, #000000 100%)`,
                             borderBottom: '1px solid rgba(255,255,255,0.05)',
                           }}
@@ -1600,14 +1634,14 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                           <span
                             style={{
                               flexShrink: 0,
-                              fontSize: isMobileView ? '6px' : '9px',
+                              fontSize: '9px',
                               fontWeight: 'bold',
                               fontFamily: "'Courier New',monospace",
-                              letterSpacing: isMobileView ? '0.5px' : '1.5px',
+                              letterSpacing: '1.5px',
                               color: accent,
                               border: `1px solid ${accent}`,
                               borderRadius: '3px',
-                              padding: isMobileView ? '2px 4px' : '3px 7px',
+                              padding: '3px 7px',
                               background: `${accent}18`,
                               boxShadow: `0 0 12px ${accent}44, inset 0 1px 0 rgba(255,255,255,0.15)`,
                             }}
@@ -1617,7 +1651,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                           <span
                             style={{
                               flexShrink: 0,
-                              fontSize: isMobileView ? '8px' : '13px',
+                              fontSize: '13px',
                               color: '#ffffff',
                               fontFamily: "'Courier New',monospace",
                               fontWeight: 'bold',
@@ -1628,7 +1662,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                           <span
                             style={{
                               flexShrink: 0,
-                              fontSize: isMobileView ? '7px' : '11px',
+                              fontSize: '11px',
                               color: '#ffffff',
                               fontFamily: "'Courier New',monospace",
                             }}
@@ -1639,7 +1673,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                             style={{
                               marginLeft: 'auto',
                               flexShrink: 0,
-                              fontSize: isMobileView ? '6px' : '10px',
+                              fontSize: '10px',
                               color: '#ffffff',
                               fontFamily: "'Courier New',monospace",
                             }}
@@ -1649,7 +1683,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                           <span
                             style={{
                               flexShrink: 0,
-                              fontSize: isMobileView ? '8px' : '13px',
+                              fontSize: '13px',
                               color: '#ffffff',
                               fontFamily: "'Courier New',monospace",
                               fontWeight: 'bold',
@@ -1686,7 +1720,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                             <div
                               key={label}
                               style={{
-                                padding: isMobileView ? '5px 3px 6px' : '10px 6px 12px',
+                                padding: '10px 6px 12px',
                                 textAlign: 'center',
                                 borderRight:
                                   i < arr.length - 1 ? '1px solid rgba(255,255,255,0.07)' : 'none',
@@ -1696,11 +1730,11 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                             >
                               <div
                                 style={{
-                                  fontSize: isMobileView ? '5px' : '7px',
+                                  fontSize: '7px',
                                   color: '#ffffff',
                                   fontFamily: "'Courier New',monospace",
-                                  letterSpacing: isMobileView ? '0.3px' : '1.5px',
-                                  marginBottom: isMobileView ? '2px' : '5px',
+                                  letterSpacing: '1.5px',
+                                  marginBottom: '5px',
                                 }}
                               >
                                 {label}
@@ -1708,7 +1742,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                               <div
                                 className={stockCls}
                                 style={{
-                                  fontSize: isMobileView ? '9px' : '15px',
+                                  fontSize: '15px',
                                   fontFamily: "'Courier New',monospace",
                                   fontWeight: 'bold',
                                 }}
@@ -1717,7 +1751,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                               </div>
                               <div
                                 style={{
-                                  fontSize: isMobileView ? '7px' : '10px',
+                                  fontSize: '10px',
                                   color: '#ffffff',
                                   fontFamily: "'Courier New',monospace",
                                   marginTop: '3px',

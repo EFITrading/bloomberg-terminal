@@ -15,5 +15,5 @@ export function getSeasonaxMainChartMobile() {
 /** Returns the min-height for the chart container div. */
 export function getSeasonaxMainChartMinHeight() {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
-    return isMobile ? '612px' : '650px'
+    return isMobile ? '0' : '650px'
 }
