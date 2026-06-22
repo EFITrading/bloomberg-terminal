@@ -1082,9 +1082,9 @@
 
   .almanac-calendar .calendar-day,
   .almanac-daily-chart .calendar-day {
-    min-height: 49px !important;
+    min-height: 100px !important;
     font-size: 9px !important;
-    padding: 4px !important;
+    padding: 5px 4px !important;
     width: 100% !important;
     min-width: 0 !important;
     max-width: none !important;

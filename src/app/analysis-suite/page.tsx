@@ -63,6 +63,14 @@ export default function AnalysisSuitePage() {
   const [ivDataCache, setIvDataCache] = useState<Record<string, Record<string, IVDataPoint[]>>>({})
   const [optionsFlowData, setOptionsFlowData] = useState<any[]>([])
   const [efiNotableFilterActive, setEfiNotableFilterActive] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
+  const [mobileTab, setMobileTab] = useState<'search' | 'chart' | 'flow' | 'seasonal' | 'tools'>('search')
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth <= 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
 
   // Grading panel state
   const [gaugeMetrics, setGaugeMetrics] = useState<{
@@ -947,6 +955,242 @@ export default function AnalysisSuitePage() {
     console.log(JSON.stringify(defaultOffsets, null, 2))
     console.groupEnd()
   }
+
+  // ─── MOBILE LAYOUT ────────────────────────────────────────────────────────
+  if (isMobile) {
+    const MONO: React.CSSProperties = { fontFamily: '"JetBrains Mono", monospace' }
+    const TABS: { key: typeof mobileTab; label: string }[] = [
+      { key: 'search', label: 'SEARCH' },
+      { key: 'chart', label: 'CHART' },
+      { key: 'flow', label: 'FLOW' },
+      { key: 'seasonal', label: 'SEASONAL' },
+      { key: 'tools', label: 'TOOLS' },
+    ]
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: '#000', color: '#fff', overflow: 'hidden' }}>
+        {/* Tab bar */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', background: '#000', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0, padding: '4px 4px 0', gap: '3px' }}>
+          {TABS.map(({ key, label }) => (
+            <button key={key} onClick={() => setMobileTab(key)} style={{ ...MONO, padding: '8px 2px', background: mobileTab === key ? 'linear-gradient(180deg,#1a1a1a,#000)' : 'transparent', border: mobileTab === key ? '1px solid rgba(255,255,255,0.22)' : '1px solid transparent', borderBottom: mobileTab === key ? '2px solid #ff6600' : '2px solid transparent', borderRadius: '6px 6px 0 0', color: mobileTab === key ? '#ff6600' : '#ffffff', fontSize: 9, fontWeight: 800, cursor: 'pointer', letterSpacing: '0.06em' }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab content */}
+        <div style={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch' as any }}>
+
+          {/* SEARCH TAB */}
+          {mobileTab === 'search' && (
+            <div style={{ padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {/* Search row */}
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="text"
+                  value={tickerInput}
+                  onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !isScanning && tickerInput.trim()) handleAnalyze() }}
+                  placeholder="TICKER"
+                  style={{ ...MONO, flex: 1, background: '#000', border: '1px solid rgba(255,102,0,0.4)', color: '#FF6600', padding: '10px 12px', fontSize: 14, fontWeight: 700, outline: 'none', borderRadius: 4 }}
+                />
+                <button
+                  onClick={handleAnalyze}
+                  disabled={isScanning || !tickerInput.trim()}
+                  style={{ ...MONO, background: isScanning ? '#1a0a00' : '#FF6600', color: isScanning ? '#664400' : '#000', border: '1px solid rgba(255,102,0,0.6)', padding: '10px 18px', fontSize: 12, fontWeight: 700, cursor: isScanning ? 'not-allowed' : 'pointer', letterSpacing: '1px', borderRadius: 4, whiteSpace: 'nowrap' }}
+                >
+                  {isScanning ? 'SCAN...' : 'SCAN'}
+                </button>
+              </div>
+
+              {/* Grade badges */}
+              {gradeData && gradePanelReady && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  {[{ label: 'SHORT-TERM', grade: gradeData.shortGrade, score: gradeData.shortScore }, { label: 'MEDIUM-TERM', grade: gradeData.medGrade, score: gradeData.medScore }].map(({ label, grade, score }) => (
+                    <div key={label} style={{ background: 'linear-gradient(145deg,#010d1f,#021530)', border: `1.5px solid ${grade.color}`, borderRadius: 8, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ ...MONO, fontSize: 36, fontWeight: 900, color: grade.color, letterSpacing: '-1px', lineHeight: 1, flexShrink: 0 }}>{grade.letter}</div>
+                      <div>
+                        <div style={{ ...MONO, fontSize: 7, fontWeight: 700, color: 'rgba(255,255,255,0.45)', letterSpacing: '1px' }}>{label}</div>
+                        <div style={{ ...MONO, fontSize: 8, fontWeight: 700, color: grade.color, letterSpacing: '0.5px' }}>{grade.label}</div>
+                        <div style={{ ...MONO, fontSize: 8, color: 'rgba(255,255,255,0.4)' }}>Score: {score}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* RS Status */}
+              {panelEnabled.rsStatus && currentTicker && (
+                <div style={{ background: 'linear-gradient(145deg,#020B14,#000508)', border: '1px solid rgba(30,58,138,0.3)', borderRadius: 8, padding: '10px 12px' }}>
+                  <div style={{ ...MONO, fontSize: 9, fontWeight: 700, color: '#ff6600', letterSpacing: '2px', marginBottom: 8 }}>RS STATUS — {currentTicker}</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {rsSignals.classification && <span style={{ ...MONO, fontSize: 10, background: 'rgba(255,102,0,0.12)', border: '1px solid rgba(255,102,0,0.3)', borderRadius: 4, padding: '3px 8px', color: '#ff6600' }}>{rsSignals.classification}</span>}
+                    {rsSignals.breakout && <span style={{ ...MONO, fontSize: 10, background: 'rgba(0,255,136,0.1)', border: '1px solid rgba(0,255,136,0.3)', borderRadius: 4, padding: '3px 8px', color: '#00ff88' }}>BREAKOUT</span>}
+                    {rsSignals.breakdown && <span style={{ ...MONO, fontSize: 10, background: 'rgba(255,51,51,0.1)', border: '1px solid rgba(255,51,51,0.3)', borderRadius: 4, padding: '3px 8px', color: '#ff3333' }}>BREAKDOWN</span>}
+                    {rsSignals.currentPrice > 0 && <span style={{ ...MONO, fontSize: 10, color: rsSignals.priceChangePercent >= 0 ? '#00ff88' : '#ff3333' }}>${rsSignals.currentPrice.toFixed(2)} ({rsSignals.priceChangePercent >= 0 ? '+' : ''}{rsSignals.priceChangePercent.toFixed(2)}%)</span>}
+                  </div>
+                </div>
+              )}
+
+              {/* Leadership */}
+              {panelEnabled.leadership && leadershipSignal && (
+                <div style={{ background: 'linear-gradient(145deg,#020B14,#000508)', border: '1px solid rgba(30,58,138,0.3)', borderRadius: 8, padding: '10px 12px' }}>
+                  <div style={{ ...MONO, fontSize: 9, fontWeight: 700, color: '#ffd700', letterSpacing: '2px', marginBottom: 8 }}>LEADERSHIP SIGNAL</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    <span style={{ ...MONO, fontSize: 10, background: 'rgba(255,215,0,0.1)', border: '1px solid rgba(255,215,0,0.3)', borderRadius: 4, padding: '3px 8px', color: '#ffd700' }}>{leadershipSignal.classification}</span>
+                    <span style={{ ...MONO, fontSize: 10, color: 'rgba(255,255,255,0.6)' }}>{leadershipSignal.breakoutType}</span>
+                    <span style={{ ...MONO, fontSize: 10, color: 'rgba(255,255,255,0.5)' }}>Score: {leadershipSignal.leadershipScore}</span>
+                    {leadershipSignal.trend && <span style={{ ...MONO, fontSize: 10, color: 'rgba(255,255,255,0.5)' }}>{leadershipSignal.trend}</span>}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* CHART TAB */}
+          {mobileTab === 'chart' && (
+            <div style={{ height: 'calc(100dvh - 80px)', display: 'flex', flexDirection: 'column' }}>
+              {panelEnabled.efiChart && currentTicker ? (
+                <EFIChart symbol={currentTicker} initialTimeframe="1d" height={window.innerHeight - 80} lwToolbarPosition="left" disableSidebarAutoScan={true} />
+              ) : (
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.2)', ...MONO, fontSize: 12, letterSpacing: 2 }}>
+                  {!panelEnabled.efiChart ? 'BYPASSED' : 'Search a ticker to load chart'}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* FLOW TAB */}
+          {mobileTab === 'flow' && (
+            <div style={{ padding: '8px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {/* EFI Flow */}
+              {panelEnabled.efiFlow && (
+                <div style={{ background: 'linear-gradient(145deg,#020B14,#000508)', border: '1px solid rgba(30,58,138,0.2)', borderRadius: 8, overflow: 'hidden' }}>
+                  <div style={{ ...MONO, fontSize: 9, fontWeight: 700, color: '#ff6600', letterSpacing: '2px', padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    EFI OPTIONS FLOW {currentTicker && `— ${currentTicker}`}
+                  </div>
+                  {optionsFlowData.length > 0 ? (
+                    <div style={{ overflowX: 'auto', maxHeight: '40dvh', overflowY: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', ...MONO, fontSize: 9 }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                            {['Type', 'Strike', 'Expiry', 'Premium', 'Size', 'Fill'].map(h => (
+                              <th key={h} style={{ padding: '4px 6px', color: 'rgba(255,255,255,0.4)', fontWeight: 700, textAlign: 'left', whiteSpace: 'nowrap' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {efiDisplayedTrades.slice(0, 50).map((t: any, i: number) => (
+                            <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                              <td style={{ padding: '3px 6px', color: t.type === 'call' ? '#00ff88' : '#ff3333', fontWeight: 700 }}>{t.type?.toUpperCase()}</td>
+                              <td style={{ padding: '3px 6px', color: 'rgba(255,255,255,0.8)' }}>{t.strike}</td>
+                              <td style={{ padding: '3px 6px', color: 'rgba(255,255,255,0.6)' }}>{t.expiry}</td>
+                              <td style={{ padding: '3px 6px', color: '#ff8c00' }}>${((t.total_premium || 0) / 1000).toFixed(0)}K</td>
+                              <td style={{ padding: '3px 6px', color: 'rgba(255,255,255,0.6)' }}>{t.trade_size}</td>
+                              <td style={{ padding: '3px 6px', color: 'rgba(255,255,255,0.5)' }}>{t.fill_style || t.classification}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div style={{ padding: '20px', textAlign: 'center', color: 'rgba(255,255,255,0.2)', ...MONO, fontSize: 10 }}>
+                      {currentTicker ? 'No flow data' : 'Search a ticker'}
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* IV Charts */}
+              {panelEnabled.ivCharts && (
+                <div style={{ background: 'linear-gradient(145deg,#020B14,#000508)', border: '1px solid rgba(30,58,138,0.2)', borderRadius: 8, overflow: 'hidden' }}>
+                  <IVChartsPanel data={ivData} ticker={currentTicker || tickerInput} period={ivPeriod} onPeriodChange={handlePeriodChange} isScanning={isScanning} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* SEASONAL TAB */}
+          {mobileTab === 'seasonal' && (
+            <div className="mobile-seasonality-wrapper" style={{ minHeight: 'calc(100dvh - 80px)', overflowY: 'auto', WebkitOverflowScrolling: 'touch' as any }}>
+              {panelEnabled.seasonality ? (
+                <SeasonalityChart autoStart={!!currentTicker} hideScreener={true} initialSymbol={currentTicker || undefined} onMonthlyDataLoaded={handleSeasonalDataLoaded} />
+              ) : (
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.2)', ...MONO, fontSize: 12, letterSpacing: 2, height: '400px' }}>BYPASSED</div>
+              )}
+            </div>
+          )}
+
+          {/* TOOLS TAB */}
+          {mobileTab === 'tools' && (
+            <div style={{ padding: '8px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {/* OI Chart */}
+              {panelEnabled.oiChart && (
+                <div style={{ background: 'linear-gradient(145deg,#020B14,#000508)', border: '1px solid rgba(30,58,138,0.2)', borderRadius: 8, overflow: 'hidden' }}>
+                  <div style={{ ...MONO, fontSize: 9, fontWeight: 700, color: '#ff6600', letterSpacing: '2px', padding: '6px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>OPEN INTEREST</div>
+                  {currentTicker ? (
+                    <div style={{ overflowX: 'auto' }}>
+                      <DealerOIChart selectedTicker={currentTicker} compactMode={true} chartWidth={670} svgHeight={400} analysisSuiteMode={true} selectedExpiration={sharedExpiration} onExpirationChange={setSharedExpiration} hideAllControls={false} hideViewModeToggle={true} oiViewMode="contracts" showCalls={showCalls} showPuts={showPuts} showNetOI={showNetOI} showTowers={false} onExpectedRangePCRatioChange={() => { }} onCumulativePCRatio45DaysChange={() => { }} onExpectedRange90Change={setExpectedRange90} />
+                    </div>
+                  ) : (
+                    <div style={{ padding: '20px', textAlign: 'center', color: 'rgba(255,255,255,0.2)', ...MONO, fontSize: 10 }}>Search a ticker</div>
+                  )}
+                </div>
+              )}
+              {/* GEX Chart */}
+              {panelEnabled.gexChart && (
+                <div style={{ background: 'linear-gradient(145deg,#020B14,#000508)', border: '1px solid rgba(30,58,138,0.2)', borderRadius: 8, overflow: 'hidden' }}>
+                  <div style={{ ...MONO, fontSize: 9, fontWeight: 700, color: '#ff6600', letterSpacing: '2px', padding: '6px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>GAMMA EXPOSURE</div>
+                  {currentTicker ? (
+                    <div style={{ overflowX: 'auto' }}>
+                      <DealerGEXChart selectedTicker={currentTicker} compactMode={true} chartWidth={670} svgHeight={350} analysisSuiteMode={true} selectedExpiration={sharedExpiration} hideAllControls={true} gexViewMode="gex" showPositiveGamma={showPositiveGamma} showNegativeGamma={showNegativeGamma} showNetGamma={showNetGamma} showAttrax={false} expectedRange90={expectedRange90} />
+                    </div>
+                  ) : (
+                    <div style={{ padding: '20px', textAlign: 'center', color: 'rgba(255,255,255,0.2)', ...MONO, fontSize: 10 }}>Search a ticker</div>
+                  )}
+                </div>
+              )}
+              {/* Liquid Panel */}
+              {panelEnabled.liquidPanel && (
+                <div style={{ background: 'linear-gradient(145deg,#020B14,#000508)', border: '1px solid rgba(30,58,138,0.2)', borderRadius: 8, overflow: 'hidden' }}>
+                  <div style={{ ...MONO, fontSize: 9, fontWeight: 700, color: '#ff6600', letterSpacing: '2px', padding: '6px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>GREEK SUITE</div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <GexPanel analysisSuiteMode={true} externalTicker={currentTicker || undefined} onGaugeMetrics={(data) => setGaugeMetrics(data)} />
+                  </div>
+                </div>
+              )}
+              {/* Screeners */}
+              {panelEnabled.consolidationPOI && currentTicker && (
+                <div style={{ background: 'linear-gradient(145deg,#020B14,#000508)', border: '1px solid rgba(30,58,138,0.2)', borderRadius: 8, overflow: 'hidden' }}>
+                  <div style={{ ...MONO, fontSize: 9, fontWeight: 700, color: '#ff6600', letterSpacing: '2px', padding: '6px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>CONSOLIDATION + POI</div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <ConsolidationHistoryScreener externalTicker={currentTicker} />
+                    <POIScreener externalTicker={currentTicker} />
+                  </div>
+                </div>
+              )}
+              {panelEnabled.otmPremiumHistory && currentTicker && (
+                <div style={{ background: 'linear-gradient(145deg,#020B14,#000508)', border: '1px solid rgba(30,58,138,0.2)', borderRadius: 8, overflow: 'hidden' }}>
+                  <div style={{ ...MONO, fontSize: 9, fontWeight: 700, color: '#ff6600', letterSpacing: '2px', padding: '6px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>OTM PREMIUM HISTORY</div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <OTMPremiumHistoryChartCompact externalTicker={currentTicker} />
+                  </div>
+                </div>
+              )}
+              {panelEnabled.straddleTown && (
+                <div style={{ background: 'linear-gradient(145deg,#020B14,#000508)', border: '1px solid rgba(30,58,138,0.2)', borderRadius: 8, overflow: 'hidden' }}>
+                  <div style={{ ...MONO, fontSize: 9, fontWeight: 700, color: '#ff6600', letterSpacing: '2px', padding: '6px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>STRADDLE TOWN</div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <StraddleTownScreener />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+        </div>
+      </div>
+    )
+  }
+  // ─── END MOBILE LAYOUT ────────────────────────────────────────────────────
 
   return (
     <div

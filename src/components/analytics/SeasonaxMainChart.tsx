@@ -1363,13 +1363,17 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
             {multiScanData.map((ms, idx) => {
               const color = MULTI_SCAN_COLORS[idx % MULTI_SCAN_COLORS.length]
               const hidden = hiddenLines.has(ms.symbol)
+              const isMobileLegend = typeof window !== 'undefined' && window.innerWidth <= 768
               return (
                 <button
                   key={ms.symbol}
                   onClick={() => toggleLine(ms.symbol)}
                   style={{
-                    padding: '2px 7px',
-                    fontSize: '10px',
+                    padding: isMobileLegend ? '0px 3px' : '2px 7px',
+                    fontSize: isMobileLegend ? '7px' : '10px',
+                    height: isMobileLegend ? '14px' : undefined,
+                    minHeight: isMobileLegend ? '0' : undefined,
+                    lineHeight: isMobileLegend ? '1' : undefined,
                     fontFamily: '"Roboto Mono", monospace',
                     fontWeight: '700',
                     background: hidden ? 'rgba(0,0,0,0.7)' : `${color}22`,
@@ -1380,6 +1384,8 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
                     textDecoration: hidden ? 'line-through' : 'none',
                     transition: 'all 0.15s',
                     whiteSpace: 'nowrap',
+                    WebkitAppearance: 'none',
+                    appearance: 'none',
                   }}
                 >
                   {ms.symbol}

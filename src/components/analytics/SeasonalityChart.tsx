@@ -2350,51 +2350,29 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                         />
                         {/* Trend Sync badge */}
                         {trendSync && (
-                          <div
-                            style={{
-                              position: 'absolute',
-                              top: '8px',
-                              left: '50%',
-                              transform: 'translateX(-50%)',
-                              zIndex: 10,
-                              userSelect: 'none',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '0',
-                              background: 'linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(0,0,0,0.88) 60%)',
-                              border: `1px solid ${trendSync.color + '66'}`,
-                              borderRadius: '6px',
-                              boxShadow: `0 2px 8px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08)`,
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              fontFamily: "'Courier New', monospace",
-                            }}
-                          >
-                            <div
-                              style={{
-                                padding: '4px 12px',
-                                fontSize: isMobileView ? '4.5px' : '12px',
-                                fontWeight: '900',
-                                color: trendSync.color,
-                                letterSpacing: '1px',
-                                textShadow: `0 0 10px ${trendSync.color}88`,
-                                borderRight: `1px solid ${trendSync.color}44`,
-                              }}
-                            >
-                              {trendSync.score}% Correlation
-                            </div>
-                            <div
-                              style={{
-                                padding: '4px 12px',
-                                fontSize: isMobileView ? '4px' : '9px',
-                                fontWeight: '700',
-                                color: isMobileView ? '#ffffff' : 'rgba(255,255,255,0.75)',
-                                letterSpacing: '0.8px',
-                                textTransform: 'uppercase',
-                              }}
-                            >
-                              {trendInsight}
-                            </div>
+                          <div style={{
+                            position: 'absolute',
+                            bottom: '52px',
+                            right: '8px',
+                            zIndex: 10,
+                            userSelect: 'none',
+                            fontFamily: "'Courier New', monospace",
+                            fontSize: '11px',
+                            fontWeight: '900',
+                            color: trendSync.color,
+                            letterSpacing: '1px',
+                            textShadow: `0 0 8px ${trendSync.color}88`,
+                            width: '38px',
+                            height: '38px',
+                            borderRadius: '50%',
+                            border: `1.5px solid ${trendSync.color}`,
+                            boxShadow: `0 0 8px ${trendSync.color}44`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: 'rgba(0,0,0,0.7)',
+                          }}>
+                            {trendSync.score}%
                           </div>
                         )}
                       </div>
@@ -2468,52 +2446,31 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                   </svg>
                   EXIT
                 </button>
+                {/* Trend Sync badge */}
                 {trendSync && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '8px',
-                      left: '50%',
-                      transform: 'translateX(-50%)',
-                      zIndex: 10,
-                      userSelect: 'none',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '0',
-                      background: 'linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(0,0,0,0.88) 60%)',
-                      border: `1px solid ${trendSync.color + '66'}`,
-                      borderRadius: '6px',
-                      boxShadow: `0 2px 8px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08)`,
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      fontFamily: "'Courier New', monospace",
-                    }}
-                  >
-                    <div
-                      style={{
-                        padding: '4px 12px',
-                        fontSize: '12px',
-                        fontWeight: '900',
-                        color: trendSync.color,
-                        letterSpacing: '1px',
-                        textShadow: `0 0 10px ${trendSync.color}88`,
-                        borderRight: `1px solid ${trendSync.color}44`,
-                      }}
-                    >
-                      {trendSync.score}% Correlation
-                    </div>
-                    <div
-                      style={{
-                        padding: '4px 12px',
-                        fontSize: '9px',
-                        fontWeight: '700',
-                        color: 'rgba(255,255,255,0.75)',
-                        letterSpacing: '0.8px',
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      {trendInsight}
-                    </div>
+                  <div style={{
+                    position: 'absolute',
+                    bottom: '52px',
+                    right: '8px',
+                    zIndex: 10,
+                    userSelect: 'none',
+                    fontFamily: "'Courier New', monospace",
+                    fontSize: '11px',
+                    fontWeight: '900',
+                    color: trendSync.color,
+                    letterSpacing: '1px',
+                    textShadow: `0 0 8px ${trendSync.color}88`,
+                    width: '38px',
+                    height: '38px',
+                    borderRadius: '50%',
+                    border: `1.5px solid ${trendSync.color}`,
+                    boxShadow: `0 0 8px ${trendSync.color}44`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'rgba(0,0,0,0.7)',
+                  }}>
+                    {trendSync.score}%
                   </div>
                 )}
               </div>

@@ -2786,24 +2786,7 @@ function ComboHistChart({ combo, bars, wyckoffZones }: { combo: ComboSignal; bar
                 ctx.fillText(`${d.getUTCMonth() + 1}/${d.getUTCFullYear().toString().slice(2)}`, xOf(i), H - 6);
             }
 
-            // ── Legend ────────────────────────────────────────────────────────
-            ctx.textAlign = 'left'; ctx.font = 'bold 11px monospace';
-            const leg: Array<{ label: string; color: string; bg: string }> = [
-                { label: ' CONFLUENCE BUY ', color: '#00ff88', bg: 'rgba(0,255,136,0.18)' },
-                { label: ' CONFLUENCE SELL ', color: '#ff3333', bg: 'rgba(255,51,51,0.18)' },
-            ];
-            let lx = PL + 6;
-            for (const { label, color, bg } of leg) {
-                const tw = ctx.measureText(label).width;
-                ctx.fillStyle = bg;
-                ctx.fillRect(Math.floor(lx) - 1, PT - 22, Math.ceil(tw) + 2, 16);
-                ctx.fillStyle = color;
-                ctx.fillText(label, lx, PT - 10);
-                lx += tw + 12;
-            }
-            // zoom hint
-            ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.textAlign = 'right'; ctx.font = '10px monospace';
-            ctx.fillText('scroll to zoom · drag to pan', W - PR - 4, PT - 9);
+            // ── Legend removed
         };
 
         drawRef.current();
@@ -2921,8 +2904,8 @@ function ComboHistChart({ combo, bars, wyckoffZones }: { combo: ComboSignal; bar
     const tipColor = tooltip?.kind === 'BUY' ? '#00ff88' : tooltip?.kind === 'SELL' ? '#ff3333' : '#aaaaaa';
 
     return (
-        <div style={{ position: 'relative', width: '100%', height: '600px' }}>
-            <canvas ref={canvasRef} style={{ width: '100%', height: '600px', display: 'block', cursor: 'crosshair' }} />
+        <div style={{ position: 'relative', width: '100%', height: typeof window !== 'undefined' && window.innerWidth <= 768 ? '470px' : '600px' }}>
+            <canvas ref={canvasRef} style={{ width: '100%', height: typeof window !== 'undefined' && window.innerWidth <= 768 ? '470px' : '600px', display: 'block', cursor: 'crosshair' }} />
             {tooltip && (
                 <div style={{
                     position: 'absolute', left: tooltip.x, top: tooltip.y,
@@ -2946,6 +2929,7 @@ function ComboHistChart({ combo, bars, wyckoffZones }: { combo: ComboSignal; bar
 // Top-of-card composite signal: direction badge, scores, and tabbed charts.
 function ComboPanel({ combo, bars, wyckoffZones }: { combo: ComboSignal; bars: Bar[]; wyckoffZones: WyckoffZones }) {
     const mono: React.CSSProperties = { fontFamily: "'JetBrains Mono','Consolas',monospace" };
+    const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
     const dirColor = combo.direction === 'BULLISH' ? '#00ff88' : combo.direction === 'BEARISH' ? '#ff3333' : '#ff6600';
     const activeDirColor = combo.activeDirection === 'BULLISH' ? '#00ff88'
         : combo.activeDirection === 'BEARISH' ? '#ff3333'
@@ -2964,8 +2948,8 @@ function ComboPanel({ combo, bars, wyckoffZones }: { combo: ComboSignal; bars: B
             marginBottom: '18px',
             overflow: 'hidden',
         }}>
-            {/* Header */}
-            <div style={{
+            {/* Header — desktop only */}
+            {!isMobile && <div style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 padding: '10px 14px', flexWrap: 'wrap', gap: 8,
                 borderBottom: '1px solid rgba(255,255,255,0.08)',
@@ -2973,18 +2957,10 @@ function ComboPanel({ combo, bars, wyckoffZones }: { combo: ComboSignal; bars: B
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{
-                        background: dirColor, color: '#000', fontSize: 15, fontWeight: 900,
-                        padding: '5px 14px', borderRadius: 3, letterSpacing: '2.5px', ...mono,
+                        background: dirColor, color: '#000', fontSize: 13, fontWeight: 900,
+                        padding: '4px 10px', borderRadius: 3, letterSpacing: '2px', ...mono,
                     }}>
                         {combo.direction}
-                    </div>
-                    <div>
-                        <div style={{ color: '#ffffff', fontSize: 11, fontWeight: 700, letterSpacing: '2px', ...mono }}>
-                            COMPOSITE SIGNAL — {combo.nContributing} PATTERNS · WEIGHTED BY EDGE × √N
-                        </div>
-                        <div style={{ color: '#00cfff', fontSize: 10, fontWeight: 600, marginTop: 2, letterSpacing: '1px', ...mono }}>
-                            all qualifying patterns combined · score = weighted avg 30d win rate
-                        </div>
                     </div>
                 </div>
 
@@ -3026,7 +3002,7 @@ function ComboPanel({ combo, bars, wyckoffZones }: { combo: ComboSignal; bars: B
                         </div>
                     ))}
                 </div>
-            </div>
+            </div>}
 
             {/* Chart area */}
             <div style={{ background: '#000' }}>
@@ -3835,19 +3811,19 @@ function PERatioChart({ ticker }: { ticker: string }) {
                     }}>{t}</button>
                 ))}
             </div>
-            <canvas ref={canvasRef} style={{ width: '100%', height: 432, display: 'block', cursor: 'grab' }} />
+            <canvas ref={canvasRef} style={{ width: '100%', height: '432px', display: 'block', cursor: 'grab' }} />
         </div>
     );
 }
 
 // ─── Stock Card ───────────────────────────────────────────────────────────────
-function StockCard({ ticker }: { ticker: string }) {
+function StockCard({ ticker, showPE, setShowPE }: { ticker: string; showPE: boolean; setShowPE: (v: boolean) => void }) {
     const [result, setResult] = useState<StockResult | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
     const [showAll, setShowAll] = useState(false);
-    const [showPE, setShowPE] = useState(false);
+    const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
 
     useEffect(() => {
         let cancelled = false;
@@ -3937,7 +3913,7 @@ function StockCard({ ticker }: { ticker: string }) {
 
             {/* ── Card Header ──────────────────────────────────────────────── */}
             <div style={{
-                padding: '16px 20px 14px',
+                padding: isMobile ? '4px 8px 3px' : '16px 20px 14px',
                 borderBottom: '1px solid rgba(255,255,255,0.07)',
                 background: '#0c0c0c',
                 position: 'sticky',
@@ -3946,16 +3922,16 @@ function StockCard({ ticker }: { ticker: string }) {
                 borderRadius: '6px 6px 0 0',
             }}>
                 {/* Row 1: Ticker + price + badges */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: isMobile ? 3 : 14 }}>
                     {/* Left: ticker / price / ret */}
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-                        <span style={{ color: '#ffffff', fontSize: 28, fontWeight: 900, letterSpacing: '3px', lineHeight: 1, ...mono }}>{ticker}</span>
-                        <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 20, fontWeight: 700, letterSpacing: '1px', ...mono }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: isMobile ? 6 : 12 }}>
+                        <span style={{ color: '#ffffff', fontSize: isMobile ? 16 : 28, fontWeight: 900, letterSpacing: isMobile ? '1px' : '3px', lineHeight: 1, ...mono }}>{ticker}</span>
+                        <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: isMobile ? 13 : 20, fontWeight: 700, letterSpacing: '1px', ...mono }}>
                             ${result.lastClose.toFixed(2)}
                         </span>
                         <span style={{
                             color: retColor,
-                            fontSize: 13, fontWeight: 700, letterSpacing: '1px',
+                            fontSize: isMobile ? 11 : 13, fontWeight: 700, letterSpacing: '1px',
                             background: result.todayRet >= 0 ? 'rgba(0,255,136,0.08)' : 'rgba(255,51,51,0.08)',
                             border: `1px solid ${result.todayRet >= 0 ? 'rgba(0,255,136,0.20)' : 'rgba(255,51,51,0.20)'}`,
                             borderRadius: 3,
@@ -3989,10 +3965,10 @@ function StockCard({ ticker }: { ticker: string }) {
                             fontSize: 11, fontWeight: 700, letterSpacing: '1px',
                             ...mono,
                         }}>
-                            {result.patterns.length} PATTERNS
+                            {qualifiedPatterns.length} PATTERNS
                         </div>
-                        {/* P/E toggle button */}
-                        <button
+                        {/* P/E toggle button — desktop only, mobile is in search row */}
+                        {!isMobile && <button
                             onClick={() => setShowPE(v => !v)}
                             style={{
                                 background: showPE ? 'rgba(32,178,170,0.15)' : 'rgba(255,255,255,0.04)',
@@ -4002,17 +3978,23 @@ function StockCard({ ticker }: { ticker: string }) {
                                 color: showPE ? '#20b2aa' : 'rgba(255,255,255,0.45)',
                                 fontSize: 11, fontWeight: 700, letterSpacing: '1px',
                                 cursor: 'pointer',
+                                lineHeight: 1,
+                                margin: 0,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                height: '100%',
+                                boxSizing: 'border-box',
                                 ...mono,
                             }}
                         >
                             {showPE ? 'HIDE P/E' : 'P/E RATIO'}
-                        </button>
+                        </button>}
                     </div>
                 </div>
 
             </div>
 
-            <div style={{ padding: '14px 18px' }}>
+            <div style={{ padding: isMobile ? '8px 10px' : '14px 18px' }}>
 
                 {/* ── P/E Ratio Chart (toggled) ────────────────────────────── */}
                 {showPE && <PERatioChart ticker={ticker} />}
@@ -4035,7 +4017,7 @@ function StockCard({ ticker }: { ticker: string }) {
                             </span>
                             <span style={{ color: 'rgba(255,255,255,0.20)', fontSize: 11, ...mono }}>CONDITIONS MATCHING TODAY'S CLOSE</span>
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '6px' }}>
                             {activePatterns.map(p => (
                                 <PatternRow
                                     key={p.label}
@@ -4068,22 +4050,11 @@ function StockCard({ ticker }: { ticker: string }) {
                             filter: 'drop-shadow(0px 1px 0px #7a5200) drop-shadow(0px 2px 3px rgba(0,0,0,0.85))',
                             textShadow: 'none',
                         }}>
-                            ALL QUALIFYING PATTERNS
+                            Qualifying Patterns
                         </span>
-                        <span style={{
-                            fontSize: 11,
-                            fontWeight: 700,
-                            letterSpacing: '1.5px',
-                            fontFamily: 'monospace',
-                            background: 'linear-gradient(180deg, #e8c84a 0%, #b8860b 60%, #e8c84a 100%)',
-                            WebkitBackgroundClip: 'text',
-                            WebkitTextFillColor: 'transparent',
-                            backgroundClip: 'text',
-                            filter: 'drop-shadow(0px 1px 1px rgba(0,0,0,0.70))',
-                        }}>SORTED BY WIN RATE EDGE</span>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '6px' }}>
                         {displayAll.map(p => (
                             <PatternRow
                                 key={p.label}
@@ -4128,11 +4099,17 @@ function StockCard({ ticker }: { ticker: string }) {
 export default function ResearchPanelV2() {
     const [tickers, setTickers] = useState<string[]>(TICKERS);
     const [input, setInput] = useState('');
+    const [showPE, setShowPE] = useState(false);
+    const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
 
     const addTicker = () => {
         const t = input.trim().toUpperCase();
         if (!t) return;
-        if (!tickers.includes(t)) setTickers(prev => [...prev, t]);
+        if (isMobile) {
+            setTickers([t]); // mobile: replace current ticker
+        } else {
+            if (!tickers.includes(t)) setTickers(prev => [...prev, t]);
+        }
         setInput('');
     };
 
@@ -4152,104 +4129,41 @@ export default function ResearchPanelV2() {
                 background: 'linear-gradient(180deg, #0a0a0a 0%, #050505 100%)',
                 borderBottom: '1px solid rgba(255,255,255,0.06)',
                 boxShadow: '0 1px 40px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.04)',
-                padding: '0 32px',
+                padding: isMobile ? '0 12px' : '0 32px',
                 flexShrink: 0,
             }}>
                 {/* ── Row 1: Brand bar ── */}
                 <div style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     borderBottom: '1px solid rgba(255,255,255,0.05)',
-                    padding: '18px 0 16px',
+                    padding: isMobile ? '4px 0' : '18px 0 16px',
                     flexWrap: 'wrap', gap: 12,
                 }}>
-                    {/* Left: title + sub */}
+                    {/* Left: title */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                        {/* Accent bar */}
-                        <div style={{
-                            width: 3, height: 38, flexShrink: 0,
-                            background: 'linear-gradient(180deg, #00ff88 0%, #ff8c00 100%)',
-                            borderRadius: 2,
-                            boxShadow: '0 0 12px rgba(0,255,136,0.5)',
-                        }} />
                         <div>
-                            <div style={{
-                                fontSize: 20, fontWeight: 900, letterSpacing: '4px',
-                                color: '#ffffff',
-                                textShadow: '0 0 20px rgba(255,255,255,0.15)',
-                                lineHeight: 1.1,
-                                ...mono,
-                            }}>
-                                PRICE ACTION <span style={{ color: '#00ff88', textShadow: '0 0 16px rgba(0,255,136,0.6)' }}>RESEARCH</span>
-                            </div>
-                            <div style={{
-                                marginTop: 5,
-                                display: 'flex', alignItems: 'center', gap: 8,
-                            }}>
-                                {[
-                                    { text: 'DAILY BARS', color: 'rgba(255,255,255,0.35)' },
-                                    { text: 'POLYGON', color: 'rgba(255,255,255,0.35)' },
-                                    { text: `≥${MIN_WIN}% WIN RATE`, color: '#00ff88' },
-                                    { text: 'PER-STOCK THRESHOLDS', color: '#ff8c00' },
-                                ].map((item, i, arr) => (
-                                    <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.5px', color: item.color, ...mono }}>
-                                            {item.text}
-                                        </span>
-                                        {i < arr.length - 1 && <span style={{ color: 'rgba(255,255,255,0.12)', fontSize: 10 }}>·</span>}
-                                    </span>
-                                ))}
-                            </div>
                         </div>
                     </div>
 
-                    {/* Right: stat badges */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{
-                            background: 'rgba(0,255,136,0.08)',
-                            border: '1px solid rgba(0,255,136,0.25)',
-                            borderRadius: 4,
-                            padding: '6px 14px',
-                            fontSize: 11, fontWeight: 900, letterSpacing: '2px',
-                            color: '#00ff88',
-                            textShadow: '0 0 10px rgba(0,255,136,0.4)',
-                            boxShadow: '0 0 12px rgba(0,255,136,0.08), inset 0 1px 0 rgba(0,255,136,0.1)',
-                            ...mono,
-                        }}>
-                            {tickers.length} TICKER{tickers.length !== 1 ? 'S' : ''} LOADED
-                        </div>
-                        <div style={{
-                            background: 'rgba(255,140,0,0.08)',
-                            border: '1px solid rgba(255,140,0,0.25)',
-                            borderRadius: 4,
-                            padding: '6px 14px',
-                            fontSize: 11, fontWeight: 900, letterSpacing: '2px',
-                            color: '#ff8c00',
-                            textShadow: '0 0 10px rgba(255,140,0,0.4)',
-                            boxShadow: '0 0 12px rgba(255,140,0,0.08), inset 0 1px 0 rgba(255,140,0,0.1)',
-                            ...mono,
-                        }}>
-                            MIN {MIN_N} OCC
-                        </div>
-                    </div>
                 </div>
 
                 {/* ── Row 2: Controls ── */}
                 <div style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '14px 0',
+                    display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10,
+                    padding: isMobile ? '4px 0' : '14px 0',
                     flexWrap: 'wrap',
                 }}>
                     {/* Search input */}
-                    <div style={{ position: 'relative', flex: '0 0 240px' }}>
+                    <div style={{ position: 'relative', flex: isMobile ? '1 1 80px' : '0 0 240px' }}>
                         <span style={{
-                            position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
-                            color: 'rgba(0,255,136,0.5)', fontSize: 15, pointerEvents: 'none',
+                            position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
+                            color: 'rgba(0,255,136,0.5)', fontSize: isMobile ? 12 : 15, pointerEvents: 'none',
                         }}>⌕</span>
                         <input
                             value={input}
                             onChange={e => setInput(e.target.value.toUpperCase())}
                             onKeyDown={handleKey}
-                            placeholder="TICKER SYMBOL..."
+                            placeholder={isMobile ? 'TICKER...' : 'TICKER SYMBOL...'}
                             maxLength={6}
                             spellCheck={false}
                             style={{
@@ -4258,8 +4172,8 @@ export default function ResearchPanelV2() {
                                 border: '1px solid rgba(255,255,255,0.10)',
                                 borderRadius: 5,
                                 color: '#ffffff',
-                                fontSize: 13, fontWeight: 700, letterSpacing: '2px',
-                                padding: '9px 12px 9px 34px',
+                                fontSize: isMobile ? 11 : 13, fontWeight: 700, letterSpacing: '2px',
+                                padding: isMobile ? '6px 8px 6px 24px' : '9px 12px 9px 34px',
                                 outline: 'none',
                                 boxSizing: 'border-box',
                                 boxShadow: 'inset 0 1px 4px rgba(0,0,0,0.6)',
@@ -4269,7 +4183,7 @@ export default function ResearchPanelV2() {
                         />
                     </div>
 
-                    {/* Add button */}
+                    {/* Scan / Add button */}
                     <button
                         onClick={addTicker}
                         style={{
@@ -4277,60 +4191,76 @@ export default function ResearchPanelV2() {
                             border: '1px solid rgba(0,255,136,0.40)',
                             borderRadius: 5,
                             color: '#00ff88',
-                            fontSize: 12, fontWeight: 900, letterSpacing: '2.5px',
-                            padding: '9px 22px',
+                            fontSize: isMobile ? 10 : 12, fontWeight: 900, letterSpacing: '2px',
+                            padding: isMobile ? '6px 10px' : '9px 22px',
                             cursor: 'pointer',
                             textShadow: '0 0 8px rgba(0,255,136,0.5)',
-                            boxShadow: '0 0 14px rgba(0,255,136,0.10)',
+                            lineHeight: 1,
+                            margin: 0,
                             ...mono,
                         }}
                     >
-                        + ADD
+                        {isMobile ? 'SCAN' : '+ ADD'}
                     </button>
 
-                    {/* Divider */}
-                    <div style={{ width: 1, height: 28, background: 'rgba(255,255,255,0.08)', margin: '0 4px' }} />
-
-                    {/* Active ticker chips */}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                        {tickers.map(t => (
-                            <div key={t} style={{
-                                display: 'flex', alignItems: 'center', gap: 7,
-                                background: 'rgba(255,255,255,0.04)',
-                                border: '1px solid rgba(255,255,255,0.10)',
-                                borderRadius: 4,
-                                padding: '5px 10px 5px 12px',
-                                fontSize: 12, fontWeight: 900, letterSpacing: '1.5px',
-                                color: '#ffffff',
-                                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
+                    {/* Mobile: P/E button shown here once ticker loaded */}
+                    {isMobile && tickers.length > 0 && (
+                        <button
+                            onClick={() => setShowPE(v => !v)}
+                            style={{
+                                background: showPE ? 'rgba(32,178,170,0.15)' : 'rgba(255,255,255,0.04)',
+                                border: `1px solid ${showPE ? 'rgba(32,178,170,0.50)' : 'rgba(255,255,255,0.12)'}`,
+                                borderRadius: 5,
+                                color: showPE ? '#20b2aa' : 'rgba(255,255,255,0.45)',
+                                fontSize: 10, fontWeight: 700, letterSpacing: '1px',
+                                padding: '6px 10px',
+                                cursor: 'pointer',
+                                lineHeight: 1,
+                                margin: 0,
                                 ...mono,
-                            }}>
-                                {t}
-                                <span
-                                    onClick={() => removeTicker(t)}
-                                    style={{
-                                        color: 'rgba(255,80,80,0.6)', cursor: 'pointer',
-                                        fontSize: 16, lineHeight: 1, fontWeight: 400,
-                                    }}
-                                >×</span>
-                            </div>
-                        ))}
-                    </div>
+                            }}
+                        >
+                            {showPE ? 'HIDE P/E' : 'P/E'}
+                        </button>
+                    )}
+
+                    {/* Desktop: divider + ticker chips */}
+                    {!isMobile && <>
+                        <div style={{ width: 1, height: 28, background: 'rgba(255,255,255,0.08)', margin: '0 4px' }} />
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {tickers.map(t => (
+                                <div key={t} style={{
+                                    display: 'flex', alignItems: 'center', gap: 7,
+                                    background: 'rgba(255,255,255,0.04)',
+                                    border: '1px solid rgba(255,255,255,0.10)',
+                                    borderRadius: 4,
+                                    padding: '5px 10px 5px 12px',
+                                    fontSize: 12, fontWeight: 900, letterSpacing: '1.5px',
+                                    color: '#ffffff',
+                                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
+                                    ...mono,
+                                }}>
+                                    {t}
+                                    <span onClick={() => removeTicker(t)} style={{ color: 'rgba(255,80,80,0.6)', cursor: 'pointer', fontSize: 16, lineHeight: 1, fontWeight: 400 }}>×</span>
+                                </div>
+                            ))}
+                        </div>
+                    </>}
                 </div>
             </div>
 
             {/* ── Ticker Grid ────────────────────────────────────────────────── */}
-            <div style={{ padding: '0 28px', flex: 1, overflowY: 'auto' }}>
+            <div style={{ padding: isMobile ? '0 8px' : '0 28px', flex: 1, overflowY: 'auto' }}>
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: tickers.length === 1 ? '1fr' : '1fr 1fr',
-                    gap: '20px',
+                    gridTemplateColumns: (isMobile || tickers.length === 1) ? '1fr' : '1fr 1fr',
+                    gap: isMobile ? '12px' : '20px',
                     alignItems: 'start',
-                    paddingTop: '24px',
-                    paddingBottom: '24px',
+                    paddingTop: isMobile ? '12px' : '24px',
+                    paddingBottom: isMobile ? '12px' : '24px',
                     maxWidth: tickers.length === 1 ? '100%' : undefined,
                 }}>
-                    {tickers.map(t => <StockCard key={t} ticker={t} />)}
+                    {tickers.map(t => <StockCard key={t} ticker={t} showPE={showPE} setShowPE={setShowPE} />)}
                 </div>
             </div>
         </div>

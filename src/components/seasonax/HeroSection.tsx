@@ -175,7 +175,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
               style={{ ...selectBase, ...solidBlack, fontSize: 9, padding: '0 14px 0 5px', minWidth: 0, flex: 1, height: 24, minHeight: 24, boxSizing: 'border-box', opacity: loading ? 0.5 : 1, letterSpacing: '0.2px' }}
             >
               {timePeriodOptions.map((option) => (
-                <option key={option.id} value={option.id} style={{ background: '#0d0d0d' }}>{option.name}</option>
+                <option key={option.id} value={option.id} style={{ background: '#0d0d0d' }}>{option.id}</option>
               ))}
             </select>
 

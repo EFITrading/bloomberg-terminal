@@ -882,7 +882,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
   const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false)
   const [overlayActive, setOverlayActive] = useState(false)
   const [timeInterval, setTimeInterval] = useState<'1min' | '5min' | '15min' | '30min' | '1hour'>('1hour')
-  const [chartViewMode, setChartViewMode] = useState<'detailed' | 'simplified' | 'net'>('detailed')
+  const [chartViewMode, setChartViewMode] = useState<'detailed' | 'simplified' | 'net'>(typeof window !== 'undefined' && window.innerWidth <= 768 ? 'net' : 'detailed')
   const [hiddenLines, setHiddenLines] = useState<Set<string>>(new Set())
   const toggleLine = (key: string) => setHiddenLines(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })
   const [scanTimeframe, setScanTimeframe] = useState<string>('1D')
@@ -2259,13 +2259,13 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
     bullCall: number; bearCall: number; bullPut: number; bearPut: number; score: number; label: string
   }) => {
     const total = bullCall + bearCall + bullPut + bearPut || 1
-    const W = 68, H = 50, amp = 3
+    const W = isMobile ? 60 : 68, H = isMobile ? 60 : 50, amp = 3
     const quads = isMobile
       ? [
-        { id: 'bc', lbl: 'BULL CALLS', val: bullCall, color: '#10b981', x: 2, y: 4 },
-        { id: 'rc', lbl: 'BEAR CALLS', val: bearCall, color: '#ef4444', x: 76, y: 4 },
-        { id: 'bp', lbl: 'BULL PUTS', val: bullPut, color: '#3b82f6', x: 150, y: 4 },
-        { id: 'rp', lbl: 'BEAR PUTS', val: bearPut, color: '#f97316', x: 224, y: 4 },
+        { id: 'bc', lbl: 'BULL CALLS', val: bullCall, color: '#10b981', x: 2, y: 5 },
+        { id: 'rc', lbl: 'BEAR CALLS', val: bearCall, color: '#ef4444', x: 64, y: 5 },
+        { id: 'bp', lbl: 'BULL PUTS', val: bullPut, color: '#3b82f6', x: 178, y: 5 },
+        { id: 'rp', lbl: 'BEAR PUTS', val: bearPut, color: '#f97316', x: 240, y: 5 },
       ]
       : [
         { id: 'bc', lbl: 'BULL CALLS', val: bullCall, color: '#10b981', x: 2, y: 4 },
@@ -2278,12 +2278,13 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
     const scoreColor = absScore < 0.2 ? '#eab308' : score > 0 ? '#10b981' : '#ef4444'
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: isMobile ? '6px 4px 2px' : '10px 4px 4px', width: '100%' }}>
-        <svg width={isMobile ? '100%' : '200'} {...(isMobile ? {} : { height: '148' })} viewBox={isMobile ? '0 0 294 58' : '0 0 160 118'} style={{ overflow: 'visible' }}>
+        <svg width={isMobile ? '100%' : '200'} {...(isMobile ? {} : { height: '148' })} viewBox={isMobile ? '0 0 302 70' : '0 0 160 118'} style={{ overflow: 'visible' }}>
           <style>{`
             @keyframes fqw0{from{transform:translateX(0px)}to{transform:translateX(-${W}px)}}
             @keyframes fqw1{from{transform:translateX(0px)}to{transform:translateX(-${W}px)}}
             @keyframes fqw2{from{transform:translateX(0px)}to{transform:translateX(-${W}px)}}
             @keyframes fqw3{from{transform:translateX(0px)}to{transform:translateX(-${W}px)}}
+            @keyframes fqcwave{from{transform:translateX(0px)}to{transform:translateX(-52px)}}
           `}</style>
           {quads.map((q, i) => {
             const fill = q.val / total
@@ -2316,6 +2317,42 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
               </g>
             )
           })}
+          {/* Center score circle — mobile only */}
+          {isMobile && (() => {
+            const cx = 151, cy = 35, r = 24, rt = 32
+            const fillColor = score >= 0 ? '#10b981' : '#ef4444'
+            const fillPct = Math.max(0.08, Math.min(0.92, 0.2 + Math.abs(score) * 0.45))
+            const liquidH = r * 2 * fillPct
+            const waveY = cy - r + (r * 2 - liquidH)
+            const bottom = cy + r
+            const Wc = 52, ampc = 2.5
+            const wxc = cx - r - Wc
+            const wpc = `M${wxc} ${waveY} ` +
+              `q${Wc/4} ${-ampc} ${Wc/2} 0 q${Wc/4} ${ampc} ${Wc/2} 0 ` +
+              `q${Wc/4} ${-ampc} ${Wc/2} 0 q${Wc/4} ${ampc} ${Wc/2} 0 ` +
+              `q${Wc/4} ${-ampc} ${Wc/2} 0 q${Wc/4} ${ampc} ${Wc/2} 0 ` +
+              `V${bottom} H${wxc} Z`
+            return (
+              <>
+                <defs>
+                  <clipPath id="fq-circle-clip"><circle cx={cx} cy={cy} r={r} /></clipPath>
+                  <path id="fq-arc-top" d={`M ${cx - rt},${cy} A ${rt},${rt} 0 0,1 ${cx + rt},${cy}`} />
+                </defs>
+                <circle cx={cx} cy={cy} r={r} fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.08)" strokeWidth="0.5" />
+                <g clipPath="url(#fq-circle-clip)">
+                  <rect x={cx - r} y={Math.max(cy - r, waveY + ampc)} width={r * 2} height={Math.max(0, bottom - Math.max(cy - r, waveY + ampc))} fill={fillColor} opacity={0.3} />
+                  <g style={{ animationName: 'fqcwave', animationDuration: '2.2s', animationTimingFunction: 'linear', animationIterationCount: 'infinite' }}>
+                    <path d={wpc} fill={fillColor} opacity={0.7} />
+                  </g>
+                </g>
+                <circle cx={cx} cy={cy} r={r} fill="none" stroke={scoreColor} strokeWidth="1.5" />
+                <text textAnchor="middle" dominantBaseline="middle" x={cx} y={cy} fill="#ffffff" fontSize="12" fontFamily="JetBrains Mono,monospace" fontWeight="900" style={{ textShadow: `0 0 6px ${fillColor}` }}>{score.toFixed(2)}</text>
+                <text fill="#ff8500" fontSize="5.5" fontFamily="JetBrains Mono,monospace" fontWeight="800" letterSpacing="0.6">
+                  <textPath href="#fq-arc-top" startOffset="50%" textAnchor="middle">ALGOFLOW SCORE</textPath>
+                </text>
+              </>
+            )
+          })()}
           {/* Center neutral circle — desktop only */}
           {!isMobile && (
             <>
@@ -2326,7 +2363,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
           )}
         </svg>
         {isMobile
-          ? <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, fontWeight: 800, color: '#ff8500', letterSpacing: '0.18em', marginTop: 2 }}>{label} <span style={{ color: scoreColor }}>{score.toFixed(2)}</span></div>
+          ? null
           : <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 800, color: '#ff8500', letterSpacing: '0.22em', marginTop: 10 }}>{label}</div>
         }
       </div>
@@ -2927,46 +2964,20 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
 
                 {/* P/C + Execution — compact single row on mobile, full panels on desktop */}
                 {isMobile ? (
-                  <div style={{ gridColumn: '1 / -1', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                    {/* Stat row */}
-                    <div style={{ display: 'flex', alignItems: 'stretch' }}>
-                      {/* PC RATIO */}
-                      <div style={{ flex: '0 0 auto', padding: '6px 10px', background: 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 50%, #111 100%)', borderRight: '1px solid #333', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(0,0,0,0.4)', position: 'relative', overflow: 'hidden' }}>
-                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '45%', background: 'linear-gradient(180deg, rgba(255,255,255,0.1) 0%, transparent 100%)', pointerEvents: 'none' }} />
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: '#fff', fontWeight: 700, letterSpacing: '0.1em' }}>P/C</span>
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 900, color: analysis.callPutRatio > 1.2 ? '#ef4444' : analysis.callPutRatio < 0.8 ? '#10b981' : '#fff', lineHeight: 1 }}>{analysis.callPutRatio.toFixed(2)}</span>
-                      </div>
-                      {/* CALLS */}
-                      <div style={{ flex: 1, padding: '6px 8px', background: 'linear-gradient(180deg, #0d2018 0%, #061410 50%, #0a1a10 100%)', borderRight: '1px solid #333', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 1, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.4)', position: 'relative', overflow: 'hidden' }}>
-                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '45%', background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, transparent 100%)', pointerEvents: 'none' }} />
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                          <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: '#10b981', fontWeight: 700, letterSpacing: '0.1em' }}>CALLS</span>
-                          <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, color: '#10b981', fontWeight: 900 }}>{analysis.aggressiveCalls.toLocaleString()}</span>
-                        </div>
-                        <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#10b981', fontWeight: 900, textAlign: 'right' }}>{fmtCompact(displayAnalysis?.totalCallPremium ?? 0)}</div>
-                      </div>
-                      {/* PUTS */}
-                      <div style={{ flex: 1, padding: '6px 8px', background: 'linear-gradient(180deg, #200d0d 0%, #140606 50%, #1a0a0a 100%)', borderRight: '1px solid #333', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 1, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.4)', position: 'relative', overflow: 'hidden' }}>
-                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '45%', background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, transparent 100%)', pointerEvents: 'none' }} />
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                          <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: '#ef4444', fontWeight: 700, letterSpacing: '0.1em' }}>PUTS</span>
-                          <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, color: '#ef4444', fontWeight: 900 }}>{analysis.aggressivePuts.toLocaleString()}</span>
-                        </div>
-                        <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#ef4444', fontWeight: 900, textAlign: 'right' }}>{fmtCompact(displayAnalysis?.totalPutPremium ?? 0)}</div>
-                      </div>
-                      {/* SWEEPS */}
-                      <div style={{ flex: 1, padding: '6px 8px', background: 'linear-gradient(180deg, #1f1600 0%, #140f00 50%, #1a1200 100%)', borderRight: '1px solid #333', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 1, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.4)', position: 'relative', overflow: 'hidden' }}>
-                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '45%', background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, transparent 100%)', pointerEvents: 'none' }} />
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: '#eab308', fontWeight: 700, letterSpacing: '0.1em' }}>SWEEPS</span>
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, color: '#eab308', fontWeight: 900, lineHeight: 1 }}>{analysis.sweepCount.toLocaleString()}</span>
-                      </div>
-                      {/* BLOCKS */}
-                      <div style={{ flex: 1, padding: '6px 8px', background: 'linear-gradient(180deg, #001822 0%, #00101a 50%, #001420 100%)', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 1, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.4)', position: 'relative', overflow: 'hidden' }}>
-                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '45%', background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, transparent 100%)', pointerEvents: 'none' }} />
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: '#22d3ee', fontWeight: 700, letterSpacing: '0.1em' }}>BLOCKS</span>
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, color: '#22d3ee', fontWeight: 900, lineHeight: 1 }}>{analysis.blockCount.toLocaleString()}</span>
-                      </div>
-                    </div>
+                  <div style={{ gridColumn: '1 / -1', borderBottom: '1px solid rgba(255,255,255,0.08)', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 0, flexWrap: 'nowrap', overflow: 'hidden', background: 'rgba(0,0,0,0.3)' }}>
+                    {([
+                      { label: 'PC', value: analysis.callPutRatio.toFixed(2), color: analysis.callPutRatio > 1.2 ? '#ef4444' : analysis.callPutRatio < 0.8 ? '#10b981' : '#fff' },
+                      { label: 'Calls', value: fmtCompact(displayAnalysis?.totalCallPremium ?? 0), color: '#10b981' },
+                      { label: 'Puts', value: fmtCompact(displayAnalysis?.totalPutPremium ?? 0), color: '#ef4444' },
+                      { label: 'Sweeps', value: analysis.sweepCount.toLocaleString(), color: '#eab308' },
+                      { label: 'Blocks', value: analysis.blockCount.toLocaleString(), color: '#22d3ee' },
+                    ] as const).map((item, idx) => (
+                      <React.Fragment key={item.label}>
+                        {idx > 0 && <span style={{ color: 'rgba(255,255,255,0.35)', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, padding: '0 5px', flexShrink: 0 }}>·</span>}
+                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#ffffff', fontWeight: 600, flexShrink: 0 }}>{item.label}:</span>
+                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: item.color, fontWeight: 900, marginLeft: 3, flexShrink: 0 }}>{item.value}</span>
+                      </React.Fragment>
+                    ))}
                   </div>
                 ) : (
                   <>
@@ -3082,8 +3093,8 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
 
               {/* RIGHT: Chart */}
               <div style={{ flex: 1, minWidth: 0, width: isMobile ? '100%' : undefined }}>
-                {/* Chart toolbar */}
-                <div className="algo-chart-toolbar" style={{ padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', flexWrap: isMobile ? 'nowrap' : undefined, position: 'relative', minHeight: 36, gap: isMobile ? 4 : 0, overflowX: isMobile ? 'auto' : undefined }}>
+                {/* Chart toolbar — desktop only; mobile controls overlaid inside chart */}
+                <div className="algo-chart-toolbar" style={{ padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: isMobile ? 'none' : 'flex', alignItems: 'center', position: 'relative', minHeight: 36, gap: 0 }}>
                   {/* LEFT: ticker + FLOW + timeframe buttons */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                     {drilledTicker && (
@@ -3100,7 +3111,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                     )}
                     <span style={{ color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: isMobile ? 14 : 21, fontWeight: 900, letterSpacing: '0.1em', marginRight: 2 }}>{analysis.ticker}</span>
                     {analysis.currentPrice > 0 && !isMobile && <span style={{ color: '#aaa', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 700, marginRight: 4 }}>${analysis.currentPrice.toFixed(2)}</span>}
-                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: isMobile ? 10 : 13, fontWeight: 800, letterSpacing: '0.12em', padding: '1px 6px', borderRadius: 2, marginRight: isMobile ? 4 : 10, background: displayAnalysis?.flowTrend === 'BULLISH' ? 'rgba(16,185,129,0.15)' : displayAnalysis?.flowTrend === 'BEARISH' ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.15)', color: displayAnalysis?.flowTrend === 'BULLISH' ? '#10b981' : displayAnalysis?.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308', border: `1px solid ${displayAnalysis?.flowTrend === 'BULLISH' ? '#10b981' : displayAnalysis?.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308'}` }}>{displayAnalysis?.flowTrend}</span>
+                    {!isMobile && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, letterSpacing: '0.12em', padding: '1px 6px', borderRadius: 2, marginRight: 10, background: displayAnalysis?.flowTrend === 'BULLISH' ? 'rgba(16,185,129,0.15)' : displayAnalysis?.flowTrend === 'BEARISH' ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.15)', color: displayAnalysis?.flowTrend === 'BULLISH' ? '#10b981' : displayAnalysis?.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308', border: `1px solid ${displayAnalysis?.flowTrend === 'BULLISH' ? '#10b981' : displayAnalysis?.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308'}` }}>{displayAnalysis?.flowTrend}</span>}
                     {!isMobile && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, color: '#fff', letterSpacing: '0.15em', marginRight: 4 }}>FLOW</span>}
                     {CHART_VIEW_OPTIONS.filter(o => o.days <= getScanDays(scanTimeframe)).map(({ label, days }) => (
                       <button key={label} onClick={() => { setChartDisplayDays(days); setBrushIndices(null) }} style={{ padding: isMobile ? '2px 5px' : '2px 8px', fontFamily: 'JetBrains Mono,monospace', fontSize: isMobile ? 11 : 16, fontWeight: 800, letterSpacing: '0.1em', border: '1px solid rgba(255,165,0,0.6)', background: chartDisplayDays === days ? '#ff8500' : 'transparent', color: chartDisplayDays === days ? '#000' : '#ff8500', cursor: 'pointer' }}>{label}</button>
@@ -3182,6 +3193,31 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                   onMouseUp={() => { chartDragRef.current.dragging = false }}
                   onMouseLeave={() => { chartDragRef.current.dragging = false }}
                 >
+                  {/* Mobile overlay controls — ticker + timeframe + view mode */}
+                  {isMobile && (
+                    <div style={{ position: 'absolute', top: 6, left: 6, right: 6, zIndex: 10, display: 'flex', alignItems: 'center', gap: 3, pointerEvents: 'none' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 3, pointerEvents: 'auto' }}>
+                        {drilledTicker && (
+                          <button onClick={() => { if (!allScanCacheRef.current) return; setDrilledTicker(null); setSearchTicker('ALL'); setFlowData(allScanCacheRef.current.flowData); setAnalysis(allScanCacheRef.current.analysis) }} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, padding: '2px 6px', background: 'rgba(255,133,0,0.85)', border: '1px solid #ff8500', color: '#000', cursor: 'pointer', borderRadius: 3 }}>← ALL</button>
+                        )}
+                        <span style={{ color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 900, letterSpacing: '0.1em', background: 'rgba(0,0,0,0.6)', padding: '1px 5px', borderRadius: 3 }}>{analysis.ticker}</span>
+                        {CHART_VIEW_OPTIONS.filter(o => o.days <= getScanDays(scanTimeframe)).map(({ label, days }) => (
+                          <button key={label} onClick={() => { setChartDisplayDays(days); setBrushIndices(null) }} style={{ padding: '2px 5px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, border: '1px solid rgba(255,165,0,0.7)', background: chartDisplayDays === days ? '#ff8500' : 'rgba(0,0,0,0.65)', color: chartDisplayDays === days ? '#000' : '#ff8500', cursor: 'pointer', borderRadius: 2 }}>{label}</button>
+                        ))}
+                        {brushIndices && (
+                          <button onClick={() => setBrushIndices(null)} style={{ padding: '2px 6px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, border: '1px solid rgba(255,255,255,0.4)', background: 'rgba(0,0,0,0.65)', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', borderRadius: 2 }}>RESET</button>
+                        )}
+                      </div>
+                      <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', pointerEvents: 'auto', background: 'rgba(0,0,0,0.45)', borderRadius: 3, padding: '1px 4px' }}>
+                        {([['detailed', 'ALL'], ['simplified', 'BULL/BEAR'], ['net', 'NET']] as const).map(([mode, lbl], idx) => (
+                          <React.Fragment key={mode}>
+                            {idx > 0 && <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 9, fontFamily: 'JetBrains Mono,monospace', padding: '0 3px', userSelect: 'none', lineHeight: 1 }}>|</span>}
+                            <button onClick={() => setChartViewMode(mode)} style={{ padding: '2px 5px 4px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, border: 'none', background: 'none', color: chartViewMode === mode ? '#ff8500' : '#ffffff', cursor: 'pointer', whiteSpace: 'nowrap', borderBottom: chartViewMode === mode ? '2px solid #ff8500' : '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>{lbl}</button>
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {/* Glossy top-edge sheen */}
                   <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 32, background: 'linear-gradient(180deg, rgba(255,255,255,0.035) 0%, transparent 100%)', pointerEvents: 'none', zIndex: 2 }} />
                   <div ref={mainChartWrapRef} style={{ height: isMobile ? 400 : 445, flexShrink: 0, overflow: 'hidden', borderBottom: '2px solid rgba(167,139,250,0.55)' }}>
@@ -3241,7 +3277,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                         return <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 800, color: col }}>{val.toFixed(2)}</span>
                       })()}
                     </div>
-                    <ResponsiveContainer width="100%" height={100} debounce={50}>
+                    <ResponsiveContainer width="100%" height={isMobile ? 70 : 100} debounce={50}>
                       <LineChart data={chartMemo.visibleData} margin={{ top: 6, right: 0, bottom: 0, left: 30 }}>
                         <XAxis dataKey="timeLabel" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#ffffff', fontSize: isMobile ? 9 : 16, fontWeight: 'bold' }} height={isMobile ? 22 : 36} interval={isMobile ? Math.max(0, Math.floor(chartMemo.visibleData.length / 5) - 1) : chartMemo.xInterval} padding={{ left: 10, right: 10 }}
                           tickFormatter={(label: string) => {

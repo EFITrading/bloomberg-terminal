@@ -228,6 +228,7 @@ export default function FlowTrackingPanel({
   const [chartSymbolInput, setChartSymbolInput] = useState('SPY')
   const [trackedFlows, setTrackedFlows] = useState<OptionsFlowData[]>([])
   const { isMobile, swipedFlowId, setSwipedFlowId, touchStart, setTouchStart, touchCurrent, setTouchCurrent } = useFlowTrackingPanelMobile()
+
   const [flowTrackingFilters, setFlowTrackingFilters] = useState({
     gradeFilter: 'ALL' as 'ALL' | 'A' | 'B' | 'C' | 'D' | 'F',
     typeFilter: 'ALL' as 'ALL' | 'NOTABLE' | 'LEAPS',
@@ -991,7 +992,7 @@ export default function FlowTrackingPanel({
           {/* Tracking scrollable content */}
           <div
             className="overflow-y-auto overflow-x-hidden p-3"
-            style={isMobile ? { flex: '0 0 auto', minHeight: 0, maxHeight: '45%' } : { flex: '1 1 45%', minHeight: 0, maxHeight: '45%' }}
+            style={isMobile ? { flex: '1 1 0', minHeight: 0 } : { flex: '1 1 45%', minHeight: 0, maxHeight: '45%' }}
           >
             {trackedFlows.length === 0 ? (
               <div className="text-center py-12 text-orange-400">
@@ -1652,7 +1653,7 @@ export default function FlowTrackingPanel({
             )}
           </div>
           {/* EFI Chart */}
-          {!hideChart && (<div ref={chartContainerRef} style={{ flex: isMobile ? '1 1 0' : '1 1 55%', minHeight: 0, ...(isMobile ? { marginTop: 'auto' } : {}), position: 'relative', overflow: 'hidden', borderTop: '1px solid #1f2937' }}>
+          {!hideChart && !isMobile && (<div ref={chartContainerRef} style={{ flex: '1 1 55%', minHeight: 0, position: 'relative', overflow: 'hidden', borderTop: '1px solid #1f2937' }}>
             {/* Chart fills full 55% */}
             <div style={{ width: '100%', height: '100%' }}>
               <style>{`

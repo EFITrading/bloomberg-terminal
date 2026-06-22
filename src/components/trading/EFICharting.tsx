@@ -35994,11 +35994,14 @@ export default function TradingViewChart({
                which meant its z:99999 was LOCAL to that context and lost to the nav's z:10000. */}
           {showSettings && isMounted && createPortal(
             <div
-              className="rounded-2xl w-[525px] overflow-hidden"
+              className="overflow-hidden"
               style={{
                 position: 'fixed',
-                top: '96px',
-                right: '16px',
+                top: isMobile ? '56px' : '96px',
+                right: isMobile ? 0 : '16px',
+                left: isMobile ? 0 : 'auto',
+                width: isMobile ? '100%' : '525px',
+                borderRadius: isMobile ? '0 0 16px 16px' : '16px',
                 zIndex: 200000,
                 background: 'linear-gradient(180deg, #111111 0%, #000000 40%, #0a0a0a 100%)',
                 border: '1px solid rgba(255,255,255,0.18)',
@@ -36006,18 +36009,18 @@ export default function TradingViewChart({
               }}
             >
               {/* Scrollable body */}
-              <div className="overflow-y-auto px-4 pb-2 space-y-3" style={{ maxHeight: 'calc(100vh - 110px)', paddingTop: '16px' }}>
+              <div className="overflow-y-auto pb-8 space-y-2" style={{ maxHeight: isMobile ? 'calc(100dvh - 160px)' : 'calc(100vh - 110px)', paddingTop: isMobile ? '10px' : '16px', paddingLeft: isMobile ? '10px' : '16px', paddingRight: isMobile ? '10px' : '16px' }}>
 
                 {/* ── Title row ── */}
                 <div className="flex items-center mb-1 px-1" style={{ position: 'relative' }}>
-                  <span style={{ flex: 1, textAlign: 'center', color: '#ffffff', fontSize: '22px', fontWeight: 900, letterSpacing: '0.1em' }}>CHART SETTINGS</span>
+                  <span style={{ flex: 1, textAlign: 'center', color: '#ffffff', fontSize: isMobile ? '15px' : '22px', fontWeight: 900, letterSpacing: '0.1em' }}>CHART SETTINGS</span>
                   <button
                     onClick={() => setShowSettings(false)}
-                    style={{ position: 'absolute', right: 0, top: '-6px', background: 'rgba(220,38,38,0.15)', border: '1px solid rgba(220,38,38,0.6)', borderRadius: '10px', width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
+                    style={{ position: 'absolute', right: 0, top: isMobile ? '-2px' : '-6px', background: 'rgba(220,38,38,0.15)', border: '1px solid rgba(220,38,38,0.6)', borderRadius: '8px', width: isMobile ? '32px' : '44px', height: isMobile ? '32px' : '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
                     onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(220,38,38,0.35)' }}
                     onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(220,38,38,0.15)' }}
                   >
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                    <svg width={isMobile ? 16 : 22} height={isMobile ? 16 : 22} viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                   </button>
                 </div>
                 <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', marginBottom: '4px' }} />
@@ -36025,15 +36028,15 @@ export default function TradingViewChart({
                 {/* ── Y-Axis Settings ── */}
                 <div className="rounded-xl p-4 space-y-4" style={{ background: 'linear-gradient(180deg, #161616 0%, #0d0d0d 100%)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
                   <div className="flex items-center gap-2">
-                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#4d9fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="20" x2="12" y2="4" /><polyline points="6 10 12 4 18 10" /></svg>
-                    <span style={{ color: '#4d9fff', fontSize: '16px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Y-Axis — Price</span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4d9fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="20" x2="12" y2="4" /><polyline points="6 10 12 4 18 10" /></svg>
+                    <span style={{ color: '#4d9fff', fontSize: isMobile ? '12px' : '16px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Y-Axis — Price</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span style={{ color: '#ffffff', fontSize: '16px', fontWeight: 500 }}>Text Size</span>
-                    <div className="flex items-center gap-3">
-                      <input type="range" min="8" max="20" value={config.axisStyle.yAxis.textSize} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, axisStyle: { ...prev.axisStyle, yAxis: { ...prev.axisStyle.yAxis, textSize: parseInt(e.target.value) } } }))} className="w-28 h-1.5 rounded-full appearance-none cursor-pointer" style={{ background: `linear-gradient(to right, #4d9fff 0%, #4d9fff ${((config.axisStyle.yAxis.textSize - 8) / 12) * 100}%, rgba(255,255,255,0.15) ${((config.axisStyle.yAxis.textSize - 8) / 12) * 100}%, rgba(255,255,255,0.15) 100%)` }} />
-                      <span style={{ color: '#ffffff', fontSize: '16px', fontWeight: 700, fontFamily: 'monospace', width: '40px', textAlign: 'right' }}>{config.axisStyle.yAxis.textSize}px</span>
-                      <input type="color" value={config.axisStyle.yAxis.textColor} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, axisStyle: { ...prev.axisStyle, yAxis: { ...prev.axisStyle.yAxis, textColor: e.target.value } } }))} className="w-10 h-10 rounded-lg cursor-pointer" style={{ border: '2px solid rgba(255,255,255,0.25)', padding: '1px', background: 'transparent' }} />
+                    <span style={{ color: '#ffffff', fontSize: isMobile ? '12px' : '16px', fontWeight: 500 }}>Text Size</span>
+                    <div className="flex items-center gap-2">
+                      <input type="range" min="8" max="20" value={config.axisStyle.yAxis.textSize} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, axisStyle: { ...prev.axisStyle, yAxis: { ...prev.axisStyle.yAxis, textSize: parseInt(e.target.value) } } }))} className="h-1.5 rounded-full appearance-none cursor-pointer" style={{ width: isMobile ? '80px' : '112px', background: `linear-gradient(to right, #4d9fff 0%, #4d9fff ${((config.axisStyle.yAxis.textSize - 8) / 12) * 100}%, rgba(255,255,255,0.15) ${((config.axisStyle.yAxis.textSize - 8) / 12) * 100}%, rgba(255,255,255,0.15) 100%)` }} />
+                      <span style={{ color: '#ffffff', fontSize: isMobile ? '12px' : '16px', fontWeight: 700, fontFamily: 'monospace', width: '36px', textAlign: 'right' }}>{config.axisStyle.yAxis.textSize}px</span>
+                      <input type="color" value={config.axisStyle.yAxis.textColor} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, axisStyle: { ...prev.axisStyle, yAxis: { ...prev.axisStyle.yAxis, textColor: e.target.value } } }))} className="rounded-lg cursor-pointer" style={{ width: isMobile ? '32px' : '40px', height: isMobile ? '32px' : '40px', border: '2px solid rgba(255,255,255,0.25)', padding: '1px', background: 'transparent' }} />
                     </div>
                   </div>
                 </div>
@@ -36041,15 +36044,15 @@ export default function TradingViewChart({
                 {/* ── X-Axis Settings ── */}
                 <div className="rounded-xl p-4 space-y-4" style={{ background: 'linear-gradient(180deg, #161616 0%, #0d0d0d 100%)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
                   <div className="flex items-center gap-2">
-                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#4d9fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="12" x2="20" y2="12" /><polyline points="14 6 20 12 14 18" /></svg>
-                    <span style={{ color: '#4d9fff', fontSize: '16px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>X-Axis — Time</span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4d9fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="12" x2="20" y2="12" /><polyline points="14 6 20 12 14 18" /></svg>
+                    <span style={{ color: '#4d9fff', fontSize: isMobile ? '12px' : '16px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>X-Axis — Time</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span style={{ color: '#ffffff', fontSize: '16px', fontWeight: 500 }}>Text Size</span>
-                    <div className="flex items-center gap-3">
-                      <input type="range" min="8" max="20" value={config.axisStyle.xAxis.textSize} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, axisStyle: { ...prev.axisStyle, xAxis: { ...prev.axisStyle.xAxis, textSize: parseInt(e.target.value) } } }))} className="w-28 h-1.5 rounded-full appearance-none cursor-pointer" style={{ background: `linear-gradient(to right, #4d9fff 0%, #4d9fff ${((config.axisStyle.xAxis.textSize - 8) / 12) * 100}%, rgba(255,255,255,0.15) ${((config.axisStyle.xAxis.textSize - 8) / 12) * 100}%, rgba(255,255,255,0.15) 100%)` }} />
-                      <span style={{ color: '#ffffff', fontSize: '16px', fontWeight: 700, fontFamily: 'monospace', width: '40px', textAlign: 'right' }}>{config.axisStyle.xAxis.textSize}px</span>
-                      <input type="color" value={config.axisStyle.xAxis.textColor} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, axisStyle: { ...prev.axisStyle, xAxis: { ...prev.axisStyle.xAxis, textColor: e.target.value } } }))} className="w-10 h-10 rounded-lg cursor-pointer" style={{ border: '2px solid rgba(255,255,255,0.25)', padding: '1px', background: 'transparent' }} />
+                    <span style={{ color: '#ffffff', fontSize: isMobile ? '12px' : '16px', fontWeight: 500 }}>Text Size</span>
+                    <div className="flex items-center gap-2">
+                      <input type="range" min="8" max="20" value={config.axisStyle.xAxis.textSize} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, axisStyle: { ...prev.axisStyle, xAxis: { ...prev.axisStyle.xAxis, textSize: parseInt(e.target.value) } } }))} className="h-1.5 rounded-full appearance-none cursor-pointer" style={{ width: isMobile ? '80px' : '112px', background: `linear-gradient(to right, #4d9fff 0%, #4d9fff ${((config.axisStyle.xAxis.textSize - 8) / 12) * 100}%, rgba(255,255,255,0.15) ${((config.axisStyle.xAxis.textSize - 8) / 12) * 100}%, rgba(255,255,255,0.15) 100%)` }} />
+                      <span style={{ color: '#ffffff', fontSize: isMobile ? '12px' : '16px', fontWeight: 700, fontFamily: 'monospace', width: '36px', textAlign: 'right' }}>{config.axisStyle.xAxis.textSize}px</span>
+                      <input type="color" value={config.axisStyle.xAxis.textColor} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, axisStyle: { ...prev.axisStyle, xAxis: { ...prev.axisStyle.xAxis, textColor: e.target.value } } }))} className="rounded-lg cursor-pointer" style={{ width: isMobile ? '32px' : '40px', height: isMobile ? '32px' : '40px', border: '2px solid rgba(255,255,255,0.25)', padding: '1px', background: 'transparent' }} />
                     </div>
                   </div>
                 </div>
@@ -36058,99 +36061,99 @@ export default function TradingViewChart({
                 <div className="rounded-xl p-4" style={{ background: 'linear-gradient(180deg, #161616 0%, #0d0d0d 100%)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="12" cy="12" r="3" /></svg>
-                      <span style={{ color: '#a78bfa', fontSize: '16px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Background</span>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="12" cy="12" r="3" /></svg>
+                      <span style={{ color: '#a78bfa', fontSize: isMobile ? '12px' : '16px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Background</span>
                     </div>
-                    <input type="color" value={config.backgroundColor} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, backgroundColor: e.target.value }))} className="w-12 h-12 rounded-lg cursor-pointer" style={{ border: '2px solid rgba(167,139,250,0.4)', padding: '2px', background: 'transparent' }} />
+                    <input type="color" value={config.backgroundColor} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, backgroundColor: e.target.value }))} className="rounded-lg cursor-pointer" style={{ width: isMobile ? '32px' : '48px', height: isMobile ? '32px' : '48px', border: '2px solid rgba(167,139,250,0.4)', padding: '2px', background: 'transparent' }} />
                   </div>
                 </div>
 
                 {/* ── Grid Lines ── */}
                 <div className="rounded-xl p-4 space-y-3" style={{ background: 'linear-gradient(180deg, #161616 0%, #0d0d0d 100%)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
                   <div className="flex items-center gap-2">
-                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="8" x2="21" y2="8" /><line x1="3" y1="16" x2="21" y2="16" /><line x1="8" y1="3" x2="8" y2="21" /><line x1="16" y1="3" x2="16" y2="21" /></svg>
-                    <span style={{ color: '#fbbf24', fontSize: '16px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Grid Lines</span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="8" x2="21" y2="8" /><line x1="3" y1="16" x2="21" y2="16" /><line x1="8" y1="3" x2="8" y2="21" /><line x1="16" y1="3" x2="16" y2="21" /></svg>
+                    <span style={{ color: '#fbbf24', fontSize: isMobile ? '12px' : '16px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Grid Lines</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span style={{ color: '#ffffff', fontSize: '16px', fontWeight: 500 }}>Show Grid</span>
-                    <button onClick={() => setConfig((prev) => ({ ...prev, showGrid: !prev.showGrid }))} className="relative flex-shrink-0 rounded-full transition-all" style={{ width: '48px', height: '26px', background: config.showGrid ? '#4d9fff' : 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)' }}>
-                      <span className="absolute top-0.5 w-5 h-5 bg-white rounded-full transition-all shadow-md" style={{ left: config.showGrid ? '24px' : '2px', transitionProperty: 'left', transitionDuration: '150ms' }} />
+                    <span style={{ color: '#ffffff', fontSize: isMobile ? '12px' : '16px', fontWeight: 500 }}>Show Grid</span>
+                    <button onClick={() => setConfig((prev) => ({ ...prev, showGrid: !prev.showGrid }))} className="relative flex-shrink-0 rounded-full transition-all" style={{ width: isMobile ? '40px' : '48px', height: isMobile ? '22px' : '26px', background: config.showGrid ? '#4d9fff' : 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)' }}>
+                      <span className="absolute top-0.5 bg-white rounded-full transition-all shadow-md" style={{ width: isMobile ? '16px' : '20px', height: isMobile ? '16px' : '20px', left: config.showGrid ? (isMobile ? '20px' : '24px') : '2px', transitionProperty: 'left', transitionDuration: '150ms' }} />
                     </button>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span style={{ color: '#ffffff', fontSize: '16px', fontWeight: 500 }}>Line Color</span>
-                    <input type="color" value={config.gridLineColor} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, gridLineColor: e.target.value }))} className="w-10 h-10 rounded-lg cursor-pointer" style={{ border: '2px solid rgba(251,191,36,0.4)', padding: '1px', background: 'transparent' }} />
+                    <span style={{ color: '#ffffff', fontSize: isMobile ? '12px' : '16px', fontWeight: 500 }}>Line Color</span>
+                    <input type="color" value={config.gridLineColor} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, gridLineColor: e.target.value }))} className="rounded-lg cursor-pointer" style={{ width: isMobile ? '32px' : '40px', height: isMobile ? '32px' : '40px', border: '2px solid rgba(251,191,36,0.4)', padding: '1px', background: 'transparent' }} />
                   </div>
                 </div>
 
                 {/* ── Candle Body ── */}
                 <div className="rounded-xl p-4" style={{ background: 'linear-gradient(180deg, #161616 0%, #0d0d0d 100%)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round"><rect x="8" y="6" width="8" height="12" rx="1" /><line x1="12" y1="2" x2="12" y2="6" /><line x1="12" y1="18" x2="12" y2="22" /></svg>
-                    <span style={{ color: '#ffffff', fontSize: '20px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Candle Body</span>
+                  <div className="flex items-center gap-2 mb-2">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round"><rect x="8" y="6" width="8" height="12" rx="1" /><line x1="12" y1="2" x2="12" y2="6" /><line x1="12" y1="18" x2="12" y2="22" /></svg>
+                    <span style={{ color: '#ffffff', fontSize: isMobile ? '13px' : '20px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Candle Body</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.22)' }}>
-                      <input type="color" value={config.colors.bullish.body} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, bullish: { ...prev.colors.bullish, body: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: '44px', height: '44px', border: '2px solid rgba(74,222,128,0.35)', padding: '2px', background: 'transparent' }} />
-                      <span style={{ color: '#4ade80', fontSize: '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BULLISH</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="flex items-center gap-2 rounded-xl" style={{ padding: isMobile ? '6px 8px' : '12px', background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.22)' }}>
+                      <input type="color" value={config.colors.bullish.body} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, bullish: { ...prev.colors.bullish, body: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: isMobile ? '32px' : '44px', height: isMobile ? '32px' : '44px', border: '2px solid rgba(74,222,128,0.35)', padding: '2px', background: 'transparent' }} />
+                      <span style={{ color: '#4ade80', fontSize: isMobile ? '12px' : '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BULLISH</span>
                     </div>
-                    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.22)' }}>
-                      <input type="color" value={config.colors.bearish.body} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, bearish: { ...prev.colors.bearish, body: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: '44px', height: '44px', border: '2px solid rgba(248,113,113,0.35)', padding: '2px', background: 'transparent' }} />
-                      <span style={{ color: '#f87171', fontSize: '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BEARISH</span>
+                    <div className="flex items-center gap-2 rounded-xl" style={{ padding: isMobile ? '6px 8px' : '12px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.22)' }}>
+                      <input type="color" value={config.colors.bearish.body} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, bearish: { ...prev.colors.bearish, body: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: isMobile ? '32px' : '44px', height: isMobile ? '32px' : '44px', border: '2px solid rgba(248,113,113,0.35)', padding: '2px', background: 'transparent' }} />
+                      <span style={{ color: '#f87171', fontSize: isMobile ? '12px' : '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BEARISH</span>
                     </div>
                   </div>
                 </div>
 
                 {/* ── Candle Borders ── */}
                 <div className="rounded-xl p-4" style={{ background: 'linear-gradient(180deg, #161616 0%, #0d0d0d 100%)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /></svg>
-                    <span style={{ color: '#ffffff', fontSize: '20px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Candle Borders</span>
+                  <div className="flex items-center gap-2 mb-2">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /></svg>
+                    <span style={{ color: '#ffffff', fontSize: isMobile ? '13px' : '20px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Candle Borders</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.22)' }}>
-                      <input type="color" value={config.colors.bullish.border} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, bullish: { ...prev.colors.bullish, border: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: '44px', height: '44px', border: '2px solid rgba(74,222,128,0.35)', padding: '2px', background: 'transparent' }} />
-                      <span style={{ color: '#4ade80', fontSize: '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BULLISH</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="flex items-center gap-2 rounded-xl" style={{ padding: isMobile ? '6px 8px' : '12px', background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.22)' }}>
+                      <input type="color" value={config.colors.bullish.border} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, bullish: { ...prev.colors.bullish, border: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: isMobile ? '32px' : '44px', height: isMobile ? '32px' : '44px', border: '2px solid rgba(74,222,128,0.35)', padding: '2px', background: 'transparent' }} />
+                      <span style={{ color: '#4ade80', fontSize: isMobile ? '12px' : '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BULLISH</span>
                     </div>
-                    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.22)' }}>
-                      <input type="color" value={config.colors.bearish.border} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, bearish: { ...prev.colors.bearish, border: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: '44px', height: '44px', border: '2px solid rgba(248,113,113,0.35)', padding: '2px', background: 'transparent' }} />
-                      <span style={{ color: '#f87171', fontSize: '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BEARISH</span>
+                    <div className="flex items-center gap-2 rounded-xl" style={{ padding: isMobile ? '6px 8px' : '12px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.22)' }}>
+                      <input type="color" value={config.colors.bearish.border} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, bearish: { ...prev.colors.bearish, border: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: isMobile ? '32px' : '44px', height: isMobile ? '32px' : '44px', border: '2px solid rgba(248,113,113,0.35)', padding: '2px', background: 'transparent' }} />
+                      <span style={{ color: '#f87171', fontSize: isMobile ? '12px' : '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BEARISH</span>
                     </div>
                   </div>
                 </div>
 
                 {/* ── Candle Wicks ── */}
                 <div className="rounded-xl p-4" style={{ background: 'linear-gradient(180deg, #161616 0%, #0d0d0d 100%)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="2" x2="12" y2="22" /><rect x="8" y="8" width="8" height="8" rx="1" /></svg>
-                    <span style={{ color: '#ffffff', fontSize: '20px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Candle Wicks</span>
+                  <div className="flex items-center gap-2 mb-2">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="2" x2="12" y2="22" /><rect x="8" y="8" width="8" height="8" rx="1" /></svg>
+                    <span style={{ color: '#ffffff', fontSize: isMobile ? '13px' : '20px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Candle Wicks</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.22)' }}>
-                      <input type="color" value={config.colors.bullish.wick} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, bullish: { ...prev.colors.bullish, wick: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: '44px', height: '44px', border: '2px solid rgba(74,222,128,0.35)', padding: '2px', background: 'transparent' }} />
-                      <span style={{ color: '#4ade80', fontSize: '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BULLISH</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="flex items-center gap-2 rounded-xl" style={{ padding: isMobile ? '6px 8px' : '12px', background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.22)' }}>
+                      <input type="color" value={config.colors.bullish.wick} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, bullish: { ...prev.colors.bullish, wick: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: isMobile ? '32px' : '44px', height: isMobile ? '32px' : '44px', border: '2px solid rgba(74,222,128,0.35)', padding: '2px', background: 'transparent' }} />
+                      <span style={{ color: '#4ade80', fontSize: isMobile ? '12px' : '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BULLISH</span>
                     </div>
-                    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.22)' }}>
-                      <input type="color" value={config.colors.bearish.wick} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, bearish: { ...prev.colors.bearish, wick: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: '44px', height: '44px', border: '2px solid rgba(248,113,113,0.35)', padding: '2px', background: 'transparent' }} />
-                      <span style={{ color: '#f87171', fontSize: '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BEARISH</span>
+                    <div className="flex items-center gap-2 rounded-xl" style={{ padding: isMobile ? '6px 8px' : '12px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.22)' }}>
+                      <input type="color" value={config.colors.bearish.wick} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, bearish: { ...prev.colors.bearish, wick: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: isMobile ? '32px' : '44px', height: isMobile ? '32px' : '44px', border: '2px solid rgba(248,113,113,0.35)', padding: '2px', background: 'transparent' }} />
+                      <span style={{ color: '#f87171', fontSize: isMobile ? '12px' : '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BEARISH</span>
                     </div>
                   </div>
                 </div>
 
                 {/* ── Volume Bars ── */}
                 <div className="rounded-xl p-4" style={{ background: 'linear-gradient(180deg, #161616 0%, #0d0d0d 100%)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>
-                    <span style={{ color: '#ffffff', fontSize: '20px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Volume Bars</span>
+                  <div className="flex items-center gap-2 mb-2">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>
+                    <span style={{ color: '#ffffff', fontSize: isMobile ? '13px' : '20px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Volume Bars</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.22)' }}>
-                      <input type="color" value={config.colors.volume.bullish} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, volume: { ...prev.colors.volume, bullish: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: '44px', height: '44px', border: '2px solid rgba(74,222,128,0.35)', padding: '2px', background: 'transparent' }} />
-                      <span style={{ color: '#4ade80', fontSize: '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BULLISH</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="flex items-center gap-2 rounded-xl" style={{ padding: isMobile ? '6px 8px' : '12px', background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.22)' }}>
+                      <input type="color" value={config.colors.volume.bullish} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, volume: { ...prev.colors.volume, bullish: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: isMobile ? '32px' : '44px', height: isMobile ? '32px' : '44px', border: '2px solid rgba(74,222,128,0.35)', padding: '2px', background: 'transparent' }} />
+                      <span style={{ color: '#4ade80', fontSize: isMobile ? '12px' : '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BULLISH</span>
                     </div>
-                    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.22)' }}>
-                      <input type="color" value={config.colors.volume.bearish} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, volume: { ...prev.colors.volume, bearish: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: '44px', height: '44px', border: '2px solid rgba(248,113,113,0.35)', padding: '2px', background: 'transparent' }} />
-                      <span style={{ color: '#f87171', fontSize: '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BEARISH</span>
+                    <div className="flex items-center gap-2 rounded-xl" style={{ padding: isMobile ? '6px 8px' : '12px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.22)' }}>
+                      <input type="color" value={config.colors.volume.bearish} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig((prev) => ({ ...prev, colors: { ...prev.colors, volume: { ...prev.colors.volume, bearish: e.target.value } } }))} className="flex-shrink-0 rounded-lg cursor-pointer" style={{ width: isMobile ? '32px' : '44px', height: isMobile ? '32px' : '44px', border: '2px solid rgba(248,113,113,0.35)', padding: '2px', background: 'transparent' }} />
+                      <span style={{ color: '#f87171', fontSize: isMobile ? '12px' : '16px', fontWeight: 700, letterSpacing: '0.06em' }}>BEARISH</span>
                     </div>
                   </div>
                 </div>

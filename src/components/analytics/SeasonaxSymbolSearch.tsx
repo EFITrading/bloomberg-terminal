@@ -446,29 +446,39 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
           </select>
         )}
 
-        <div className={`election-dropdown-container${isElectionDropdownOpen ? ' open' : ''}`}>
-          <button
-            className={`election-btn${isElectionActive ? ' active' : ' inactive'}`}
-            onClick={() => { setIsElectionDropdownOpen(!isElectionDropdownOpen); setIsOpen(false); setIsXtraDropdownOpen(false) }}
+        {isMobileView ? (
+          <select
+            className="date-select"
+            value={displayElection}
+            onChange={(e) => handleElectionSelect(e.target.value)}
+            style={{ borderColor: isElectionActive ? '#ff8800' : undefined, color: isElectionActive ? '#ff8800' : undefined }}
           >
-            <span className="election-text">{isElectionActive ? displayElection : (isMobileView ? 'Election' : 'Election Modes')}</span>
-            <span className="dropdown-arrow">▼</span>
-          </button>
-          {isElectionDropdownOpen && (
-            <div className="election-dropdown">
-              {electionPeriods.map((period) => (
-                <div
-                  key={period}
-                  className={`election-option${displayElection === period ? ' selected' : ''}`}
-                  onMouseDown={() => handleElectionSelect(period)}
-                >
-                  {period}
-                </div>
-              ))}
-
-            </div>
-          )}
-        </div>
+            {electionPeriods.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+        ) : (
+          <div className={`election-dropdown-container${isElectionDropdownOpen ? ' open' : ''}`}>
+            <button
+              className={`election-btn${isElectionActive ? ' active' : ' inactive'}`}
+              onClick={() => { setIsElectionDropdownOpen(!isElectionDropdownOpen); setIsOpen(false); setIsXtraDropdownOpen(false) }}
+            >
+              <span className="election-text">{isElectionActive ? displayElection : 'Election Modes'}</span>
+              <span className="dropdown-arrow">▼</span>
+            </button>
+            {isElectionDropdownOpen && (
+              <div className="election-dropdown">
+                {electionPeriods.map((period) => (
+                  <div
+                    key={period}
+                    className={`election-option${displayElection === period ? ' selected' : ''}`}
+                    onMouseDown={() => handleElectionSelect(period)}
+                  >
+                    {period}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {!isMobileView && onCompareClick !== undefined && (
           isCompareMode ? (
@@ -595,64 +605,60 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
             </button>
           )}
           {onCurrentYearModeChange && (
-            <div style={{ position: 'relative', display: 'inline-block' }}>
-              <button
-                className={`compare-btn${currentYearMode !== 'off' ? ' active' : ''}`}
-                onClick={() => { setIsCurrentYearDropdownOpen(v => !v); setIsOpen(false) }}
-                style={{
-                  borderColor: currentYearMode !== 'off' ? '#00D4FF' : undefined,
-                  color: currentYearMode !== 'off' ? '#00D4FF' : undefined,
-                }}
+            isMobileView ? (
+              <select
+                className="date-select"
+                value={currentYearMode}
+                onChange={(e) => onCurrentYearModeChange(e.target.value as 'off' | 'raw' | 'benchmarked')}
+                style={{ borderColor: currentYearMode !== 'off' ? '#00D4FF' : undefined, color: currentYearMode !== 'off' ? '#00D4FF' : undefined }}
               >
-                {isMobileView
-                  ? (currentYearMode !== 'off' ? 'CUR YR ✓' : 'CUR YR')
-                  : (currentYearMode === 'benchmarked' ? '⊨ Benchmarked' : '⊨ Current Year')}
-                {!isMobileView && currentYearMode !== 'off' && ' ✓'}
-                <span style={{ fontSize: '8px', marginLeft: '4px', opacity: 0.7 }}>▼</span>
-              </button>
-              {isCurrentYearDropdownOpen && (
-                <div className="election-dropdown">
-                  <div
-                    className={`election-option${currentYearMode === 'raw' ? ' selected' : ''}`}
-                    onMouseDown={() => { onCurrentYearModeChange(currentYearMode === 'raw' ? 'off' : 'raw'); setIsCurrentYearDropdownOpen(false) }}
-                  >
-                    Current Year
+                <option value="off">Cur Year</option>
+                <option value="raw">Current Year</option>
+                <option value="benchmarked">Benchmarked</option>
+              </select>
+            ) : (
+              <div style={{ position: 'relative', display: 'inline-block' }}>
+                <button
+                  className={`compare-btn${currentYearMode !== 'off' ? ' active' : ''}`}
+                  onClick={() => { setIsCurrentYearDropdownOpen(v => !v); setIsOpen(false) }}
+                  style={{
+                    borderColor: currentYearMode !== 'off' ? '#00D4FF' : undefined,
+                    color: currentYearMode !== 'off' ? '#00D4FF' : undefined,
+                  }}
+                >
+                  {currentYearMode === 'benchmarked' ? '⊨ Benchmarked' : '⊨ Current Year'}
+                  {currentYearMode !== 'off' && ' ✓'}
+                  <span style={{ fontSize: '8px', marginLeft: '4px', opacity: 0.7 }}>▼</span>
+                </button>
+                {isCurrentYearDropdownOpen && (
+                  <div className="election-dropdown">
+                    <div
+                      className={`election-option${currentYearMode === 'raw' ? ' selected' : ''}`}
+                      onMouseDown={() => { onCurrentYearModeChange(currentYearMode === 'raw' ? 'off' : 'raw'); setIsCurrentYearDropdownOpen(false) }}
+                    >
+                      Current Year
+                    </div>
+                    <div
+                      className={`election-option${currentYearMode === 'benchmarked' ? ' selected' : ''}`}
+                      onMouseDown={() => { onCurrentYearModeChange(currentYearMode === 'benchmarked' ? 'off' : 'benchmarked'); setIsCurrentYearDropdownOpen(false) }}
+                    >
+                      Benchmarked vs SPY
+                    </div>
                   </div>
-                  <div
-                    className={`election-option${currentYearMode === 'benchmarked' ? ' selected' : ''}`}
-                    onMouseDown={() => { onCurrentYearModeChange(currentYearMode === 'benchmarked' ? 'off' : 'benchmarked'); setIsCurrentYearDropdownOpen(false) }}
-                  >
-                    Benchmarked vs SPY
-                  </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )
           )}
           {isMobileView && (
-            <div style={{ position: 'relative', display: 'inline-block' }}>
-              <button
-                className={`compare-btn${isXtraDropdownOpen ? ' active' : ''}`}
-                onClick={() => { setIsXtraDropdownOpen(v => !v); setIsCurrentYearDropdownOpen(false); setIsElectionDropdownOpen(false); setIsOpen(false) }}
-                title="Quick Scans"
-              >
-                Xtra <span style={{ fontSize: '8px', marginLeft: '2px', opacity: 0.7 }}>▼</span>
-              </button>
-              {isXtraDropdownOpen && (
-                <div className="election-dropdown" style={{ minWidth: '160px' }}>
-                  <div className="search-section-title" style={{ padding: '4px 12px', fontSize: '9px', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em' }}>QUICK SCANS</div>
-                  {QUICK_SCANS.map((scan) => (
-                    <div
-                      key={scan.name}
-                      className={`election-option${activeQuickScan === scan.name ? ' selected' : ''}`}
-                      style={{ color: activeQuickScan === scan.name ? scan.color : 'rgba(255,255,255,0.75)' }}
-                      onMouseDown={() => { handleQuickScanClick(scan); setIsXtraDropdownOpen(false) }}
-                    >
-                      <span style={{ marginRight: '6px', fontSize: '13px' }}>{scan.icon}</span>{scan.label}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <select
+              className="date-select"
+              value={activeQuickScan || ''}
+              onChange={(e) => { const scan = QUICK_SCANS.find(s => s.name === e.target.value); if (scan) handleQuickScanClick(scan) }}
+              style={{ color: activeQuickScan ? QUICK_SCANS.find(s => s.name === activeQuickScan)?.color : undefined }}
+            >
+              <option value="" disabled>Xtra</option>
+              {QUICK_SCANS.map(scan => <option key={scan.name} value={scan.name}>{scan.icon} {scan.label}</option>)}
+            </select>
           )}
           {isMobileView && onMonthsToggle && (
             <button

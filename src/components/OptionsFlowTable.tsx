@@ -5950,13 +5950,13 @@ Stock Reaction: ${scores.stockReaction}/15`
           <div className="md:hidden px-4 py-0">
             {/* Row 1: Search, Highlights, Clear, Filter, Track */}
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-px">
               {/* Search Bar */}
 
               <div
                 className="relative"
                 style={{
-                  width: efiHighlightsActive ? '54px' : '90px',
+                  width: efiHighlightsActive ? '59px' : '99px',
                   flexShrink: 0,
                   transition: 'width 0.2s',
                 }}
@@ -6023,7 +6023,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
               {/* Right side buttons — order: PICKS, ALGO, TRACK, FILTER, ⋮ */}
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-px">
                 {/* PICKS Dropdown — Leap Picks + Swing Picks */}
                 <div style={{ position: 'relative' }}>
                   <button
@@ -6061,11 +6061,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                         <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" />
                       </svg>
                     ) : (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" fill="currentColor" />
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/><path d="M17 8l1.5-1.5M19 5l-1.5 1.5"/><circle cx="19" cy="5" r="1" fill="currentColor" stroke="none"/>
                       </svg>
                     )}
-                    <span>{leapActive ? 'LEAP' : efiHighlightsActive ? 'SWING' : 'PICKS'}</span>
+                    <span style={{ whiteSpace: 'nowrap' }}>{leapActive ? 'LEAP' : efiHighlightsActive ? 'SWING' : 'A+ Picks'}</span>
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M6 9l6 6 6-6" />
                     </svg>
@@ -6230,7 +6230,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
                     </svg>
-                    <span>ALGO</span>
+                    <span>AlgoFlow</span>
                   </button>
                 )}
 
@@ -7912,13 +7912,13 @@ Stock Reaction: ${scores.stockReaction}/15`
                     {/* SIZE */}
                     <th
                       className="col-hdr col-sortable text-left"
-                      onClick={() => handleSort('trade_size')}
+                      onClick={() => handleSort('total_premium')}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg className="hidden md:block" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#a855f7" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></svg>
                         <span style={{ fontWeight: 900, fontSize: '15px' }}>SIZE</span>
                         <span style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 1 }}>
-                          {sortField === 'trade_size' && (
+                          {sortField === 'total_premium' && (
                             <svg width="7" height="8" viewBox="0 0 7 8" fill="currentColor" aria-hidden="true">{sortDirection === 'asc' ? <path d="M3.5 1L7 7H0Z" /> : <path d="M3.5 7L0 1H7Z" />}</svg>
                           )}
                         </span>
@@ -10757,7 +10757,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         <div
           style={{
             position: 'fixed',
-            top: 75,
+            top: 0,
             left: 0,
             right: 0,
             bottom: 0,

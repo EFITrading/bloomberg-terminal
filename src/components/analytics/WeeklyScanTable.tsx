@@ -305,11 +305,11 @@ const WeeklyScanTable: React.FC = () => {
 
   const renderTableCell = (value: number | null) => {
     if (value === null) {
-      return <td style={{ textAlign: 'center', color: '#666', fontStyle: 'italic', padding: '10px 8px', fontSize: '14px' }}>...</td>;
+      return <td style={{ textAlign: 'center', color: '#666', fontStyle: 'italic', padding: '6px 4px', fontSize: '10px' }}>-</td>;
     }
 
     const numValue = typeof value === 'string' ? parseFloat(value) : value;
-    let cellStyle: React.CSSProperties = { textAlign: 'center', padding: '10px 8px', fontSize: '14px' };
+    let cellStyle: React.CSSProperties = { textAlign: 'center', padding: '6px 4px', fontSize: '10px' };
 
     if (numValue >= 0.60) {
       cellStyle = { ...cellStyle, backgroundColor: 'rgba(0, 255, 0, 0.15)', color: '#00ff00', fontWeight: 700 };
@@ -388,125 +388,94 @@ const WeeklyScanTable: React.FC = () => {
       <style jsx>{`
         .weekly-scan-table-container {
           background: #000;
-          border: 1px solid #333;
-          border-radius: 6px;
-          padding: 13px 0px;
-          margin-top: 20px;
-          margin-left: 0;
-          margin-right: 0;
+          border: 1px solid #222;
+          border-radius: 4px;
+          padding: 8px 0;
+          margin-top: 8px;
           width: 100%;
         }
 
         .weekly-scan-tabs {
           display: flex;
-          gap: 12px;
-          margin-bottom: 13px;
+          gap: 6px;
+          margin-bottom: 8px;
+          padding: 0 8px;
         }
 
         .weekly-tab {
-          padding: 11px 26px;
-          background: linear-gradient(180deg, #1a1a1a 0%, #0a0a0a 50%, #000000 100%);
+          flex: 1;
+          padding: 7px 8px;
+          background: #0a0a0a;
           border: 1px solid #2a2a2a;
           border-radius: 4px;
           color: #555555;
-          font-size: 12px;
+          font-size: 10px;
           font-weight: 700;
           cursor: pointer;
           transition: all 0.15s ease;
           text-transform: uppercase;
-          letter-spacing: 1.5px;
+          letter-spacing: 1px;
           position: relative;
           overflow: hidden;
-          box-shadow: 
-            inset 0 1px 0 rgba(255, 255, 255, 0.05),
-            0 4px 12px rgba(0, 0, 0, 0.5),
-            0 2px 4px rgba(0, 0, 0, 0.3);
-        }
-
-        .weekly-tab::before {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          height: 1px;
-          background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+          font-family: 'JetBrains Mono', monospace;
         }
 
         .weekly-tab:hover {
           color: #888888;
-          background: linear-gradient(180deg, #222222 0%, #111111 50%, #050505 100%);
           border-color: #3a3a3a;
-          box-shadow: 
-            inset 0 1px 0 rgba(255, 255, 255, 0.08),
-            0 6px 16px rgba(0, 0, 0, 0.6),
-            0 2px 4px rgba(0, 0, 0, 0.4);
-          transform: translateY(-1px);
         }
 
         .weekly-tab.active {
           color: #ff6600 !important;
-          background: linear-gradient(180deg, #0d0d0d 0%, #000000 50%, #000000 100%);
           border-color: #ff6600;
-          box-shadow: 
-            inset 0 0 30px rgba(255, 102, 0, 0.08),
-            0 0 20px rgba(255, 102, 0, 0.15),
-            0 4px 12px rgba(0, 0, 0, 0.5);
-        }
-
-        .weekly-tab.active::after {
-          content: '';
-          position: absolute;
-          bottom: 0;
-          left: 15%;
-          right: 15%;
-          height: 2px;
-          background: #ff6600;
-          box-shadow: 0 0 10px rgba(255, 102, 0, 0.8);
+          border-bottom: 2px solid #ff6600;
         }
 
         .weekly-loading {
           display: flex;
           flex-direction: column;
           align-items: center;
-          padding: 32px;
+          padding: 20px;
           color: #888;
+          font-size: 11px;
         }
 
         .loading-spinner-small {
-          width: 30px;
-          height: 30px;
+          width: 24px;
+          height: 24px;
           border: 2px solid #333;
           border-top: 2px solid #ff6600;
           border-radius: 50%;
           animation: spin 1s linear infinite;
-          margin-bottom: 12px;
+          margin-bottom: 8px;
         }
 
         .weekly-table-wrapper {
           overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
         }
 
         .weekly-scan-table-inline {
           width: 100%;
           border-collapse: collapse;
           font-family: 'JetBrains Mono', monospace;
-          font-size: 14px;
+          font-size: 10px;
         }
 
         .weekly-scan-table-inline thead {
           background: #000;
-          border-bottom: 2px solid #ff6600;
+          border-bottom: 1px solid #ff6600;
         }
 
         .weekly-scan-table-inline th {
-          padding: 11px 10px;
+          padding: 6px 4px;
           text-align: left;
-          font-size: 16px;
+          font-size: 9px;
           font-weight: 700;
           color: #ff6600;
-          letter-spacing: 0.5px;
+          letter-spacing: 0.3px;
           text-transform: uppercase;
+          white-space: nowrap;
         }
 
         .weekly-scan-table-inline th:nth-child(n+3) {
@@ -533,15 +502,19 @@ const WeeklyScanTable: React.FC = () => {
         .symbol-cell {
           font-weight: 900;
           text-align: center;
-          padding: 11px 10px;
-          font-size: 14px;
+          padding: 6px 4px;
+          font-size: 10px;
           color: #ff6600 !important;
         }
 
         .name-cell {
           color: #aaa;
-          padding: 11px 10px;
-          font-size: 14px;
+          padding: 6px 4px;
+          font-size: 9px;
+          max-width: 80px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         @keyframes spin {
