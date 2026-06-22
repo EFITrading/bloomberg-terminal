@@ -3039,10 +3039,13 @@ Stock Reaction: ${scores.stockReaction}/15`
 
   const addToFlowTracking = async (trade: OptionsFlowData) => {
     // Store original data with timestamp - only current price and grade will update
-    const gradeResult = calculatePositioningGrade(trade, comboTradeMap)
+    const gradeResult = leapActive
+      ? calculateLeapGrade(trade, comboTradeMap)
+      : calculatePositioningGrade(trade, comboTradeMap)
 
     const flowToTrack = {
       ...trade,
+      gradeMode: leapActive ? 'leap' : 'standard',
 
       addedAt: new Date().toISOString(),
 
@@ -6062,7 +6065,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       </svg>
                     ) : (
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/><path d="M17 8l1.5-1.5M19 5l-1.5 1.5"/><circle cx="19" cy="5" r="1" fill="currentColor" stroke="none"/>
+                        <circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" /><path d="M17 8l1.5-1.5M19 5l-1.5 1.5" /><circle cx="19" cy="5" r="1" fill="currentColor" stroke="none" />
                       </svg>
                     )}
                     <span style={{ whiteSpace: 'nowrap' }}>{leapActive ? 'LEAP' : efiHighlightsActive ? 'SWING' : 'A+ Picks'}</span>
@@ -10750,6 +10753,9 @@ Stock Reaction: ${scores.stockReaction}/15`
             comboTradeMap={comboTradeMap}
             dealerZoneCache={dealerZoneCache}
             liveFlows={trackedFlows}
+            leapRsData={leapRsData}
+            leap52wkData={leap52wkData}
+            leapSeasonalData={leapSeasonalData}
           />
         </div>
       )}
@@ -10775,6 +10781,9 @@ Stock Reaction: ${scores.stockReaction}/15`
             comboTradeMap={comboTradeMap}
             dealerZoneCache={dealerZoneCache}
             liveFlows={trackedFlows}
+            leapRsData={leapRsData}
+            leap52wkData={leap52wkData}
+            leapSeasonalData={leapSeasonalData}
           />
         </div>
       )}

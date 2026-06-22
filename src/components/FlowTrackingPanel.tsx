@@ -5,7 +5,7 @@ import { TbStar } from 'react-icons/tb'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 
-import { calculateFlowGrade } from '@/lib/flowGrading'
+import { calculateFlowGrade, calculateLeapGradeShared } from '@/lib/flowGrading'
 import { useFlowTrackingPanelMobile } from './useFlowTrackingPanelMobile'
 
 const EFIChart = dynamic(() => import('@/components/trading/EFICharting'), { ssr: false })
@@ -201,6 +201,9 @@ export default function FlowTrackingPanel({
   dealerZoneCache: dealerZoneCacheFromParent,
   liveFlows: liveFlowsFromParent,
   hideChart = false,
+  leapRsData,
+  leap52wkData,
+  leapSeasonalData,
 }: {
   onClose?: () => void
   relativeStrengthData?: Map<string, number>
@@ -218,6 +221,9 @@ export default function FlowTrackingPanel({
   >
   liveFlows?: OptionsFlowData[]
   hideChart?: boolean
+  leapRsData?: Map<string, { rs5d: number; rs13d: number; rs21d: number }>
+  leap52wkData?: Map<string, { high52: number; low52: number }>
+  leapSeasonalData?: Map<string, { inSweetSpot: boolean; inPainPoint: boolean }>
 } = {}) {
   const [isMounted, setIsMounted] = useState(false)
   const [chartSymbol, setChartSymbol] = useState('SPY')
@@ -1147,14 +1153,24 @@ export default function FlowTrackingPanel({
 
                     // Use the real grading system
                     const flowWithOriginalPrice = { ...flow, premium_per_contract: entryPrice }
-                    const liveGrade = calculateFlowGrade(
-                      flowWithOriginalPrice,
-                      currentOptionPrices,
-                      currentStockPrices,
-                      emptyRS,
-                      defaultStdDevs,
-                      comboMap
-                    )
+                    const isLeapTrade = (flow as any).gradeMode === 'leap'
+                    const liveGrade = isLeapTrade && leapRsData && leap52wkData && leapSeasonalData
+                      ? calculateLeapGradeShared(
+                        flowWithOriginalPrice,
+                        currentOptionPrices,
+                        currentStockPrices,
+                        leapRsData,
+                        leap52wkData,
+                        leapSeasonalData
+                      )
+                      : calculateFlowGrade(
+                        flowWithOriginalPrice,
+                        currentOptionPrices,
+                        currentStockPrices,
+                        emptyRS,
+                        defaultStdDevs,
+                        comboMap
+                      )
 
                     const flowId = generateFlowId(flow)
                     // Zone / target computations (hoisted for inline columns)

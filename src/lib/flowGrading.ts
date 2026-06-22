@@ -212,3 +212,133 @@ export function calculateFlowGrade(
 
   return { grade, score: confidenceScore, color, breakdown }
 }
+
+// ── LEAP grading (shared, identical logic to calculateLeapGrade in OptionsFlowTable) ──
+export function calculateLeapGradeShared(
+  trade: FlowTrade,
+  currentOptionPrices: Record<string, number>,
+  currentStockPrices: Record<string, number>,
+  leapRsData: Map<string, { rs5d: number; rs13d: number; rs21d: number }>,
+  leap52wkData: Map<string, { high52: number; low52: number }>,
+  leapSeasonalData: Map<string, { inSweetSpot: boolean; inPainPoint: boolean }>
+): GradeResult {
+  const expiry = trade.expiry.replace(/-/g, '').slice(2)
+  const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
+  const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
+  const normalizedTicker = normalizeTickerForOptions(trade.underlying_ticker)
+  const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
+  const currentPrice = currentOptionPrices[optionTicker]
+  const entryPrice = trade.premium_per_contract
+
+  const scores = { contractPrice: 0, relativeStrength: 0, volumeOI: 0, stockReaction: 0, bonus52w: 0, seasonalBonus: 0 }
+
+  if (!currentPrice || currentPrice <= 0) {
+    return { grade: 'N/A', score: 0, color: '#9ca3af', breakdown: 'Loading prices...' }
+  }
+
+  const tradeFillStyle = trade.fill_style || ''
+  const isSoldToOpen = tradeFillStyle === 'B' || tradeFillStyle === 'BB'
+  const rawPct = ((currentPrice - entryPrice) / entryPrice) * 100
+  const pct = isSoldToOpen ? -rawPct : rawPct
+
+  if (pct <= -40) scores.contractPrice = -7.5
+  else if (pct <= -20) scores.contractPrice = 7.5
+  else if (pct <= -15) scores.contractPrice = 15
+  else if (pct <= -10) scores.contractPrice = 8
+  else if (pct <= 10) scores.contractPrice = 0
+  else if (pct <= 20) scores.contractPrice = 3
+  else scores.contractPrice = 5
+
+  const isCall = trade.type === 'call'
+  const fill = tradeFillStyle
+  const isBullishFill = (isCall && (fill === 'A' || fill === 'AA')) || (!isCall && fill === 'B')
+  const isBearishFill = (!isCall && (fill === 'A' || fill === 'AA')) || (isCall && fill === 'BB')
+
+  const leapRs = leapRsData.get(trade.underlying_ticker)
+  if (leapRs) {
+    const { rs5d, rs13d, rs21d } = leapRs
+    const weightedRS = rs5d * 0.3 + rs13d * 0.4 + rs21d * 0.3
+    const aligned = (isBullishFill && weightedRS > 0) || (isBearishFill && weightedRS < 0)
+    const magnitude = Math.abs(weightedRS)
+    if (aligned) {
+      if (magnitude >= 3) scores.relativeStrength = 30
+      else if (magnitude >= 1.5) scores.relativeStrength = 20
+      else scores.relativeStrength = 10
+    }
+  }
+
+  const tradeVolume = trade.volume ?? null
+  const tradeOI = trade.open_interest ?? null
+  if (tradeVolume !== null && tradeOI !== null && tradeOI > 0) {
+    const ratio = tradeVolume / tradeOI
+    if (ratio >= 1.5) scores.volumeOI = 15
+    else if (ratio >= 1.0) scores.volumeOI = 7.5
+    else if (ratio >= 0.5) scores.volumeOI = 5
+  }
+
+  const currentStockPrice = currentStockPrices[trade.underlying_ticker]
+  const entryStockPrice = trade.spot_price
+  if (currentStockPrice && entryStockPrice) {
+    const stockPct = ((currentStockPrice - entryStockPrice) / entryStockPrice) * 100
+    const isBullishFlow = (isCall && (fill === 'A' || fill === 'AA')) || (!isCall && (fill === 'B' || fill === 'BB'))
+    const isBearishFlow = (isCall && (fill === 'B' || fill === 'BB')) || (!isCall && (fill === 'A' || fill === 'AA'))
+    const reversed = (isBullishFlow && stockPct <= -1.0) || (isBearishFlow && stockPct >= 1.0)
+    const followed = (isBullishFlow && stockPct >= 1.0) || (isBearishFlow && stockPct <= -1.0)
+    const chopped = Math.abs(stockPct) < 1.0
+    const hoursElapsed = (new Date().getTime() - new Date(trade.trade_timestamp).getTime()) / (1000 * 60 * 60)
+    if (hoursElapsed >= 4) {
+      if (reversed) scores.stockReaction += 7.5
+      else if (chopped) scores.stockReaction += 5
+      else if (followed) scores.stockReaction += 2.5
+      if (hoursElapsed >= 24) {
+        if (reversed) scores.stockReaction += 7.5
+        else if (chopped) scores.stockReaction += 5
+        else if (followed) scores.stockReaction += 2.5
+      }
+    }
+  }
+
+  const wkRange = leap52wkData.get(trade.underlying_ticker)
+  const stockNow = currentStockPrices[trade.underlying_ticker]
+  if (wkRange && stockNow && stockNow > 0) {
+    const nearHigh = stockNow >= wkRange.high52 * 0.98
+    const nearLow = stockNow <= wkRange.low52 * 1.02
+    if (isBullishFill && nearHigh) scores.bonus52w = 7.5
+    else if (isBearishFill && nearLow) scores.bonus52w = 7.5
+  }
+
+  const seasonal = leapSeasonalData.get(trade.underlying_ticker)
+  if (seasonal) {
+    if (isBullishFill && seasonal.inSweetSpot) scores.seasonalBonus = 15
+    else if (isBearishFill && seasonal.inPainPoint) scores.seasonalBonus = 15
+  }
+
+  const rawScore = scores.contractPrice + scores.relativeStrength + scores.volumeOI + scores.stockReaction + scores.bonus52w + scores.seasonalBonus
+  const maxBase = 75
+  const finalScore = Math.max(0, Math.min(maxBase, rawScore))
+  const normalized = Math.round((finalScore / maxBase) * 100)
+
+  let color = '#ff0000'
+  if (normalized >= 85) color = '#00ff00'
+  else if (normalized >= 70) color = '#84cc16'
+  else if (normalized >= 50) color = '#fbbf24'
+  else if (normalized >= 33) color = '#3b82f6'
+
+  let grade = 'F'
+  if (normalized >= 85) grade = 'A+'
+  else if (normalized >= 80) grade = 'A'
+  else if (normalized >= 75) grade = 'A-'
+  else if (normalized >= 70) grade = 'B+'
+  else if (normalized >= 65) grade = 'B'
+  else if (normalized >= 60) grade = 'B-'
+  else if (normalized >= 55) grade = 'C+'
+  else if (normalized >= 50) grade = 'C'
+  else if (normalized >= 48) grade = 'C-'
+  else if (normalized >= 43) grade = 'D+'
+  else if (normalized >= 38) grade = 'D'
+  else if (normalized >= 33) grade = 'D-'
+
+  const breakdown = `LEAP Score: ${normalized}/100\nContract P&L: ${scores.contractPrice}/15\nRelative Strength: ${scores.relativeStrength}/30\nVolume vs OI: ${scores.volumeOI}/15\nStock Reaction: ${scores.stockReaction}/15\n52w Bonus: ${scores.bonus52w}/7.5\nSeasonal Bonus: ${scores.seasonalBonus}/15`
+
+  return { grade, score: normalized, color, breakdown }
+}
