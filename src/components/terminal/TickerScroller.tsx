@@ -54,10 +54,10 @@ export default function TickerScroller() {
 
   useEffect(() => {
     const observer = new MutationObserver(() => {
-      setIsBlindMe(document.body.classList.contains('theme-blind-me'))
+      setIsBlindMe(document.body.classList.contains('theme-toned'))
     })
     observer.observe(document.body, { attributes: true, attributeFilter: ['class'] })
-    setIsBlindMe(document.body.classList.contains('theme-blind-me'))
+    setIsBlindMe(document.body.classList.contains('theme-toned'))
     return () => observer.disconnect()
   }, [])
   useEffect(() => {
@@ -173,12 +173,12 @@ export default function TickerScroller() {
           background: showBreaking && breakingNews.length > 0
             ? 'linear-gradient(180deg, #1a0000 0%, #0d0000 100%)'
             : isBlindMe
-              ? 'linear-gradient(180deg, #cfc5b8 0%, #c4b9aa 100%)'
+              ? 'linear-gradient(180deg, #c8a878 0%, #b89660 100%)'
               : 'linear-gradient(180deg, #0a0a0a 0%, #000000 100%)',
           borderBottom: showBreaking && breakingNews.length > 0
             ? '1px solid rgba(255, 0, 0, 0.5)'
             : isBlindMe
-              ? '1px solid #a89888'
+              ? '1px solid #8a6838'
               : '1px solid rgba(255, 165, 0, 0.2)',
           overflow: 'hidden',
           position: 'fixed',
@@ -239,16 +239,19 @@ export default function TickerScroller() {
                     fontSize: '13px',
                     fontWeight: '600',
                     letterSpacing: '0.3px',
-                    color: '#ffcccc',
+                    color: isBlindMe ? '#ffffff' : '#ffcccc',
+                    background: isBlindMe ? 'rgba(0,0,0,0.75)' : 'none',
+                    borderRadius: isBlindMe ? '4px' : '0',
+                    margin: isBlindMe ? '0 8px' : '0',
                   }}
                 >
                   {article.tickers.length > 0 && (
-                    <span style={{ color: '#ff6666', fontWeight: '800', fontSize: '12px' }}>
+                    <span style={{ color: isBlindMe ? '#ff4444' : '#ff6666', fontWeight: '800', fontSize: '12px' }}>
                       [{article.tickers.slice(0, 3).join(', ')}]
                     </span>
                   )}
                   <span>{article.title}</span>
-                  <span style={{ color: 'rgba(255,100,100,0.4)', fontSize: '18px' }}>·</span>
+                  <span style={{ color: isBlindMe ? 'rgba(255,80,80,0.7)' : 'rgba(255,100,100,0.4)', fontSize: '18px' }}>·</span>
                 </div>
               ))}
             </div>
@@ -279,11 +282,19 @@ export default function TickerScroller() {
                   letterSpacing: '0.5px',
                 }}
               >
-                <span style={{ color: isBlindMe ? '#1e1810' : '#FFFFFF' }}>{ticker.symbol}</span>
+                <span style={{
+                  color: isBlindMe ? '#ffffff' : '#FFFFFF',
+                  background: isBlindMe ? 'rgba(0,0,0,0.72)' : 'none',
+                  borderRadius: isBlindMe ? '3px' : '0',
+                  padding: isBlindMe ? '1px 5px' : '0',
+                }}>{ticker.symbol}</span>
                 <span
                   style={{
-                    color: ticker.change >= 0 ? (isBlindMe ? '#006600' : '#00ff00') : (isBlindMe ? '#cc0000' : '#ff0000'),
-                    fontWeight: '600',
+                    color: ticker.change >= 0 ? (isBlindMe ? '#00cc44' : '#00ff00') : (isBlindMe ? '#ff2222' : '#ff0000'),
+                    fontWeight: '700',
+                    background: isBlindMe ? 'rgba(0,0,0,0.72)' : 'none',
+                    borderRadius: isBlindMe ? '3px' : '0',
+                    padding: isBlindMe ? '1px 5px' : '0',
                   }}
                 >
                   {ticker.change >= 0 ? '+' : ''}

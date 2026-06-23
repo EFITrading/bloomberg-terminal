@@ -155,33 +155,60 @@ export default function NavigationMobileMenu({
                         className="mobile-menu-links"
                         style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}
                     >
-                        {navLinks.map((link) => (
-                            <a
-                                key={link.path}
-                                href={link.path}
-                                className={`mobile-nav-link ${pathname === link.path ? 'active' : ''}`}
-                                onClick={() => setIsOpen(false)}
-                                style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    padding: '15px 20px',
-                                    background:
-                                        pathname === link.path
-                                            ? 'rgba(255, 255, 255, 0.1)'
-                                            : 'rgba(255, 255, 255, 0.05)',
-                                    border: `2px solid ${pathname === link.path ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.1)'}`,
-                                    borderRadius: '8px',
-                                    color: '#FFFFFF',
-                                    textDecoration: 'none',
-                                    fontSize: '16px',
-                                    fontWeight: '500',
-                                }}
-                            >
-                                <span className="mobile-link-text">{link.name}</span>
-                                <span className="mobile-link-arrow" style={{ color: '#FF6600' }}>→</span>
-                            </a>
-                        ))}
+                        {navLinks.map((link) => {
+                            const isLocked = link.path === '/analysis-suite' || link.path === '/ai-suite'
+                            return isLocked ? (
+                                <div
+                                    key={link.path}
+                                    style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        padding: '15px 20px',
+                                        background: 'rgba(255, 255, 255, 0.02)',
+                                        border: '2px solid rgba(255, 255, 255, 0.06)',
+                                        borderRadius: '8px',
+                                        color: 'rgba(255,255,255,0.3)',
+                                        fontSize: '16px',
+                                        fontWeight: '500',
+                                        cursor: 'default',
+                                    }}
+                                >
+                                    <span>{link.name}</span>
+                                    <svg width="13" height="15" viewBox="0 0 12 15" fill="none">
+                                        <rect x="1" y="6" width="10" height="8" rx="1.5" fill="rgba(255,133,0,0.15)" stroke="rgba(255,133,0,0.6)" strokeWidth="1.2" />
+                                        <path d="M3 6V4.5C3 2.57 4.34 1.5 6 1.5C7.66 1.5 9 2.57 9 4.5V6" stroke="rgba(255,133,0,0.6)" strokeWidth="1.2" strokeLinecap="round" fill="none" />
+                                        <circle cx="6" cy="9.8" r="1.2" fill="rgba(255,133,0,0.7)" />
+                                    </svg>
+                                </div>
+                            ) : (
+                                <a
+                                    key={link.path}
+                                    href={link.path}
+                                    className={`mobile-nav-link ${pathname === link.path ? 'active' : ''}`}
+                                    onClick={() => setIsOpen(false)}
+                                    style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        padding: '15px 20px',
+                                        background:
+                                            pathname === link.path
+                                                ? 'rgba(255, 255, 255, 0.1)'
+                                                : 'rgba(255, 255, 255, 0.05)',
+                                        border: `2px solid ${pathname === link.path ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.1)'}`,
+                                        borderRadius: '8px',
+                                        color: '#FFFFFF',
+                                        textDecoration: 'none',
+                                        fontSize: '16px',
+                                        fontWeight: '500',
+                                    }}
+                                >
+                                    <span className="mobile-link-text">{link.name}</span>
+                                    <span className="mobile-link-arrow" style={{ color: '#FF6600' }}>→</span>
+                                </a>
+                            )
+                        })}
                     </div>
 
                     {/* Auth button */}

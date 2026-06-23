@@ -15,6 +15,13 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // Block locked pages — redirect to market overview regardless of auth
+  if (pathname.startsWith('/analysis-suite') || pathname.startsWith('/ai-suite')) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/market-overview'
+    return NextResponse.redirect(url)
+  }
+
   // Check password cookie
   const passwordCookie = request.cookies.get('efi-auth')
   if (passwordCookie?.value === 'authenticated') {

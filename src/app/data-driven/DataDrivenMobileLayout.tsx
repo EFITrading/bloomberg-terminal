@@ -96,13 +96,13 @@ export default function DataDrivenMobileLayout() {
       )}
 
       {active === 'events' && (
-        <div style={{ height: 'calc(100dvh - 136px)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ ...PANEL_STYLE, overflowY: 'hidden' }}>
           <HistoricalEventsResearch />
         </div>
       )}
 
       {active === 'screener' && (
-        <div style={PANEL_STYLE} className="mobile-dd-screener-panel">
+        <div style={PANEL_STYLE}>
           <SeasonaxLanding />
         </div>
       )}

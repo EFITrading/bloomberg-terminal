@@ -1991,75 +1991,54 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
             style={{
               width: '100%',
               overflow: 'auto',
-              padding: '0 4px 4px',
+              padding: getAlmanacDailyChartPadding(),
             }}
           >
-            <div style={{
-              textAlign: 'center',
-              padding: '10px 0 8px',
-              fontSize: '16px',
-              fontWeight: 900,
-              fontFamily: '"JetBrains Mono", monospace',
-              color: '#ffffff',
-              letterSpacing: '2px',
-              textTransform: 'uppercase',
-            }}>
-              {MONTH_NAMES[selectedMonth]} {new Date().getFullYear()}
-            </div>
             <style>{`
               .almanac-daily-chart .calendar-grid {
                 display: block !important;
-                border: 1px solid #333 !important;
+                border: 2px solid #ffffff !important;
                 background: #000000 !important;
-                border-radius: 4px !important;
-                overflow: hidden !important;
               }
               .almanac-daily-chart .calendar-header-row {
                 display: grid !important;
                 grid-template-columns: repeat(5, 1fr) !important;
-                background: #0a0a0a !important;
-                border-bottom: 1px solid #ff6600 !important;
+                background: #000000 !important;
+                border-bottom: 2px solid #ffffff !important;
               }
               .almanac-daily-chart .calendar-days {
                 display: grid !important;
                 grid-template-columns: repeat(5, 1fr) !important;
               }
               .almanac-daily-chart .day-header {
-                padding: 5px 2px !important;
+                padding: 12px 8px !important;
                 text-align: center !important;
                 font-weight: 700 !important;
-                font-size: 10px !important;
-                color: #ff6600 !important;
-                background: #0a0a0a !important;
-                border-right: 1px solid #1a1a1a !important;
+                font-size: 20px !important;
+                color: #ffffff !important;
+                background: linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #0a0a0a 100%) !important;
+                border-right: 1px solid #333333 !important;
                 text-transform: uppercase !important;
-                letter-spacing: 0.5px !important;
+                letter-spacing: 1px !important;
+                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+                text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8), 0 -1px 0 rgba(255, 255, 255, 0.1) !important;
               }
               .almanac-daily-chart .day-header:last-child {
                 border-right: none !important;
               }
               .almanac-daily-chart .calendar-day {
-                min-height: 100px !important;
-                border-right: 1px solid #1a1a1a !important;
-                border-bottom: 1px solid #1a1a1a !important;
-                padding: 5px 4px !important;
+                min-height: 120px !important;
+                border-right: 1px solid #333333 !important;
+                border-bottom: 1px solid #333333 !important;
+                padding: 8px !important;
                 background: #000000 !important;
                 position: relative !important;
                 display: flex !important;
                 flex-direction: column !important;
-                gap: 2px !important;
-                font-size: 9px !important;
+                gap: 4px !important;
               }
               .almanac-daily-chart .calendar-day:nth-child(5n) {
                 border-right: none !important;
-              }
-              .almanac-daily-chart .calendar-day .day-number {
-                font-size: 10px !important;
-                font-weight: 700 !important;
-              }
-              .almanac-daily-chart .calendar-day .day-stat {
-                font-size: 8px !important;
-                line-height: 1.3 !important;
               }
               .almanac-daily-chart .calendar-day.other-month {
                 background: #050505 !important;
@@ -2069,12 +2048,12 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
                 background: #0f0a0a !important;
               }
               .almanac-daily-chart .calendar-day.bullish-day {
-                background: linear-gradient(135deg, rgba(0, 255, 0, 0.04) 0%, #000000 100%) !important;
-                border-left: 2px solid rgba(0, 255, 0, 0.5) !important;
+                background: linear-gradient(135deg, rgba(0, 255, 0, 0.03) 0%, #000000 100%) !important;
+                border-left: 2px solid rgba(0, 255, 0, 0.4) !important;
               }
               .almanac-daily-chart .calendar-day.bearish-day {
-                background: linear-gradient(135deg, rgba(255, 0, 0, 0.04) 0%, #000000 100%) !important;
-                border-left: 2px solid rgba(255, 0, 0, 0.5) !important;
+                background: linear-gradient(135deg, rgba(255, 0, 0, 0.03) 0%, #000000 100%) !important;
+                border-left: 2px solid rgba(255, 0, 0, 0.4) !important;
               }
             `}</style>
             <AlmanacCalendar

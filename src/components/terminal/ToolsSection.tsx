@@ -177,12 +177,23 @@ export default function ToolsSection() {
                                 ))}
                             </div>
 
-                            <Link href={tool.href} className="tsv2-cta">
-                                <span>Access Tool</span>
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                                    <path d="M7 17L17 7M17 7H7M17 7V17" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                            </Link>
+                            {tool.href === '/analysis-suite' || tool.href === '/ai-suite' ? (
+                                <span className="tsv2-cta" style={{ opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' }}>
+                                    <svg width="11" height="13" viewBox="0 0 12 15" fill="none" style={{ flexShrink: 0 }}>
+                                        <rect x="1" y="6" width="10" height="8" rx="1.5" fill="rgba(255,133,0,0.2)" stroke="rgba(255,133,0,0.85)" strokeWidth="1.2" />
+                                        <path d="M3 6V4.5C3 2.57 4.34 1.5 6 1.5C7.66 1.5 9 2.57 9 4.5V6" stroke="rgba(255,133,0,0.85)" strokeWidth="1.2" strokeLinecap="round" fill="none" />
+                                        <circle cx="6" cy="9.8" r="1.2" fill="rgba(255,133,0,0.9)" />
+                                    </svg>
+                                    <span>Locked</span>
+                                </span>
+                            ) : (
+                                <Link href={tool.href} className="tsv2-cta">
+                                    <span>Access Tool</span>
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                                        <path d="M7 17L17 7M17 7H7M17 7V17" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                    </svg>
+                                </Link>
+                            )}
                         </div>
                     ))}
                 </div>

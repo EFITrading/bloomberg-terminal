@@ -120,7 +120,6 @@ const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean }>
       const val = yMax - (yRng / numH) * i
       const y = getY(val)
       ctx.fillStyle = '#FFFFFF'
-      ctx.globalAlpha = 1
       ctx.fillText(`${val >= 0 ? '+' : ''}${val.toFixed(1)}%`, PAD.left - 6, y + 4)
     }
 
@@ -173,8 +172,7 @@ const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean }>
 
     // ── X-axis day labels
     ctx.fillStyle = '#FFFFFF'
-    ctx.globalAlpha = 1
-    ctx.font = 'bold 14px "JetBrains Mono", "Courier New", monospace'
+    ctx.font = 'bold 12px "JetBrains Mono", "Courier New", monospace'
     ctx.textAlign = 'center'
     const xTicks: number[] = [0]
     for (let d = 4; d < maxDays - 1; d += 5) xTicks.push(d)
@@ -212,54 +210,9 @@ const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean }>
       if (newZoom === 1) setPanOffset(0)
       setZoomLevel(newZoom)
     }
-    let lastTouchDist: number | null = null
-    const onTouchStart = (e: TouchEvent) => {
-      e.preventDefault()
-      if (e.touches.length === 1) {
-        const rect = canvas.getBoundingClientRect()
-        setIsDragging(true)
-        setDragStart({ x: e.touches[0].clientX - rect.left, offset: panOffset })
-      } else if (e.touches.length === 2) {
-        const dx = e.touches[0].clientX - e.touches[1].clientX
-        const dy = e.touches[0].clientY - e.touches[1].clientY
-        lastTouchDist = Math.sqrt(dx * dx + dy * dy)
-      }
-    }
-    const onTouchMove = (e: TouchEvent) => {
-      e.preventDefault()
-      if (e.touches.length === 1 && isDragging && dragStart) {
-        const rect = canvas.getBoundingClientRect()
-        const maxPan = (zoomLevel - 1) * 0.5 + 0.1
-        setPanOffset(Math.max(-maxPan, Math.min(maxPan, dragStart.offset + (e.touches[0].clientX - rect.left - dragStart.x) / rect.width)))
-      } else if (e.touches.length === 2 && lastTouchDist !== null) {
-        const dx = e.touches[0].clientX - e.touches[1].clientX
-        const dy = e.touches[0].clientY - e.touches[1].clientY
-        const dist = Math.sqrt(dx * dx + dy * dy)
-        const scale = dist / lastTouchDist
-        lastTouchDist = dist
-        setZoomLevel((z) => {
-          const next = Math.max(1, Math.min(10, z * scale))
-          if (next === 1) setPanOffset(0)
-          return next
-        })
-      }
-    }
-    const onTouchEnd = () => {
-      lastTouchDist = null
-      setIsDragging(false)
-      setDragStart(null)
-    }
     canvas.addEventListener('wheel', onWheel, { passive: false })
-    canvas.addEventListener('touchstart', onTouchStart, { passive: false })
-    canvas.addEventListener('touchmove', onTouchMove, { passive: false })
-    canvas.addEventListener('touchend', onTouchEnd)
-    return () => {
-      canvas.removeEventListener('wheel', onWheel)
-      canvas.removeEventListener('touchstart', onTouchStart)
-      canvas.removeEventListener('touchmove', onTouchMove)
-      canvas.removeEventListener('touchend', onTouchEnd)
-    }
-  }, [zoomLevel, panOffset, isDragging, dragStart])
+    return () => canvas.removeEventListener('wheel', onWheel)
+  }, [zoomLevel])
 
   const onMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = canvasRef.current!.getBoundingClientRect()
@@ -1374,28 +1327,27 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                           borderRight: `1px solid ${isPositive ? 'rgba(0,255,136,0.12)' : 'rgba(255,68,68,0.12)'}`,
                         }}
                       >
-                        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '4px' }}>
-                          <div
-                            style={{
-                              fontSize: '6px',
-                              color: '#ffffff',
-                              fontFamily: "'Courier New',monospace",
-                              letterSpacing: '1px',
-                            }}
-                          >
-                            WIN RATE
-                          </div>
-                          <div
-                            className="opp-row-winrate"
-                            style={{
-                              fontSize: '12px',
-                              fontWeight: '900',
-                              fontFamily: "'Courier New',monospace",
-                              lineHeight: 1,
-                            }}
-                          >
-                            {wr.toFixed(0)}%
-                          </div>
+                        <div
+                          style={{
+                            fontSize: '7px',
+                            color: '#ffffff',
+                            fontFamily: "'Courier New',monospace",
+                            letterSpacing: '1.5px',
+                            marginBottom: '3px',
+                          }}
+                        >
+                          WIN RATE
+                        </div>
+                        <div
+                          className="opp-row-winrate"
+                          style={{
+                            fontSize: '18px',
+                            fontWeight: '900',
+                            fontFamily: "'Courier New',monospace",
+                            lineHeight: 1,
+                          }}
+                        >
+                          {wr.toFixed(0)}%
                         </div>
                       </div>
                       {(pattern as any).fiftyTwoWeekStatus && (
@@ -1435,28 +1387,27 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                       )}
                       {trendSync && (
                         <div style={{ flex: 1, textAlign: 'center', padding: '9px 8px' }}>
-                          <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '4px' }}>
-                            <div
-                              style={{
-                                fontSize: '6px',
-                                color: '#ffffff',
-                                fontFamily: "'Courier New',monospace",
-                                letterSpacing: '1px',
-                              }}
-                            >
-                              CORRELATION
-                            </div>
-                            <div
-                              className="opp-row-corr"
-                              style={{
-                                fontSize: '12px',
-                                fontWeight: '900',
-                                fontFamily: "'Courier New',monospace",
-                                lineHeight: 1,
-                              }}
-                            >
-                              {trendSync.score}%
-                            </div>
+                          <div
+                            style={{
+                              fontSize: '7px',
+                              color: '#ffffff',
+                              fontFamily: "'Courier New',monospace",
+                              letterSpacing: '1.5px',
+                              marginBottom: '3px',
+                            }}
+                          >
+                            CORRELATION
+                          </div>
+                          <div
+                            className="opp-row-corr"
+                            style={{
+                              fontSize: '18px',
+                              fontWeight: '900',
+                              fontFamily: "'Courier New',monospace",
+                              lineHeight: 1,
+                            }}
+                          >
+                            {trendSync.score}%
                           </div>
                         </div>
                       )}
@@ -1465,7 +1416,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                 })()}
 
                 {/* ── Chart: full-bleed terminal display ── */}
-                <div style={{ height: typeof window !== 'undefined' && window.innerWidth <= 768 ? '154px' : '215px', position: 'relative', background: '#000000' }}>
+                <div style={{ height: '215px', position: 'relative', background: '#000000' }}>
                   {miniChartLoading ? (
                     <div
                       style={{

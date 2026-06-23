@@ -101,6 +101,11 @@ interface Drawing {
   zoneHeight?: number      // signed px: +ve = above anchor, -ve = below anchor
   zoneDiagOffset?: number  // diagonal only: right-side vertical shift in px (whole rect tilts)
   zoneCurveCtrlX?: number  // curve only: X offset of bezier control point from midX (px)
+  // Price Range
+  priceRangeMode?: 'vertical' | 'horizontal'  // vertical = bracket (default), horizontal = full-width band
+  priceRangeFill?: boolean                     // show background fill between levels
+  priceRangeFillOpacity?: number               // fill opacity 0-1
+  priceRangeDisplay?: 'price' | 'bars'         // label shows price% (default) or bar count
 }
 
 // ─── DEFAULT FIB LEVELS ──────────────────────────────────────────────────────
@@ -444,6 +449,17 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     lastDrawingsRef.current = drawings
   }, [drawings])
 
+  // When lock is turned off, reset tool to select so the next click doesn't place another drawing
+  const prevIsToolLockedRef = useRef(isToolLocked)
+  useEffect(() => {
+    if (prevIsToolLockedRef.current === true && isToolLocked === false) {
+      if (currentTool !== 'select') {
+        setCurrentTool('select')
+      }
+    }
+    prevIsToolLockedRef.current = isToolLocked
+  }, [isToolLocked])
+
   // Helper function to enable editing a drawing (with completion check)
   const enableDrawingEdit = (drawingId: string) => {
     if (!justCompletedDrawing) {
@@ -608,7 +624,6 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         const p = drawing.points[0]
         const screenY = priceToScreen ? priceToScreen(p.price) : 0
         const startPoint = toScreenCoords(p)
-
         // Draw horizontal ray from click point to right edge
         ctx.beginPath()
         ctx.moveTo(startPoint.x, screenY)
@@ -896,62 +911,134 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         const y1 = Math.min(screen1.y, screen2.y)
         const y2 = Math.max(screen1.y, screen2.y)
 
-        // Draw top horizontal line
         ctx.strokeStyle = drawing.color
         ctx.lineWidth = drawing.lineWidth || 4
-        ctx.beginPath()
-        ctx.moveTo(x - 30, y1)
-        ctx.lineTo(x + 30, y1)
-        ctx.stroke()
 
-        // Draw vertical line connecting them
-        ctx.beginPath()
-        ctx.moveTo(x, y1)
-        ctx.lineTo(x, y2)
-        ctx.stroke()
+        const mode = drawing.priceRangeMode ?? 'vertical'
+        const isBarsMode = drawing.priceRangeDisplay === 'bars'
 
-        // Draw bottom horizontal line
-        ctx.beginPath()
-        ctx.moveTo(x - 30, y2)
-        ctx.lineTo(x + 30, y2)
-        ctx.stroke()
-
-        // Calculate price difference and percentage
+        // Calculate label text
         const priceDiff = p2.price - p1.price
-        const percentChange = ((priceDiff / p1.price) * 100).toFixed(2)
-        const displayText = `${priceDiff.toFixed(2)} (${percentChange}%)`
+        const isPositive = priceDiff >= 0
+        let displayText: string
+        let barCount = 0
+        if (isBarsMode) {
+          barCount = countTradingBars(p1.time, p2.time, chartTimeframe)
+          displayText = `${barCount} bar${barCount !== 1 ? 's' : ''}`
+        } else {
+          const percentChange = ((priceDiff / p1.price) * 100).toFixed(2)
+          displayText = `${priceDiff.toFixed(2)} (${percentChange}%)`
+        }
 
-        // Draw info box in the middle
-        const midY = (y1 + y2) / 2
-        ctx.font = 'bold 13px sans-serif'
-        const textWidth = ctx.measureText(displayText).width
-        const padding = 8
-        const boxWidth = textWidth + padding * 2
-        const boxHeight = 24
-        const boxX = x + 40
-        const boxY = midY - boxHeight / 2
+        if (isBarsMode) {
+          // ── Horizontal bar-count bracket ──────────────────────────────────────
+          // Uses x positions of BOTH points; Y is the midpoint of the two prices
+          const midY2 = (screen1.y + screen2.y) / 2
+          const lx = Math.min(screen1.x, screen2.x)
+          const rx = Math.max(screen1.x, screen2.x)
+          const tickH = 16
 
-        // Background box
-        ctx.fillStyle = priceDiff >= 0 ? '#1e40af' : '#ef4444'
-        ctx.fillRect(boxX, boxY, boxWidth, boxHeight)
+          // Optional fill between the ticks
+          if (drawing.priceRangeFill) {
+            ctx.globalAlpha = drawing.priceRangeFillOpacity ?? 0.15
+            ctx.fillStyle = '#1e5a1e'
+            ctx.fillRect(lx, midY2 - tickH, rx - lx, tickH * 2)
+            ctx.globalAlpha = opacity
+          }
 
-        // Text
-        ctx.fillStyle = '#fff'
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
-        ctx.fillText(displayText, boxX + boxWidth / 2, boxY + boxHeight / 2)
-        ctx.textAlign = 'left'
-        ctx.textBaseline = 'alphabetic'
-
-        // Show control points if editing
-        if (editingDrawing === drawing.id) {
-          ctx.fillStyle = '#3b82f6'
+          // Left vertical tick
           ctx.beginPath()
-          ctx.arc(x, y1, 8, 0, Math.PI * 2)
-          ctx.fill()
+          ctx.moveTo(lx, midY2 - tickH)
+          ctx.lineTo(lx, midY2 + tickH)
+          ctx.stroke()
+          // Horizontal connecting line
           ctx.beginPath()
-          ctx.arc(x, y2, 8, 0, Math.PI * 2)
-          ctx.fill()
+          ctx.moveTo(lx, midY2)
+          ctx.lineTo(rx, midY2)
+          ctx.stroke()
+          // Right vertical tick
+          ctx.beginPath()
+          ctx.moveTo(rx, midY2 - tickH)
+          ctx.lineTo(rx, midY2 + tickH)
+          ctx.stroke()
+
+          // Label centred between the two ticks
+          ctx.font = 'bold 13px sans-serif'
+          const tw = ctx.measureText(displayText).width
+          const pad = 8
+          const bw = tw + pad * 2
+          const bh = 24
+          const bx = lx + (rx - lx) / 2 - bw / 2
+          const by = midY2 - bh / 2
+          ctx.globalAlpha = 1
+          ctx.fillStyle = '#1e5a1e'
+          ctx.fillRect(bx, by, bw, bh)
+          ctx.fillStyle = '#fff'
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          ctx.fillText(displayText, bx + bw / 2, by + bh / 2)
+          ctx.textAlign = 'left'
+          ctx.textBaseline = 'alphabetic'
+          ctx.globalAlpha = opacity
+
+          // Control point indicators
+          if (editingDrawing === drawing.id) {
+            ctx.fillStyle = '#3b82f6'
+            ctx.beginPath(); ctx.arc(lx, midY2, 8, 0, Math.PI * 2); ctx.fill()
+            ctx.beginPath(); ctx.arc(rx, midY2, 8, 0, Math.PI * 2); ctx.fill()
+          }
+        } else {
+          // ── Vertical price-range bracket (original) ───────────────────────────
+          // Optional fill
+          if (drawing.priceRangeFill) {
+            ctx.globalAlpha = drawing.priceRangeFillOpacity ?? 0.15
+            ctx.fillStyle = isPositive ? '#1e40af' : '#ef4444'
+            if (mode === 'horizontal') {
+              ctx.fillRect(0, y1, width, y2 - y1)
+            } else {
+              ctx.fillRect(x - 30, y1, 60, y2 - y1)
+            }
+            ctx.globalAlpha = opacity
+          }
+
+          if (mode === 'horizontal') {
+            ctx.beginPath(); ctx.moveTo(0, y1); ctx.lineTo(width, y1); ctx.stroke()
+            ctx.beginPath(); ctx.moveTo(0, y2); ctx.lineTo(width, y2); ctx.stroke()
+          } else {
+            ctx.beginPath(); ctx.moveTo(x - 30, y1); ctx.lineTo(x + 30, y1); ctx.stroke()
+            ctx.beginPath(); ctx.moveTo(x, y1); ctx.lineTo(x, y2); ctx.stroke()
+            ctx.beginPath(); ctx.moveTo(x - 30, y2); ctx.lineTo(x + 30, y2); ctx.stroke()
+          }
+
+          const midY = (y1 + y2) / 2
+          ctx.font = 'bold 13px sans-serif'
+          const textWidth = ctx.measureText(displayText).width
+          const padding = 8
+          const boxWidth = textWidth + padding * 2
+          const boxHeight = 24
+          const boxX = mode === 'horizontal' ? width / 2 - boxWidth / 2 : x + 40
+          const boxY = midY - boxHeight / 2
+          ctx.globalAlpha = 1
+          ctx.fillStyle = isPositive ? '#1e40af' : '#ef4444'
+          ctx.fillRect(boxX, boxY, boxWidth, boxHeight)
+          ctx.fillStyle = '#fff'
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          ctx.fillText(displayText, boxX + boxWidth / 2, boxY + boxHeight / 2)
+          ctx.textAlign = 'left'
+          ctx.textBaseline = 'alphabetic'
+          ctx.globalAlpha = opacity
+
+          if (editingDrawing === drawing.id) {
+            ctx.fillStyle = '#3b82f6'
+            if (mode === 'horizontal') {
+              ctx.beginPath(); ctx.arc(width / 2, y1, 8, 0, Math.PI * 2); ctx.fill()
+              ctx.beginPath(); ctx.arc(width / 2, y2, 8, 0, Math.PI * 2); ctx.fill()
+            } else {
+              ctx.beginPath(); ctx.arc(x, y1, 8, 0, Math.PI * 2); ctx.fill()
+              ctx.beginPath(); ctx.arc(x, y2, 8, 0, Math.PI * 2); ctx.fill()
+            }
+          }
         }
       } else if (drawing.type === 'fib' && drawing.points.length === 2) {
         const [p1raw, p2raw] = drawing.points
@@ -1475,6 +1562,58 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     }
   })
 
+  // Count trading bars between two Unix-ms timestamps given a timeframe string
+  const countTradingBars = (t1: number, t2: number, tf?: string): number => {
+    const start = Math.min(t1, t2)
+    const end = Math.max(t1, t2)
+    const tfUp = (tf ?? '1D').toUpperCase()
+
+    // Intraday bar durations in ms
+    const intradayMs: Record<string, number> = {
+      '1M': 60000, '3M': 180000, '5M': 300000, '10M': 600000,
+      '15M': 900000, '30M': 1800000, '1H': 3600000, '2H': 7200000,
+      '4H': 14400000, '6H': 21600000, '12H': 43200000,
+    }
+
+    if (intradayMs[tfUp]) {
+      // Approximate: assume 6.5 trading hours per day (NYSE), skip weekends
+      const barMs = intradayMs[tfUp]
+      const barsPerDay = Math.round(23400000 / barMs) // 23400000ms = 6.5h
+      let count = 0
+      const cur = new Date(start)
+      const endDate = new Date(end)
+      while (cur <= endDate) {
+        const day = cur.getDay()
+        if (day !== 0 && day !== 6) count += barsPerDay
+        cur.setDate(cur.getDate() + 1)
+      }
+      // Clamp to at least 1 and use time diff for same-day precision
+      const diffBarsExact = Math.round((end - start) / barMs)
+      return Math.max(1, Math.min(count, diffBarsExact))
+    }
+
+    if (tfUp === '1W' || tfUp === 'W' || tfUp === 'WEEKLY') {
+      return Math.max(1, Math.round((end - start) / 604800000))
+    }
+    if (tfUp === '1M_MONTHLY' || tfUp === 'MONTHLY' || tfUp === 'M') {
+      const d1 = new Date(start), d2 = new Date(end)
+      return Math.max(1, (d2.getFullYear() - d1.getFullYear()) * 12 + (d2.getMonth() - d1.getMonth()))
+    }
+
+    // Default: daily — count weekdays between the two dates
+    let count = 0
+    const cur = new Date(start)
+    cur.setUTCHours(0, 0, 0, 0)
+    const endDay = new Date(end)
+    endDay.setUTCHours(23, 59, 59, 999)
+    while (cur <= endDay) {
+      const day = cur.getUTCDay()
+      if (day !== 0 && day !== 6) count++
+      cur.setDate(cur.getDate() + 1)
+    }
+    return Math.max(1, count)
+  }
+
   const handleCanvasClick = (e: React.MouseEvent<HTMLElement>) => {
     // In select mode, don't handle clicks (let them pass through)
     if (currentTool === 'select' || !screenToPrice || !screenToTime) return
@@ -1939,13 +2078,17 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
               }
             } else if (drawing.type === 'priceRange' && drawing.points.length === 2) {
               const newPoints = [...drawing.points]
+              const isBars = drawing.priceRangeDisplay === 'bars'
 
               if (draggedControlPoint === 0) {
-                // Dragging first point - adjust price only
-                newPoints[0] = { time: newPoints[0].time, price: newDataPoint.price }
+                // In bars mode drag left/right (time); in price mode drag up/down (price)
+                newPoints[0] = isBars
+                  ? { time: newDataPoint.time, price: newPoints[0].price }
+                  : { time: newPoints[0].time, price: newDataPoint.price }
               } else if (draggedControlPoint === 1) {
-                // Dragging second point - adjust price only
-                newPoints[1] = { time: newPoints[1].time, price: newDataPoint.price }
+                newPoints[1] = isBars
+                  ? { time: newDataPoint.time, price: newPoints[1].price }
+                  : { time: newPoints[1].time, price: newDataPoint.price }
               }
 
               return { ...drawing, points: newPoints }
@@ -2369,6 +2512,14 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         if (Math.hypot(x - ax - t * abx, y - ay - t * aby) <= hitR) return true
       }
       return false
+    } else if (drawing.type === 'priceRange' && drawing.points.length === 2) {
+      const [p1, p2] = drawing.points
+      const screen1 = toScreenCoords(p1)
+      const screen2 = toScreenCoords(p2)
+      const minY = Math.min(screen1.y, screen2.y)
+      const maxY = Math.max(screen1.y, screen2.y)
+      // Hit anywhere inside the vertical price range band (full width)
+      return y >= minY - threshold && y <= maxY + threshold
     } else if (drawing.type === 'brush' && drawing.points.length > 1) {
       // Check if cursor is near any segment of the brush polyline
       const pts = drawing.points.map(p => toScreenCoords(p))
@@ -2434,6 +2585,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
           e.preventDefault()
           setDraggedControlPoint(controlPointIndex)
           setIsDragging(true)
+          isDraggingRef.current = true
+          e.currentTarget.setPointerCapture(e.pointerId)
           clickedOnDrawing = true
           return
         }
@@ -2522,7 +2675,9 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
       setDraggedControlPoint(null)
       setDragStartDataPoint(null)
       setOriginalDrawingPoints(null)
-      setEditingDrawing(null)
+      // Never clear editingDrawing on mouse-up — handles should stay visible so the
+      // user can click and drag them. editingDrawing is only cleared when the user
+      // clicks on empty space (handled in handleCanvasMouseDown).
     }
   }
 
@@ -3086,6 +3241,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
         (() => {
           return (
             <svg
+              onPointerMove={(e) => handleCanvasMouseMove(e as unknown as React.PointerEvent<HTMLDivElement>)}
               style={{
                 position: 'absolute',
                 top: 0,
@@ -3837,467 +3993,199 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                 return null
               })}
 
-              {/* Control points for editing/resizing drawings */}
-              {editingDrawing &&
-                drawings.map((drawing) => {
-                  if (drawing.id !== editingDrawing) return null
+            </svg>
+          )
+        })()}
 
-                  if (
-                    (drawing.type === 'trendline' || drawing.type === 'rectangle') &&
-                    drawing.points.length === 2
-                  ) {
-                    const p1 = toScreenCoords(drawing.points[0])
-                    const p2 = toScreenCoords(drawing.points[1])
+      {/* Control-point handles in a SEPARATE SVG so Chrome hit-tests the circles.
+          The main drawing SVG has pointer-events:none which prevents Chrome from
+          descending into its children; a sibling SVG (no pointer-events override)
+          with no background fill passes empty-area events through but lets circles
+          with pointer-events:all be targeted normally. */}
+      {currentTool === 'select' && editingDrawing && drawings.some(d => d.id === editingDrawing) &&
+        (() => {
+          return (
+            <svg
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                zIndex: 1003,
+                touchAction: 'none',
+                overflow: 'visible',
+              }}
+            >
+              {drawings.map((drawing) => {
+                if (drawing.id !== editingDrawing) return null
 
-                    // For rectangles, add 4 corner handles + 4 edge handles for full control
-                    if (drawing.type === 'rectangle') {
-                      const minX = Math.min(p1.x, p2.x)
-                      const maxX = Math.max(p1.x, p2.x)
-                      const minY = Math.min(p1.y, p2.y)
-                      const maxY = Math.max(p1.y, p2.y)
-                      const midX = (minX + maxX) / 2
-                      const midY = (minY + maxY) / 2
+                if (
+                  (drawing.type === 'trendline' || drawing.type === 'rectangle') &&
+                  drawing.points.length === 2
+                ) {
+                  const p1 = toScreenCoords(drawing.points[0])
+                  const p2 = toScreenCoords(drawing.points[1])
 
-                      return (
-                        <g key={`control-${drawing.id}`}>
-                          {/* Corner handles */}
-                          <circle
-                            cx={minX}
-                            cy={minY}
-                            r="8"
-                            fill="#3b82f6"
-                            stroke="#fff"
-                            strokeWidth="2"
-                            style={{ pointerEvents: 'all', cursor: 'nwse-resize' }}
-                            onPointerDown={(e) => {
-                              e.stopPropagation()
-                              e.preventDefault()
-                              setDraggedControlPoint(0)
-                              setIsDragging(true)
-                              isDraggingRef.current = true
-                              captureLayerRef.current?.setPointerCapture(e.pointerId)
-                            }}
-                          />
-                          <circle
-                            cx={maxX}
-                            cy={minY}
-                            r="8"
-                            fill="#3b82f6"
-                            stroke="#fff"
-                            strokeWidth="2"
-                            style={{ pointerEvents: 'all', cursor: 'nesw-resize' }}
-                            onPointerDown={(e) => {
-                              e.stopPropagation()
-                              e.preventDefault()
-                              setDraggedControlPoint(1)
-                              setIsDragging(true)
-                              isDraggingRef.current = true
-                              captureLayerRef.current?.setPointerCapture(e.pointerId)
-                            }}
-                          />
-                          <circle
-                            cx={maxX}
-                            cy={maxY}
-                            r="8"
-                            fill="#3b82f6"
-                            stroke="#fff"
-                            strokeWidth="2"
-                            style={{ pointerEvents: 'all', cursor: 'nwse-resize' }}
-                            onPointerDown={(e) => {
-                              e.stopPropagation()
-                              e.preventDefault()
-                              setDraggedControlPoint(2)
-                              setIsDragging(true)
-                              isDraggingRef.current = true
-                              captureLayerRef.current?.setPointerCapture(e.pointerId)
-                            }}
-                          />
-                          <circle
-                            cx={minX}
-                            cy={maxY}
-                            r="8"
-                            fill="#3b82f6"
-                            stroke="#fff"
-                            strokeWidth="2"
-                            style={{ pointerEvents: 'all', cursor: 'nesw-resize' }}
-                            onPointerDown={(e) => {
-                              e.stopPropagation()
-                              e.preventDefault()
-                              setDraggedControlPoint(3)
-                              setIsDragging(true)
-                              isDraggingRef.current = true
-                              captureLayerRef.current?.setPointerCapture(e.pointerId)
-                            }}
-                          />
-                          {/* Edge handles */}
-                          <rect
-                            x={midX - 6}
-                            y={minY - 6}
-                            width="12"
-                            height="12"
-                            fill="#22c55e"
-                            stroke="#fff"
-                            strokeWidth="2"
-                            style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
-                            onPointerDown={(e) => {
-                              e.stopPropagation()
-                              e.preventDefault()
-                              setDraggedControlPoint(4)
-                              setIsDragging(true)
-                              isDraggingRef.current = true
-                              captureLayerRef.current?.setPointerCapture(e.pointerId)
-                            }}
-                          />
-                          <rect
-                            x={maxX - 6}
-                            y={midY - 6}
-                            width="12"
-                            height="12"
-                            fill="#22c55e"
-                            stroke="#fff"
-                            strokeWidth="2"
-                            style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
-                            onPointerDown={(e) => {
-                              e.stopPropagation()
-                              e.preventDefault()
-                              setDraggedControlPoint(5)
-                              setIsDragging(true)
-                              isDraggingRef.current = true
-                              captureLayerRef.current?.setPointerCapture(e.pointerId)
-                            }}
-                          />
-                          <rect
-                            x={midX - 6}
-                            y={maxY - 6}
-                            width="12"
-                            height="12"
-                            fill="#22c55e"
-                            stroke="#fff"
-                            strokeWidth="2"
-                            style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
-                            onPointerDown={(e) => {
-                              e.stopPropagation()
-                              e.preventDefault()
-                              setDraggedControlPoint(6)
-                              setIsDragging(true)
-                              isDraggingRef.current = true
-                              captureLayerRef.current?.setPointerCapture(e.pointerId)
-                            }}
-                          />
-                          <rect
-                            x={minX - 6}
-                            y={midY - 6}
-                            width="12"
-                            height="12"
-                            fill="#22c55e"
-                            stroke="#fff"
-                            strokeWidth="2"
-                            style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
-                            onPointerDown={(e) => {
-                              e.stopPropagation()
-                              e.preventDefault()
-                              setDraggedControlPoint(7)
-                              setIsDragging(true)
-                              isDraggingRef.current = true
-                              captureLayerRef.current?.setPointerCapture(e.pointerId)
-                            }}
-                          />
-                        </g>
-                      )
-                    } else {
-                      // Trendline - just 2 endpoint handles
-                      return (
-                        <g key={`control-${drawing.id}`}>
-                          <circle
-                            cx={p1.x}
-                            cy={p1.y}
-                            r="8"
-                            fill="#3b82f6"
-                            stroke="#fff"
-                            strokeWidth="2"
-                            style={{ pointerEvents: 'all', cursor: 'move' }}
-                            onPointerDown={(e) => {
-                              e.stopPropagation()
-                              e.preventDefault()
-                              setDraggedControlPoint(0)
-                              setIsDragging(true)
-                              isDraggingRef.current = true
-                              captureLayerRef.current?.setPointerCapture(e.pointerId)
-                            }}
-                          />
-                          <circle
-                            cx={p2.x}
-                            cy={p2.y}
-                            r="8"
-                            fill="#3b82f6"
-                            stroke="#fff"
-                            strokeWidth="2"
-                            style={{ pointerEvents: 'all', cursor: 'move' }}
-                            onPointerDown={(e) => {
-                              e.stopPropagation()
-                              e.preventDefault()
-                              setDraggedControlPoint(1)
-                              setIsDragging(true)
-                              isDraggingRef.current = true
-                              captureLayerRef.current?.setPointerCapture(e.pointerId)
-                            }}
-                          />
-                        </g>
-                      )
-                    }
-                  } else if (drawing.type === 'ray' && drawing.points.length === 1) {
-                    const p = drawing.points[0]
-                    const screenY = priceToScreen ? priceToScreen(p.price) : 0
-                    const screenX = Math.max(0, timeToScreen ? timeToScreen(p.time) : 0)
-                    return (
-                      <circle
-                        key={`control-${drawing.id}`}
-                        cx={screenX}
-                        cy={screenY}
-                        r="8"
-                        fill="#3b82f6"
-                        stroke="#fff"
-                        strokeWidth="2"
-                        style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
-                        onPointerDown={(e) => {
-                          e.stopPropagation()
-                          e.preventDefault()
-                          setDraggedControlPoint(0)
-                          const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                          if (rect) {
-                            setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
-                            setIsDragging(true)
-                            isDraggingRef.current = true
-                            captureLayerRef.current?.setPointerCapture(e.pointerId)
-                          }
-                        }}
-                      />
-                    )
-                  } else if (drawing.type === 'horizontal' && drawing.points.length === 1) {
-                    const p = drawing.points[0]
-                    const y = priceToScreen ? priceToScreen(p.price) : 0
-                    const startX = Math.max(0, timeToScreen ? timeToScreen(p.time) : 0)
-                    return (
-                      <circle
-                        key={`control-${drawing.id}`}
-                        cx={startX}
-                        cy={y}
-                        r="8"
-                        fill="#3b82f6"
-                        stroke="#fff"
-                        strokeWidth="2"
-                        style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
-                        onPointerDown={(e) => {
-                          e.stopPropagation()
-                          e.preventDefault()
-                          setDraggedControlPoint(0)
-                          const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                          if (rect) {
-                            setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
-                            setIsDragging(true)
-                            isDraggingRef.current = true
-                            captureLayerRef.current?.setPointerCapture(e.pointerId)
-                          }
-                        }}
-                      />
-                    )
-                  } else if (drawing.type === 'vertical' && drawing.points.length === 1) {
-                    const x = timeToScreen ? timeToScreen(drawing.points[0].time) : 0
-                    return (
-                      <circle
-                        key={`control-${drawing.id}`}
-                        cx={x}
-                        cy={16}
-                        r="8"
-                        fill="#3b82f6"
-                        stroke="#fff"
-                        strokeWidth="2"
-                        style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
-                        onPointerDown={(e) => {
-                          e.stopPropagation()
-                          e.preventDefault()
-                          setDraggedControlPoint(0)
-                          const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                          if (rect) {
-                            setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
-                            setIsDragging(true)
-                            isDraggingRef.current = true
-                            captureLayerRef.current?.setPointerCapture(e.pointerId)
-                          }
-                        }}
-                      />
-                    )
-                  } else if (drawing.type === 'text' && drawing.points.length === 1) {
-                    const p = toScreenCoords(drawing.points[0])
-                    return (
-                      <circle
-                        key={`control-${drawing.id}`}
-                        cx={p.x}
-                        cy={p.y}
-                        r="8"
-                        fill="#3b82f6"
-                        stroke="#fff"
-                        strokeWidth="2"
-                        style={{ pointerEvents: 'all', cursor: 'move' }}
-                        onPointerDown={(e) => {
-                          e.stopPropagation()
-                          e.preventDefault()
-                          setDraggedControlPoint(0)
-                          const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                          if (rect) {
-                            setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
-                            setIsDragging(true)
-                            isDraggingRef.current = true
-                            captureLayerRef.current?.setPointerCapture(e.pointerId)
-                          }
-                        }}
-                      />
-                    )
-                  } else if (
-                    (drawing.type === 'buyZone' || drawing.type === 'sellZone') &&
-                    drawing.points.length === 2 &&
-                    editingDrawing === drawing.id
-                  ) {
-                    const screen1 = toScreenCoords(drawing.points[0])
-                    const screen2 = toScreenCoords(drawing.points[1])
-                    const x1 = Math.min(screen1.x, screen2.x)
-                    const x2 = Math.max(screen1.x, screen2.x)
-                    const cy = screen1.y
-                    const zh = drawing.zoneHeight ?? 50
-                    const shape = drawing.zoneShape ?? 'flat'
-                    const diagOff = drawing.zoneDiagOffset ?? 0
-                    const midX = (x1 + x2) / 2
-                    const topL = zh >= 0 ? cy - zh : cy
-                    const botL = zh >= 0 ? cy : cy - zh
-                    const topR = topL + (shape === 'diagonal' ? diagOff : 0)
-                    const botR = botL + (shape === 'diagonal' ? diagOff : 0)
-                    const isDiag = shape === 'diagonal'
-                    const farY = zh >= 0 ? topL : botL
-                    const lcY = (topL + botL) / 2
-                    const rcY = (topR + botR) / 2
-                    return (
-                      <g key={`control-${drawing.id}`}>
-                        {shape === 'curve' ? (
-                          // Curve: 3 freely draggable blue circles
-                          (() => {
-                            const cCtrlX = midX + (drawing.zoneCurveCtrlX ?? 0)
-                            const cCtrlY = cy - zh
-                            return (
-                              <>
-                                <circle cx={screen1.x} cy={screen1.y} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
-                                  style={{ pointerEvents: 'all', cursor: 'move' }}
-                                  onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(0); setIsDragging(true) }} />
-                                <circle cx={screen2.x} cy={screen2.y} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
-                                  style={{ pointerEvents: 'all', cursor: 'move' }}
-                                  onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(1); setIsDragging(true) }} />
-                                <circle cx={cCtrlX} cy={cCtrlY} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
-                                  style={{ pointerEvents: 'all', cursor: 'move' }}
-                                  onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(2); setIsDragging(true) }} />
-                              </>
-                            )
-                          })()
-                        ) : (
-                          <>
-                            {/* Blue: time anchors — bottom corners for diagonal so they sit ON the zone */}
-                            <circle cx={x1} cy={isDiag ? botL : cy} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
-                              style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
-                              onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(0); setIsDragging(true) }} />
-                            <circle cx={x2} cy={isDiag ? botR : cy} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
-                              style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
-                              onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(1); setIsDragging(true) }} />
-                            {isDiag ? (
-                              <>
-                                {/* Left side spine */}
-                                <line x1={x1} y1={topL} x2={x1} y2={botL} stroke="#facc1555" strokeWidth="1" strokeDasharray="4 3" style={{ pointerEvents: 'none' }} />
-                                {/* Yellow: left-center height handle */}
-                                <circle cx={x1} cy={lcY} r="8" fill="#facc15" stroke="#fff" strokeWidth="2"
-                                  style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
-                                  onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(2); setIsDragging(true) }} />
-                              </>
-                            ) : (
-                              <>
-                                {/* Yellow: single height handle — can go up or down from anchor */}
-                                <line x1={midX} y1={cy} x2={midX} y2={farY} stroke="#facc1555" strokeWidth="1" strokeDasharray="4 3" style={{ pointerEvents: 'none' }} />
-                                <circle cx={midX} cy={farY} r="8" fill="#facc15" stroke="#fff" strokeWidth="2"
-                                  style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
-                                  onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(2); setIsDragging(true) }} />
-                              </>
-                            )}
-                          </>
-                        )}
-                      </g>
-                    )
-                  } else if (
-                    drawing.type === 'priceRange' &&
-                    drawing.points.length === 2 &&
-                    editingDrawing === drawing.id
-                  ) {
-                    const screen1 = toScreenCoords(drawing.points[0])
-                    const screen2 = toScreenCoords(drawing.points[1])
-                    const x = screen1.x
+                  // For rectangles, add 4 corner handles + 4 edge handles for full control
+                  if (drawing.type === 'rectangle') {
+                    const minX = Math.min(p1.x, p2.x)
+                    const maxX = Math.max(p1.x, p2.x)
+                    const minY = Math.min(p1.y, p2.y)
+                    const maxY = Math.max(p1.y, p2.y)
+                    const midX = (minX + maxX) / 2
+                    const midY = (minY + maxY) / 2
 
                     return (
                       <g key={`control-${drawing.id}`}>
-                        {/* First point control */}
+                        {/* Corner handles */}
                         <circle
-                          cx={x}
-                          cy={screen1.y}
+                          cx={minX}
+                          cy={minY}
                           r="8"
                           fill="#3b82f6"
                           stroke="#fff"
                           strokeWidth="2"
-                          style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
+                          style={{ pointerEvents: 'all', cursor: 'nwse-resize' }}
                           onPointerDown={(e) => {
                             e.stopPropagation()
                             e.preventDefault()
                             setDraggedControlPoint(0)
-                            const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                            if (rect) {
-                              setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
-                              setIsDragging(true)
-                              isDraggingRef.current = true
-                              captureLayerRef.current?.setPointerCapture(e.pointerId)
-                            }
+                            setIsDragging(true)
+                            isDraggingRef.current = true
+                            captureLayerRef.current?.setPointerCapture(e.pointerId)
                           }}
                         />
-                        {/* Second point control */}
                         <circle
-                          cx={x}
-                          cy={screen2.y}
+                          cx={maxX}
+                          cy={minY}
                           r="8"
                           fill="#3b82f6"
+                          stroke="#fff"
+                          strokeWidth="2"
+                          style={{ pointerEvents: 'all', cursor: 'nesw-resize' }}
+                          onPointerDown={(e) => {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            setDraggedControlPoint(1)
+                            setIsDragging(true)
+                            isDraggingRef.current = true
+                            captureLayerRef.current?.setPointerCapture(e.pointerId)
+                          }}
+                        />
+                        <circle
+                          cx={maxX}
+                          cy={maxY}
+                          r="8"
+                          fill="#3b82f6"
+                          stroke="#fff"
+                          strokeWidth="2"
+                          style={{ pointerEvents: 'all', cursor: 'nwse-resize' }}
+                          onPointerDown={(e) => {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            setDraggedControlPoint(2)
+                            setIsDragging(true)
+                            isDraggingRef.current = true
+                            captureLayerRef.current?.setPointerCapture(e.pointerId)
+                          }}
+                        />
+                        <circle
+                          cx={minX}
+                          cy={maxY}
+                          r="8"
+                          fill="#3b82f6"
+                          stroke="#fff"
+                          strokeWidth="2"
+                          style={{ pointerEvents: 'all', cursor: 'nesw-resize' }}
+                          onPointerDown={(e) => {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            setDraggedControlPoint(3)
+                            setIsDragging(true)
+                            isDraggingRef.current = true
+                            captureLayerRef.current?.setPointerCapture(e.pointerId)
+                          }}
+                        />
+                        {/* Edge handles */}
+                        <rect
+                          x={midX - 6}
+                          y={minY - 6}
+                          width="12"
+                          height="12"
+                          fill="#22c55e"
                           stroke="#fff"
                           strokeWidth="2"
                           style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
                           onPointerDown={(e) => {
                             e.stopPropagation()
                             e.preventDefault()
-                            setDraggedControlPoint(1)
-                            const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
-                            if (rect) {
-                              setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
-                              setIsDragging(true)
-                              isDraggingRef.current = true
-                              captureLayerRef.current?.setPointerCapture(e.pointerId)
-                            }
+                            setDraggedControlPoint(4)
+                            setIsDragging(true)
+                            isDraggingRef.current = true
+                            captureLayerRef.current?.setPointerCapture(e.pointerId)
+                          }}
+                        />
+                        <rect
+                          x={maxX - 6}
+                          y={midY - 6}
+                          width="12"
+                          height="12"
+                          fill="#22c55e"
+                          stroke="#fff"
+                          strokeWidth="2"
+                          style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
+                          onPointerDown={(e) => {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            setDraggedControlPoint(5)
+                            setIsDragging(true)
+                            isDraggingRef.current = true
+                            captureLayerRef.current?.setPointerCapture(e.pointerId)
+                          }}
+                        />
+                        <rect
+                          x={midX - 6}
+                          y={maxY - 6}
+                          width="12"
+                          height="12"
+                          fill="#22c55e"
+                          stroke="#fff"
+                          strokeWidth="2"
+                          style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
+                          onPointerDown={(e) => {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            setDraggedControlPoint(6)
+                            setIsDragging(true)
+                            isDraggingRef.current = true
+                            captureLayerRef.current?.setPointerCapture(e.pointerId)
+                          }}
+                        />
+                        <rect
+                          x={minX - 6}
+                          y={midY - 6}
+                          width="12"
+                          height="12"
+                          fill="#22c55e"
+                          stroke="#fff"
+                          strokeWidth="2"
+                          style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
+                          onPointerDown={(e) => {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            setDraggedControlPoint(7)
+                            setIsDragging(true)
+                            isDraggingRef.current = true
+                            captureLayerRef.current?.setPointerCapture(e.pointerId)
                           }}
                         />
                       </g>
                     )
-                  } else if (drawing.type === 'parallelChannel' && drawing.points.length === 3) {
-                    const p1 = toScreenCoords(drawing.points[0])
-                    const p2 = toScreenCoords(drawing.points[1])
-                    const p3 = toScreenCoords(drawing.points[2])
-                    const offsetX = p3.x - p1.x
-                    const offsetY = p3.y - p1.y
-
-                    // Calculate middle points for distance adjustment
-                    const mid1 = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }
-                    const mid2 = { x: mid1.x + offsetX, y: mid1.y + offsetY }
-
+                  } else {
+                    // Trendline - just 2 endpoint handles
                     return (
                       <g key={`control-${drawing.id}`}>
-                        {/* Corner point 1 (first line start) - Blue */}
                         <circle
                           cx={p1.x}
                           cy={p1.y}
@@ -4310,13 +4198,11 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             e.stopPropagation()
                             e.preventDefault()
                             setDraggedControlPoint(0)
-                            setEditingDrawing(drawing.id)
                             setIsDragging(true)
                             isDraggingRef.current = true
                             captureLayerRef.current?.setPointerCapture(e.pointerId)
                           }}
                         />
-                        {/* Corner point 2 (first line end) - Blue */}
                         <circle
                           cx={p2.x}
                           cy={p2.y}
@@ -4329,83 +4215,6 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                             e.stopPropagation()
                             e.preventDefault()
                             setDraggedControlPoint(1)
-                            setEditingDrawing(drawing.id)
-                            setIsDragging(true)
-                            isDraggingRef.current = true
-                            captureLayerRef.current?.setPointerCapture(e.pointerId)
-                          }}
-                        />
-                        {/* Corner point 3 (second line start) - Blue */}
-                        <circle
-                          cx={p1.x + offsetX}
-                          cy={p1.y + offsetY}
-                          r="8"
-                          fill="#3b82f6"
-                          stroke="#fff"
-                          strokeWidth="2"
-                          style={{ pointerEvents: 'all', cursor: 'move' }}
-                          onPointerDown={(e) => {
-                            e.stopPropagation()
-                            e.preventDefault()
-                            setDraggedControlPoint(2)
-                            setEditingDrawing(drawing.id)
-                            setIsDragging(true)
-                            isDraggingRef.current = true
-                            captureLayerRef.current?.setPointerCapture(e.pointerId)
-                          }}
-                        />
-                        {/* Corner point 4 (second line end) - Blue */}
-                        <circle
-                          cx={p2.x + offsetX}
-                          cy={p2.y + offsetY}
-                          r="8"
-                          fill="#3b82f6"
-                          stroke="#fff"
-                          strokeWidth="2"
-                          style={{ pointerEvents: 'all', cursor: 'move' }}
-                          onPointerDown={(e) => {
-                            e.stopPropagation()
-                            e.preventDefault()
-                            setDraggedControlPoint(3)
-                            setEditingDrawing(drawing.id)
-                            setIsDragging(true)
-                            isDraggingRef.current = true
-                            captureLayerRef.current?.setPointerCapture(e.pointerId)
-                          }}
-                        />
-                        {/* Middle point 1 (first line) - Orange for distance adjustment */}
-                        <circle
-                          cx={mid1.x}
-                          cy={mid1.y}
-                          r="8"
-                          fill="#ff8500"
-                          stroke="#fff"
-                          strokeWidth="2"
-                          style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
-                          onPointerDown={(e) => {
-                            e.stopPropagation()
-                            e.preventDefault()
-                            setDraggedControlPoint(4)
-                            setEditingDrawing(drawing.id)
-                            setIsDragging(true)
-                            isDraggingRef.current = true
-                            captureLayerRef.current?.setPointerCapture(e.pointerId)
-                          }}
-                        />
-                        {/* Middle point 2 (second line) - Orange for distance adjustment */}
-                        <circle
-                          cx={mid2.x}
-                          cy={mid2.y}
-                          r="8"
-                          fill="#ff8500"
-                          stroke="#fff"
-                          strokeWidth="2"
-                          style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
-                          onPointerDown={(e) => {
-                            e.stopPropagation()
-                            e.preventDefault()
-                            setDraggedControlPoint(5)
-                            setEditingDrawing(drawing.id)
                             setIsDragging(true)
                             isDraggingRef.current = true
                             captureLayerRef.current?.setPointerCapture(e.pointerId)
@@ -4414,8 +4223,364 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                       </g>
                     )
                   }
-                  return null
-                })}
+                } else if (drawing.type === 'ray' && drawing.points.length === 1) {
+                  const p = drawing.points[0]
+                  const screenY = priceToScreen ? priceToScreen(p.price) : 0
+                  const screenX = Math.max(0, timeToScreen ? timeToScreen(p.time) : 0)
+                  return (
+                    <circle
+                      key={`control-${drawing.id}`}
+                      cx={screenX}
+                      cy={screenY}
+                      r="8"
+                      fill="#3b82f6"
+                      stroke="#fff"
+                      strokeWidth="2"
+                      style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
+                      onPointerDown={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        setDraggedControlPoint(0)
+                        const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
+                        if (rect) {
+                          setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+                          setIsDragging(true)
+                          isDraggingRef.current = true
+                          captureLayerRef.current?.setPointerCapture(e.pointerId)
+                        }
+                      }}
+                    />
+                  )
+                } else if (drawing.type === 'horizontal' && drawing.points.length === 1) {
+                  const p = drawing.points[0]
+                  const y = priceToScreen ? priceToScreen(p.price) : 0
+                  const startX = Math.max(0, timeToScreen ? timeToScreen(p.time) : 0)
+                  return (
+                    <circle
+                      key={`control-${drawing.id}`}
+                      cx={startX}
+                      cy={y}
+                      r="8"
+                      fill="#3b82f6"
+                      stroke="#fff"
+                      strokeWidth="2"
+                      style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
+                      onPointerDown={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        setDraggedControlPoint(0)
+                        const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
+                        if (rect) {
+                          setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+                          setIsDragging(true)
+                          isDraggingRef.current = true
+                          captureLayerRef.current?.setPointerCapture(e.pointerId)
+                        }
+                      }}
+                    />
+                  )
+                } else if (drawing.type === 'vertical' && drawing.points.length === 1) {
+                  const x = timeToScreen ? timeToScreen(drawing.points[0].time) : 0
+                  return (
+                    <circle
+                      key={`control-${drawing.id}`}
+                      cx={x}
+                      cy={16}
+                      r="8"
+                      fill="#3b82f6"
+                      stroke="#fff"
+                      strokeWidth="2"
+                      style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
+                      onPointerDown={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        setDraggedControlPoint(0)
+                        const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
+                        if (rect) {
+                          setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+                          setIsDragging(true)
+                          isDraggingRef.current = true
+                          captureLayerRef.current?.setPointerCapture(e.pointerId)
+                        }
+                      }}
+                    />
+                  )
+                } else if (drawing.type === 'text' && drawing.points.length === 1) {
+                  const p = toScreenCoords(drawing.points[0])
+                  return (
+                    <circle
+                      key={`control-${drawing.id}`}
+                      cx={p.x}
+                      cy={p.y}
+                      r="8"
+                      fill="#3b82f6"
+                      stroke="#fff"
+                      strokeWidth="2"
+                      style={{ pointerEvents: 'all', cursor: 'move' }}
+                      onPointerDown={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        setDraggedControlPoint(0)
+                        const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
+                        if (rect) {
+                          setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+                          setIsDragging(true)
+                          isDraggingRef.current = true
+                          captureLayerRef.current?.setPointerCapture(e.pointerId)
+                        }
+                      }}
+                    />
+                  )
+                } else if (
+                  (drawing.type === 'buyZone' || drawing.type === 'sellZone') &&
+                  drawing.points.length === 2 &&
+                  editingDrawing === drawing.id
+                ) {
+                  const screen1 = toScreenCoords(drawing.points[0])
+                  const screen2 = toScreenCoords(drawing.points[1])
+                  const x1 = Math.min(screen1.x, screen2.x)
+                  const x2 = Math.max(screen1.x, screen2.x)
+                  const cy = screen1.y
+                  const zh = drawing.zoneHeight ?? 50
+                  const shape = drawing.zoneShape ?? 'flat'
+                  const diagOff = drawing.zoneDiagOffset ?? 0
+                  const midX = (x1 + x2) / 2
+                  const topL = zh >= 0 ? cy - zh : cy
+                  const botL = zh >= 0 ? cy : cy - zh
+                  const topR = topL + (shape === 'diagonal' ? diagOff : 0)
+                  const botR = botL + (shape === 'diagonal' ? diagOff : 0)
+                  const isDiag = shape === 'diagonal'
+                  const farY = zh >= 0 ? topL : botL
+                  const lcY = (topL + botL) / 2
+                  const rcY = (topR + botR) / 2
+                  return (
+                    <g key={`control-${drawing.id}`}>
+                      {shape === 'curve' ? (
+                        // Curve: 3 freely draggable blue circles
+                        (() => {
+                          const cCtrlX = midX + (drawing.zoneCurveCtrlX ?? 0)
+                          const cCtrlY = cy - zh
+                          return (
+                            <>
+                              <circle cx={screen1.x} cy={screen1.y} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
+                                style={{ pointerEvents: 'all', cursor: 'move' }}
+                                onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(0); setIsDragging(true) }} />
+                              <circle cx={screen2.x} cy={screen2.y} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
+                                style={{ pointerEvents: 'all', cursor: 'move' }}
+                                onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(1); setIsDragging(true) }} />
+                              <circle cx={cCtrlX} cy={cCtrlY} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
+                                style={{ pointerEvents: 'all', cursor: 'move' }}
+                                onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(2); setIsDragging(true) }} />
+                            </>
+                          )
+                        })()
+                      ) : (
+                        <>
+                          {/* Blue: time anchors — bottom corners for diagonal so they sit ON the zone */}
+                          <circle cx={x1} cy={isDiag ? botL : cy} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
+                            style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
+                            onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(0); setIsDragging(true) }} />
+                          <circle cx={x2} cy={isDiag ? botR : cy} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
+                            style={{ pointerEvents: 'all', cursor: 'ew-resize' }}
+                            onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(1); setIsDragging(true) }} />
+                          {isDiag ? (
+                            <>
+                              {/* Left side spine */}
+                              <line x1={x1} y1={topL} x2={x1} y2={botL} stroke="#facc1555" strokeWidth="1" strokeDasharray="4 3" style={{ pointerEvents: 'none' }} />
+                              {/* Yellow: left-center height handle */}
+                              <circle cx={x1} cy={lcY} r="8" fill="#facc15" stroke="#fff" strokeWidth="2"
+                                style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
+                                onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(2); setIsDragging(true) }} />
+                            </>
+                          ) : (
+                            <>
+                              {/* Yellow: single height handle — can go up or down from anchor */}
+                              <line x1={midX} y1={cy} x2={midX} y2={farY} stroke="#facc1555" strokeWidth="1" strokeDasharray="4 3" style={{ pointerEvents: 'none' }} />
+                              <circle cx={midX} cy={farY} r="8" fill="#facc15" stroke="#fff" strokeWidth="2"
+                                style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
+                                onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setDraggedControlPoint(2); setIsDragging(true) }} />
+                            </>
+                          )}
+                        </>
+                      )}
+                    </g>
+                  )
+                } else if (
+                  drawing.type === 'priceRange' &&
+                  drawing.points.length === 2 &&
+                  editingDrawing === drawing.id
+                ) {
+                  const screen1 = toScreenCoords(drawing.points[0])
+                  const screen2 = toScreenCoords(drawing.points[1])
+                  const isBars = drawing.priceRangeDisplay === 'bars'
+
+                  // bars mode: circles on left/right edges at mid-Y (ew-resize)
+                  // price mode: circles on top/bottom at fixed X (ns-resize)
+                  const midY = (screen1.y + screen2.y) / 2
+                  const lx = isBars ? Math.min(screen1.x, screen2.x) : screen1.x
+                  const rx = isBars ? Math.max(screen1.x, screen2.x) : screen1.x
+                  const cy0 = isBars ? midY : screen1.y
+                  const cy1 = isBars ? midY : screen2.y
+                  const cursor0 = isBars ? 'ew-resize' : 'ns-resize'
+                  const cursor1 = isBars ? 'ew-resize' : 'ns-resize'
+
+                  const makeHandler = (cpIdx: number) => (e: React.PointerEvent<SVGCircleElement>) => {
+                    e.stopPropagation()
+                    e.preventDefault()
+                    setDraggedControlPoint(cpIdx)
+                    const rect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
+                    if (rect) {
+                      setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+                      setIsDragging(true)
+                      isDraggingRef.current = true
+                      captureLayerRef.current?.setPointerCapture(e.pointerId)
+                    }
+                  }
+
+                  return (
+                    <g key={`control-${drawing.id}`}>
+                      <circle cx={lx} cy={cy0} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
+                        style={{ pointerEvents: 'all', cursor: cursor0 }}
+                        onPointerDown={makeHandler(0)}
+                      />
+                      <circle cx={rx} cy={cy1} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2"
+                        style={{ pointerEvents: 'all', cursor: cursor1 }}
+                        onPointerDown={makeHandler(1)}
+                      />
+                    </g>
+                  )
+                } else if (drawing.type === 'parallelChannel' && drawing.points.length === 3) {
+                  const p1 = toScreenCoords(drawing.points[0])
+                  const p2 = toScreenCoords(drawing.points[1])
+                  const p3 = toScreenCoords(drawing.points[2])
+                  const offsetX = p3.x - p1.x
+                  const offsetY = p3.y - p1.y
+
+                  // Calculate middle points for distance adjustment
+                  const mid1 = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }
+                  const mid2 = { x: mid1.x + offsetX, y: mid1.y + offsetY }
+
+                  return (
+                    <g key={`control-${drawing.id}`}>
+                      {/* Corner point 1 (first line start) - Blue */}
+                      <circle
+                        cx={p1.x}
+                        cy={p1.y}
+                        r="8"
+                        fill="#3b82f6"
+                        stroke="#fff"
+                        strokeWidth="2"
+                        style={{ pointerEvents: 'all', cursor: 'move' }}
+                        onPointerDown={(e) => {
+                          e.stopPropagation()
+                          e.preventDefault()
+                          setDraggedControlPoint(0)
+                          setEditingDrawing(drawing.id)
+                          setIsDragging(true)
+                          isDraggingRef.current = true
+                          captureLayerRef.current?.setPointerCapture(e.pointerId)
+                        }}
+                      />
+                      {/* Corner point 2 (first line end) - Blue */}
+                      <circle
+                        cx={p2.x}
+                        cy={p2.y}
+                        r="8"
+                        fill="#3b82f6"
+                        stroke="#fff"
+                        strokeWidth="2"
+                        style={{ pointerEvents: 'all', cursor: 'move' }}
+                        onPointerDown={(e) => {
+                          e.stopPropagation()
+                          e.preventDefault()
+                          setDraggedControlPoint(1)
+                          setEditingDrawing(drawing.id)
+                          setIsDragging(true)
+                          isDraggingRef.current = true
+                          captureLayerRef.current?.setPointerCapture(e.pointerId)
+                        }}
+                      />
+                      {/* Corner point 3 (second line start) - Blue */}
+                      <circle
+                        cx={p1.x + offsetX}
+                        cy={p1.y + offsetY}
+                        r="8"
+                        fill="#3b82f6"
+                        stroke="#fff"
+                        strokeWidth="2"
+                        style={{ pointerEvents: 'all', cursor: 'move' }}
+                        onPointerDown={(e) => {
+                          e.stopPropagation()
+                          e.preventDefault()
+                          setDraggedControlPoint(2)
+                          setEditingDrawing(drawing.id)
+                          setIsDragging(true)
+                          isDraggingRef.current = true
+                          captureLayerRef.current?.setPointerCapture(e.pointerId)
+                        }}
+                      />
+                      {/* Corner point 4 (second line end) - Blue */}
+                      <circle
+                        cx={p2.x + offsetX}
+                        cy={p2.y + offsetY}
+                        r="8"
+                        fill="#3b82f6"
+                        stroke="#fff"
+                        strokeWidth="2"
+                        style={{ pointerEvents: 'all', cursor: 'move' }}
+                        onPointerDown={(e) => {
+                          e.stopPropagation()
+                          e.preventDefault()
+                          setDraggedControlPoint(3)
+                          setEditingDrawing(drawing.id)
+                          setIsDragging(true)
+                          isDraggingRef.current = true
+                          captureLayerRef.current?.setPointerCapture(e.pointerId)
+                        }}
+                      />
+                      {/* Middle point 1 (first line) - Orange for distance adjustment */}
+                      <circle
+                        cx={mid1.x}
+                        cy={mid1.y}
+                        r="8"
+                        fill="#ff8500"
+                        stroke="#fff"
+                        strokeWidth="2"
+                        style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
+                        onPointerDown={(e) => {
+                          e.stopPropagation()
+                          e.preventDefault()
+                          setDraggedControlPoint(4)
+                          setEditingDrawing(drawing.id)
+                          setIsDragging(true)
+                          isDraggingRef.current = true
+                          captureLayerRef.current?.setPointerCapture(e.pointerId)
+                        }}
+                      />
+                      {/* Middle point 2 (second line) - Orange for distance adjustment */}
+                      <circle
+                        cx={mid2.x}
+                        cy={mid2.y}
+                        r="8"
+                        fill="#ff8500"
+                        stroke="#fff"
+                        strokeWidth="2"
+                        style={{ pointerEvents: 'all', cursor: 'ns-resize' }}
+                        onPointerDown={(e) => {
+                          e.stopPropagation()
+                          e.preventDefault()
+                          setDraggedControlPoint(5)
+                          setEditingDrawing(drawing.id)
+                          setIsDragging(true)
+                          isDraggingRef.current = true
+                          captureLayerRef.current?.setPointerCapture(e.pointerId)
+                        }}
+                      />
+                    </g>
+                  )
+                }
+                return null
+              })}
             </svg>
           )
         })()}
@@ -4805,6 +4970,89 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
                       Show Midline (Dashed)
                     </label>
                   </div>
+                )}
+
+                {/* Price Range options */}
+                {drawing.type === 'priceRange' && (
+                  <>
+                    {/* Label toggle: price% vs bar count */}
+                    <div>
+                      <label style={{ color: '#ffffff', fontSize: isMob ? '11px' : '14px', display: 'block', marginBottom: isMob ? '5px' : '8px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                        Label
+                      </label>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        {(['price', 'bars'] as const).map((m) => (
+                          <button
+                            key={m}
+                            onClick={() => updateDrawingProperty('priceRangeDisplay', m)}
+                            style={{
+                              flex: 1,
+                              padding: isMob ? '6px 4px' : '8px 6px',
+                              background: (drawing.priceRangeDisplay ?? 'price') === m
+                                ? 'linear-gradient(145deg, rgba(255,120,0,0.3), rgba(255,120,0,0.15))'
+                                : 'rgba(255,255,255,0.04)',
+                              border: (drawing.priceRangeDisplay ?? 'price') === m
+                                ? '1px solid rgba(255,120,0,0.6)'
+                                : '1px solid rgba(255,255,255,0.1)',
+                              color: (drawing.priceRangeDisplay ?? 'price') === m ? '#ff7800' : '#888',
+                              borderRadius: '3px',
+                              cursor: 'pointer',
+                              fontSize: isMob ? '11px' : '13px',
+                              fontWeight: '600',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px',
+                              transition: 'all 0.15s',
+                            }}
+                          >
+                            {m === 'price' ? '$ Price %' : '# Bar Count'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Background fill toggle */}
+                    <div>
+                      <label style={{ color: '#ffffff', fontSize: isMob ? '11px' : '14px', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: isMob ? '5px' : '8px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={drawing.priceRangeFill ?? false}
+                          onChange={(e) => updateDrawingProperty('priceRangeFill', e.target.checked)}
+                          style={{ cursor: 'pointer', width: '16px', height: '16px', accentColor: '#ff7800' }}
+                        />
+                        Background Fill
+                      </label>
+                      {drawing.priceRangeFill && (
+                        <>
+                          <label style={{ color: '#888', fontSize: isMob ? '10px' : '12px', display: 'block', marginBottom: '4px' }}>
+                            Opacity: <span style={{ color: '#ff7800' }}>{Math.round((drawing.priceRangeFillOpacity ?? 0.15) * 100)}%</span>
+                          </label>
+                          <input
+                            type="range"
+                            min="5"
+                            max="80"
+                            value={Math.round((drawing.priceRangeFillOpacity ?? 0.15) * 100)}
+                            onChange={(e) => updateDrawingProperty('priceRangeFillOpacity', parseInt(e.target.value) / 100)}
+                            style={{ width: '100%', height: '6px', borderRadius: '3px', background: 'linear-gradient(90deg, #1a1a1a, #333)', outline: 'none', appearance: 'none', cursor: 'pointer', accentColor: '#ff7800' }}
+                          />
+                        </>
+                      )}
+                    </div>
+
+                    {/* Line Width for priceRange */}
+                    <div>
+                      <label style={{ color: '#ffffff', fontSize: isMob ? '11px' : '14px', display: 'block', marginBottom: isMob ? '5px' : '8px', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                        Line Width: <span style={{ color: '#ff7800' }}>{drawing.lineWidth || 4}px</span>
+                      </label>
+                      <input
+                        type="range"
+                        min="1"
+                        max="10"
+                        value={drawing.lineWidth || 4}
+                        onChange={(e) => updateDrawingProperty('lineWidth', parseInt(e.target.value))}
+                        style={{ width: '100%', height: '6px', borderRadius: '3px', background: 'linear-gradient(90deg, #1a1a1a, #333)', outline: 'none', appearance: 'none', cursor: 'pointer', accentColor: '#ff7800' }}
+                      />
+                    </div>
+                  </>
                 )}
 
                 {/* Font Weight (for text) */}

@@ -6535,11 +6535,12 @@ export default function TradingViewChart({
   const configSnapshotRef = useRef<ChartConfig | null>(null)
   const [selectedTheme, setSelectedTheme] = useState<string>('default')
   useEffect(() => {
-    if (selectedTheme === 'blind-me') {
-      document.body.classList.add('theme-blind-me')
+    if (selectedTheme === 'toned') {
+      document.body.classList.add('theme-toned')
       setConfig(prev => ({
         ...prev,
-        backgroundColor: '#ffffff',
+        backgroundColor: '#f0e4cc',
+        gridLineColor: '#d8c8a8',
         colors: {
           bullish: { body: '#00F55A', wick: '#00F55A', border: '#00F55A' },
           bearish: { body: '#FF0000', wick: '#FF0000', border: '#FF0000' },
@@ -6547,18 +6548,10 @@ export default function TradingViewChart({
         },
       }))
     } else {
-      document.body.classList.remove('theme-blind-me')
-      setConfig(prev => ({
-        ...prev,
-        backgroundColor: '#000000',
-        colors: {
-          bullish: { body: '#00ff00', wick: '#00ff00', border: '#00ff00' },
-          bearish: { body: '#ff0000', wick: '#ff0000', border: '#ff0000' },
-          volume: { bullish: '#00bfff', bearish: '#ff0000' },
-        },
-      }))
+      // Remove toned body class; other themes set their own config via onClick
+      document.body.classList.remove('theme-toned')
     }
-    return () => { document.body.classList.remove('theme-blind-me') }
+    return () => { document.body.classList.remove('theme-toned') }
   }, [selectedTheme])
   // isMounted guard for portal (avoids document access during SSR)
 
@@ -11489,12 +11482,13 @@ export default function TradingViewChart({
       const mouseY = e.clientY
       const bottomOfContainer = rect.bottom
 
-      // Subtract everything below flow chart: IV + volume + buySell + time axis
+      // Subtract everything below flow chart: IV + BuySell + PE + PEG + time axis
       const belowFlow =
         (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) +
-        80 +
         (showBuySellIndicator ? buySellPanelHeight : 0) +
-        25
+        (showPEPanel ? pePanelHeight : 0) +
+        (showPEGPanel ? pegPanelHeight : 0) +
+        35
       const newHeight = bottomOfContainer - mouseY - belowFlow
 
       const constrainedHeight = Math.max(100, Math.min(800, newHeight))
@@ -11507,6 +11501,10 @@ export default function TradingViewChart({
       ivPanelHeight,
       showBuySellIndicator,
       buySellPanelHeight,
+      showPEPanel,
+      pePanelHeight,
+      showPEGPanel,
+      pegPanelHeight,
     ]
   )
 
@@ -11545,7 +11543,7 @@ export default function TradingViewChart({
       const mouseY = e.clientY
       const bottomOfContainer = rect.bottom
 
-      const volumeAndTimeHeight = 80 + 25 + (showBuySellIndicator ? buySellPanelHeight : 0)
+      const volumeAndTimeHeight = 35 + (showBuySellIndicator ? buySellPanelHeight : 0) + (showPEPanel ? pePanelHeight : 0) + (showPEGPanel ? pegPanelHeight : 0)
       const flowChartSpace = isFlowChartActive ? flowChartHeight : 0
       const distanceFromBottom = bottomOfContainer - mouseY - volumeAndTimeHeight - flowChartSpace
 
@@ -11562,6 +11560,10 @@ export default function TradingViewChart({
       activeIVPanelCount,
       showBuySellIndicator,
       buySellPanelHeight,
+      showPEPanel,
+      pePanelHeight,
+      showPEGPanel,
+      pegPanelHeight,
     ]
   )
 
@@ -11674,14 +11676,14 @@ export default function TradingViewChart({
       const container = containerRef.current
       if (!container) return
       const rect = container.getBoundingClientRect()
-      const distanceFromBottom = rect.bottom - e.clientY - 105 // subtract time axis (25) + volume area (80)
+      const distanceFromBottom = rect.bottom - e.clientY - 35 - (showPEPanel ? pePanelHeight : 0) - (showPEGPanel ? pegPanelHeight : 0) // subtract time axis + PE/PEG panels below
       const newHeight = Math.max(
         BUYSELL_HEIGHT_MIN,
         Math.min(BUYSELL_HEIGHT_MAX, Math.floor(distanceFromBottom))
       )
       setBuySellPanelHeight(newHeight)
     },
-    [isDraggingBuySellPanel, BUYSELL_HEIGHT_MIN, BUYSELL_HEIGHT_MAX]
+    [isDraggingBuySellPanel, BUYSELL_HEIGHT_MIN, BUYSELL_HEIGHT_MAX, showPEPanel, pePanelHeight, showPEGPanel, pegPanelHeight]
   )
 
   const handleBuySellDragEnd = useCallback(() => {
@@ -30805,120 +30807,120 @@ export default function TradingViewChart({
  }
 
  /* ═══════════════════════════════════════════════════
-    BLIND-ME LIGHT THEME
+    TONED THEME
     Swiss Coffee — warm off-white, soft depth,
     accent colors preserved on icons/active states.
     ═══════════════════════════════════════════════════ */
 
  /* Top bar + nav */
- [data-theme="blind-me"] .navigation-bar-premium,
- body.theme-blind-me .navigation-bar-premium {
- background: linear-gradient(180deg, #f5f0eb 0%, #ede8e0 100%) !important;
- border-color: #c8bfb4 !important;
- box-shadow: 0 1px 0 #faf8f5 inset, 0 2px 6px rgba(80,60,40,0.08) !important;
+ [data-theme="toned"] .navigation-bar-premium,
+ body.theme-toned .navigation-bar-premium {
+ background: linear-gradient(180deg, #e8d4b8 0%, #d8c4a0 100%) !important;
+ border-color: #b89870 !important;
+ box-shadow: 0 1px 0 #f0e4cc inset, 0 2px 8px rgba(80,50,20,0.18), 0 0 0 1px rgba(200,160,100,0.15) !important;
  }
- body.theme-blind-me .nav {
- background: linear-gradient(180deg, #f5f0eb 0%, #ede8e0 100%) !important;
- border-bottom-color: #c8bfb4 !important;
- box-shadow: 0 2px 6px rgba(80,60,40,0.08) !important;
+ body.theme-toned .nav {
+ background: linear-gradient(180deg, #e8d4b8 0%, #d8c4a0 100%) !important;
+ border-bottom-color: #b89870 !important;
+ box-shadow: 0 2px 8px rgba(80,50,20,0.15) !important;
  }
- body.theme-blind-me .nav a,
- body.theme-blind-me .nav span,
- body.theme-blind-me .nav button {
- color: #1e1810 !important;
+ body.theme-toned .nav a,
+ body.theme-toned .nav span,
+ body.theme-toned .nav button {
+ color: #1e1208 !important;
  }
 
  /* Sidebar container */
- [data-theme="blind-me"] .sidebar-container,
- body.theme-blind-me .sidebar-container {
- background: linear-gradient(180deg, #f2ede7 0%, #e9e2d8 100%) !important;
- border-right: 1px solid #c8bfb4 !important;
- box-shadow: 2px 0 8px rgba(80,60,40,0.07) !important;
+ [data-theme="toned"] .sidebar-container,
+ body.theme-toned .sidebar-container {
+ background: linear-gradient(180deg, #ead8bc 0%, #d8c4a0 100%) !important;
+ border-right: 1px solid #b89870 !important;
+ box-shadow: 2px 0 10px rgba(80,50,20,0.12) !important;
  }
 
  /* Sidebar buttons */
- [data-theme="blind-me"] .sidebar-container button,
- body.theme-blind-me .sidebar-container button {
- background: linear-gradient(180deg, #f7f3ef 0%, #ede6dc 50%, #e4dbd0 100%) !important;
- border: 1px solid #c4bab0 !important;
- border-left: 4px solid #b0a898 !important;
- box-shadow: 0 1px 3px rgba(80,60,40,0.12), inset 0 1px 0 rgba(255,253,250,0.95), inset 0 -1px 0 rgba(60,40,20,0.05) !important;
+ [data-theme="toned"] .sidebar-container button,
+ body.theme-toned .sidebar-container button {
+ background: linear-gradient(180deg, #f5e8d0 0%, #e8d4b8 50%, #dcc8a0 100%) !important;
+ border: 1px solid #c0a880 !important;
+ border-left: 4px solid #a8906a !important;
+ box-shadow: 0 1px 3px rgba(80,50,20,0.14), inset 0 1px 0 rgba(255,248,235,0.9), inset 0 -1px 0 rgba(80,50,20,0.06) !important;
  }
- [data-theme="blind-me"] .sidebar-container button:hover,
- body.theme-blind-me .sidebar-container button:hover {
- background: linear-gradient(180deg, #faf8f5 0%, #f2ece4 100%) !important;
- border-color: #a89880 !important;
- box-shadow: 0 3px 10px rgba(80,60,40,0.14), inset 0 1px 0 rgba(255,255,255,1), inset 0 -1px 0 rgba(60,40,20,0.04) !important;
+ [data-theme="toned"] .sidebar-container button:hover,
+ body.theme-toned .sidebar-container button:hover {
+ background: linear-gradient(180deg, #fdf0d8 0%, #f0e0c0 100%) !important;
+ border-color: #9a7848 !important;
+ box-shadow: 0 3px 12px rgba(80,50,20,0.18), inset 0 1px 0 rgba(255,252,240,1), inset 0 -1px 0 rgba(80,50,20,0.05) !important;
  }
 
  /* Sidebar label text */
- [data-theme="blind-me"] .sidebar-container button .sidebar-label,
- body.theme-blind-me .sidebar-container button .sidebar-label {
- color: #1e1810 !important;
+ [data-theme="toned"] .sidebar-container button .sidebar-label,
+ body.theme-toned .sidebar-container button .sidebar-label {
+ color: #1e1208 !important;
  text-shadow: none !important;
  }
  /* Icons keep accent colors — only mobile text label gets darkened */
- body.theme-blind-me .sidebar-container button > span.md\\:hidden {
- color: #1e1810 !important;
+ body.theme-toned .sidebar-container button > span.md\\:hidden {
+ color: #1e1208 !important;
  }
 
  /* Toolbar btn-3d-carved */
- body.theme-blind-me .btn-3d-carved {
- background: linear-gradient(180deg, #f7f3ef 0%, #ede6dc 50%, #e4dbd0 100%) !important;
- border: 1px solid #c4bab0 !important;
- color: #1e1810 !important;
- box-shadow: 0 1px 3px rgba(80,60,40,0.13), inset 0 1px 0 rgba(255,253,250,0.95), inset 0 -1px 0 rgba(60,40,20,0.06) !important;
+ body.theme-toned .btn-3d-carved {
+ background: linear-gradient(180deg, #f5e8d0 0%, #e8d4b8 50%, #dcc8a0 100%) !important;
+ border: 1px solid #c0a880 !important;
+ color: #1e1208 !important;
+ box-shadow: 0 1px 4px rgba(80,50,20,0.15), inset 0 1px 0 rgba(255,248,235,0.95), inset 0 -1px 0 rgba(80,50,20,0.07) !important;
  }
- body.theme-blind-me .btn-3d-carved.active {
- background: linear-gradient(180deg, #fff8f0 0%, #fdf0e0 50%, #f5e8d4 100%) !important;
- border: 1px solid rgba(255,133,0,0.6) !important;
- border-bottom: 1px solid rgba(200,100,0,0.45) !important;
+ body.theme-toned .btn-3d-carved.active {
+ background: linear-gradient(180deg, #fff0d8 0%, #fde4c0 50%, #f5d8a8 100%) !important;
+ border: 1px solid rgba(255,133,0,0.65) !important;
+ border-bottom: 1px solid rgba(200,100,0,0.5) !important;
  color: #b04800 !important;
- box-shadow: 0 0 0 1px rgba(255,133,0,0.2), 0 2px 6px rgba(80,60,40,0.1), inset 0 1px 0 rgba(255,253,250,0.9), inset 0 -1px 0 rgba(200,100,0,0.12) !important;
+ box-shadow: 0 0 0 1px rgba(255,133,0,0.22), 0 2px 8px rgba(80,50,20,0.12), inset 0 1px 0 rgba(255,248,235,0.9), inset 0 -1px 0 rgba(200,100,0,0.14) !important;
  }
- body.theme-blind-me .btn-3d-carved:hover:not(.active) {
- background: linear-gradient(180deg, #faf8f5 0%, #f2ece4 100%) !important;
- border: 1px solid #a89880 !important;
- color: #0e0c08 !important;
- box-shadow: 0 2px 8px rgba(80,60,40,0.16), inset 0 1px 0 rgba(255,255,255,1) !important;
+ body.theme-toned .btn-3d-carved:hover:not(.active) {
+ background: linear-gradient(180deg, #fdf4e4 0%, #f0e0c8 100%) !important;
+ border: 1px solid #9a7848 !important;
+ color: #0e0a04 !important;
+ box-shadow: 0 2px 10px rgba(80,50,20,0.18), inset 0 1px 0 rgba(255,252,240,1) !important;
  transform: translateY(-1px) !important;
  }
- body.theme-blind-me .btn-3d-carved.active:hover {
- background: linear-gradient(180deg, #fff5e8 0%, #fce8cc 100%) !important;
- border: 1px solid rgba(255,133,0,0.75) !important;
+ body.theme-toned .btn-3d-carved.active:hover {
+ background: linear-gradient(180deg, #ffecd0 0%, #fad8b0 100%) !important;
+ border: 1px solid rgba(255,133,0,0.8) !important;
  color: #963c00 !important;
  }
- body.theme-blind-me .btn-3d-carved:active {
- background: linear-gradient(180deg, #ddd6cc 0%, #e8e0d4 100%) !important;
- box-shadow: inset 0 2px 4px rgba(80,60,40,0.12) !important;
+ body.theme-toned .btn-3d-carved:active {
+ background: linear-gradient(180deg, #d0c0a0 0%, #e0ceb0 100%) !important;
+ box-shadow: inset 0 2px 5px rgba(80,50,20,0.16) !important;
  transform: translateY(0) !important;
  }
 
  /* Timeframe + chart-type dropdown containers */
- body.theme-blind-me .timeframe-dropdown,
- body.theme-blind-me .chart-type-dropdown {
- background: linear-gradient(180deg, #f7f3ef 0%, #ede6dc 100%) !important;
- border: 1px solid #c4bab0 !important;
- box-shadow: 0 1px 4px rgba(80,60,40,0.09), inset 0 1px 0 rgba(255,253,250,0.9) !important;
+ body.theme-toned .timeframe-dropdown,
+ body.theme-toned .chart-type-dropdown {
+ background: linear-gradient(180deg, #f5e8d0 0%, #e8d4b8 100%) !important;
+ border: 1px solid #c0a880 !important;
+ box-shadow: 0 1px 5px rgba(80,50,20,0.12), inset 0 1px 0 rgba(255,248,235,0.9) !important;
  }
 
  /* Symbol search box */
- body.theme-blind-me .navigation-bar-premium input[type="text"] {
- color: #1e1810 !important;
+ body.theme-toned .navigation-bar-premium input[type="text"] {
+ color: #1e1208 !important;
  }
- body.theme-blind-me .navigation-bar-premium input[type="text"]::placeholder {
- color: #8a8078 !important;
+ body.theme-toned .navigation-bar-premium input[type="text"]::placeholder {
+ color: #8a7458 !important;
  }
- body.theme-blind-me .navigation-bar-premium .relative.flex.items-center > div {
- background: linear-gradient(145deg, #f5f0eb, #e9e2d8) !important;
- border: 1px solid #c4bab0 !important;
- border-top-color: #a89880 !important;
- box-shadow: 0 2px 6px rgba(80,60,40,0.08), inset 0 1px 0 rgba(255,253,250,0.95) !important;
+ body.theme-toned .navigation-bar-premium .relative.flex.items-center > div {
+ background: linear-gradient(145deg, #f0e4cc, #e4d4b4) !important;
+ border: 1px solid #c0a880 !important;
+ border-top-color: #9a7848 !important;
+ box-shadow: 0 2px 8px rgba(80,50,20,0.1), inset 0 1px 0 rgba(255,248,235,0.95) !important;
  }
 
  /* Price text */
- body.theme-blind-me .navigation-bar-premium .font-mono {
- color: #1e1810 !important;
+ body.theme-toned .navigation-bar-premium .font-mono {
+ color: #1e1208 !important;
  }
  `,
         }}
@@ -30945,9 +30947,8 @@ export default function TradingViewChart({
               height: isMobile ? '48px' : '48px',
               paddingTop: 0,
               paddingBottom: 0,
-              background: selectedTheme === 'blind-me' ? 'linear-gradient(180deg, #f5f0eb 0%, #ede8e0 100%)' : '#000000',
-              backgroundSize: '400% 400%',
-              borderColor: selectedTheme === 'blind-me' ? '#cccccc' : '#333333',
+              background: selectedTheme === 'toned' ? 'linear-gradient(180deg, #e8d4b8 0%, #d8c4a0 100%)' : '#000000',
+              borderColor: selectedTheme === 'toned' ? '#c0a882' : '#333333',
               boxShadow: 'inset 0 1px 0 rgba(128, 128, 128, 0.1)',
               backdropFilter: 'none',
               overflowX: (isMobile || lwToolbarPosition === 'left' || showPATPanel) ? 'auto' : 'hidden',
@@ -31195,7 +31196,7 @@ export default function TradingViewChart({
                   <span
                     className="font-mono text-xl font-bold leading-tight"
                     style={{
-                      color: selectedTheme === 'blind-me' ? '#111111' : '#ffffff',
+                      color: selectedTheme === 'toned' ? '#111111' : '#ffffff',
                       letterSpacing: '0.5px',
                     }}
                   >
@@ -31204,9 +31205,9 @@ export default function TradingViewChart({
                   <span
                     className="font-mono text-xs font-semibold px-2 py-0.5 rounded"
                     style={{
-                      color: priceChangePercent >= 0 ? (selectedTheme === 'blind-me' ? '#006600' : '#00ff00') : (selectedTheme === 'blind-me' ? '#cc0000' : '#ff0000'),
-                      background: selectedTheme === 'blind-me' ? 'transparent' : '#000000',
-                      border: priceChangePercent >= 0 ? (selectedTheme === 'blind-me' ? '2px solid #006600' : '2px solid #00ff00') : (selectedTheme === 'blind-me' ? '2px solid #cc0000' : '2px solid #ff0000'),
+                      color: priceChangePercent >= 0 ? (selectedTheme === 'toned' ? '#006600' : '#00ff00') : (selectedTheme === 'toned' ? '#cc0000' : '#ff0000'),
+                      background: selectedTheme === 'toned' ? 'transparent' : '#000000',
+                      border: priceChangePercent >= 0 ? (selectedTheme === 'toned' ? '2px solid #006600' : '2px solid #00ff00') : (selectedTheme === 'toned' ? '2px solid #cc0000' : '2px solid #ff0000'),
                       letterSpacing: '0.3px',
                       fontWeight: 'bold',
                     }}
@@ -31567,10 +31568,10 @@ export default function TradingViewChart({
                   className="flex items-center chart-type-dropdown"
                   style={{
                     display: isMobile ? 'none' : undefined,
-                    background: selectedTheme === 'blind-me' ? 'linear-gradient(180deg, #f7f3ef 0%, #ede6dc 100%)' : '#000000',
-                    border: selectedTheme === 'blind-me' ? '1px solid #c4bab0' : '1px solid rgba(255,255,255,0.15)',
+                    background: selectedTheme === 'toned' ? 'linear-gradient(180deg, #f5e8d0 0%, #e8d4b8 100%)' : '#000000',
+                    border: selectedTheme === 'toned' ? '1px solid #c0a880' : '1px solid rgba(255,255,255,0.15)',
                     borderRadius: '4px',
-                    boxShadow: selectedTheme === 'blind-me'
+                    boxShadow: selectedTheme === 'toned'
                       ? '0 2px 8px rgba(80,60,40,0.13), inset 0 1px 0 rgba(255,253,250,0.9)'
                       : '0 2px 8px rgba(0,0,0,0.95), inset 0 1px 0 rgba(255,255,255,0.05)',
                   }}
@@ -32546,7 +32547,7 @@ export default function TradingViewChart({
                   >
                     {(isLoadingExpectedRange || isLoadingFutureExpiries || isLoadingPctChance) ? (
                       <>
-                        <span style={{ color: (isExpectedRangeActive || isFutureExpiriesActive || isATRRangeActive || isStdDevRangeActive) ? '#ff8500' : selectedTheme === 'blind-me' ? '#1e1810' : 'white' }}>{isMobile ? 'ER' : 'Expected Range'}</span>
+                        <span style={{ color: (isExpectedRangeActive || isFutureExpiriesActive || isATRRangeActive || isStdDevRangeActive) ? '#ff8500' : selectedTheme === 'toned' ? '#1e1810' : 'white' }}>{isMobile ? 'ER' : 'Expected Range'}</span>
                         <svg
                           className="animate-spin"
                           style={{ width: 15, height: 15, flexShrink: 0, marginLeft: 7, filter: 'drop-shadow(0 0 4px #ffaa00)' }}
@@ -32560,7 +32561,7 @@ export default function TradingViewChart({
                       </>
                     ) : (
                       <>
-                        <span style={{ color: (isExpectedRangeActive || isFutureExpiriesActive || isATRRangeActive || isStdDevRangeActive || isPctChanceActive) ? '#ff8500' : selectedTheme === 'blind-me' ? '#1e1810' : 'white' }}>{isMobile ? 'ER' : 'Expected Range'}</span>
+                        <span style={{ color: (isExpectedRangeActive || isFutureExpiriesActive || isATRRangeActive || isStdDevRangeActive || isPctChanceActive) ? '#ff8500' : selectedTheme === 'toned' ? '#1e1810' : 'white' }}>{isMobile ? 'ER' : 'Expected Range'}</span>
                         {(isExpectedRangeActive || isFutureExpiriesActive || isATRRangeActive || isStdDevRangeActive || isPctChanceActive) ? (
                           <span
                             onClick={(e) => {
@@ -34104,7 +34105,7 @@ export default function TradingViewChart({
                       color: 'white',
                     }}
                   >
-                    <span style={{ color: technalysisActive ? '#ff8500' : selectedTheme === 'blind-me' ? '#1e1810' : 'white' }}>TECHNALYSIS</span>
+                    <span style={{ color: technalysisActive ? '#ff8500' : selectedTheme === 'toned' ? '#1e1810' : 'white' }}>TECHNALYSIS</span>
                     {technalysisActive ? (
                       <button
                         onClick={(e) => {
@@ -36194,18 +36195,18 @@ export default function TradingViewChart({
                       <span style={{ color: '#ffffff', fontSize: '13px', fontWeight: 700, letterSpacing: '0.04em', textAlign: 'center' }}>Trade Desk</span>
                     </button>
 
-                    {/* Blind Me — White, high-contrast */}
+                    {/* Toned — Warm caramel, high-contrast */}
                     <button
-                      onClick={() => { setSelectedTheme('blind-me'); setConfig((prev) => ({ ...prev, backgroundColor: '#ffffff', gridLineColor: '#e0e0e0', axisStyle: { xAxis: { ...prev.axisStyle.xAxis, textColor: '#000000' }, yAxis: { ...prev.axisStyle.yAxis, textColor: '#000000' } }, colors: { bullish: { body: '#4ed07e', wick: '#4ed07e', border: '#4ed07e' }, bearish: { body: '#f26969', wick: '#f26969', border: '#f26969' }, volume: { bullish: '#4ed07e', bearish: '#f26969' } } })) }}
+                      onClick={() => { setSelectedTheme('toned'); setConfig((prev) => ({ ...prev, backgroundColor: '#ffffff', gridLineColor: '#e0e0e0', axisStyle: { xAxis: { ...prev.axisStyle.xAxis, textColor: '#000000' }, yAxis: { ...prev.axisStyle.yAxis, textColor: '#000000' } }, colors: { bullish: { body: '#4ed07e', wick: '#4ed07e', border: '#4ed07e' }, bearish: { body: '#f26969', wick: '#f26969', border: '#f26969' }, volume: { bullish: '#4ed07e', bearish: '#f26969' } } })) }}
                       className="flex flex-col items-center gap-2 py-3 px-2 rounded-xl transition-all"
-                      style={{ background: 'linear-gradient(180deg, #f5f5f5 0%, #ebebeb 100%)', border: selectedTheme === 'blind-me' ? '2px solid #ffffff' : '1px solid rgba(0,0,0,0.2)', boxShadow: selectedTheme === 'blind-me' ? '0 0 16px rgba(255,255,255,0.5), inset 0 1px 0 rgba(255,255,255,0.6)' : '0 2px 8px rgba(0,0,0,0.4)' }}
+                      style={{ background: 'linear-gradient(180deg, #f5f5f5 0%, #ebebeb 100%)', border: selectedTheme === 'toned' ? '2px solid #ffffff' : '1px solid rgba(0,0,0,0.2)', boxShadow: selectedTheme === 'toned' ? '0 0 16px rgba(255,255,255,0.5), inset 0 1px 0 rgba(255,255,255,0.6)' : '0 2px 8px rgba(0,0,0,0.4)' }}
                     >
                       <div className="flex gap-1">
                         <div style={{ width: '8px', height: '20px', background: '#4ed07e', borderRadius: '2px' }} />
                         <div style={{ width: '8px', height: '14px', background: '#f26969', borderRadius: '2px', marginTop: '6px' }} />
                         <div style={{ width: '8px', height: '24px', background: '#4ed07e', borderRadius: '2px' }} />
                       </div>
-                      <span style={{ color: '#111111', fontSize: '13px', fontWeight: 700, letterSpacing: '0.04em', textAlign: 'center' }}>Blind Me</span>
+                      <span style={{ color: '#111111', fontSize: '13px', fontWeight: 700, letterSpacing: '0.04em', textAlign: 'center' }}>Toned</span>
                     </button>
 
                     {/* Balanced — TradingView style */}
@@ -37376,7 +37377,7 @@ export default function TradingViewChart({
                           position: 'absolute',
                           left: 0,
                           right: 0,
-                          bottom: `${flowChartHeight + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + 25 + (showBuySellIndicator ? buySellPanelHeight : 0) + 5}px`,
+                          bottom: `${flowChartHeight + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0) + (showPEPanel ? pePanelHeight : 0) + (showPEGPanel ? pegPanelHeight : 0) + 35}px`,
                           height: '3px',
                           cursor: 'ns-resize',
                           backgroundColor: isDraggingFlowChart
@@ -37417,7 +37418,7 @@ export default function TradingViewChart({
                           position: 'absolute',
                           left: 0,
                           right: 0,
-                          bottom: `${(isFlowChartActive ? flowChartHeight : 0) + ivPanelHeight * activeIVPanelCount + 25 + (showBuySellIndicator ? buySellPanelHeight : 0) + 5}px`,
+                          bottom: `${activeIVPanelCount * ivPanelHeight + (showBuySellIndicator ? buySellPanelHeight : 0) + (showPEPanel ? pePanelHeight : 0) + (showPEGPanel ? pegPanelHeight : 0) + 35}px`,
                           height: '4px',
                           cursor: 'ns-resize',
                           backgroundColor: isDraggingIVPanel ? '#FF9500' : 'rgba(255, 149, 0, 0.3)',
@@ -37456,17 +37457,17 @@ export default function TradingViewChart({
                           position: 'absolute',
                           left: 0,
                           right: 0,
-                          bottom: `${pePanelHeight + (showPEGPanel ? pegPanelHeight : 0) + 80 + 25}px`,
+                          bottom: `${pePanelHeight + (showPEGPanel ? pegPanelHeight : 0) + 35}px`,
                           height: '4px',
                           cursor: 'ns-resize',
-                          backgroundColor: isDraggingPEPanel ? '#00E5FF' : 'rgba(0, 229, 255, 0.3)',
+                          backgroundColor: isDraggingPEPanel ? '#ffffff' : 'rgba(255, 255, 255, 0.3)',
                           transition: isDraggingPEPanel ? 'none' : 'background-color 0.2s',
                           zIndex: 1000,
                         }}
-                        onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#00E5FF' }}
-                        onMouseLeave={(e) => { if (!isDraggingPEPanel) e.currentTarget.style.backgroundColor = 'rgba(0, 229, 255, 0.3)' }}
+                        onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#ffffff' }}
+                        onMouseLeave={(e) => { if (!isDraggingPEPanel) e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.3)' }}
                       >
-                        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '40px', height: '2px', backgroundColor: '#00E5FF', borderRadius: '1px' }} />
+                        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '40px', height: '2px', backgroundColor: '#ffffff', borderRadius: '1px' }} />
                       </div>
                     )}
 
@@ -37478,7 +37479,7 @@ export default function TradingViewChart({
                           position: 'absolute',
                           left: 0,
                           right: 0,
-                          bottom: `${pegPanelHeight + 80 + 25}px`,
+                          bottom: `${pegPanelHeight + 35}px`,
                           height: '4px',
                           cursor: 'ns-resize',
                           backgroundColor: isDraggingPEGPanel ? '#a78bfa' : 'rgba(167, 139, 250, 0.3)',
@@ -37499,7 +37500,7 @@ export default function TradingViewChart({
                         position: 'absolute',
                         left: 0,
                         right: 0,
-                        bottom: `${25 + buySellPanelHeight}px`,
+                        bottom: `${buySellPanelHeight + (showPEPanel ? pePanelHeight : 0) + (showPEGPanel ? pegPanelHeight : 0) + 35}px`,
                         height: '4px',
                         cursor: 'ns-resize',
                         backgroundColor: isDraggingBuySellPanel
@@ -37663,9 +37664,15 @@ export default function TradingViewChart({
                       if (showHVIndicator) panels.push({ key: 'hv', label: `HV (${hvWindow}D)`, accentColor: hvColor, onClose: () => setShowHVIndicator(false) })
 
                       return panels.map((panel, idx) => {
-                        // bottom of this panel = flowBase + bsBase + 25(volume) + panels above * ivPanelHeight
-                        const panelsAbove = panels.length - 1 - idx // panels rendered after this one in canvas
-                        const bottomPx = flowBase + bsBase + 25 + panelsAbove * ivPanelHeight
+                        // correct bottom = all panels below this IV panel + timeAxis
+                        // stacking (bottom→top): time(35) + PEG + PE + BuySell + IV30D + IV1yr panels
+                        const iv30DCount = isAnyIV30DActive ? 1 : 0
+                        const panelsBelow = panels.length - 1 - idx // IV panels strictly below this one
+                        const bottomPx = (panelsBelow + iv30DCount) * ivPanelHeight
+                          + bsBase
+                          + (showPEPanel ? pePanelHeight : 0)
+                          + (showPEGPanel ? pegPanelHeight : 0)
+                          + 35
                         const isFullscreen = ivFullscreenPanel === panel.key
 
                         return (
@@ -37784,9 +37791,11 @@ export default function TradingViewChart({
                     {showIV30DPanel && (() => {
                       const flowBase = isFlowChartActive ? flowChartHeight : 0
                       const bsBase = showBuySellIndicator ? buySellPanelHeight : 0
-                      // IV 30D panel sits directly above the 1yr IV panels
-                      const iv1yrCount = [showIVPanel, showIVRankIndicator, showIVPercentileIndicator, showHVIndicator].filter(Boolean).length
-                      const bottomPx = flowBase + bsBase + 25 + iv1yrCount * ivPanelHeight
+                      // IV 30D sits directly below all 1yr IV panels, above BuySell/PE/PEG
+                      const bottomPx = bsBase
+                        + (showPEPanel ? pePanelHeight : 0)
+                        + (showPEGPanel ? pegPanelHeight : 0)
+                        + 35
                       return (
                         <div className="absolute z-[1001] flex items-center pointer-events-none"
                           style={{ left: 0, right: 0, bottom: `${bottomPx}px`, height: `${ivPanelHeight}px` }}>
@@ -37936,7 +37945,7 @@ export default function TradingViewChart({
 
                     {/* ── P/E Panel Header Toolbar ──────────────────────────────────────────── */}
                     {showPEPanel && (() => {
-                      const peBotPx = 25 + (showBuySellIndicator ? buySellPanelHeight : 0) + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0)
+                      const peBotPx = (showPEGPanel ? pegPanelHeight : 0) + 35
                       return (
                         <div className="absolute z-[1001] pointer-events-none"
                           style={{ left: 0, right: 0, bottom: `${peBotPx}px`, height: `${pePanelHeight}px` }}>
@@ -38000,7 +38009,7 @@ export default function TradingViewChart({
 
                     {/* ── PEG Panel Header Toolbar ───────────────────────────────────────────── */}
                     {showPEGPanel && (() => {
-                      const pegBotPx = 25 + (showBuySellIndicator ? buySellPanelHeight : 0) + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showPEPanel ? pePanelHeight : 0)
+                      const pegBotPx = 35 // PEG is at very bottom, right above time axis
                       return (
                         <div className="absolute z-[1001] pointer-events-none"
                           style={{ left: 0, right: 0, bottom: `${pegBotPx}px`, height: `${pegPanelHeight}px` }}>
@@ -38066,7 +38075,7 @@ export default function TradingViewChart({
 
                     {/* ── BuySell Panel Header Toolbar ─────────────────────────────────────── */}
                     {showBuySellIndicator && (() => {
-                      const bsBottomPx = 25 // sits just above the time axis
+                      const bsBottomPx = (showPEPanel ? pePanelHeight : 0) + (showPEGPanel ? pegPanelHeight : 0) + 35
                       return (
                         <div
                           className="absolute z-[1001] pointer-events-none"

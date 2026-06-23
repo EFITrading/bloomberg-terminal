@@ -1,4 +1,5 @@
-﻿'use client'
+﻿// This page is locked. Access is blocked via layout.tsx server redirect.
+'use client'
 
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 

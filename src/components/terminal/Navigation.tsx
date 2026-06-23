@@ -28,14 +28,14 @@ export default function Navigation() {
     setIsClient(true)
   }, [])
 
-  // Watch for blind-me theme class on body
+  // Watch for toned theme class on body
   useEffect(() => {
     const observer = new MutationObserver(() => {
-      const val = document.body.classList.contains('theme-blind-me')
+      const val = document.body.classList.contains('theme-toned')
       setIsBlindMe(val)
     })
     observer.observe(document.body, { attributes: true, attributeFilter: ['class'] })
-    const initial = document.body.classList.contains('theme-blind-me')
+    const initial = document.body.classList.contains('theme-toned')
     setIsBlindMe(initial)
     return () => observer.disconnect()
   }, [])
@@ -90,9 +90,9 @@ export default function Navigation() {
       <nav
         className="nav"
         style={{
-          background: hideMobileNav ? 'transparent' : isBlindMe ? 'linear-gradient(180deg, #cfc5b8 0%, #c4b9aa 100%)' : 'linear-gradient(180deg, #060d1f 0%, #030810 25%, #010105 60%, #000000 100%)',
-          borderBottom: hideMobileNav ? 'none' : isBlindMe ? '1px solid #a89888' : '1px solid rgba(255, 133, 0, 0.3)',
-          boxShadow: hideMobileNav ? 'none' : isBlindMe ? '0 2px 8px rgba(80,60,40,0.15), inset 0 1px 0 rgba(255,253,250,0.5)' : '0 4px 24px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255,255,255,0.18), inset 0 2px 6px rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.8)',
+          background: hideMobileNav ? 'transparent' : isBlindMe ? 'linear-gradient(180deg, #e8d4b8 0%, #d8c4a0 100%)' : 'linear-gradient(180deg, #060d1f 0%, #030810 25%, #010105 60%, #000000 100%)',
+          borderBottom: hideMobileNav ? 'none' : isBlindMe ? '1px solid #b89060' : '1px solid rgba(255, 133, 0, 0.3)',
+          boxShadow: hideMobileNav ? 'none' : isBlindMe ? '0 2px 10px rgba(80,50,20,0.2), inset 0 1px 0 rgba(255,248,220,0.6)' : '0 4px 24px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255,255,255,0.18), inset 0 2px 6px rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.8)',
           position: 'fixed',
           top: 0,
           left: 0,
@@ -240,9 +240,9 @@ export default function Navigation() {
               alignItems: 'stretch',
               gap: '0',
               borderBottom: isBlindMe ? '1px solid rgba(0,0,0,0.1)' : '1px solid rgba(255, 133, 0, 0.12)',
-              background: isBlindMe ? 'linear-gradient(180deg, #c4b9aa 0%, #b8ac9c 100%)' : '#000000',
-              border: isBlindMe ? '2px solid #a09080' : '2px solid #d4af37',
-              boxShadow: isBlindMe ? '0 2px 10px rgba(80,60,40,0.18), inset 0 1px 0 rgba(255,253,250,0.4)' : undefined,
+              background: isBlindMe ? 'linear-gradient(135deg, #0d0d0d 0%, #1a0e04 25%, #7a4010 65%, #c4a070 100%)' : '#000000',
+              border: isBlindMe ? '2px solid #6b3010' : '2px solid #d4af37',
+              boxShadow: isBlindMe ? '0 2px 14px rgba(20,8,0,0.55), inset 0 1px 0 rgba(255,200,120,0.15)' : undefined,
             }}
           >
             {navLinks.map((link, i) => {
@@ -261,6 +261,7 @@ export default function Navigation() {
                   )}
                   <Link
                     href={link.path}
+                    onClick={link.path === '/analysis-suite' || link.path === '/ai-suite' ? (e) => e.preventDefault() : undefined}
                     style={{
                       padding: '0 22px',
                       height: '48px',
@@ -278,8 +279,8 @@ export default function Navigation() {
                       display: 'flex',
                       alignItems: 'center',
                       position: 'relative',
-                      color: isActive ? '#FF8500' : isBlindMe ? '#2a2018' : 'rgba(255,255,255,0.75)',
-                      WebkitTextFillColor: isActive ? '#FF8500' : isBlindMe ? '#2a2018' : 'rgba(255,255,255,0.75)',
+                      color: isActive ? '#FF8500' : isBlindMe ? '#fff8ee' : 'rgba(255,255,255,0.75)',
+                      WebkitTextFillColor: isActive ? '#FF8500' : isBlindMe ? '#fff8ee' : 'rgba(255,255,255,0.75)',
                       borderBottom: isActive
                         ? `2px solid ${link.color}`
                         : '2px solid transparent',
@@ -304,7 +305,7 @@ export default function Navigation() {
                     }}
                     onMouseLeave={(e) => {
                       if (!isActive) {
-                        const baseColor = isBlindMe ? '#2a2018' : 'rgba(255,255,255,0.75)'
+                        const baseColor = isBlindMe ? '#fff8ee' : 'rgba(255,255,255,0.75)'
                         e.currentTarget.style.color = baseColor
                         e.currentTarget.style.WebkitTextFillColor = baseColor
                         e.currentTarget.style.borderBottomColor = 'transparent'
@@ -320,6 +321,18 @@ export default function Navigation() {
                     }}
                   >
                     {link.name}
+                    {(link.path === '/analysis-suite' || link.path === '/ai-suite') && (
+                      <svg
+                        width="11" height="13" viewBox="0 0 12 15" fill="none"
+                        style={{ marginLeft: '7px', flexShrink: 0, opacity: 0.75 }}
+                        xmlns="http://www.w3.org/2000/svg"
+                      >
+                        <rect x="1" y="6" width="10" height="8" rx="1.5" fill="rgba(255,133,0,0.2)" stroke="rgba(255,133,0,0.85)" strokeWidth="1.2" />
+                        <path d="M3 6V4.5C3 2.57 4.34 1.5 6 1.5C7.66 1.5 9 2.57 9 4.5V6" stroke="rgba(255,133,0,0.85)" strokeWidth="1.2" strokeLinecap="round" fill="none" />
+                        <circle cx="6" cy="9.8" r="1.2" fill="rgba(255,133,0,0.9)" />
+                        <rect x="5.4" y="10.6" width="1.2" height="1.8" rx="0.6" fill="rgba(255,133,0,0.7)" />
+                      </svg>
+                    )}
                   </Link>
                 </React.Fragment>
               )

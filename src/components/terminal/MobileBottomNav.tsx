@@ -79,16 +79,16 @@ function IconAnalytics({ active }: { active: boolean }) {
 
 function IconAI({ active }: { active: boolean }) {
   const c = active ? ACTIVE_COLOR : INACTIVE_COLOR
-  const pins: [string,string,string,string][] = [
-    ['10','4','10','7'],['14','4','14','7'],
-    ['10','17','10','20'],['14','17','14','20'],
-    ['4','10','7','10'],['4','14','7','14'],
-    ['17','10','20','10'],['17','14','20','14'],
+  const pins: [string, string, string, string][] = [
+    ['10', '4', '10', '7'], ['14', '4', '14', '7'],
+    ['10', '17', '10', '20'], ['14', '17', '14', '20'],
+    ['4', '10', '7', '10'], ['4', '14', '7', '14'],
+    ['17', '10', '20', '10'], ['17', '14', '20', '14'],
   ]
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" style={{ overflow: 'visible' }}>
       <rect x="7" y="7" width="10" height="10" rx="1.5" fill={c} />
-      {pins.map(([x1,y1,x2,y2], i) => (
+      {pins.map(([x1, y1, x2, y2], i) => (
         <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke={c} strokeWidth="1.5" strokeLinecap="round" className={active ? `efi-ai-pin efi-ai-pin-${i % 4}` : ''} />
       ))}
       <rect x="10" y="10" width="4" height="4" rx="0.5" fill="#090909" />
@@ -209,7 +209,47 @@ export default function MobileBottomNav({ navLinks, pathname }: Props) {
           const isActive = pathname === link.path
           const Icon = ICONS[link.path]
           const label = SHORT_LABELS[link.path] ?? link.name
-          return (
+          const isLocked = link.path === '/analysis-suite' || link.path === '/ai-suite'
+          return isLocked ? (
+            <div
+              key={link.path}
+              style={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '4px',
+                textDecoration: 'none',
+                position: 'relative',
+                background: 'transparent',
+                borderTop: '2px solid transparent',
+                cursor: 'default',
+              }}
+            >
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {Icon && <Icon active={false} />}
+                <div style={{
+                  position: 'absolute', top: '-4px', right: '-8px',
+                  width: '13px', height: '13px',
+                  background: 'linear-gradient(145deg, #1a0d00, #0d0700)',
+                  border: '1px solid rgba(255,133,0,0.7)',
+                  borderRadius: '50%',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 0 6px rgba(255,133,0,0.4)',
+                }}>
+                  <svg width="7" height="8" viewBox="0 0 8 10" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="0.5" y="4" width="7" height="5.5" rx="1" fill="rgba(255,133,0,0.25)" stroke="rgba(255,133,0,0.9)" strokeWidth="0.8" />
+                    <path d="M2 4V3C2 1.9 2.9 1.2 4 1.2C5.1 1.2 6 1.9 6 3V4" stroke="rgba(255,133,0,0.9)" strokeWidth="0.8" strokeLinecap="round" fill="none" />
+                    <circle cx="4" cy="6.5" r="0.8" fill="rgba(255,133,0,0.9)" />
+                  </svg>
+                </div>
+              </div>
+              <span style={{ fontSize: '9px', fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', lineHeight: 1 }}>
+                {label}
+              </span>
+            </div>
+          ) : (
             <Link
               key={link.path}
               href={link.path}
@@ -229,7 +269,26 @@ export default function MobileBottomNav({ navLinks, pathname }: Props) {
                 borderTop: `2px solid ${isActive ? ACTIVE_COLOR : 'transparent'}`,
               }}
             >
-              {Icon && <Icon active={isActive} />}
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {Icon && <Icon active={isActive} />}
+                {(link.path === '/analysis-suite' || link.path === '/ai-suite') && (
+                  <div style={{
+                    position: 'absolute', top: '-4px', right: '-8px',
+                    width: '13px', height: '13px',
+                    background: 'linear-gradient(145deg, #1a0d00, #0d0700)',
+                    border: '1px solid rgba(255,133,0,0.7)',
+                    borderRadius: '50%',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    boxShadow: '0 0 6px rgba(255,133,0,0.4)',
+                  }}>
+                    <svg width="7" height="8" viewBox="0 0 8 10" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <rect x="0.5" y="4" width="7" height="5.5" rx="1" fill="rgba(255,133,0,0.25)" stroke="rgba(255,133,0,0.9)" strokeWidth="0.8" />
+                      <path d="M2 4V3C2 1.9 2.9 1.2 4 1.2C5.1 1.2 6 1.9 6 3V4" stroke="rgba(255,133,0,0.9)" strokeWidth="0.8" strokeLinecap="round" fill="none" />
+                      <circle cx="4" cy="6.5" r="0.8" fill="rgba(255,133,0,0.9)" />
+                    </svg>
+                  </div>
+                )}
+              </div>
               <span style={{
                 fontSize: '9px',
                 fontWeight: isActive ? 700 : 500,

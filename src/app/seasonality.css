@@ -4664,10 +4664,10 @@ label {
   scrollbar-color: rgba(160, 160, 160, 0.5) rgba(255, 255, 255, 0.04);
 }
 
-/* Mobile data-driven screener: full-size cards, no zoom reduction */
+/* Mobile data-driven screener: reduce opportunity card height by 25% */
 @media (max-width: 768px) {
   .mobile-dd-screener-panel .results-grid-split>* {
-    flex-shrink: 0;
+    zoom: 0.75;
   }
 }
 

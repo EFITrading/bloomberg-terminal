@@ -1860,8 +1860,8 @@ export default function AiSuitePage() {
           {tab === 'mine' && (
             filteredSaved.length === 0
               ? <div style={{ padding: '40px 16px', textAlign: 'center', color: '#666', fontSize: 13 }}>
-                  {scriptSearch ? 'No matches.' : 'No saved scripts yet.'}
-                </div>
+                {scriptSearch ? 'No matches.' : 'No saved scripts yet.'}
+              </div>
               : filteredSaved.map(s => (
                 <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 9px', borderRadius: 4, cursor: 'pointer', marginBottom: 2, background: '#0a0a0a', border: '1px solid #141414' }}
                   onClick={() => { handleLoad(s.name, s.code); setMobileTab('editor'); }}>
@@ -2022,8 +2022,8 @@ export default function AiSuitePage() {
               <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
                 {filteredLogs.length === 0
                   ? <div style={{ color: '#555', fontSize: 12, padding: '20px 16px', fontFamily: '"JetBrains Mono", monospace' }}>
-                      {logs.length === 0 ? 'Run a script to see output here.' : 'No entries match filter.'}
-                    </div>
+                    {logs.length === 0 ? 'Run a script to see output here.' : 'No entries match filter.'}
+                  </div>
                   : filteredLogs.map(entry => (
                     <div key={entry.id} style={{ padding: '1px 12px', fontFamily: '"JetBrains Mono", monospace', fontSize: 12 }}>
                       {entry.type === 'html' ? (
