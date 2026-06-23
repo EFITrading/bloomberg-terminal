@@ -49,3 +49,21 @@ model LiveOICache {
   @@unique([ticker, tradingDate])
   @@index([ticker, tradingDate])
 }
+
+model CompositeHistory {
+  id        String   @id @default(cuid())
+  key       String   @unique @default("main") // always "main" — single record
+  data      String   // JSON: { history: [...], yearStart: {...}, storedYear: number }
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+}
+
+model EtfFlowHistory {
+  id        String   @id @default(cuid())
+  key       String   @unique @default("main") // always "main" — single record
+  data      String   // JSON: { flows, baseAUM, lastShares, lastCumFlow, dateStrings, lastDate }
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+}

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { PrismaClient } from '@prisma/client'
 
+const prisma = new PrismaClient()
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY!
 
 // ─── Sector / industry groupings — exact same as calculateEnhancedRegime ─────
@@ -59,10 +61,11 @@ function getVixAdjustment(vixPrice: number): { weight: number; signal: number } 
   return { weight: 0.03, signal: -VIX_SIGNAL_STRENGTH } // 14–21 → mild growth
 }
 
-// ─── In-memory cache ──────────────────────────────────────────────────────────
-const _cache: { data: any; ts: number } | null = null
-let cachedResult: { data: any; ts: number } | null = null
-const CACHE_TTL = 4 * 60 * 60 * 1000 // 4 hours (5-year dataset is large, cache aggressively)
+// ─── DB cache key (single record, always "main") ─────────────────────────────
+const DB_KEY = 'main'
+// Calendar days to fetch behind the last stored date — covers the 50d lookback
+// needed by computeCompositeAt (50 trading days ≈ 72 calendar days; use 120 for safety)
+const INCREMENTAL_CALENDAR_BUFFER = 120
 
 // ─── Fetch daily bars for a single ticker from Polygon ───────────────────────
 async function fetchBars(
@@ -230,66 +233,84 @@ function computeCompositeAt(
 
 // ─── GET handler ──────────────────────────────────────────────────────────────
 export async function GET(request: NextRequest) {
-  // Serve from cache if fresh
-  if (cachedResult && Date.now() - cachedResult.ts < CACHE_TTL) {
-    return NextResponse.json(cachedResult.data)
-  }
+  const t0 = Date.now()
 
   try {
-    // Date range: ~5 years back plus 50-day lookback buffer
-    const endDate = new Date().toISOString().split('T')[0]
-    const fetchStart = new Date()
-    fetchStart.setFullYear(fetchStart.getFullYear() - 6) // 6 years = 5 years display + 1 year buffer for 50d lookback
-    const startDate = fetchStart.toISOString().split('T')[0]
-
-    // ── Fetch all symbols in parallel ────────────────────────────────
-    const fetchTasks = [...ALL_ETF_SYMBOLS, 'VIX', 'SPY'].map(async (sym) => ({
-      sym,
-      bars: await fetchBars(sym, startDate, endDate),
-    }))
-    const results = await Promise.all(fetchTasks)
-
-    const allBars: Record<string, { t: number; c: number }[]> = {}
-    for (const { sym, bars } of results) {
-      allBars[sym] = bars
-    }
-
-    // ── Build a superset of trading dates from the past 5 years ──────
-    const fiveYearsAgo = new Date()
-    fiveYearsAgo.setFullYear(fiveYearsAgo.getFullYear() - 5)
-    const fiveYearsAgoStr = fiveYearsAgo.toISOString().split('T')[0]
-
-    // Use SPY-equivalent (XLK) trading dates as the master date list
-    const masterTicker = 'XLK'
-    const masterDates = (allBars[masterTicker] || [])
-      .map((b) => new Date(b.t).toISOString().split('T')[0])
-      .filter((d) => d >= fiveYearsAgoStr)
-      .sort()
-
-    if (masterDates.length === 0) {
-      return NextResponse.json({ error: 'No trading dates found' }, { status: 500 })
-    }
-
-    // ── Calculate year-start price for each symbol ────────────────
-    // For YTD: last close of previous year
+    const today = new Date().toISOString().split('T')[0]
     const currentYear = new Date().getFullYear()
-    const yearStart: Record<string, number> = {}
-    for (const sym of ALL_ETF_SYMBOLS) {
-      const bars = allBars[sym]
-      if (!bars) continue
-      // Find last bar of previous year
-      const prevYearBars = bars.filter((b) => new Date(b.t).getFullYear() === currentYear - 1)
-      if (prevYearBars.length > 0) {
-        yearStart[sym] = prevYearBars[prevYearBars.length - 1].c
-      } else {
-        // Fallback: first bar of current year
-        const curYearBars = bars.filter((b) => new Date(b.t).getFullYear() === currentYear)
-        yearStart[sym] = curYearBars.length > 0 ? curYearBars[0].c : 0
+
+    // ── 1. Load from DB ──────────────────────────────────────────────────────
+    type StoredPayload = {
+      history: { date: string; compositeScore: number; regime: string; label: string; spyClose: number | null }[]
+      yearStart: Record<string, number>
+      storedYear: number
+    }
+    let stored: StoredPayload | null = null
+    try {
+      const row = await prisma.compositeHistory.findUnique({ where: { key: DB_KEY } })
+      if (row) stored = JSON.parse(row.data) as StoredPayload
+    } catch (dbErr) {
+      console.error('[composite-history] DB read error:', dbErr)
+    }
+
+    // ── 2. Already up to date? ───────────────────────────────────────────────
+    if (stored && stored.history.length > 0) {
+      const latestStored = stored.history[stored.history.length - 1].date
+      if (latestStored >= today) {
+        return NextResponse.json({
+          history: stored.history,
+          generated: new Date().toISOString(),
+          source: 'db-cache',
+        })
       }
     }
 
-    // ── Also need all dates across entire history for index lookup ──
-    // Build a full sorted date index that covers the whole allBars span
+    // ── 3. Determine fetch window ────────────────────────────────────────────
+    let fetchStartDate: string
+    let isIncremental = false
+    let existingHistory: StoredPayload['history'] = []
+    let yearStart: Record<string, number> = {}
+    const yearRolled = stored ? stored.storedYear !== currentYear : false
+
+    if (stored && stored.history.length > 0 && !yearRolled) {
+      isIncremental = true
+      existingHistory = stored.history
+      yearStart = stored.yearStart || {}
+      const lastStoredDate = stored.history[stored.history.length - 1].date
+      const fetchFrom = new Date(lastStoredDate)
+      fetchFrom.setDate(fetchFrom.getDate() - INCREMENTAL_CALENDAR_BUFFER)
+      fetchStartDate = fetchFrom.toISOString().split('T')[0]
+    } else {
+      const fetchFrom = new Date()
+      fetchFrom.setFullYear(fetchFrom.getFullYear() - 6)
+      fetchStartDate = fetchFrom.toISOString().split('T')[0]
+    }
+
+    // ── 4. Fetch bars from Polygon ───────────────────────────────────────────
+    const fetchTasks = [...ALL_ETF_SYMBOLS, 'VIX', 'SPY'].map(async (sym) => ({
+      sym,
+      bars: await fetchBars(sym, fetchStartDate, today),
+    }))
+    const results = await Promise.all(fetchTasks)
+    const allBars: Record<string, { t: number; c: number }[]> = {}
+    for (const { sym, bars } of results) allBars[sym] = bars
+
+    // ── 5. Compute / refresh yearStart ──────────────────────────────────────
+    if (!isIncremental || yearRolled) {
+      for (const sym of ALL_ETF_SYMBOLS) {
+        const bars = allBars[sym]
+        if (!bars) continue
+        const prevYearBars = bars.filter((b) => new Date(b.t).getFullYear() === currentYear - 1)
+        if (prevYearBars.length > 0) {
+          yearStart[sym] = prevYearBars[prevYearBars.length - 1].c
+        } else {
+          const curYearBars = bars.filter((b) => new Date(b.t).getFullYear() === currentYear)
+          yearStart[sym] = curYearBars.length > 0 ? curYearBars[0].c : 0
+        }
+      }
+    }
+
+    // ── 6. Build date index from fetched bars ────────────────────────────────
     const fullDateSet = new Set<string>()
     for (const sym of ALL_ETF_SYMBOLS) {
       for (const b of allBars[sym] || []) {
@@ -298,37 +319,65 @@ export async function GET(request: NextRequest) {
     }
     const fullDateKeys = [...fullDateSet].sort()
 
-    // ── Compute composite score for every master date ──────────────
-    // Build SPY date→close map for O(1) lookup
+    // ── 7. SPY close map ─────────────────────────────────────────────────────
     const spyMap: Record<string, number> = {}
     for (const bar of allBars['SPY'] || []) {
       spyMap[new Date(bar.t).toISOString().split('T')[0]] = bar.c
     }
 
-    const history: {
-      date: string
-      compositeScore: number
-      regime: string
-      label: string
-      spyClose: number | null
-    }[] = []
+    // ── 8. Determine which dates need computing ──────────────────────────────
+    const fiveYearsAgo = new Date()
+    fiveYearsAgo.setFullYear(fiveYearsAgo.getFullYear() - 5)
+    const fiveYearsAgoStr = fiveYearsAgo.toISOString().split('T')[0]
 
-    for (const dateStr of masterDates) {
+    const existingDates = new Set(existingHistory.map((h) => h.date))
+    const masterTicker = 'XLK'
+    const datesToCompute = (allBars[masterTicker] || [])
+      .map((b) => new Date(b.t).toISOString().split('T')[0])
+      .filter((d) => d >= fiveYearsAgoStr && !existingDates.has(d))
+      .sort()
+
+    // ── 9. Compute composite scores for new/missing dates only ───────────────
+    const newPoints: StoredPayload['history'] = []
+    for (const dateStr of datesToCompute) {
       const idx = fullDateKeys.indexOf(dateStr)
       if (idx < 0) continue
-
       const point = computeCompositeAt(idx, allBars, fullDateKeys, yearStart)
       if (point !== null) {
-        history.push({ date: dateStr, ...point, spyClose: spyMap[dateStr] ?? null })
+        newPoints.push({ date: dateStr, ...point, spyClose: spyMap[dateStr] ?? null })
       }
     }
 
-    const responseData = { history, generated: new Date().toISOString() }
-    cachedResult = { data: responseData, ts: Date.now() }
+    // ── 10. Merge, trim to 5 years, sort ────────────────────────────────────
+    const mergedHistory = [...existingHistory, ...newPoints]
+      .filter((p) => p.date >= fiveYearsAgoStr)
+      .sort((a, b) => a.date.localeCompare(b.date))
 
-    return NextResponse.json(responseData)
+    // ── 11. Save to DB (upsert replaces old record) ──────────────────────────
+    if (newPoints.length > 0 || !stored) {
+      const payload: StoredPayload = { history: mergedHistory, yearStart, storedYear: currentYear }
+      const payloadStr = JSON.stringify(payload)
+      const sizeKB = (Buffer.byteLength(payloadStr, 'utf8') / 1024).toFixed(1)
+      const tSave = Date.now()
+      try {
+        await prisma.compositeHistory.upsert({
+          where: { key: DB_KEY },
+          create: { key: DB_KEY, data: payloadStr },
+          update: { data: payloadStr },
+        })
+        console.log(`[composite-history] ✅ DB saved — ${mergedHistory.length} points (+${newPoints.length} new) | ${sizeKB} KB | ${Date.now() - tSave}ms | total ${Date.now() - t0}ms`)
+      } catch (saveErr) {
+        console.error(`[composite-history] ❌ DB save error:`, saveErr)
+      }
+    }
+
+    return NextResponse.json({
+      history: mergedHistory,
+      generated: new Date().toISOString(),
+      source: isIncremental ? 'db-incremental' : 'db-fresh',
+    })
   } catch (err: any) {
-    console.error('[composite-history] error:', err)
+    console.error('[composite-history] ❌ Fatal error:', err)
     return NextResponse.json({ error: err.message || 'Failed' }, { status: 500 })
   }
 }

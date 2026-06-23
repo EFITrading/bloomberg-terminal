@@ -4504,7 +4504,6 @@ interface TradingViewChartProps {
   lwNavyButtonTheme?: boolean
   showTradeModeButton?: boolean
   disableSidebarAutoScan?: boolean
-  initialShowBuySell?: boolean
   hideDesktopSidebar?: boolean
 }
 
@@ -6229,7 +6228,6 @@ export default function TradingViewChart({
   showTradeModeButton = false,
   disableSidebarAutoScan = false,
   hideDesktopSidebar = false,
-  initialShowBuySell = false,
 }: TradingViewChartProps) {
   const { setRegimes, setRegimeAnalysis: setContextRegimeAnalysis } = useMarketRegime()
 
@@ -11273,8 +11271,6 @@ export default function TradingViewChart({
   >([])
   // Fullscreen state for IV panels
   const [ivFullscreenPanel, setIVFullscreenPanel] = useState<'iv' | 'ivRank' | 'ivPercentile' | 'hv' | null>(null)
-  // Fullscreen state for BuySell panel
-  const [buySellFullscreen, setBuySellFullscreen] = useState(false)
   // Fullscreen state for PE / PEG panels
   const [peFullscreen, setPeFullscreen] = useState(false)
   const [pegFullscreen, setPegFullscreen] = useState(false)
@@ -11405,18 +11401,6 @@ export default function TradingViewChart({
   const [isRrgDropdownOpen, setIsRrgDropdownOpen] = useState(false)
   const [isRRGLoading, setIsRRGLoading] = useState(false)
 
-  // BUY/SELL Indicator state
-  const [showBuySellIndicator, setShowBuySellIndicator] = useState(initialShowBuySell)
-  const [buySellData, setBuySellData] = useState<
-    Array<{ date: string; score: number; smoothed: number; signal: number; isTrending?: boolean }>
-  >([])
-  const [buySellLoadingProgress, setBuySellLoadingProgress] = useState(0)
-  const [buySellPanelHeight, setBuySellPanelHeight] = useState(120)
-  const [isDraggingBuySellPanel, setIsDraggingBuySellPanel] = useState(false)
-  const buySellResizeDragRef = useRef<{ startY: number; startHeight: number } | null>(null)
-  const BUYSELL_HEIGHT_MIN = 60
-  const BUYSELL_HEIGHT_MAX = 400
-
   // DARK POOL Indicator state
   const [showDarkPoolIndicator, setShowDarkPoolIndicator] = useState(false)
   const [darkPoolLoading, setDarkPoolLoading] = useState(false)
@@ -11482,10 +11466,9 @@ export default function TradingViewChart({
       const mouseY = e.clientY
       const bottomOfContainer = rect.bottom
 
-      // Subtract everything below flow chart: IV + BuySell + PE + PEG + time axis
+      // Subtract everything below flow chart: IV + PE + PEG + time axis
       const belowFlow =
         (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) +
-        (showBuySellIndicator ? buySellPanelHeight : 0) +
         (showPEPanel ? pePanelHeight : 0) +
         (showPEGPanel ? pegPanelHeight : 0) +
         35
@@ -11499,8 +11482,6 @@ export default function TradingViewChart({
       isAnyIVHVActive,
       activeIVPanelCount,
       ivPanelHeight,
-      showBuySellIndicator,
-      buySellPanelHeight,
       showPEPanel,
       pePanelHeight,
       showPEGPanel,
@@ -11543,7 +11524,7 @@ export default function TradingViewChart({
       const mouseY = e.clientY
       const bottomOfContainer = rect.bottom
 
-      const volumeAndTimeHeight = 35 + (showBuySellIndicator ? buySellPanelHeight : 0) + (showPEPanel ? pePanelHeight : 0) + (showPEGPanel ? pegPanelHeight : 0)
+      const volumeAndTimeHeight = 35 + (showPEPanel ? pePanelHeight : 0) + (showPEGPanel ? pegPanelHeight : 0)
       const flowChartSpace = isFlowChartActive ? flowChartHeight : 0
       const distanceFromBottom = bottomOfContainer - mouseY - volumeAndTimeHeight - flowChartSpace
 
@@ -11558,8 +11539,6 @@ export default function TradingViewChart({
       isFlowChartActive,
       flowChartHeight,
       activeIVPanelCount,
-      showBuySellIndicator,
-      buySellPanelHeight,
       showPEPanel,
       pePanelHeight,
       showPEGPanel,
@@ -11663,43 +11642,6 @@ export default function TradingViewChart({
       fetchPEGData(config.symbol)
     }
   }, [showPEGPanel, config.symbol])
-
-  // BuySell panel resize handlers
-  const handleBuySellDragStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    setIsDraggingBuySellPanel(true)
-  }, [])
-
-  const handleBuySellDragMove = useCallback(
-    (e: MouseEvent) => {
-      if (!isDraggingBuySellPanel) return
-      const container = containerRef.current
-      if (!container) return
-      const rect = container.getBoundingClientRect()
-      const distanceFromBottom = rect.bottom - e.clientY - 35 - (showPEPanel ? pePanelHeight : 0) - (showPEGPanel ? pegPanelHeight : 0) // subtract time axis + PE/PEG panels below
-      const newHeight = Math.max(
-        BUYSELL_HEIGHT_MIN,
-        Math.min(BUYSELL_HEIGHT_MAX, Math.floor(distanceFromBottom))
-      )
-      setBuySellPanelHeight(newHeight)
-    },
-    [isDraggingBuySellPanel, BUYSELL_HEIGHT_MIN, BUYSELL_HEIGHT_MAX, showPEPanel, pePanelHeight, showPEGPanel, pegPanelHeight]
-  )
-
-  const handleBuySellDragEnd = useCallback(() => {
-    setIsDraggingBuySellPanel(false)
-  }, [])
-
-  useEffect(() => {
-    if (isDraggingBuySellPanel) {
-      window.addEventListener('mousemove', handleBuySellDragMove)
-      window.addEventListener('mouseup', handleBuySellDragEnd)
-      return () => {
-        window.removeEventListener('mousemove', handleBuySellDragMove)
-        window.removeEventListener('mouseup', handleBuySellDragEnd)
-      }
-    }
-  }, [isDraggingBuySellPanel, handleBuySellDragMove, handleBuySellDragEnd])
 
   // IV & HV Data Fetch Handler - Fetches historical IV data and calculates metrics
   const fetchIVData = useCallback(async () => {
@@ -12403,8 +12345,9 @@ export default function TradingViewChart({
       return
     } // analysis-suite: skip full market scan
     const fetchRealMarketData = async (isInitialLoad = false) => {
-
+      const _wt0 = Date.now()
       if (isInitialLoad) {
+        console.log('[watchlist] 🔄 starting scan...')
         setWatchlistLoading(true)
       }
 
@@ -12590,127 +12533,71 @@ export default function TradingViewChart({
       } = {}
 
       try {
-        // Fetch ALL symbols in parallel - no artificial delays or batching
-        const _watchlistSlowThreshold = 3000 // warn if any single symbol takes >3s
-        const allPromises = symbols.map(async (symbol) => {
+        // ── Single bulk request — 1 browser→server call, server fans out to Polygon ──
+        const year = new Date().getFullYear()
+        const previousYear = year - 1
+        const decFirst = new Date(previousYear, 11, 1) // Dec 1 of previous year
+        const daysNeeded = Math.ceil((Date.now() - decFirst.getTime()) / (1000 * 60 * 60 * 24)) + 5
+
+        const bulkRes = await fetch('/api/bulk-historical-data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbols, days: daysNeeded }),
+        })
+        const bulkJson = await bulkRes.json()
+        const bulkResults: Record<string, { results: any[] }> = bulkJson?.data ?? {}
+
+        // Process each symbol from the bulk response
+        const allResults = symbols.map((symbol) => {
           try {
-            // Get historical data - need full year for YTD calculation
-            // Always fetch up to today's date - Polygon will return data up to last trading day
-            const endDate = new Date().toISOString().split('T')[0]
-            // Start from December 1st of PREVIOUS year to ensure we capture year-end close
-            const year = new Date().getFullYear()
-            const previousYear = year - 1
-            const fetchStart = new Date(previousYear, 11, 1) // December 1st of previous year
-            const startDate = fetchStart.toISOString().split('T')[0]
-
-            const url = createApiUrl('/api/historical-data', {
-              symbol,
-              startDate,
-              endDate,
-            })
-
-            const response = await fetch(url)
-
-            if (!response.ok) {
-              console.warn(`? Failed to fetch data for ${symbol}: HTTP ${response.status}`)
+            const raw = bulkResults[symbol]
+            if (!raw?.results || !Array.isArray(raw.results) || raw.results.length < 1) {
               return null
             }
-
-            const result = await response.json()
-
-            if (!result?.results || !Array.isArray(result.results) || result.results.length < 1) {
-              console.warn(`?? No data for ${symbol}`)
-              return null
-            }
-
-            const data = result.results
+            // Bulk route returns DESC (newest first) — reverse to ASC to match processing logic
+            const data = [...raw.results].reverse()
             const latest = data[data.length - 1]
             const currentPrice = latest.c
             const dataLength = data.length
 
-            // Calculate price changes - always use previous bar if available
-            // For 1D change: Use latest bar's open if we only have 1 bar, or previous bar's close
+            // Calculate price changes
             let price1DayAgo = currentPrice
             if (dataLength >= 2) {
-              // We have at least 2 bars, use previous bar's close
               price1DayAgo = data[dataLength - 2]?.c
             } else if (dataLength === 1 && latest.o) {
-              // Only 1 bar but it has open price - use that for intraday change
               price1DayAgo = latest.o
             }
 
             const price5DaysAgo =
-              dataLength >= 6
-                ? data[dataLength - 6]?.c
-                : dataLength >= 2
-                  ? data[0]?.c
-                  : currentPrice
+              dataLength >= 6 ? data[dataLength - 6]?.c : dataLength >= 2 ? data[0]?.c : currentPrice
             const price13DaysAgo =
-              dataLength >= 14
-                ? data[dataLength - 14]?.c
-                : dataLength >= 2
-                  ? data[0]?.c
-                  : currentPrice
+              dataLength >= 14 ? data[dataLength - 14]?.c : dataLength >= 2 ? data[0]?.c : currentPrice
             const price21DaysAgo =
-              dataLength >= 22
-                ? data[dataLength - 22]?.c
-                : dataLength >= 2
-                  ? data[0]?.c
-                  : currentPrice
+              dataLength >= 22 ? data[dataLength - 22]?.c : dataLength >= 2 ? data[0]?.c : currentPrice
             const price50DaysAgo =
-              dataLength >= 51
-                ? data[dataLength - 51]?.c
-                : dataLength >= 2
-                  ? data[0]?.c
-                  : currentPrice
+              dataLength >= 51 ? data[dataLength - 51]?.c : dataLength >= 2 ? data[0]?.c : currentPrice
 
-            // Calculate YTD (Year to Date) - find LAST trading day of PREVIOUS year
-            // This gives us the proper year-end close to compare against
             const previousYearData = data
               .filter((d: any) => new Date(d.t).getFullYear() === previousYear)
               .sort((a: any, b: any) => new Date(b.t).getTime() - new Date(a.t).getTime())[0]
-            // Fallback: if no previous year data, use first trading day of current year
             const currentYearFirstDay = data
               .filter((d: any) => new Date(d.t).getFullYear() === year)
               .sort((a: any, b: any) => new Date(a.t).getTime() - new Date(b.t).getTime())[0]
-            const yearStartPrice =
-              previousYearData?.c || currentYearFirstDay?.c || data[0]?.c || currentPrice
+            const yearStartPrice = previousYearData?.c || currentYearFirstDay?.c || data[0]?.c || currentPrice
 
-            // Calculate percentage changes - ensure we don't divide by zero and actually have different prices
-            const change1d =
-              price1DayAgo && price1DayAgo !== currentPrice
-                ? ((currentPrice - price1DayAgo) / price1DayAgo) * 100
-                : 0
-            const change5d =
-              price5DaysAgo && price5DaysAgo !== currentPrice
-                ? ((currentPrice - price5DaysAgo) / price5DaysAgo) * 100
-                : 0
-            const change13d =
-              price13DaysAgo && price13DaysAgo !== currentPrice
-                ? ((currentPrice - price13DaysAgo) / price13DaysAgo) * 100
-                : 0
-            const change21d =
-              price21DaysAgo && price21DaysAgo !== currentPrice
-                ? ((currentPrice - price21DaysAgo) / price21DaysAgo) * 100
-                : 0
-            const change50d =
-              price50DaysAgo && price50DaysAgo !== currentPrice
-                ? ((currentPrice - price50DaysAgo) / price50DaysAgo) * 100
-                : 0
-            const changeYTD =
-              yearStartPrice && yearStartPrice !== currentPrice
-                ? ((currentPrice - yearStartPrice) / yearStartPrice) * 100
-                : 0
+            const change1d = price1DayAgo && price1DayAgo !== currentPrice ? ((currentPrice - price1DayAgo) / price1DayAgo) * 100 : 0
+            const change5d = price5DaysAgo && price5DaysAgo !== currentPrice ? ((currentPrice - price5DaysAgo) / price5DaysAgo) * 100 : 0
+            const change13d = price13DaysAgo && price13DaysAgo !== currentPrice ? ((currentPrice - price13DaysAgo) / price13DaysAgo) * 100 : 0
+            const change21d = price21DaysAgo && price21DaysAgo !== currentPrice ? ((currentPrice - price21DaysAgo) / price21DaysAgo) * 100 : 0
+            const change50d = price50DaysAgo && price50DaysAgo !== currentPrice ? ((currentPrice - price50DaysAgo) / price50DaysAgo) * 100 : 0
+            const changeYTD = yearStartPrice && yearStartPrice !== currentPrice ? ((currentPrice - yearStartPrice) / yearStartPrice) * 100 : 0
 
-            // ── Flow Score (0-100): Capital Flow (0-40) + Trend (0-30) + Momentum (0-30) ──
-            // Capital Flow: # of last 40 bars where close is in upper half of day's range (MFM > 0)
+            // Flow Score
             const cfBars = data.slice(-40)
             const capFlowScore = cfBars.filter((b: any) => {
               const hl = b.h - b.l
               return hl > 0 && b.c - b.l > b.h - b.c
             }).length
-
-            // Trend: # of last 30 bars where close > rolling 20-day SMA
             let trendScore = 0
             if (data.length >= 50) {
               const trendStart = data.length - 30
@@ -12720,8 +12607,6 @@ export default function TradingViewChart({
                 if (data[ti].c > sma20) trendScore++
               }
             }
-
-            // Momentum: # of last 30 bars where close > prior close
             const mw = data.slice(-31)
             let momScore = 0
             for (let mi = 1; mi < mw.length; mi++) {
@@ -12733,25 +12618,16 @@ export default function TradingViewChart({
               symbol,
               data: {
                 price: currentPrice || 0,
-                change1d,
-                change5d,
-                change13d,
-                change21d,
-                change50d,
-                changeYTD,
+                change1d, change5d, change13d, change21d, change50d, changeYTD,
                 performance: 'Neutral',
                 performanceColor: 'text-white',
                 score,
               },
             }
-          } catch (symbolError) {
-            console.warn(`? Error fetching data for ${symbol}:`, symbolError)
+          } catch {
             return null
           }
         })
-
-        // Wait for ALL fetches to complete in parallel
-        const allResults = await Promise.all(allPromises)
 
         // Process successful results + seed WebSocket prev-close map
         allResults.forEach((result) => {
@@ -13056,12 +12932,13 @@ export default function TradingViewChart({
         // Always set loading to false after data processing
         if (isInitialLoad) {
           setWatchlistLoading(false)
+          console.log(`[watchlist] ✅ done in ${Date.now() - _wt0}ms | ${Object.keys(processedData).length} symbols loaded`)
           // Composite history prefetch deferred to here so it doesn't race the
-          // 200+ symbol watchlist fetch that runs at mount
+          // watchlist fetch that runs at mount
           if (!disableSidebarAutoScan) prefetchCompositeHistory()
         }
       } catch (error) {
-        console.error('Error in market data fetching:', error)
+        console.error(`[watchlist] ❌ error after ${Date.now() - _wt0}ms:`, error)
         setWatchlistData({})
         if (isInitialLoad) setWatchlistLoading(false)
       }
@@ -13225,191 +13102,19 @@ export default function TradingViewChart({
   const fetchETFFlows = useCallback(async () => {
     if (flowTabFetchedRef.current) return
     flowTabFetchedRef.current = true
-
-    // ── localStorage cache (keyed by date → auto-invalidates daily) ──────────
-    // Use UTC date to avoid timezone-induced key mismatch (local after-4PM-PST = next UTC day)
-    const now = new Date()
-    const today = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
-    const CACHE_KEY = `etf-flows-v3-${today}`
-    try {
-      const cached = localStorage.getItem(CACHE_KEY)
-      if (cached) {
-        const { data, baseAUM } = JSON.parse(cached)
-        setFlowTabData(data)
-        setFlowTabBaseAUM(baseAUM)
-        setFlowTabLoading(false)
-        return
-      }
-    } catch { /* ignore parse errors */ }
-
     setFlowTabLoading(true)
-
-    const POLY_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
-    const ETF_TICKERS = [
-      // Broad market
-      'SPY', 'QQQ', 'IWM', 'DIA',
-      // Sector SPDR
-      'XLK', 'XLF', 'XLY', 'XLV', 'XLE', 'XLU', 'XLP', 'XLI', 'XLB', 'XLC', 'XLRE',
-      // Fixed income
-      'TLT', 'HYG',
-      // Commodities
-      'GLD', 'SLV',
-      // Thematic
-      'ARKK', 'KWEB', 'XHB', 'SMH', 'XBI', 'TAN', 'IGV', 'XRT', 'KRE', 'ITA',
-    ]
-
-    // Fetch full 5Y at weekly resolution — all ranges filter client-side (no re-fetch on tab switch)
-    const days = 365 * 5
-    const step = 7  // weekly → ~260 points, captures every creation/redemption event
-
-    // Pure UTC calculation — avoids local-tz/toISOString() off-by-one after 4 PM PST
-    const getDateStr = (daysBack: number) => {
-      const nowUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-      const ms = nowUtc - daysBack * 86400000
-      const d = new Date(ms)
-      const dow = d.getUTCDay()
-      const adj = dow === 0 ? 2 : dow === 6 ? 1 : 0
-      return new Date(ms - adj * 86400000).toISOString().split('T')[0]
-    }
-
-    const dateStrings: string[] = []
-    for (let i = 0; i <= days; i += step) dateStrings.push(getDateStr(i))
-    // Always include most-recent trading day
-    const latest = getDateStr(0)
-    if (!dateStrings.includes(latest)) dateStrings.unshift(latest)
-    dateStrings.sort() // ascending
-
-    // Current prices — single call
-    const priceMap: Record<string, number> = {}
     try {
-      const snapRes = await fetch(
-        `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${ETF_TICKERS.join(',')}&apiKey=${POLY_KEY}`,
-        { headers: { Accept: 'application/json' } }
-      )
-      if (snapRes.ok) {
-        const snapJson = await snapRes.json()
-          ; ((snapJson.tickers as any[]) || []).forEach((t: any) => {
-            const p = t.day?.c || t.prevDay?.c
-            if (p) priceMap[t.ticker] = p
-          })
+      const res = await fetch('/api/etf-flows')
+      const data = await res.json()
+      if (data.flows && data.baseAUM) {
+        setFlowTabData(data.flows)
+        setFlowTabBaseAUM(data.baseAUM)
       }
-    } catch { /* ignore */ }
-
-    // Concurrency-limited fetch pool — max 15 simultaneous HTTP/2 streams
-    const results: Record<string, Array<{ time: number; date: string; periodFlow: number; cumFlow: number }>> = {}
-
-    const CONCURRENCY = 15
-    let active = 0
-    const queue: Array<() => void> = []
-    const runNext = () => {
-      while (active < CONCURRENCY && queue.length > 0) {
-        active++
-        const task = queue.shift()!
-        task()
-      }
+    } catch (err) {
+      console.error('[etf-flows] fetch failed:', err)
+    } finally {
+      setFlowTabLoading(false)
     }
-    const throttledFetch = (url: string): Promise<any> =>
-      new Promise((resolve) => {
-        const task = async () => {
-          const delays = [500, 1000, 2000]
-          for (let attempt = 0; attempt <= delays.length; attempt++) {
-            try {
-              const r = await fetch(url, { headers: { Accept: 'application/json' } })
-              if (r.ok) {
-                const json = await r.json()
-                active--
-                runNext()
-                resolve(json)
-                return
-              }
-              // 4xx = permanent missing data, never retry
-              if (r.status >= 400 && r.status < 500) {
-                active--
-                runNext()
-                resolve(null)
-                return
-              }
-            } catch { /* network error — retry */ }
-            if (attempt < delays.length) {
-              await new Promise<void>((res) => setTimeout(res, delays[attempt]))
-            }
-          }
-          active--
-          runNext()
-          resolve(null)
-        }
-        queue.push(task)
-        runNext()
-      })
-
-    const baseAUM: Record<string, number> = {}
-
-    await Promise.all(
-      ETF_TICKERS.map(async (ticker) => {
-        const price = priceMap[ticker] || 100
-
-        const sharesArr = await Promise.all(
-          dateStrings.map(async (date) => {
-            const json = await throttledFetch(
-              `https://api.polygon.io/v3/reference/tickers/${ticker}?date=${date}&apiKey=${POLY_KEY}`
-            )
-            return json?.results?.share_class_shares_outstanding ?? null
-          })
-        )
-
-        // Split-adjust sharesArr:
-        // A week-over-week ratio ≥1.4 or ≤0.6 indicates a share split/reverse-split,
-        // not a real creation/redemption. Normalize all earlier values to the post-split
-        // scale so flow deltas are purely from investor activity.
-        const adjustedShares = [...sharesArr]
-        for (let i = 1; i < adjustedShares.length; i++) {
-          const prev = adjustedShares[i - 1]
-          const curr = adjustedShares[i]
-          if (prev == null || curr == null) continue
-          const ratio = curr / prev
-          // Detect splits (e.g. 2-for-1 → ratio ~2.0) or reverse splits (ratio ~0.5)
-          // Round to nearest common split factor to get clean multiplier
-          if (ratio >= 1.4 || ratio <= 0.6) {
-            // Back-adjust all earlier values to match post-split scale
-            const splitFactor = ratio
-            for (let j = 0; j < i; j++) {
-              if (adjustedShares[j] != null) {
-                adjustedShares[j] = adjustedShares[j]! * splitFactor
-              }
-            }
-          }
-        }
-
-        // baseAUM = first valid shares × price (using split-adjusted values)
-        const firstShares = adjustedShares.find(s => s != null) ?? 1
-        baseAUM[ticker] = firstShares * price
-
-        // periodFlow = (newerShares − olderShares) × price — now split-adjusted
-        const points: Array<{ time: number; date: string; periodFlow: number; cumFlow: number }> = []
-        let cumFlow = 0
-        for (let i = 1; i < dateStrings.length; i++) {
-          const older = adjustedShares[i - 1]
-          const newer = adjustedShares[i]
-          if (older == null || newer == null) continue
-          const periodFlow = (newer - older) * price
-          cumFlow += periodFlow
-          const [y, m, dd] = dateStrings[i].split('-')
-          const time = Date.UTC(parseInt(y), parseInt(m) - 1, parseInt(dd))
-          points.push({ time, date: dateStrings[i], periodFlow, cumFlow })
-        }
-        results[ticker] = points
-      })
-    )
-
-    setFlowTabBaseAUM(baseAUM)
-    setFlowTabData(results)
-
-    // ── Persist to localStorage for the rest of the day ──────────────────────
-    try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify({ data: results, baseAUM }))
-    } catch { /* quota exceeded — skip silently */ }
-
-    setFlowTabLoading(false)
   }, [])
 
   // Auto-fetch ETF flow history on mount (same pattern as other autoscans)
@@ -14922,318 +14627,6 @@ export default function TradingViewChart({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.timeframe])
-
-  // Compute BUY/SELL pressure scores using already-loaded chart candles
-  useEffect(() => {
-    if (!showBuySellIndicator || data.length === 0) {
-      setBuySellData([])
-      return
-    }
-
-    setBuySellData([])
-    setBuySellLoadingProgress(5)
-
-    const controller = new AbortController()
-
-    const endDate = new Date().toISOString().split('T')[0]
-    const startDate = new Date(data[0].timestamp).toISOString().split('T')[0]
-
-    // Fetch only SPY for relative strength; use already-loaded `data` as symbolPrices
-    // Match the chart's current timeframe so RS comparison is apples-to-apples
-    fetch('/api/bulk-chart-data', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbols: ['SPY'], timeframe: config.timeframe, startDate, endDate }),
-      signal: controller.signal,
-    })
-      .then((r) => r.json())
-      .then((spyResult) => {
-        if (controller.signal.aborted) return
-        setBuySellLoadingProgress(70)
-        const symbolPrices: ChartDataPoint[] = data
-        const spyPrices: ChartDataPoint[] = spyResult?.data?.['SPY'] || []
-        if (spyPrices.length < 30 || symbolPrices.length < 30) return
-
-        const n = symbolPrices.length
-        const closes = symbolPrices.map((d) => d.close)
-        const highs = symbolPrices.map((d) => d.high)
-        const lows = symbolPrices.map((d) => d.low)
-        const vols = symbolPrices.map((d) => d.volume || 0)
-        const opens = symbolPrices.map((d) => d.open ?? d.close)
-
-        // --- EMA helper ---
-        const calcEma = (src: number[], period: number): number[] => {
-          const k = 2 / (period + 1)
-          const result: number[] = [src[0]]
-          for (let i = 1; i < src.length; i++) result.push(src[i] * k + result[i - 1] * (1 - k))
-          return result
-        }
-
-        // 1. ATR-Normalized Momentum — volatility z-score of the move
-        //    A 2% move in a 0.5%-ATR stock = ~4σ. Same 2% in a 3%-ATR stock = noise.
-        //    RSI/MACD never account for this context.
-        const ATR_P = 14
-        const atrArr = new Array<number>(n).fill(0)
-        for (let i = 1; i < n; i++) {
-          const tr = Math.max(
-            highs[i] - lows[i],
-            Math.abs(highs[i] - closes[i - 1]),
-            Math.abs(lows[i] - closes[i - 1])
-          )
-          atrArr[i] = i < ATR_P ? tr : (atrArr[i - 1] * (ATR_P - 1)) / ATR_P + tr / ATR_P
-        }
-        const atrMomArr = new Array<number>(n).fill(0)
-        for (let i = ATR_P; i < n; i++) {
-          const change = closes[i] - closes[i - ATR_P]
-          const scale = atrArr[i] * Math.sqrt(ATR_P)
-          // ±3σ maps to ±100
-          atrMomArr[i] = scale > 0 ? Math.max(-100, Math.min(100, (change / scale) * 33)) : 0
-        }
-
-        // 2. Institutional Volume Pressure (IVP) — large-print directional fingerprint
-        //    High-volume sessions with strong directional closes = institutional intent
-        //    log(volRatio) dampens retail noise, elevates block-level prints
-        const avgVol20Arr = new Array<number>(n).fill(0)
-        for (let i = 20; i < n; i++) {
-          avgVol20Arr[i] = vols.slice(i - 19, i + 1).reduce((a, b) => a + b, 0) / 20
-        }
-        const ivpRaw = new Array<number>(n).fill(0)
-        for (let i = 1; i < n; i++) {
-          const range = highs[i] - lows[i]
-          const direction = range > 0 ? (closes[i] - opens[i]) / range : 0
-          const volRatio = avgVol20Arr[i] > 0 ? vols[i] / avgVol20Arr[i] : 1
-          ivpRaw[i] = direction * Math.log1p(volRatio)
-        }
-        const ivpSmooth = calcEma(ivpRaw, 5)
-        const ivpArr = new Array<number>(n).fill(0)
-        for (let i = 50; i < n; i++) {
-          const w = ivpSmooth.slice(i - 49, i + 1)
-          const maxAbs = Math.max(...w.map(Math.abs), 1e-9)
-          ivpArr[i] = Math.max(-100, Math.min(100, (ivpSmooth[i] / maxAbs) * 100))
-        }
-
-        // 3. Elder Force Index (EFI) — price-change × volume, EMA-13, normalised ±100
-        const rawEfi = new Array<number>(n).fill(0)
-        for (let i = 1; i < n; i++) rawEfi[i] = (closes[i] - closes[i - 1]) * vols[i]
-        const efiSmooth = calcEma(rawEfi, 13)
-        const efiArr = new Array<number>(n).fill(0)
-        for (let i = 50; i < n; i++) {
-          const window = efiSmooth.slice(i - 49, i + 1)
-          const maxAbs = Math.max(...window.map(Math.abs), 1e-9)
-          efiArr[i] = Math.max(-100, Math.min(100, (efiSmooth[i] / maxAbs) * 100))
-        }
-
-        // 4. Price-Volume Divergence (PVD) — the highest-edge institutional signal
-        //    Price up + A/D line down = distribution into strength (bearish)
-        //    Price down + A/D line up = accumulation on weakness (bullish)
-        //    Amplifies when price+volume agree; penalizes on divergence
-        const adLine: number[] = [0]
-        for (let i = 1; i < n; i++) {
-          const rng = highs[i] - lows[i]
-          const mfm = rng > 0 ? (closes[i] - lows[i] - (highs[i] - closes[i])) / rng : 0
-          adLine.push(adLine[i - 1] + mfm * vols[i])
-        }
-        const PVD_P = 20
-        const pvdArr = new Array<number>(n).fill(0)
-        for (let i = PVD_P + 20; i < n; i++) {
-          const priceChange = closes[i] - closes[i - PVD_P]
-          const adChange = adLine[i] - adLine[i - PVD_P]
-          const avgVol = avgVol20Arr[i] > 0 ? avgVol20Arr[i] : 1
-          const adNorm = Math.max(-1, Math.min(1, adChange / (avgVol * PVD_P)))
-          const agree = Math.sign(priceChange) === Math.sign(adNorm) && priceChange !== 0
-          pvdArr[i] = Math.max(-100, Math.min(100, adNorm * 100 * (agree ? 1.2 : 0.6)))
-        }
-
-        // 4. Chaikin Money Flow(20) — accumulation/distribution
-        const CMF_P = 20
-        const cmfArr = new Array<number>(n).fill(0)
-        for (let i = CMF_P; i < n; i++) {
-          let mfvSum = 0,
-            volSum = 0
-          for (let j = i - CMF_P + 1; j <= i; j++) {
-            const rng = highs[j] - lows[j]
-            const mfm = rng > 0 ? (closes[j] - lows[j] - (highs[j] - closes[j])) / rng : 0
-            mfvSum += mfm * vols[j]
-            volSum += vols[j]
-          }
-          cmfArr[i] = volSum > 0 ? mfvSum / volSum : 0 // -1 to +1
-        }
-
-        // 5. OBV 20-day momentum (normalised)
-        const obvArr: number[] = [0]
-        for (let i = 1; i < n; i++) {
-          if (closes[i] > closes[i - 1]) obvArr.push(obvArr[i - 1] + vols[i])
-          else if (closes[i] < closes[i - 1]) obvArr.push(obvArr[i - 1] - vols[i])
-          else obvArr.push(obvArr[i - 1])
-        }
-
-        // ════════════════════════════════════════════════════════════════════════
-        // STOCK-SPECIFIC SIGNAL ENGINE
-        // Step 1 — Regime Detection: trending vs mean-reverting (variance-ratio test)
-        // Step 2 — Regime-aware zone interpretation:
-        //   TRENDING:     high score = strong momentum = BUY zone
-        //                 low score  = momentum breakdown = SELL zone
-        //   MEAN-REVERTING: low score  = oversold = BUY zone
-        //                   high score = overbought = SELL zone
-        // Step 3 — Per-ticker exponentially-decayed correlation weights:
-        //   each indicator earns its weight from THIS stock's own forward-return history,
-        //   with recent data weighted 4× more than old data.
-        // ════════════════════════════════════════════════════════════════════════
-
-        const LOOKFORWARD = 10
-        const WARMUP = 50
-        const spyMap = new Map(spyPrices.map((d) => [new Date(d.timestamp).toDateString(), d]))
-
-        // ── Pre-build all score arrays ───────────────────────────────────────
-        const obvScoreArr = new Array<number>(n).fill(0)
-        for (let i = WARMUP; i < n; i++) {
-          const avgVol = avgVol20Arr[i] > 0 ? avgVol20Arr[i] : 1
-          const obvChange = obvArr[i] - obvArr[i - 20]
-          obvScoreArr[i] = Math.max(-100, Math.min(100, (obvChange / (avgVol * 20)) * 100))
-        }
-        const rsScoreArr = new Array<number>(n).fill(0)
-        for (let i = WARMUP; i < n; i++) {
-          const candle = symbolPrices[i]
-          const spyCur = spyMap.get(new Date(candle.timestamp).toDateString())
-          const spyBase = spyMap.get(new Date(symbolPrices[i - 20].timestamp).toDateString())
-          if (spyCur && spyBase && spyBase.close > 0 && symbolPrices[i - 20].close > 0) {
-            const stockRet = (candle.close - symbolPrices[i - 20].close) / symbolPrices[i - 20].close
-            const spyRet = (spyCur.close - spyBase.close) / spyBase.close
-            rsScoreArr[i] = Math.max(-100, Math.min(100, (stockRet - spyRet) * 300))
-          }
-        }
-        const cmfScoreArr = cmfArr.map((v) => v * 100)
-
-        // Mean-reversion pressure: how far close is from 20-bar mean, ATR-normalized
-        const mrArr = new Array<number>(n).fill(0)
-        for (let i = 20; i < n; i++) {
-          const mean = closes.slice(i - 19, i + 1).reduce((a, b) => a + b, 0) / 20
-          mrArr[i] = atrArr[i] > 0 ? Math.max(-100, Math.min(100, -(closes[i] - mean) / atrArr[i] * 25)) : 0
-        }
-
-        // Breakout strength: directional range expansion × volume surge
-        const breakoutArr = new Array<number>(n).fill(0)
-        for (let i = 20; i < n; i++) {
-          const range20 = Math.max(...highs.slice(i - 19, i + 1)) - Math.min(...lows.slice(i - 19, i + 1))
-          const rangeExpand = range20 > 0 ? (highs[i] - lows[i]) / (range20 / 20) : 1
-          const volRatio = avgVol20Arr[i] > 0 ? vols[i] / avgVol20Arr[i] : 1
-          const direction = closes[i] > opens[i] ? 1 : closes[i] < opens[i] ? -1 : 0
-          breakoutArr[i] = Math.max(-100, Math.min(100, direction * Math.log1p(rangeExpand) * Math.log1p(volRatio) * 30))
-        }
-
-        type IndName = 'atrMom' | 'ivp' | 'pvd' | 'cmf' | 'efi' | 'obv' | 'rs' | 'mr' | 'breakout'
-        const indNames: IndName[] = ['atrMom', 'ivp', 'pvd', 'cmf', 'efi', 'obv', 'rs', 'mr', 'breakout']
-        const indArrayMap: Record<IndName, number[]> = {
-          atrMom: atrMomArr, ivp: ivpArr, pvd: pvdArr, cmf: cmfScoreArr,
-          efi: efiArr, obv: obvScoreArr, rs: rsScoreArr, mr: mrArr, breakout: breakoutArr,
-        }
-
-        // ── STEP 1: Regime Detection (variance-ratio test, last 100 bars) ────
-        // vratio > 1 = trending (momentum persists), < 1 = mean-reverting (price reverts)
-        const REGIME_WIN = Math.min(100, n - WARMUP - 1)
-        let vrSum1 = 0, vrSum2 = 0, vrCount = 0
-        for (let i = n - REGIME_WIN; i < n - 2; i++) {
-          vrSum1 += Math.pow(closes[i + 1] - closes[i], 2)
-          vrSum2 += Math.pow(closes[i + 2] - closes[i], 2)
-          vrCount++
-        }
-        const vratio = vrCount > 10 && vrSum1 > 0 ? vrSum2 / (2 * vrSum1) : 1
-        const isTrending = vratio > 1.05
-
-        // ── STEP 2: Per-ticker exponentially-decayed correlation weights ─────
-        // Recent 60-bar window gets 4× weight vs older history.
-        // Each indicator's weight = its actual Pearson correlation with THIS stock's
-        // forward returns. Zero correlation → zero weight. Negative → flipped contribution.
-        const trainEnd = n - LOOKFORWARD - 1
-        const fwdRet = new Array<number>(n).fill(0)
-        for (let i = WARMUP; i <= trainEnd; i++) {
-          fwdRet[i] = closes[i + LOOKFORWARD] > 0
-            ? Math.max(-100, Math.min(100, ((closes[i + LOOKFORWARD] - closes[i]) / closes[i]) * 1000))
-            : 0
-        }
-
-        const pearsonDecayed = (x: number[], y: number[], from: number, to: number, decay: number): number => {
-          const len = to - from + 1
-          if (len < 20) return 0
-          let wSum = 0, wxSum = 0, wySum = 0
-          const ws: number[] = []
-          for (let i = from; i <= to; i++) {
-            const w = Math.exp(decay * (i - from) / len)
-            ws.push(w); wSum += w; wxSum += w * x[i]; wySum += w * y[i]
-          }
-          const mX = wxSum / wSum, mY = wySum / wSum
-          let cov = 0, varX = 0, varY = 0
-          for (let j = 0; j < len; j++) {
-            const dx = x[from + j] - mX, dy = y[from + j] - mY
-            cov += ws[j] * dx * dy; varX += ws[j] * dx * dx; varY += ws[j] * dy * dy
-          }
-          const denom = Math.sqrt(varX * varY)
-          return denom > 0 ? cov / denom : 0
-        }
-
-        const mid = Math.floor((WARMUP + trainEnd) / 2)
-        const rawCorrs: Record<IndName, number> = {} as Record<IndName, number>
-        for (const name of indNames) {
-          const cOld = pearsonDecayed(indArrayMap[name], fwdRet, WARMUP, mid, 1)
-          const cMid = pearsonDecayed(indArrayMap[name], fwdRet, mid, trainEnd, 2)
-          const cRecent = pearsonDecayed(indArrayMap[name], fwdRet, Math.max(mid, trainEnd - 60), trainEnd, 4)
-          // Weighted blend: recent matters 4× more
-          rawCorrs[name] = (cOld + cMid * 2 + cRecent * 4) / 7
-        }
-
-        // In trending regime: boost momentum indicators (atrMom, ivp, breakout, efi)
-        // In mean-reverting regime: boost reversal indicators (mr, pvd, cmf)
-        // The score itself stays the same — only the VISUAL zone interpretation flips.
-        const regimeBoost: Partial<Record<IndName, number>> = isTrending
-          ? { atrMom: 1.5, ivp: 1.4, breakout: 1.5, efi: 1.3, mr: 0.3, rs: 1.2 }
-          : { mr: 1.6, pvd: 1.4, cmf: 1.3, obv: 1.2, atrMom: 0.5, breakout: 0.4 }
-        for (const name of indNames) rawCorrs[name] *= regimeBoost[name] ?? 1
-
-        const absSum = indNames.reduce((s, name) => s + Math.abs(rawCorrs[name]), 0)
-        const adaptiveWeights: Record<IndName, number> = {} as Record<IndName, number>
-        if (absSum > 0.02) {
-          for (const name of indNames) adaptiveWeights[name] = rawCorrs[name] / absSum
-        } else {
-          // Equal weights fallback
-          for (const name of indNames) adaptiveWeights[name] = 1 / indNames.length
-        }
-
-        if (controller.signal.aborted) return
-        setBuySellLoadingProgress(90)
-
-        const scores = symbolPrices.map((candle, i) => {
-          const date = new Date(candle.timestamp).toISOString().split('T')[0]
-          if (i < WARMUP) return { date, score: 0 }
-          const composite = indNames.reduce((sum, name) => sum + indArrayMap[name][i] * adaptiveWeights[name], 0)
-          return { date, score: Math.max(-100, Math.min(100, composite)) }
-        })
-
-        // EMA-3 smoothing of raw composite
-        const emaK3 = 2 / (3 + 1)
-        const smoothedArr: number[] = [scores[0].score]
-        for (let i = 1; i < n; i++) {
-          smoothedArr.push(scores[i].score * emaK3 + smoothedArr[i - 1] * (1 - emaK3))
-        }
-
-        const enrichedScores = scores.map((s, i) => ({
-          ...s,
-          smoothed: Math.max(-100, Math.min(100, smoothedArr[i])),
-          signal: 0, // unused — kept for type compat
-          isTrending,
-        }))
-
-        if (controller.signal.aborted) return
-        setBuySellLoadingProgress(100)
-        setBuySellData(enrichedScores)
-      })
-      .catch((err) => {
-        if (err?.name === 'AbortError') return
-        setBuySellLoadingProgress(0)
-        setBuySellData([])
-      })
-
-    return () => controller.abort()
-  }, [showBuySellIndicator, config.symbol, config.timeframe, data])
 
   // Chart interaction state
   const [crosshairPosition, setCrosshairPosition] = useState({ x: 0, y: 0 })
@@ -17445,7 +16838,6 @@ export default function TradingViewChart({
     const actualPEPanelHeight = showPEPanel ? pePanelHeight : 0 // P/E panel — independent from IV system
     const actualPEGPanelHeight = showPEGPanel ? pegPanelHeight : 0 // PEG panel — independent from IV system
     const actualEventPanelHeight = 0 // No event panel needed
-    const actualBuySellPanelHeight = showBuySellIndicator ? buySellPanelHeight : 0
     const volumeAreaHeight = 80 // Volume bars area (overlaid on price chart bottom, not reserved)
     // Adjust price chart height based on active indicators
     // Volume is overlaid on the price chart bottom (TradingView style) - no dedicated space needed
@@ -17455,7 +16847,6 @@ export default function TradingViewChart({
       actualPEPanelHeight +
       actualPEGPanelHeight +
       actualEventPanelHeight +
-      actualBuySellPanelHeight +
       timeAxisHeight
     const priceChartHeight = height - totalBottomSpace
 
@@ -19400,9 +18791,9 @@ export default function TradingViewChart({
       }
     }
 
-    // P/E RATIO panel — sits below buySell panel
+    // P/E RATIO panel — sits below IV panel
     if (showPEPanel) {
-      const pePanelY = priceChartHeight + actualFlowChartHeight + actualIVPanelHeight + actualBuySellPanelHeight
+      const pePanelY = priceChartHeight + actualFlowChartHeight + actualIVPanelHeight
       if (peData && peData.history.length > 0) {
         drawPEPanel(
           ctx,
@@ -19433,7 +18824,7 @@ export default function TradingViewChart({
 
     // PEG RATIO panel — sits below P/E panel
     if (showPEGPanel) {
-      const pegPanelY = priceChartHeight + actualFlowChartHeight + actualIVPanelHeight + actualBuySellPanelHeight + actualPEPanelHeight
+      const pegPanelY = priceChartHeight + actualFlowChartHeight + actualIVPanelHeight + actualPEPanelHeight
       if (pegData && pegData.history && pegData.history.some(h => h.peg !== null)) {
         drawPEGPanel(
           ctx,
@@ -19459,43 +18850,6 @@ export default function TradingViewChart({
         ctx.textAlign = 'center'
         const pegMsg = pegLoading ? 'Loading PEG data…' : (pegData?.error ?? 'No PEG data (ETFs not supported)')
         ctx.fillText(pegMsg, (CHART_LEFT_MARGIN + chartWidth - 80) / 2, pegPanelY + pegPanelHeight / 2 + 4)
-      }
-    }
-
-    // BUY/SELL Pressure panel — sits below IV panels
-    if (showBuySellIndicator) {
-      const buySellStartY =
-        priceChartHeight + actualFlowChartHeight + actualEventPanelHeight + actualIVPanelHeight
-      if (buySellData.length > 0) {
-        drawBuySellPanel(
-          ctx,
-          buySellData,
-          visibleData,
-          chartWidth,
-          buySellStartY,
-          visibleCandleCount,
-          buySellPanelHeight
-        )
-      } else {
-        // Loading placeholder
-        ctx.fillStyle = 'rgba(0,0,0,0.85)'
-        ctx.fillRect(CHART_LEFT_MARGIN, buySellStartY, chartWidth - 160, buySellPanelHeight)
-
-        const barW = chartWidth - 200
-        const barX = 100
-        const barY = buySellStartY + buySellPanelHeight / 2 - 10
-        ctx.fillStyle = 'rgba(255,255,255,0.1)'
-        ctx.fillRect(barX, barY, barW, 6)
-        ctx.fillStyle = '#ffffff'
-        ctx.fillRect(barX, barY, barW * Math.max(0.03, buySellLoadingProgress / 100), 6)
-        ctx.font = 'bold 11px JetBrains Mono, monospace'
-        ctx.fillStyle = '#ffffff'
-        ctx.textAlign = 'center'
-        ctx.fillText(
-          `BUY/SELL PRESSURE  ${buySellLoadingProgress.toFixed(0)}%`,
-          chartWidth / 2,
-          buySellStartY + buySellPanelHeight / 2 + 10
-        )
       }
     }
 
@@ -19593,10 +18947,6 @@ export default function TradingViewChart({
     rrgMode,
     isExpansionLiquidationActive,
     drawings.length,
-    showBuySellIndicator,
-    buySellData,
-    buySellPanelHeight,
-    buySellLoadingProgress,
     showPEPanel,
     peData,
     peLoading,
@@ -20079,16 +19429,7 @@ export default function TradingViewChart({
     }
   }
 
-  // BUY/SELL Pressure indicator panel (drawn below volume, above time axis)
-  const drawBuySellPanel = (ctx: CanvasRenderingContext2D,
-    bsData: Array<{ date: string; score: number; smoothed: number; signal: number; isTrending?: boolean }>,
-    visibleData: ChartDataPoint[],
-    chartWidth: number,
-    panelStartY: number,
-    visibleCandleCount: number,
-    panelHeight: number
-  ) => {
-    if (!bsData.length || !visibleData.length) return
+  /* __DEAD_CODE_REMOVED_START
 
     const padLeft = CHART_LEFT_MARGIN
     const rightEdge = chartWidth - 80
@@ -20279,11 +19620,7 @@ export default function TradingViewChart({
     ] as [string, number, string][]) {
       const ly = toY(val as number)
       ctx.fillStyle = color
-      ctx.fillText(label, yAxisX, ly + 4)
-    }
-
-    // Title rendered in HTML header overlay — no canvas title
-  }
+  __DEAD_CODE_REMOVED_END */
 
   const drawVolumeProfile = (
     ctx: CanvasRenderingContext2D,
@@ -22226,14 +21563,6 @@ export default function TradingViewChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rrgCandleColors, isRRGCandleActive, rrgMode, rrgLookbackPeriod, chartLayout])
 
-  // Re-render when BuySell data arrives or panel is toggled
-  useEffect(() => {
-    if (chartLayout === '1x1') {
-      renderChart()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buySellData, showBuySellIndicator, buySellPanelHeight, chartLayout])
-
   // Re-render when P/E panel changes (data, toggle, or drag resize)
   useEffect(() => {
     if (chartLayout === '1x1') {
@@ -22591,20 +21920,6 @@ export default function TradingViewChart({
       const timeAxisHeight = 18
       const priceChartHeight = dimensions.height - timeAxisHeight
 
-      // BUY/SELL panel resize — check if clicking on the panel's top border
-      if (showBuySellIndicator) {
-        const _flowH = isFlowChartActive ? flowChartHeight : 0
-        const _ivH = isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0
-        // Panel top border — buySell is above volume (80) and time axis (25)
-        const panelTopY = dimensions.height - buySellPanelHeight - 105
-        if (Math.abs(y - panelTopY) <= 10) {
-          e.preventDefault()
-          e.stopPropagation()
-          buySellResizeDragRef.current = { startY: y, startHeight: buySellPanelHeight }
-          return
-        }
-      }
-
       if (y > priceChartHeight) {
         // Click is below the chart (in time axis area) - don't allow dragging
         return
@@ -22658,8 +21973,6 @@ export default function TradingViewChart({
       getCurrentPriceRange,
       manualPriceRange,
       setManualPriceRangeAndDisableAuto,
-      showBuySellIndicator,
-      buySellPanelHeight,
       isFlowChartActive,
       flowChartHeight,
       isAnyIVHVActive,
@@ -23193,8 +22506,7 @@ export default function TradingViewChart({
         const _ivH = isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0
         const _peH = showPEPanel ? pePanelHeight : 0
         const _pegH = showPEGPanel ? pegPanelHeight : 0
-        const _bsH = showBuySellIndicator ? buySellPanelHeight : 0
-        const _realPriceChartHeight = dimensions.height - (_flowH + _ivH + _peH + _pegH + _bsH + _timeAxisH)
+        const _realPriceChartHeight = dimensions.height - (_flowH + _ivH + _peH + _pegH + _timeAxisH)
         const ivPanelBaseY = _realPriceChartHeight + _flowH
         let ivCrosshairLabel: string | null = null
         if (isAnyIVHVActive && ivData.length > 0 && y >= ivPanelBaseY) {
@@ -23233,29 +22545,6 @@ export default function TradingViewChart({
               ivCrosshairLabel = `${value.toFixed(1)}%`
             } else {
             }
-          }
-        }
-
-        // Check if cursor is in the BuySell panel
-        let bsCrosshairLabel: string | null = null
-        if (showBuySellIndicator && buySellData.length > 0) {
-          const bsPanelStartY = _realPriceChartHeight + _flowH + _ivH
-          const bsPanelEndY = bsPanelStartY + buySellPanelHeight
-          const headerH = 36
-          const effectiveStartY = bsPanelStartY + headerH
-          const effectiveEndY = bsPanelEndY - 5
-          const effectiveH = effectiveEndY - effectiveStartY
-          if (y >= effectiveStartY && y <= effectiveEndY && effectiveH > 0) {
-            const vals = buySellData.map(d => d.smoothed)
-            const rawMin = Math.min(...vals)
-            const rawMax = Math.max(...vals)
-            const rawRange = rawMax - rawMin || 1
-            const paddedMax = rawMax + rawRange * 0.2
-            const paddedMin = rawMin - rawRange * 0.2
-            const paddedRange = paddedMax - paddedMin
-            const ratio = 1 - (y - effectiveStartY) / effectiveH
-            const value = paddedMin + ratio * paddedRange
-            bsCrosshairLabel = `${value > 0 ? '+' : ''}${value.toFixed(1)}`
           }
         }
 
@@ -23359,15 +22648,13 @@ export default function TradingViewChart({
         const nextCrosshairInfo = {
           price: ivCrosshairLabel
             ? ivCrosshairLabel
-            : bsCrosshairLabel
-              ? bsCrosshairLabel
-              : volumeCrosshairLabel
-                ? volumeCrosshairLabel
-                : flowCrosshairLabel
-                  ? flowCrosshairLabel
-                  : isInFuture && seasonalProjectionPrice
-                    ? `$${seasonalProjectionPrice.toFixed(2)} (Projection)`
-                    : `$${price.toFixed(2)}`,
+            : volumeCrosshairLabel
+              ? volumeCrosshairLabel
+              : flowCrosshairLabel
+                ? flowCrosshairLabel
+                : isInFuture && seasonalProjectionPrice
+                  ? `$${seasonalProjectionPrice.toFixed(2)} (Projection)`
+                  : `$${price.toFixed(2)}`,
           date: dateStr,
           time: timeStr,
           visible: true,
@@ -23427,25 +22714,6 @@ export default function TradingViewChart({
       // ============================================================================
       // MOUSE MOVE - CHART DRAG
       // ============================================================================
-
-      // BUY/SELL panel resize drag (ref-based, no stale closure)
-      if (buySellResizeDragRef.current) {
-        const { startY: rStartY, startHeight } = buySellResizeDragRef.current
-        const delta = rStartY - y // drag UP = increase height
-        const newH = Math.max(BUYSELL_HEIGHT_MIN, Math.min(BUYSELL_HEIGHT_MAX, startHeight + delta))
-        setBuySellPanelHeight(newH)
-        canvas.style.cursor = 'ns-resize'
-        return
-      }
-
-      // Cursor: hover over BUY/SELL top border
-      if (showBuySellIndicator && !dragRef.current.active) {
-        const panelTopY = dimensions.height - buySellPanelHeight - 105
-        if (Math.abs(y - panelTopY) <= 10) {
-          canvas.style.cursor = 'ns-resize'
-          return
-        }
-      }
 
       if (!dragRef.current.active) return
 
@@ -23521,8 +22789,6 @@ export default function TradingViewChart({
       yAxisResizeStart,
       scrollOffset,
       manualPriceRange,
-      showBuySellIndicator,
-      buySellPanelHeight,
       isFlowChartActive,
       flowChartHeight,
       flowChartData,
@@ -23531,7 +22797,6 @@ export default function TradingViewChart({
       activeIVPanelCount,
       ivPanelHeight,
       isMobile,
-      setBuySellPanelHeight,
     ]
   )
 
@@ -23655,9 +22920,6 @@ export default function TradingViewChart({
       // TradingView: Stop Y-axis resize
       setIsResizingYAxis(false)
       setYAxisResizeStart(null)
-
-      // Clear BUY/SELL resize drag
-      buySellResizeDragRef.current = null
 
       // Handle parallel channel editing cleanup
       setIsEditingChannel(false)
@@ -25962,7 +25224,6 @@ export default function TradingViewChart({
                     {/* Refresh */}
                     <button
                       onClick={() => {
-                        try { localStorage.removeItem(`etf-flows-v2-${new Date().toISOString().split('T')[0]}`) } catch { /* ignore */ }
                         flowTabFetchedRef.current = false
                         fetchETFFlows()
                       }}
@@ -31693,7 +30954,7 @@ export default function TradingViewChart({
                     <div className="mobile-dtd-group">
                       {(() => {
                         const dataActive = (isExpectedRangeActive || isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive || isAnyIVHVActive || showDarkPoolIndicator || isRRGCandleActive)
-                        const toolsActive = (isSeasonalActive || technalysisActive || isFlowChartActive || showBuySellIndicator || showPEPanel || showPEGPanel)
+                        const toolsActive = (isSeasonalActive || technalysisActive || isFlowChartActive || showPEPanel || showPEGPanel)
                         const drawActive = currentDrawingTool !== 'select' // kept for ref
                         const dtdBtnBase: React.CSSProperties = {
                           position: 'relative', overflow: 'hidden',
@@ -31853,7 +31114,6 @@ export default function TradingViewChart({
                           {/* ── OTHER ── */}
                           <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', marginTop: '4px' }}>Other</div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-                            <button onClick={() => setShowBuySellIndicator(v => !v)} className={`btn-3d-carved ${showBuySellIndicator ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Buy/Sell{showBuySellIndicator ? ' ✓' : ''}</button>
                             <button onClick={() => { const n = !showPEPanel; setShowPEGPanel(false); setShowPEPanel(n); if (n && (!peData || peFetchedSymbolRef.current !== config.symbol)) fetchPEData(config.symbol); }} className={`btn-3d-carved ${showPEPanel ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: showPEPanel ? undefined : '#00E5FF' }}>P/E{showPEPanel && peData?.current != null ? ` (${peData.current.toFixed(0)}x) ✓` : showPEPanel ? ' ✓' : ''}</button>
                             <button onClick={() => { const n = !showPEGPanel; setShowPEPanel(false); setShowPEGPanel(n); if (n && (!pegData || pegFetchedSymbolRef.current !== config.symbol)) fetchPEGData(config.symbol); }} className={`btn-3d-carved ${showPEGPanel ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: showPEGPanel ? undefined : '#a78bfa' }}>PEG{showPEGPanel && pegData?.pegBasic != null ? ` (${pegData.pegBasic.toFixed(1)}) ✓` : showPEGPanel ? ' ✓' : ''}</button>
                           </div>
@@ -34784,21 +34044,6 @@ export default function TradingViewChart({
                   )}
               </div>
 
-              {/* BUY/SELL Button */}
-              {!isMobile && (
-                <div className="ml-4 relative">
-                  <button
-                    onClick={() => setShowBuySellIndicator((v) => !v)}
-                    className={`btn-3d-carved btn-drawings relative group flex items-center space-x-2${showBuySellIndicator ? ' active' : ''}`}
-                    style={{ padding: '10px 14px', fontWeight: '700', fontSize: '13px', borderRadius: '4px' }}
-                  >
-                    <span style={{ color: '#22c55e' }}>Buy</span>
-                    <span style={{ color: '#ef4444' }}>/Sell</span>
-                    {showBuySellIndicator && <span style={{ color: '#22c55e', fontSize: '16px', marginLeft: '6px' }}>✓</span>}
-                  </button>
-                </div>
-              )}
-
               {/* DARK POOL Button */}
               {!isMobile && (
                 <DarkPoolButton
@@ -37377,7 +36622,7 @@ export default function TradingViewChart({
                           position: 'absolute',
                           left: 0,
                           right: 0,
-                          bottom: `${flowChartHeight + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0) + (showPEPanel ? pePanelHeight : 0) + (showPEGPanel ? pegPanelHeight : 0) + 35}px`,
+                          bottom: `${flowChartHeight + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showPEPanel ? pePanelHeight : 0) + (showPEGPanel ? pegPanelHeight : 0) + 35}px`,
                           height: '3px',
                           cursor: 'ns-resize',
                           backgroundColor: isDraggingFlowChart
@@ -37418,7 +36663,7 @@ export default function TradingViewChart({
                           position: 'absolute',
                           left: 0,
                           right: 0,
-                          bottom: `${activeIVPanelCount * ivPanelHeight + (showBuySellIndicator ? buySellPanelHeight : 0) + (showPEPanel ? pePanelHeight : 0) + (showPEGPanel ? pegPanelHeight : 0) + 35}px`,
+                          bottom: `${activeIVPanelCount * ivPanelHeight + (showPEPanel ? pePanelHeight : 0) + (showPEGPanel ? pegPanelHeight : 0) + 35}px`,
                           height: '4px',
                           cursor: 'ns-resize',
                           backgroundColor: isDraggingIVPanel ? '#FF9500' : 'rgba(255, 149, 0, 0.3)',
@@ -37493,53 +36738,13 @@ export default function TradingViewChart({
                       </div>
                     )}
 
-                    {/* BuySell Panel Resize Handle */}
-                    {showBuySellIndicator && (<div
-                      onMouseDown={handleBuySellDragStart}
-                      style={{
-                        position: 'absolute',
-                        left: 0,
-                        right: 0,
-                        bottom: `${buySellPanelHeight + (showPEPanel ? pePanelHeight : 0) + (showPEGPanel ? pegPanelHeight : 0) + 35}px`,
-                        height: '4px',
-                        cursor: 'ns-resize',
-                        backgroundColor: isDraggingBuySellPanel
-                          ? '#ffffff'
-                          : 'rgba(255, 255, 255, 0.3)',
-                        transition: isDraggingBuySellPanel ? 'none' : 'background-color 0.2s',
-                        zIndex: 1000,
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#ffffff'
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isDraggingBuySellPanel) {
-                          e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.3)'
-                        }
-                      }}
-                    >
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: '50%',
-                          left: '50%',
-                          transform: 'translate(-50%, -50%)',
-                          width: '40px',
-                          height: '2px',
-                          backgroundColor: '#ffffff',
-                          borderRadius: '1px',
-                        }}
-                      />
-                    </div>
-                    )}
-
                     {/* Flow Chart View Mode Toggle - FIXED: Always visible at stable position */}
                     {isFlowChartActive && (
                       <div
                         className="absolute z-[1001]"
                         style={{
                           left: isMobile ? '4px' : '60px',
-                          bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0) + flowChartHeight + 25 - (isMobile ? 36 : 44)}px`,
+                          bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + flowChartHeight + 25 - (isMobile ? 36 : 44)}px`,
                           transition: isDraggingFlowChart ? 'none' : 'bottom 0.1s ease-out',
                         }}
                       >
@@ -37650,7 +36855,7 @@ export default function TradingViewChart({
                     {/* ── IV/HV Panel Header Toolbars — one per active panel ────────────────── */}
                     {(() => {
                       const flowBase = isFlowChartActive ? flowChartHeight : 0
-                      const bsBase = showBuySellIndicator ? buySellPanelHeight : 0
+                      const bsBase = 0
                       // Build ordered list of active panels bottom→top same order as canvas draw
                       const panels: Array<{
                         key: 'iv' | 'ivRank' | 'ivPercentile' | 'hv'
@@ -37665,7 +36870,7 @@ export default function TradingViewChart({
 
                       return panels.map((panel, idx) => {
                         // correct bottom = all panels below this IV panel + timeAxis
-                        // stacking (bottom→top): time(35) + PEG + PE + BuySell + IV30D + IV1yr panels
+                        // stacking (bottom→top): time(35) + PEG + PE + IV30D + IV1yr panels
                         const iv30DCount = isAnyIV30DActive ? 1 : 0
                         const panelsBelow = panels.length - 1 - idx // IV panels strictly below this one
                         const bottomPx = (panelsBelow + iv30DCount) * ivPanelHeight
@@ -37790,8 +36995,8 @@ export default function TradingViewChart({
                     {/* IV 30D Panel Header Toolbar */}
                     {showIV30DPanel && (() => {
                       const flowBase = isFlowChartActive ? flowChartHeight : 0
-                      const bsBase = showBuySellIndicator ? buySellPanelHeight : 0
-                      // IV 30D sits directly below all 1yr IV panels, above BuySell/PE/PEG
+                      const bsBase = 0
+                      // IV 30D sits directly below all 1yr IV panels, above PE/PEG
                       const bottomPx = bsBase
                         + (showPEPanel ? pePanelHeight : 0)
                         + (showPEGPanel ? pegPanelHeight : 0)
@@ -38073,109 +37278,6 @@ export default function TradingViewChart({
                       )
                     })()}
 
-                    {/* ── BuySell Panel Header Toolbar ─────────────────────────────────────── */}
-                    {showBuySellIndicator && (() => {
-                      const bsBottomPx = (showPEPanel ? pePanelHeight : 0) + (showPEGPanel ? pegPanelHeight : 0) + 35
-                      return (
-                        <div
-                          className="absolute z-[1001] pointer-events-none"
-                          style={{ left: 0, right: 0, bottom: `${bsBottomPx}px`, height: `${buySellPanelHeight}px` }}
-                        >
-                          <div
-                            className="pointer-events-auto flex items-center gap-2 w-full"
-                            style={{
-                              position: 'absolute',
-                              top: 0,
-                              left: 0,
-                              right: '80px',
-                              height: '32px',
-                              background: 'linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.75) 100%)',
-                              borderTop: '2px solid rgba(0,255,0,0.33)',
-                              borderBottom: '1px solid rgba(255,255,255,0.08)',
-                              paddingLeft: '50px',
-                              paddingRight: '6px',
-                            }}
-                          >
-                            {/* Title */}
-                            <span style={{ color: '#00ff00', fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
-                              BUY/SELL PRESSURE
-                            </span>
-                            <div style={{ flex: 1 }} />
-                            {/* Fullscreen button */}
-                            <button
-                              onClick={() => setBuySellFullscreen(f => !f)}
-                              title={buySellFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-                              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '14px', lineHeight: 1, marginLeft: '4px' }}
-                              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff' }}
-                              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}
-                            >
-                              {buySellFullscreen ? '⊡' : '⛶'}
-                            </button>
-                            {/* Close button */}
-                            <button
-                              onClick={() => setShowBuySellIndicator(false)}
-                              title="Close Buy/Sell Pressure panel"
-                              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '18px', fontWeight: '700', lineHeight: 1, marginLeft: '2px' }}
-                              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,40,40,0.25)'; e.currentTarget.style.color = '#ff4444'; e.currentTarget.style.borderColor = 'rgba(255,40,40,0.5)' }}
-                              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}
-                            >
-                              ×
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    })()}
-
-                    {/* BuySell fullscreen overlay */}
-                    {buySellFullscreen && showBuySellIndicator && buySellData.length > 0 && (() => {
-                      const W = 900, H = 420, PL = 60, PR = 80, PT = 40, PB = 40
-                      const chartW = W - PL - PR, chartH = H - PT - PB
-                      const validData = buySellData.filter(d => d.smoothed !== undefined)
-                      const vals = validData.map(d => d.smoothed)
-                      const rawMin = Math.min(...vals)
-                      const rawMax = Math.max(...vals)
-                      const pad = (rawMax - rawMin) * 0.15 || 10
-                      const minV = rawMin - pad, maxV = rawMax + pad
-                      const toX = (i: number) => PL + (i / (validData.length - 1)) * chartW
-                      const toY = (v: number) => PT + chartH - ((v - minV) / (maxV - minV)) * chartH
-                      const ySteps = 5
-                      return (
-                        <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                          onClick={() => setBuySellFullscreen(false)}>
-                          <div style={{ background: '#0a0a0a', border: '2px solid rgba(0,255,0,0.33)', borderRadius: '10px', overflow: 'hidden', width: `${W + 40}px`, maxWidth: '98vw' }}
-                            onClick={e => e.stopPropagation()}>
-                            <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(0,255,0,0.2)', background: 'linear-gradient(90deg,#111,#0a0a0a)' }}>
-                              <span style={{ color: '#00ff00', fontWeight: '800', fontSize: '13px', letterSpacing: '1px', fontFamily: 'JetBrains Mono, monospace', flex: 1 }}>BUY/SELL PRESSURE</span>
-                              <button onClick={() => setBuySellFullscreen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '22px', fontWeight: '700', lineHeight: 1 }}
-                                onMouseEnter={e => (e.currentTarget.style.color = '#ff4444')} onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}>×</button>
-                            </div>
-                            <div style={{ padding: '8px 16px 16px' }}>
-                              <svg width={W} height={H} style={{ display: 'block', maxWidth: '100%' }}>
-                                {Array.from({ length: ySteps + 1 }, (_, i) => {
-                                  const v = minV + (i / ySteps) * (maxV - minV)
-                                  const y = toY(v)
-                                  return (
-                                    <g key={i}>
-                                      <line x1={PL} y1={y} x2={PL + chartW} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="1" />
-                                      <text x={PL - 6} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize="11" fontFamily="JetBrains Mono, monospace" textAnchor="end">{Math.round(v)}</text>
-                                    </g>
-                                  )
-                                })}
-                                {/* zero line */}
-                                {minV < 0 && maxV > 0 && (
-                                  <line x1={PL} y1={toY(0)} x2={PL + chartW} y2={toY(0)} stroke="rgba(255,255,255,0.25)" strokeWidth="1" strokeDasharray="4,4" />
-                                )}
-                                <polyline
-                                  points={validData.map((d, i) => `${toX(i)},${toY(d.smoothed)}`).join(' ')}
-                                  fill="none" stroke="#00cc00" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"
-                                />
-                              </svg>
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    })()}
-
                     {/* Inline legend centered between left & right flow toolbar pills */}
                     {isFlowChartActive && (() => {
                       const legendItems: { label: string; color: string }[] =
@@ -38200,7 +37302,7 @@ export default function TradingViewChart({
                           style={{
                             left: '50%',
                             transform: 'translateX(-50%)',
-                            bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0) + flowChartHeight + 25 - (isMobile ? 36 : 44)}px`,
+                            bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + flowChartHeight + 25 - (isMobile ? 36 : 44)}px`,
                             transition: isDraggingFlowChart ? 'none' : 'bottom 0.1s ease-out',
                             pointerEvents: 'none',
                           }}
@@ -38235,7 +37337,7 @@ export default function TradingViewChart({
                         className="absolute z-[1001]"
                         style={{
                           right: isMobile ? '4px' : '90px',
-                          bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0) + flowChartHeight + 25 - (isMobile ? 36 : 44)}px`,
+                          bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + flowChartHeight + 25 - (isMobile ? 36 : 44)}px`,
                           transition: isDraggingFlowChart ? 'none' : 'bottom 0.1s ease-out',
                         }}
                       >
@@ -38274,7 +37376,7 @@ export default function TradingViewChart({
                           <button
                             onClick={() => {
                               const canvasH = containerRef.current?.clientHeight ?? 600
-                              const otherPanels = (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showBuySellIndicator ? buySellPanelHeight : 0)
+                              const otherPanels = (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0)
                               const maxH = Math.max(150, canvasH - otherPanels - 25 - 80)
                               if (flowChartMaximized) {
                                 setFlowChartHeight(150)
