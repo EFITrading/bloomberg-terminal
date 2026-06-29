@@ -6,34 +6,34 @@ export const runtime = 'nodejs'
 
 export async function GET() {
   try {
-    console.log('[/api/flows/dates] Query starting...')
+    // Merge dates from both Flow (scan saves) and FlowBatch (Railway stream saves)
+    const [flows, batches] = await Promise.all([
+      prisma.flow.findMany({
+        select: { id: true, date: true, size: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.flowBatch.findMany({
+        select: { id: true, tradingDate: true, tradeCount: true, batchTime: true },
+        orderBy: { batchTime: 'desc' },
+      }),
+    ])
 
-    // Raw query first to verify DB connection and actual row count
-    const rawCount = await prisma.$queryRaw<{ count: bigint }[]>`SELECT COUNT(*) as count FROM "Flow"`
-    console.log('[/api/flows/dates] Raw SQL COUNT:', rawCount[0]?.count?.toString())
+    // Build a unified date list — FlowBatch takes priority for same date
+    const dateMap = new Map<string, { date: string; createdAt: Date; tradeCount: number | null; source: string }>()
 
-    const flows = await prisma.flow.findMany({
-      select: {
-        id: true,
-        date: true,
-        size: true,
-        createdAt: true,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    })
+    for (const f of flows) {
+      const day = new Date(f.date).toISOString().split('T')[0]
+      dateMap.set(day, { date: f.date.toISOString(), createdAt: f.createdAt, tradeCount: f.size < 100000 ? f.size : null, source: 'scan' })
+    }
 
-    console.log('[/api/flows/dates] findMany returned:', flows.length, 'records')
-    flows.forEach((f, i) => {
-      console.log(`  [${i}] id=${f.id} | date=${f.date} | createdAt=${f.createdAt} | size=${f.size}`)
-    })
+    // FlowBatch overrides Flow for same day (stream data is more complete)
+    for (const b of batches) {
+      dateMap.set(b.tradingDate, { date: new Date(b.tradingDate).toISOString(), createdAt: b.batchTime, tradeCount: b.tradeCount, source: 'stream' })
+    }
 
-    const result = flows.map((flow) => ({
-      date: flow.date,
-      createdAt: flow.createdAt,
-      tradeCount: flow.size < 100000 ? flow.size : null,
-    }))
+    const result = Array.from(dateMap.values())
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .map(r => ({ date: r.date, createdAt: r.createdAt, tradeCount: r.tradeCount, source: r.source }))
 
     return NextResponse.json(result)
   } catch (error) {
