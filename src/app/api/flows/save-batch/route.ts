@@ -52,14 +52,10 @@ export async function POST(request: NextRequest) {
       `${(originalSize / 1024).toFixed(1)}KB → ${(compressed.length / 1024).toFixed(1)}KB compressed`
     )
 
-    const batch = await prisma.flowBatch.upsert({
-      where: { tradingDate },
-      update: {
-        batchTime: new Date(),
-        data: compressedBase64,
-        tradeCount: trades.length,
-      },
-      create: {
+    // delete + create avoids Prisma Accelerate's 5MB response limit on upsert reads
+    await prisma.flowBatch.deleteMany({ where: { tradingDate } })
+    const batch = await prisma.flowBatch.create({
+      data: {
         tradingDate,
         batchTime: new Date(),
         data: compressedBase64,

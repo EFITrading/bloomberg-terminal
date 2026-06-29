@@ -154,12 +154,12 @@ async function saveToDB(allTrades, tradingDate) {
     const json = JSON.stringify(allTrades)
     const compressed = await gzipAsync(json)
     const base64 = compressed.toString('base64')
-    await prisma.flowBatch.upsert({
-      where: { tradingDate },
-      update: { batchTime: new Date(), data: base64, tradeCount: allTrades.length },
-      create: { tradingDate, batchTime: new Date(), data: base64, tradeCount: allTrades.length },
+    // delete + create avoids Prisma Accelerate's 5MB response limit on upsert reads
+    await prisma.flowBatch.deleteMany({ where: { tradingDate } })
+    await prisma.flowBatch.create({
+      data: { tradingDate, batchTime: new Date(), data: base64, tradeCount: allTrades.length },
     })
-    console.log(`[SAVE] ✓ Upserted ${allTrades.length} trades for ${tradingDate} | ${(compressed.length/1024).toFixed(1)}KB compressed`)
+    console.log(`[SAVE] ✓ Saved ${allTrades.length} trades for ${tradingDate} | ${(compressed.length/1024).toFixed(1)}KB compressed`)
   } catch (err) {
     console.error('[SAVE] DB error:', err.message)
   }
