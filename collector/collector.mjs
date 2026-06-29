@@ -268,10 +268,10 @@ function startCollecting() {
     }
   }, 1000)
 
-  // 5-minute save
+  // Save every 30 seconds so browser polls stay fresh
   saveTimer = setInterval(() => {
     saveToDB(allTrades, getTradingDate())
-  }, 5 * 60 * 1000)
+  }, 30 * 1000)
 
   // Auto-stop at market close
   const msToClose = msUntilMarketClose()

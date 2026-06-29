@@ -910,6 +910,7 @@ export default function OptionsFlowPage() {
   }, [convertLiveTrade])
 
   // Start/stop live streaming based on market hours or manual toggle
+  // Railway collector handles the WebSocket stream — browser polls DB every 30s
   useEffect(() => {
     const marketOpen = isMarketCurrentlyOpen()
 
@@ -925,116 +926,52 @@ export default function OptionsFlowPage() {
       liveConnectedRef.current = false
       liveTradeCountRef.current = 0
       setLiveTradeCount(0)
-      liveTradeBufferRef.current = []
-      // Reset the incremental OI map, full archive, and ticker filter for the new session
-      liveOIMapRef.current = new Map()
       allTradesRef.current = []
       liveTickerFilterRef.current = ''
       setData([])
 
-      // Preload today's saved batch from DB before stream starts
-      ;(async () => {
-        try {
-          const res = await fetch(`/api/flows/save-batch?date=${todayDS}`)
-          const result = await res.json()
-          if (result.trades && result.trades.length > 0) {
-            allTradesRef.current = result.trades
-            liveTradeCountRef.current = result.trades.length
-            setLiveTradeCount(result.trades.length)
-            const displayTrades = result.trades.filter((t: OptionsFlowData) => (t.total_premium || 0) >= 50000)
-            setData(displayTrades)
-            console.log(`%c[PRELOAD] Loaded ${result.trades.length} saved trades for ${todayDS} (last save: ${result.batchTime})`, 'color:#ce93d8;font-weight:bold')
-          } else {
-            console.log(`%c[PRELOAD] No saved trades found for ${todayDS} — starting fresh`, 'color:#ce93d8')
-          }
-        } catch (err) {
-          console.warn('[PRELOAD] Could not load saved trades:', err)
-        }
-      })()
-
-      const unsub = polygonOptionsWS.addHandler(handleLiveTrades)
-
-      // Flush buffered trades every 1 second — enriches every batch with vol/OI + fill style
-      liveFlushTimerRef.current = setInterval(async () => {
-        if (liveTradeBufferRef.current.length === 0) return
-        const batch = liveTradeBufferRef.current.splice(0)
-        const t0 = performance.now()
-
-        // 1. Classify: assign SWEEP/BLOCK/MULTI-LEG/MINI
-        const classified = classifyLiveBatch(batch)
-        const t1 = performance.now()
-
-        // 1b. Drop sub-$1000 premium trades before enrichment — fewer Polygon API calls
-        const aboveMin = classified.filter(t => t.total_premium >= 1000)
-        if (aboveMin.length === 0) return
-
-        // 2. Enrich every tick — vol/OI + bid/ask fill style for every batch
-        let enriched: OptionsFlowData[]
-        try {
-          enriched = await enrichTradeDataCombined(aboveMin)
-        } catch {
-          enriched = aboveMin
-        }
-
-        // 3. Apply live OI incrementally — only processes this new batch (O(batch_size))
-        //    The liveOIMapRef carries the full running tally so accuracy is preserved
-        //    across the entire day without needing to replay all previous trades.
-        const withOI = applyLiveOIIncremental(enriched.reverse(), liveOIMapRef.current)
-
-        // Prepend new trades to the full archive (no cap — all trades stay accessible)
-        allTradesRef.current = [...withOI, ...allTradesRef.current]
-        // Accumulate delta for 5-min batch save
-        batchBufferRef.current.push(...withOI)
-
-        liveTradeCountRef.current += withOI.length
-        setLiveTradeCount(liveTradeCountRef.current)
-        // Display filter: apply $50k+ and optional ticker filter from search bar
-        const displayTrades = allTradesRef.current.filter(t => {
-          if (!liveShowAllRef.current && t.total_premium < 50000) return false
-          if (liveTickerFilterRef.current && t.underlying_ticker.toUpperCase() !== liveTickerFilterRef.current) return false
-          return true
-        })
-        setData(displayTrades)
-        setLastUpdate(new Date().toLocaleTimeString())
-      }, 1000)
-
-      // Save cumulative trades to DB every 5 minutes — upserts 1 record per trading date
       const getTradingDate = () => {
         const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
       }
 
-      batchSaveTimerRef.current = setInterval(async () => {
-        if (allTradesRef.current.length === 0) return
-        const allTrades = allTradesRef.current
-        const tradingDate = getTradingDate()
-        console.log(`%c[BATCH SAVE] Upserting ${allTrades.length} total trades for ${tradingDate}`, 'color:#ffb74d;font-weight:bold')
+      // Poll Railway's DB save every 30 seconds for fresh data
+      const pollDB = async () => {
         try {
-          const res = await fetch('/api/flows/save-batch', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tradingDate, trades: allTrades }),
-          })
+          const res = await fetch(`/api/flows/save-batch?date=${getTradingDate()}`)
           const result = await res.json()
-          if (result.success) {
-            console.log(`%c[BATCH SAVE] ✓ Upserted ${result.batch.tradeCount} trades for ${tradingDate}`, 'color:#00ff88')
-          } else {
-            console.error('[BATCH SAVE] Failed:', result.error)
+          if (result.trades && result.trades.length > 0) {
+            allTradesRef.current = result.trades
+            liveTradeCountRef.current = result.trades.length
+            setLiveTradeCount(result.trades.length)
+            if (!liveConnectedRef.current) {
+              liveConnectedRef.current = true
+              setLiveConnected(true)
+              console.log(`%c[LIVE] Railway stream connected — ${result.trades.length} trades loaded`, 'color:#00ff88;font-weight:bold')
+            }
+            const displayTrades = result.trades.filter((t: OptionsFlowData) => {
+              if (!liveShowAllRef.current && (t.total_premium || 0) < 50000) return false
+              if (liveTickerFilterRef.current && t.underlying_ticker?.toUpperCase() !== liveTickerFilterRef.current) return false
+              return true
+            })
+            setData(displayTrades)
+            setLastUpdate(new Date().toLocaleTimeString())
           }
         } catch (err) {
-          console.error('[BATCH SAVE] Network error:', err)
+          console.warn('[POLL] Could not fetch Railway data:', err)
         }
-      }, 5 * 60 * 1000) // every 5 minutes
+      }
+
+      // Initial load immediately
+      pollDB()
+
+      // Then poll every 30 seconds
+      liveFlushTimerRef.current = setInterval(pollDB, 30 * 1000)
 
       return () => {
-        unsub()
         if (liveFlushTimerRef.current !== null) {
           clearInterval(liveFlushTimerRef.current)
           liveFlushTimerRef.current = null
-        }
-        if (batchSaveTimerRef.current !== null) {
-          clearInterval(batchSaveTimerRef.current)
-          batchSaveTimerRef.current = null
         }
       }
     } else {
