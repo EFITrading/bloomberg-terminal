@@ -122,6 +122,8 @@ const enrichTradeDataCombined = async (
     NDX: 'I:NDX',
     RUTW: 'I:RUT',
     RUT: 'I:RUT',
+    VIX: 'I:VIX',
+    VIXW: 'I:VIX',
     BRKB: 'BRK.B',
   }
 
@@ -861,6 +863,9 @@ export default function OptionsFlowPage() {
   const allTradesRef = useRef<OptionsFlowData[]>([])
   // Live ticker filter — when set, display only trades for this ticker from the archive
   const liveTickerFilterRef = useRef<string>('')
+  // Batch save: accumulates delta trades between 5-min saves
+  const batchBufferRef = useRef<OptionsFlowData[]>([])
+  const batchSaveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Convert a raw Polygon options trade message to OptionsFlowData
   const convertLiveTrade = useCallback((msg: PolygonOptionsTradeMsg): OptionsFlowData | null => {
@@ -927,6 +932,26 @@ export default function OptionsFlowPage() {
       liveTickerFilterRef.current = ''
       setData([])
 
+      // Preload today's saved batch from DB before stream starts
+      ;(async () => {
+        try {
+          const res = await fetch(`/api/flows/save-batch?date=${todayDS}`)
+          const result = await res.json()
+          if (result.trades && result.trades.length > 0) {
+            allTradesRef.current = result.trades
+            liveTradeCountRef.current = result.trades.length
+            setLiveTradeCount(result.trades.length)
+            const displayTrades = result.trades.filter((t: OptionsFlowData) => (t.total_premium || 0) >= 50000)
+            setData(displayTrades)
+            console.log(`%c[PRELOAD] Loaded ${result.trades.length} saved trades for ${todayDS} (last save: ${result.batchTime})`, 'color:#ce93d8;font-weight:bold')
+          } else {
+            console.log(`%c[PRELOAD] No saved trades found for ${todayDS} — starting fresh`, 'color:#ce93d8')
+          }
+        } catch (err) {
+          console.warn('[PRELOAD] Could not load saved trades:', err)
+        }
+      })()
+
       const unsub = polygonOptionsWS.addHandler(handleLiveTrades)
 
       // Flush buffered trades every 1 second — enriches every batch with vol/OI + fill style
@@ -958,6 +983,8 @@ export default function OptionsFlowPage() {
 
         // Prepend new trades to the full archive (no cap — all trades stay accessible)
         allTradesRef.current = [...withOI, ...allTradesRef.current]
+        // Accumulate delta for 5-min batch save
+        batchBufferRef.current.push(...withOI)
 
         liveTradeCountRef.current += withOI.length
         setLiveTradeCount(liveTradeCountRef.current)
@@ -971,11 +998,43 @@ export default function OptionsFlowPage() {
         setLastUpdate(new Date().toLocaleTimeString())
       }, 1000)
 
+      // Save cumulative trades to DB every 5 minutes — upserts 1 record per trading date
+      const getTradingDate = () => {
+        const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      }
+
+      batchSaveTimerRef.current = setInterval(async () => {
+        if (allTradesRef.current.length === 0) return
+        const allTrades = allTradesRef.current
+        const tradingDate = getTradingDate()
+        console.log(`%c[BATCH SAVE] Upserting ${allTrades.length} total trades for ${tradingDate}`, 'color:#ffb74d;font-weight:bold')
+        try {
+          const res = await fetch('/api/flows/save-batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tradingDate, trades: allTrades }),
+          })
+          const result = await res.json()
+          if (result.success) {
+            console.log(`%c[BATCH SAVE] ✓ Upserted ${result.batch.tradeCount} trades for ${tradingDate}`, 'color:#00ff88')
+          } else {
+            console.error('[BATCH SAVE] Failed:', result.error)
+          }
+        } catch (err) {
+          console.error('[BATCH SAVE] Network error:', err)
+        }
+      }, 5 * 60 * 1000) // every 5 minutes
+
       return () => {
         unsub()
         if (liveFlushTimerRef.current !== null) {
           clearInterval(liveFlushTimerRef.current)
           liveFlushTimerRef.current = null
+        }
+        if (batchSaveTimerRef.current !== null) {
+          clearInterval(batchSaveTimerRef.current)
+          batchSaveTimerRef.current = null
         }
       }
     } else {
