@@ -41,9 +41,10 @@ const TF_COLORS: Record<number, string> = { 5: '#00FF88', 10: '#FFD700', 15: '#0
 const TF_CLR_FALLBACK = ['#FF69B4', '#9370DB', '#00FA9A', '#FF8C00', '#1E90FF']
 
 // ── Canvas-based mini seasonal chart (almanac-style, crispy, zoom+drag) ──────
-const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean }> = ({
+const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean; todayDayIdx?: number }> = ({
   data,
   isPositive,
+  todayDayIdx,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -168,7 +169,32 @@ const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean }>
     ctx.stroke()
     ctx.shadowBlur = 0
 
+    // ── Today marker (vertical dashed line)
+    if (todayDayIdx !== undefined) {
+      const clampedIdx = Math.max(0, Math.min(todayDayIdx, maxDays - 1))
+      const tx = todayDayIdx < 0 ? PAD.left : getX(clampedIdx)
+      ctx.setLineDash([4, 4])
+      ctx.strokeStyle = todayDayIdx < 0 ? 'rgba(255, 200, 50, 0.65)' : 'rgba(255, 255, 255, 0.75)'
+      ctx.lineWidth = 1.5
+      ctx.beginPath()
+      ctx.moveTo(tx, PAD.top)
+      ctx.lineTo(tx, PAD.top + ch)
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
+
     ctx.restore()
+
+    // ── "NOW" label above today marker
+    if (todayDayIdx !== undefined) {
+      const tx = todayDayIdx < 0 ? PAD.left : getX(Math.min(todayDayIdx, maxDays - 1))
+      if (tx >= PAD.left && tx <= width - PAD.right) {
+        ctx.fillStyle = todayDayIdx < 0 ? 'rgba(255, 200, 50, 0.85)' : 'rgba(255, 255, 255, 0.85)'
+        ctx.font = 'bold 9px "JetBrains Mono", monospace'
+        ctx.textAlign = 'center'
+        ctx.fillText('NOW', tx, PAD.top - 4)
+      }
+    }
 
     // ── X-axis day labels
     ctx.fillStyle = '#FFFFFF'
@@ -187,7 +213,7 @@ const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean }>
     ctx.strokeStyle = 'rgba(255,255,255,0.18)'
     ctx.lineWidth = 0.5
     ctx.strokeRect(PAD.left, PAD.top, cw, ch)
-  }, [data, isPositive, zoomLevel, panOffset, avgColor])
+  }, [data, isPositive, zoomLevel, panOffset, avgColor, todayDayIdx])
 
   useEffect(() => {
     requestAnimationFrame(draw)
@@ -302,6 +328,7 @@ interface OpportunityCardProps {
   seasonedQualifying?: number // Number of timeframes with 60%+ win rate (2, 3, or 4)
   hideBestBadge?: boolean // Hide the BEST badge (used in BEST mode where all cards are best)
   multiframeYears?: number[] // Qualifying timeframe year values e.g. [5, 10, 15]
+  isLeaps?: boolean // Seasonal Leaps mode — fetch 3-month-out expiry
   isExpanded?: boolean // Card expanded to 2×2 inline chart view
   onExpand?: () => void // Toggle expanded state
 }
@@ -316,6 +343,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
   seasonedQualifying,
   hideBestBadge = false,
   multiframeYears,
+  isLeaps = false,
   isExpanded = false,
   onExpand,
 }) => {
@@ -648,7 +676,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
       try {
         const periodEnd = pattern.period ? (pattern.period.split(' - ')[1]?.trim() ?? '') : ''
         const resp = await fetch(
-          `/api/seasonal-options-setup?symbol=${pattern.symbol}&direction=${dir}&periodEnd=${encodeURIComponent(periodEnd)}`
+          `/api/seasonal-options-setup?symbol=${pattern.symbol}&direction=${dir}&periodEnd=${encodeURIComponent(periodEnd)}${isLeaps ? '&leaps=true' : ''}`
         )
         if (!resp.ok) return
         const data = await resp.json()
@@ -674,8 +702,9 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
       setChartLoading(true)
       try {
         const [startStr, endStr] = pattern.period.split(' - ')
+        const cleanEndStr = endStr?.replace(/\s*\(\d+ days?\)/i, '').trim()
         const startDate = parsePeriodDate(startStr)
-        const endDate = parsePeriodDate(endStr)
+        const endDate = parsePeriodDate(cleanEndStr ?? endStr)
         const { polygonService } = await import('@/lib/polygonService')
         const currentYear = new Date().getFullYear()
         const colors = ['#FF6600', '#00FF88', '#FF4444', '#FFD700', '#00BFFF', '#FF69B4', '#9370DB', '#00FA9A', '#FF8C00', '#1E90FF', '#FF1493', '#7FFF00', '#DC143C', '#00CED1', '#FF4500']
@@ -1433,7 +1462,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                       Loading chart…
                     </div>
                   ) : miniChart ? (
-                    <MiniSeasonalChart data={miniChart} isPositive={isPositive} />
+                    <MiniSeasonalChart data={miniChart} isPositive={isPositive} todayDayIdx={daysUntilStart !== undefined && daysUntilStart !== null ? -daysUntilStart : undefined} />
                   ) : (
                     <div
                       style={{

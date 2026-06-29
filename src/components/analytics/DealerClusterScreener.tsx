@@ -679,6 +679,14 @@ function ClusterCard({
   )
 }
 
+// ── Performance tracking ──────────────────────────────────────────────────
+let _clusterActiveScanCount = 0
+const _clusterHeapMB = () => {
+  const m = (performance as any).memory
+  if (!m) return 'heap=n/a'
+  return `heap=${(m.usedJSHeapSize / 1048576).toFixed(1)}MB/${(m.jsHeapSizeLimit / 1048576).toFixed(0)}MB-limit`
+}
+
 export default function DealerClusterScreener() {
   const [loading, setLoading] = useState(false)
   const [premiumLoading, setPremiumLoading] = useState(false)
@@ -788,6 +796,10 @@ export default function DealerClusterScreener() {
   }
 
   const handleScan = async () => {
+    _clusterActiveScanCount++
+    const _t0 = performance.now()
+    const _heapStart = (performance as any).memory?.usedJSHeapSize ?? 0
+    console.log(`[sidebar-perf] 🟠 CLUSTER scan START | concurrent=${_clusterActiveScanCount} | ${_clusterHeapMB()}`)
     setLoading(true)
     setError('')
     setScanProgress({ current: 0, total: 0 })
@@ -856,6 +868,7 @@ export default function DealerClusterScreener() {
       }
 
       setLoading(false)
+      console.log(`[sidebar-perf] 🟠 CLUSTER phase-1 stream done | raw candidates=${rawPos.length + rawNeg.length} | elapsed=${((performance.now() - _t0) / 1000).toFixed(1)}s | ${_clusterHeapMB()}`)
 
       // --- Premium validation pass ---
       const allRaw = [...rawPos, ...rawNeg]
@@ -879,7 +892,12 @@ export default function DealerClusterScreener() {
       setEnrichedVersion(v => v + 1)
       setLastUpdate(new Date().toLocaleTimeString())
       setPremiumLoading(false)
+      _clusterActiveScanCount--
+      const _heapEnd = (performance as any).memory?.usedJSHeapSize ?? 0
+      console.log(`[sidebar-perf] ✅ CLUSTER scan DONE | results=${enriched.length} | elapsed=${((performance.now() - _t0) / 1000).toFixed(1)}s | heapDelta=+${((_heapEnd - _heapStart) / 1048576).toFixed(1)}MB | ${_clusterHeapMB()} | concurrent=${_clusterActiveScanCount}`)
     } catch (err: any) {
+      _clusterActiveScanCount--
+      console.log(`[sidebar-perf] ❌ CLUSTER scan ERROR | elapsed=${((performance.now() - _t0) / 1000).toFixed(1)}s | ${_clusterHeapMB()} | err=${err?.message}`)
       setError(err.message || 'Scan failed')
       setLoading(false)
       setPremiumLoading(false)

@@ -36,10 +36,36 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/live-oi
-// Body: { ticker: string, tradingDate: string, entries: [string, number][] }
+// Bulk body: { bulk: true, tradingDate: string, tickers: Record<string, [string, number][]> }
+// Single body: { ticker: string, tradingDate: string, entries: [string, number][] }
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json()
+
+        if (body.bulk) {
+            const { tradingDate, tickers } = body as {
+                tradingDate: string
+                tickers: Record<string, [string, number][]>
+            }
+
+            if (!tradingDate || !tickers || typeof tickers !== 'object') {
+                return NextResponse.json({ error: 'tradingDate and tickers are required' }, { status: 400 })
+            }
+
+            await Promise.all(
+                Object.entries(tickers).map(([ticker, entries]) =>
+                    prisma.liveOICache.upsert({
+                        where: { ticker_tradingDate: { ticker: ticker.toUpperCase(), tradingDate } },
+                        update: { data: JSON.stringify(entries) },
+                        create: { ticker: ticker.toUpperCase(), tradingDate, data: JSON.stringify(entries) },
+                        select: { ticker: true },
+                    })
+                )
+            )
+
+            return NextResponse.json({ success: true })
+        }
+
         const { ticker, tradingDate, entries } = body as {
             ticker: string
             tradingDate: string

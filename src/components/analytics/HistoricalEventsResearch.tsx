@@ -729,7 +729,7 @@ export default function HistoricalEventsResearch() {
           <ResearchPanelV2 />
         </div>
       ) : activeTab === 'screener' ? (
-        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', paddingTop: '60px' }}>
+        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', paddingTop: '0px' }}>
           <SeasonaxLanding />
         </div>
       ) : (

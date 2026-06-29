@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/prisma';
 import { gunzip } from 'zlib';
 import { promisify } from 'util';
-
-const prisma = new PrismaClient({ datasourceUrl: process.env.POSTGRES_URL });
 const gunzipAsync = promisify(gunzip);
 
 export const runtime = 'nodejs';

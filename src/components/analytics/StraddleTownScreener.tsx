@@ -10,8 +10,8 @@ import { TOP_1800_SYMBOLS } from '@/lib/Top1000Symbols'
 // ── Constants ──────────────────────────────────────────────────────────────────
 const MIN_AVG_HV = 1.5            // lowered from 3.0 — allow lower-vol names
 const SCAN_TRADING_DAYS = 2       // only contractions within the past 2 trading days
-const DP_LOOKBACK_DAYS = 90       // trading days of dark pool data for POI detection (full scan / Mag8)
-const TICKER_LOOKBACK_DAYS = 252  // trading days for single-ticker contraction + DP scan
+const DP_LOOKBACK_DAYS = 756      // trading days of dark pool data for POI detection — 3yr lookback
+const TICKER_LOOKBACK_DAYS = 756  // trading days for single-ticker contraction + DP scan — 3yr lookback
 const CHART_VISIBLE_DAYS = 60 // candles shown in chart
 const FETCH_CAL_DAYS = 500 // calendar days to fetch (for avgHV lookback)
 const DARK_POOL_EXCHANGES = new Set([4, 6, 16, 201, 202, 203])
@@ -40,7 +40,7 @@ const LOW_VOL_EXCLUSIONS = new Set([
   // Other sub-4.5% names
   'GTLS', 'EA', 'BUD', 'ACGL', 'ITW', 'VTR', 'NVS', 'ROST', 'HON', 'LIN', 'WM', 'WCN',
   // Manually excluded
-  'HOLX', 'EXAS',
+  'HOLX', 'EXAS', 'SKX', 'AMED',
 ])
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -412,7 +412,7 @@ function detectContraction(bars: Bar[]): { qualifies: boolean; compressionPct: n
   const curBar = lb[lb.length - 1]
   const avgBarRange = lb.reduce((s, b) => s + (b.high - b.low), 0) / lb.length
   const curBarTight = avgBarRange > 0 && curBar.high - curBar.low <= avgBarRange * 2.0
-  const qualifies = compressionPct > CONTRACTION_THRESHOLD && notTrending && curBarTight
+  const qualifies = compressionPct > 40 && compressionPct < 67 && notTrending && curBarTight
   return { qualifies, compressionPct }
 }
 
@@ -745,8 +745,8 @@ async function fetchOHLCV(
 }
 
 // ── Global Polygon rate limiter — shared across ALL scanDPDays calls ──────────
-// Hard cap: max 4 simultaneous fetch() calls to api.polygon.io at any time.
-const _POLY_MAX = 4
+// 50 concurrent: safe ceiling — going higher causes Polygon rate limiting across 8 parallel tickers
+const _POLY_MAX = 50
 let _polyInflight = 0
 const _polyWaiting: Array<() => void> = []
 const polyAcquire = (): Promise<void> => new Promise(resolve => {
@@ -767,7 +767,7 @@ async function scanDPDays(
   apiKey: string,
   onProgress: (pct: number) => void,
   signal: AbortSignal,
-  maxConcurrency = 3
+  maxConcurrency = 20
 ): Promise<DPDay[]> {
   let aborted = false
   signal.addEventListener('abort', () => {
@@ -894,30 +894,31 @@ async function scanDPDays(
     const WIN = 3
     const winNs = (rthEndNs - rthStartNs) / WIN
     try {
-      // Run windows sequentially. Each window fetches twice (asc + desc) so a
-      // massive block trade anywhere in the session window isn't silently cut off
-      // by SPY's 500k+ daily prints exceeding a single-pass limit.
-      const winResults: Array<{ prints: DPPrint[]; windowNotional: number }> = []
-      for (let i = 0; i < WIN; i++) {
-        if (aborted) break
-        const s = rthStartNs + i * winNs
-        const e = rthStartNs + (i + 1) * winNs
-        const base = `https://api.polygon.io/v3/trades/${symbol}?timestamp.gte=${s}&timestamp.lte=${e}&limit=50000&apiKey=${apiKey}`
-        const ascResult = await fetchWindowStreaming(base + '&order=asc')
-        const descResult = await fetchWindowStreaming(base + '&order=desc')
-        // Merge, dedup by ts+price+size, keep top-50 by notional
-        const seen = new Set<string>()
-        const merged: DPPrint[] = []
-        for (const p of [...ascResult.prints, ...descResult.prints]) {
-          const key = `${p.ts}|${p.price}|${p.size}`
-          if (!seen.has(key)) { seen.add(key); merged.push(p) }
-        }
-        merged.sort((a, b) => b.size * b.price - a.size * a.price)
-        winResults.push({
-          prints: merged.slice(0, 50),
-          windowNotional: ascResult.windowNotional + descResult.windowNotional,
+      // Run all 3 windows IN PARALLEL — 3× faster than sequential
+      // Each window fetches asc + desc in parallel to catch large block trades at both ends
+      const winResults = await Promise.all(
+        Array.from({ length: WIN }, async (_, i) => {
+          if (aborted) return { prints: [] as DPPrint[], windowNotional: 0 }
+          const s = rthStartNs + i * winNs
+          const e = rthStartNs + (i + 1) * winNs
+          const base = `https://api.polygon.io/v3/trades/${symbol}?timestamp.gte=${s}&timestamp.lte=${e}&limit=50000&apiKey=${apiKey}`
+          const [ascResult, descResult] = await Promise.all([
+            fetchWindowStreaming(base + '&order=asc'),
+            fetchWindowStreaming(base + '&order=desc'),
+          ])
+          const seen = new Set<string>()
+          const merged: DPPrint[] = []
+          for (const p of [...ascResult.prints, ...descResult.prints]) {
+            const key = `${p.ts}|${p.price}|${p.size}`
+            if (!seen.has(key)) { seen.add(key); merged.push(p) }
+          }
+          merged.sort((a, b) => b.size * b.price - a.size * a.price)
+          return {
+            prints: merged.slice(0, 50),
+            windowNotional: ascResult.windowNotional + descResult.windowNotional,
+          }
         })
-      }
+      )
       // Merge top-50 from every window, rerank, then take final top-10
       const allPrints = winResults
         .flatMap(w => w.prints)
@@ -1889,20 +1890,15 @@ function ResultsTable({
   type Tier = { label: string; accent: string; items: ScanResult[] }
   const tiers: Tier[] = [
     { label: 'PIVOTAL SPOT + HIGH VOL', accent: '#41B6F6', items: [] },
-    { label: 'HIGH PRESSURE + LOW VOL', accent: '#FFD700', items: [] },
   ]
   for (const r of sorted) {
-    if (r.setupTier === 'high-pressure') tiers[1].items.push(r)
-    else tiers[0].items.push(r)
+    if (r.setupTier !== 'high-pressure') tiers[0].items.push(r)
   }
 
-  const compressColor = (r: ScanResult) => {
-    if (r.setupTier === 'high-pressure') return '#FFD700'
-    return '#41B6F6'
-  }
+  const compressColor = (_r: ScanResult) => '#41B6F6'
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, alignItems: 'start' }}>
       {tiers.map(tier => {
         const aOn = aOnlyTiers.has(tier.label)
         const rOn = rareOnlyTiers.has(tier.label)
@@ -2104,7 +2100,7 @@ function ResultsTable({
                           const sc = calcContractionBreakoutScore(r.bars, r.allEvents)
                           if (!sc) return null
                           const pct = sc.pct * 100
-                          const grade = pct >= 75 ? 'A' : pct >= 50 ? 'B' : pct >= 25 ? 'C' : 'D'
+                          const grade = pct >= 80 ? 'A' : pct >= 70 ? 'B' : pct >= 50 ? 'C' : 'F'
                           const gradeColor = grade === 'A' ? '#00FF88' : grade === 'B' ? '#FF9A00' : grade === 'C' ? '#FFD700' : '#FF3050'
                           return (
                             <div style={{
@@ -2224,7 +2220,7 @@ function ResultsTable({
 
                     {/* Row 4: Chart + Trade cards side by side */}
                     <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 4, marginLeft: -16, marginRight: -16 }}>
-                      <div style={{ flex: 1, height: 520, borderRadius: 4, overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                      <div onWheel={e => e.stopPropagation()} style={{ flex: 1, height: 520, borderRadius: 4, overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                         <StraddleChart
                           candles={r.bars.slice(-CHART_VISIBLE_DAYS)}
                           events={r.allEvents}
@@ -2275,6 +2271,14 @@ function ResultsTable({
       })}
     </div>
   )
+}
+
+// ── Performance tracking ──────────────────────────────────────────────────
+let _straddleActiveScanCount = 0
+const _straddleHeapMB = () => {
+  const m = (performance as any).memory
+  if (!m) return 'heap=n/a'
+  return `heap=${(m.usedJSHeapSize / 1048576).toFixed(1)}MB/${(m.jsHeapSizeLimit / 1048576).toFixed(0)}MB-limit`
 }
 
 // ── Signal Card ───────────────────────────────────────────────────────────────
@@ -2341,8 +2345,10 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
   const [tickerPoiScanning, setTickerPoiScanning] = useState(false)
   const [tickerScanStatus, setTickerScanStatus] = useState<{ phase: 'ohlcv' | 'dp'; dpDate?: string; dpDone: number; dpTotal: number } | null>(null)
   const [tickerSearchedSymbols, setTickerSearchedSymbols] = useState<string[]>([])
-  const [tickerLookback, setTickerLookback] = useState<252 | 756 | 1260>(252) // 1Y / 3Y / 5Y
-  const [poiLookback, setPoiLookback] = useState<90 | 252 | 1260>(90) // 90D / 1Y / 5Y
+  const [tickerLookback] = useState<756>(756) // fixed 3Y
+  const [poiLookback] = useState<756>(756) // fixed 3Y
+  const [tickerScanMode, setTickerScanMode] = useState<'pivot' | 'poi'>('pivot')
+  const [allScanMode, setAllScanMode] = useState<'pivot' | 'poi'>('poi')
   const autoPoiOnDoneRef = useRef(false)
   const [allPoiScanning, setAllPoiScanning] = useState(false)
 
@@ -2357,6 +2363,9 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
   }, [])
 
   const run = useCallback(async () => {
+    _straddleActiveScanCount++
+    const _t0 = performance.now()
+    const _heapStart = (performance as any).memory?.usedJSHeapSize ?? 0
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
@@ -2391,7 +2400,7 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
         recentEvents: ContraEvent[]
       }[] = []
 
-      const OHLCV_WORKER_COUNT = Math.min(8, typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency ?? 4) : 4)
+      const OHLCV_WORKER_COUNT = Math.min(16, typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency ?? 4) : 4)
       const chunkSize = Math.ceil(symbols.length / OHLCV_WORKER_COUNT)
       const chunks = Array.from({ length: OHLCV_WORKER_COUNT }, (_, i) =>
         symbols.slice(i * chunkSize, (i + 1) * chunkSize)
@@ -2412,6 +2421,12 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
             if (signal.aborted) return
             const msg = e.data
             if (msg.type === 'hit') {
+              {
+                // Reject delisted/acquired stocks — last bar must be within 30 days
+                const lastBar = msg.bars[msg.bars.length - 1]
+                const daysSinceLast = lastBar ? (Date.now() - new Date(lastBar.date + 'T00:00:00').getTime()) / 86400000 : 999
+                if (daysSinceLast > 30) return
+              }
               contractionHits.push({ symbol: msg.symbol, bars: msg.bars, allEvents: msg.allEvents, recentEvents: msg.recentEvents })
               startTransition(() => setStats(s => ({ ...s, contractionHits: s.contractionHits + 1 })))
             } else if (msg.type === 'progress') {
@@ -2454,8 +2469,8 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
           const latestEvent = recentEvts[recentEvts.length - 1]
           const compressionPct = latestEvent?.compressionPct ?? 0
           const setupActive = recentEvts.length > 0
-          const setupTier: ScanResult['setupTier'] = (compressionPct >= 77 || compressionPct <= 35) ? 'high-pressure' : 'pivotal'
-          const bubbleTier: 'gold' | 'blue' | 'gray' = setupTier === 'high-pressure' ? 'gold' : 'blue'
+          const setupTier: ScanResult['setupTier'] = 'pivotal'
+          const bubbleTier: 'gold' | 'blue' | 'gray' = 'blue'
           let trade = setupActive ? buildStraddleTrade(bars, sym, compressionPct, bubbleTier) : null
           if (trade) {
             const rp = await fetchRealStraddlePrices(sym, trade.expiration, trade.callStrike, trade.putStrike, trade.currentPrice, API_KEY)
@@ -2481,6 +2496,7 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
           addResult(result)
           setStats((s) => ({ ...s, dpDone: s.dpDone + 1 }))
         }
+        _straddleActiveScanCount--
         setPhase('done')
         return
       }
@@ -2488,7 +2504,7 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
       // ── Phase 3: dark pool scan — pool of 4 Web Workers ───────────────
       // Main thread manages cache + dispatches one symbol per worker at a time.
       // Workers only do network fetching; POI clustering + trade building stay here.
-      const DP_POOL_SIZE = 6
+      const DP_POOL_SIZE = 20
       const mag8Hits = contractionHits.filter(h => MAG8_SYMBOLS.has(h.symbol))
       const hitsMap = new Map(contractionHits.map(h => [h.symbol, h]))
 
@@ -2505,7 +2521,7 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
         if (isRare || isAScore) dpScanSymbols.add(h.symbol)
       }
       const dpQueue = contractionHits.filter(h => dpScanSymbols.has(h.symbol))
-      tlog(`[DP] Phase 3 start - ${dpQueue.length} pivotal+Rare/A to scan (POI), pool=${DP_POOL_SIZE}`)
+      tlog(`[DarkPool] Phase 3 start — ${dpQueue.length} symbols, pool=${DP_POOL_SIZE}, lookback=${DP_LOOKBACK_DAYS} days`)
 
       // Emit Mag8 symbols immediately as pending (no DP scan)
       for (const hit of mag8Hits) {
@@ -2539,13 +2555,10 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
         if (dpScanSymbols.has(hit.symbol)) continue
         const latestEvent = hit.recentEvents[hit.recentEvents.length - 1]
         const compressionPct = latestEvent?.compressionPct ?? 0
-        const setupTier: ScanResult['setupTier'] = (compressionPct >= 77 || compressionPct <= 35) ? 'high-pressure' : 'pivotal'
-        const bubbleTier: 'gold' | 'blue' | 'gray' = setupTier === 'high-pressure' ? 'gold' : 'blue'
+        const setupTier: ScanResult['setupTier'] = 'pivotal'
+        const bubbleTier: 'gold' | 'blue' | 'gray' = 'blue'
         const setupActive = hit.recentEvents.length > 0
-        const hpRealExpiry = (setupActive && setupTier === 'high-pressure')
-          ? await fetchNearestRealExpiry(hit.symbol, 21, API_KEY)
-          : undefined
-        let trade = setupActive ? buildStraddleTrade(hit.bars, hit.symbol, compressionPct, bubbleTier, hpRealExpiry) : null
+        let trade = setupActive ? buildStraddleTrade(hit.bars, hit.symbol, compressionPct, bubbleTier) : null
         if (trade) {
           const rp = await fetchRealStraddlePrices(hit.symbol, trade.expiration, trade.callStrike, trade.putStrike, trade.currentPrice, API_KEY)
           if (rp) trade = patchTradeWithRealPrices(trade, rp)
@@ -2590,9 +2603,51 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
             }
             const hit = dpQueue.shift()!
             const sym = hit.symbol
-            const daysToScan = hit.bars.slice(-DP_LOOKBACK_DAYS).map(b => b.date)
+            const allDaysToScan = hit.bars.slice(-DP_LOOKBACK_DAYS).map(b => b.date)
 
-            tlog(`[DP-W${wid}] dispatching ${sym} — ${daysToScan.length} dates`)
+            // ── Load cached days from DB, skip already-scanned dates ──────────────
+            let cachedDays: DPDay[] = []
+            try {
+              const cacheRes = await fetch(`/api/dark-pool-cache?symbol=${encodeURIComponent(sym)}`)
+              if (cacheRes.ok) {
+                const cacheJson = await cacheRes.json()
+                cachedDays = cacheJson.days ?? []
+              }
+            } catch { /* non-critical */ }
+            const cachedDateSet = new Set(cachedDays.map((d: DPDay) => d.date))
+            const daysToScan = allDaysToScan.filter(d => !cachedDateSet.has(d))
+
+            tlog(`[DP-W${wid}] ${sym} — ${cachedDays.length} cached, ${daysToScan.length} to fetch`)
+
+            // If all days already cached, process immediately without hitting Polygon
+            if (daysToScan.length === 0) {
+              const allResults = cachedDays.filter(d => allDaysToScan.includes(d.date))
+                // Re-use the done handler logic inline
+                ; (async () => {
+                  const poi = clusterPOI(allResults)
+                  const hitData = hitsMap.get(sym)!
+                  const triggerDate = hitData.recentEvents.length > 0
+                    ? hitData.recentEvents[hitData.recentEvents.length - 1].date
+                    : hitData.bars[hitData.bars.length - 1].date
+                  const { activePOI } = computeSetupTier(allResults, triggerDate)
+                  const hasPOI = activePOI !== null
+                  const setupActive = hitData.recentEvents.length > 0 && hasPOI
+                  const latestEvent = hitData.recentEvents[hitData.recentEvents.length - 1]
+                  const compressionPct = latestEvent?.compressionPct ?? 0
+                  const isThur = new Date().getDay() === 4
+                  const realExpiry = setupActive ? await fetchNearestRealExpiry(sym, isThur ? 1 : 0, API_KEY, isThur) : undefined
+                  let trade = setupActive ? buildStraddleTrade(hitData.bars, sym, compressionPct, 'blue', realExpiry) : null
+                  if (trade) {
+                    const rp = await fetchRealStraddlePrices(sym, trade.expiration, trade.callStrike, trade.putStrike, trade.currentPrice, API_KEY)
+                    if (rp) trade = patchTradeWithRealPrices(trade, rp)
+                  }
+                  addResult({ symbol: sym, currentPrice: hitData.bars[hitData.bars.length - 1].close, compressionPct, squeezeOn: latestEvent?.squeezeOn ?? false, hasPOI, topPOI: activePOI, setupActive, setupTier: 'pivotal', bars: hitData.bars, allEvents: hitData.allEvents, recentEvents: hitData.recentEvents, dpDays: allResults, poiLevels: poi, trade })
+                  startTransition(() => setStats(s => ({ ...s, dpDone: s.dpDone + 1, setupsFound: s.setupsFound + (setupActive ? 1 : 0) })))
+                  dispatch(worker, wid)
+                })()
+              return
+            }
+
             worker.postMessage({ symbol: sym, dates: daysToScan, apiKey: API_KEY, workerId: wid })
 
             worker.onmessage = async (e) => {
@@ -2607,7 +2662,7 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
                 for (const day of (msg.dpDays as DPDay[])) {
                   try { sessionStorage.setItem(`poi_dp_${sym}_${day.date}`, JSON.stringify(day)) } catch { /* quota */ }
                 }
-                const dpResults: DPDay[] = (msg.dpDays as DPDay[]).sort((a, b) => a.date.localeCompare(b.date))
+                const dpResults: DPDay[] = [...cachedDays, ...(msg.dpDays as DPDay[])].sort((a, b) => a.date.localeCompare(b.date))
 
                 const hitData = hitsMap.get(sym)!
 
@@ -2622,25 +2677,6 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
                 const bubbleTier: 'gold' | 'blue' | 'gray' = 'blue'
                 const hasPOI = activePOI !== null
                 const setupActive = hitData.recentEvents.length > 0 && hasPOI
-
-                // ── DEBUG: log POI reasoning for every symbol ─────────────
-                const contractionDates = hitData.recentEvents.map(e => e.date)
-                const dpDateRange = dpResults.length
-                  ? `${dpResults[0].date} → ${dpResults[dpResults.length - 1].date}`
-                  : 'NO DP DAYS'
-                const allPoiDates = poi.flatMap(p => p.dates)
-                console.group(`[ST POI] ${sym}`)
-                console.log(`  contraction dates        : ${contractionDates.join(', ') || 'NONE'}`)
-                console.log(`  trigger date             : ${triggerDate}`)
-                console.log(`  dpDays returned          : ${dpResults.length} | range: ${dpDateRange}`)
-                console.log(`  poi clusters             : ${poi.length} | all poi dates: ${[...new Set(allPoiDates)].sort().slice(-10).join(', ')}`)
-                console.log(`  activePOI=$${activePOI?.price.toFixed(2) ?? 'none'} | bubbleTier=${bubbleTier} | setupTier=${setupTier}`)
-                console.log(`  hasPOI=${hasPOI} | setupActive=${setupActive}`)
-                if (!hasPOI && dpResults.length === 0) {
-                  console.warn(`  ⚠ Worker returned 0 dp days — check rate limiting or date window`)
-                }
-                console.groupEnd()
-                // ─────────────────────────────────────────────────────────
 
                 const latestEvent = hitData.recentEvents[hitData.recentEvents.length - 1]
                 const compressionPct = latestEvent?.compressionPct ?? 0
@@ -2676,6 +2712,13 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
                 })))
                 tlog(`[DP-W${wid}] ${sym} done — hasPOI=${hasPOI} setupActive=${setupActive} dpDays=${dpResults.length}`)
 
+                // Save to DB cache (fire-and-forget)
+                fetch('/api/dark-pool-cache', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ symbol: sym, days: dpResults }),
+                }).catch(() => { /* non-critical */ })
+
                 // Re-use this worker for the next symbol in the queue
                 dispatch(worker, wid)
               }
@@ -2694,8 +2737,10 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
         })
       }
 
+      _straddleActiveScanCount--
       setPhase('done')
     } catch (err: unknown) {
+      _straddleActiveScanCount--
       if ((err as Error)?.name === 'AbortError') return
       setErrorMsg(err instanceof Error ? err.message : 'Scan failed')
       setPhase('error')
@@ -2741,12 +2786,9 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
     setTickerScanStatus({ phase: 'ohlcv', dpDone: 0, dpTotal: 0 })
     setSelected(null)
     const lookback = tickerLookback
-    // Calendar days + limit needed for each lookback window:
-    // 1Y = 252 td → ~400 cal days, limit 400
-    // 3Y = 756 td → ~1200 cal days, limit 1200
-    // 5Y = 1260 td → ~1900 cal days, limit 2000
-    const calDays = lookback === 252 ? 400 : lookback === 756 ? 1200 : 1900
-    const ohlcvLimit = lookback === 252 ? 400 : lookback === 756 ? 1200 : 2000
+    // Fixed 3Y lookback: 756 td → ~1200 cal days, limit 1200
+    const calDays = 1200
+    const ohlcvLimit = 1200
     try {
       const ac = new AbortController()
       const bars = await fetchOHLCV(sym, API_KEY, ac.signal, calDays, ohlcvLimit)
@@ -2779,13 +2821,13 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
         ? recentEvts[recentEvts.length - 1].date
         : bars[bars.length - 1].date
       const { activePOI: tickerActivePOI } = computeSetupTier(dpResults, tickerTriggerDate)
-      const setupTier: ScanResult['setupTier'] = (compressionPct >= 77 || compressionPct <= 35) ? 'high-pressure' : 'pivotal'
-      const bubbleTier: 'gold' | 'blue' | 'gray' = setupTier === 'high-pressure' ? 'gold' : 'blue'
+      const setupTier: ScanResult['setupTier'] = 'pivotal'
+      const bubbleTier: 'gold' | 'blue' | 'gray' = 'blue'
       const hasPOI = tickerActivePOI !== null
       const setupActive = recentEvts.length > 0 && hasPOI
       const isThur = new Date().getDay() === 4
-      const preferMonday = setupTier !== 'high-pressure' && isThur
-      const minDays = setupTier === 'high-pressure' ? 21 : (isThur ? 1 : 0)
+      const preferMonday = isThur
+      const minDays = isThur ? 1 : 0
       const realExpiry = setupActive ? await fetchNearestRealExpiry(sym, minDays, API_KEY, preferMonday) : undefined
       let trade = setupActive ? buildStraddleTrade(bars, sym, compressionPct, bubbleTier, realExpiry) : null
       if (trade) {
@@ -2829,12 +2871,9 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
     setSelected(null)
     try {
       const ac = new AbortController()
-      // Calendar days + OHLCV limit per lookback:
-      // 90D  → 200 cal days, limit 200
-      // 1Y   → 400 cal days, limit 400
-      // 5Y   → 1900 cal days, limit 2000
-      const calDays = poiLookback === 90 ? 200 : poiLookback === 252 ? 400 : 1900
-      const ohlcvLimit = poiLookback === 90 ? 200 : poiLookback === 252 ? 400 : 2000
+      // Fixed 3Y lookback: 756 td → ~1200 cal days, limit 1200
+      const calDays = 1200
+      const ohlcvLimit = 1200
       const bars = await fetchOHLCV(sym, API_KEY, ac.signal, calDays, ohlcvLimit)
       if (!bars || bars.length < 20) {
         setTickerPoiScanning(false)
@@ -2882,18 +2921,92 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
   }, [tickerSearch, tickerPoiScanning, tickerScanning, poiLookback, API_KEY, addResult])
 
   // ── Scan All POI — run contraction scan then auto-trigger POI for all hits ─
-  const runAllPoi = useCallback(() => {
-    if (phase === 'done' && results.length > 0) {
-      // Results already exist — just scan POI for items that don't have it yet
-      const pending = results.filter(r => !r.hasPOI && !poiLoadingSet.has(r.symbol))
-      setAllPoiScanning(pending.length > 0)
-      pending.forEach(r => scanPoiForSymbol(r))
-    } else {
-      // No results yet — run contraction scan first, then auto-scan POI on completion
-      autoPoiOnDoneRef.current = true
-      run()
+  // ── ALL POI: scan dark pool for entire universe, DB-cached, no contractions needed ──
+  const allPoiAbortRef = useRef<AbortController | null>(null)
+  const [allPoiProgress, setAllPoiProgress] = useState({ done: 0, total: 0 })
+  const runAllPoi = useCallback(async () => {
+    if (allPoiScanning) {
+      allPoiAbortRef.current?.abort()
+      return
     }
-  }, [phase, results, poiLoadingSet, scanPoiForSymbol, run])
+    setAllPoiScanning(true)
+    const ac = new AbortController()
+    allPoiAbortRef.current = ac
+
+    // Build last 756 trading days from today
+    const today = new Date()
+    today.setUTCHours(0, 0, 0, 0)
+    const tradingDays: string[] = []
+    const cursor = new Date(today)
+    while (tradingDays.length < 756) {
+      cursor.setUTCDate(cursor.getUTCDate() - 1)
+      const dow = cursor.getUTCDay()
+      if (dow !== 0 && dow !== 6) tradingDays.unshift(cursor.toISOString().split('T')[0])
+    }
+
+    const symbols = TOP_1800_SYMBOLS.slice(0, MAX_SYMBOLS).filter((s: string) => !LOW_VOL_EXCLUSIONS.has(s))
+    const BATCH_SIZE = 8
+    let done = 0
+    const total = symbols.length
+    setAllPoiProgress({ done: 0, total })
+
+    // ── Single bulk query: load entire cache in one DB round-trip ────────────
+    const dbCache = new Map<string, Set<string>>()
+    try {
+      const bulkRes = await fetch('/api/dark-pool-cache/bulk')
+      if (bulkRes.ok) {
+        const bulkJson = await bulkRes.json()
+        for (const row of (bulkJson.rows ?? []) as { key: string; days: DPDay[] }[]) {
+          dbCache.set(row.key, new Set(row.days.map((d: DPDay) => d.date)))
+        }
+      }
+    } catch (e) { console.warn('[POI] bulk fetch failed:', e) }
+    if (ac.signal.aborted) { setAllPoiScanning(false); return }
+
+    for (let i = 0; i < symbols.length; i += BATCH_SIZE) {
+      if (ac.signal.aborted) break
+      const batch = symbols.slice(i, i + BATCH_SIZE)
+      await Promise.all(batch.map(async (sym: string) => {
+        if (ac.signal.aborted) return
+        try {
+          // Use bulk-loaded cache; fall back to individual fetch if not present
+          let cachedDates: Set<string>
+          if (dbCache.has(sym)) {
+            cachedDates = dbCache.get(sym)!
+          } else {
+            const cacheRes = await fetch(`/api/dark-pool-cache?symbol=${encodeURIComponent(sym)}`)
+            const days: DPDay[] = cacheRes.ok ? ((await cacheRes.json()).days ?? []) : []
+            cachedDates = new Set(days.map((d: DPDay) => d.date))
+          }
+          const missing = tradingDays.filter(d => !cachedDates.has(d))
+          if (missing.length === 0) {
+            done++
+            setAllPoiProgress(p => ({ ...p, done }))
+            return
+          }
+
+          // Scan only missing days
+          const newDays = await scanDPDays(missing, sym, API_KEY, () => { }, ac.signal)
+          done++
+          setAllPoiProgress(p => ({ ...p, done }))
+          if (newDays.length === 0) return
+
+          // Save to DB
+          fetch('/api/dark-pool-cache', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symbol: sym, days: newDays }),
+          }).catch(() => { })
+        } catch {
+          done++
+          setAllPoiProgress(p => ({ ...p, done }))
+        }
+      }))
+    }
+
+    setAllPoiScanning(false)
+    allPoiAbortRef.current = null
+  }, [allPoiScanning, API_KEY])
 
   // When a full scan completes and autoPoiOnDoneRef is set, trigger POI for all hits
   useEffect(() => {
@@ -2909,7 +3022,7 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
 
   // Clear allPoiScanning flag when no symbols remain in poiLoadingSet
   useEffect(() => {
-    if (poiLoadingSet.size === 0) setAllPoiScanning(false)
+    if (poiLoadingSet.size === 0 && !allPoiAbortRef.current) setAllPoiScanning(false)
   }, [poiLoadingSet])
 
   const removeTickerResult = useCallback((sym: string) => {
@@ -3061,19 +3174,13 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
         `}</style>
         <div className="straddle-controls-row" style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 58, flexWrap: 'wrap' }}>
 
-          {/* Brand */}
-          <div className="straddle-brand" style={{ display: 'flex', alignItems: 'center', gap: 12, paddingRight: 20, borderRight: '1px solid rgba(255,255,255,0.07)', flexShrink: 0, alignSelf: 'stretch' }}>
-            <div style={{ width: 4, height: 30, background: 'linear-gradient(180deg,#FF8C00,#FFD700)', borderRadius: 2, flexShrink: 0, boxShadow: '0 0 10px rgba(255,140,0,0.45)' }} />
-            <div style={{ ...mono, fontWeight: 900, fontSize: 20, color: '#FFFFFF', letterSpacing: '4px', lineHeight: 1 }}>STRADDLE TOWN</div>
-          </div>
-
           {/* ── TICKER SCAN group ───────────────────────────────────────────── */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingRight: 16, borderRight: '1px solid rgba(255,255,255,0.07)', flexShrink: 0, alignSelf: 'stretch' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingRight: 16, borderRight: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
 
             {/* Search input */}
-            <div style={{ display: 'flex', alignItems: 'stretch', borderRadius: 6, overflow: 'hidden', height: 38, border: '1px solid rgba(80,120,200,0.4)', background: 'rgba(10,20,50,0.8)', flexShrink: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', paddingLeft: 9, color: 'rgba(255,255,255,0.3)' }}>
-                <svg width="12" height="12" viewBox="0 0 13 13" fill="none">
+            <div style={{ display: 'flex', alignItems: 'stretch', borderRadius: 6, overflow: 'hidden', height: 38, border: '1px solid rgba(255,255,255,0.14)', background: 'linear-gradient(180deg,#1a1a1a,#0d0d0d)', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', paddingLeft: 11, color: 'rgba(255,255,255,0.35)' }}>
+                <svg width="14" height="14" viewBox="0 0 13 13" fill="none">
                   <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.5" />
                   <line x1="8.5" y1="8.5" x2="12" y2="12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                 </svg>
@@ -3081,143 +3188,166 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
               <input
                 value={tickerSearch}
                 onChange={e => setTickerSearch(e.target.value.toUpperCase())}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); runTickerScan() } }}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); tickerScanMode === 'poi' ? runTickerPoiScan() : runTickerScan() } }}
                 placeholder="TICKER"
                 maxLength={8}
                 style={{
-                  ...mono, fontSize: 13, fontWeight: 700, letterSpacing: 2,
+                  ...mono, fontSize: 16, fontWeight: 700, letterSpacing: 2.4,
                   color: '#ffffff', background: 'transparent', border: 'none', outline: 'none',
-                  padding: '0 8px', width: 68, textTransform: 'uppercase',
+                  padding: '0 10px', width: 82, textTransform: 'uppercase',
                 }}
               />
             </div>
 
-            {/* Split SCAN button: POI | PIVOT */}
-            <div style={{ display: 'flex', alignItems: 'stretch', borderRadius: 6, overflow: 'hidden', height: 38, border: '1px solid rgba(100,100,100,0.35)', flexShrink: 0 }}>
-              {/* POI half */}
+            {/* POI / CONTRACTIONS mode toggle */}
+            <div style={{ display: 'flex', alignItems: 'stretch', borderRadius: 6, overflow: 'hidden', height: 38, border: '1px solid rgba(255,255,255,0.14)', background: 'linear-gradient(180deg,#1a1a1a,#0d0d0d)', flexShrink: 0 }}>
               <button
-                onClick={runTickerPoiScan}
-                disabled={tickerScanning || tickerPoiScanning}
-                title="Scan dark pool POI only — no contraction required"
+                onClick={() => setTickerScanMode('poi')}
                 style={{
-                  ...mono, fontSize: 12, fontWeight: 900, letterSpacing: 1.5,
-                  cursor: (tickerScanning || tickerPoiScanning) ? 'not-allowed' : 'pointer',
-                  background: tickerPoiScanning ? 'rgba(255,140,0,0.25)' : 'linear-gradient(180deg,#2a1200,#180a00)',
-                  border: 'none',
-                  color: (tickerScanning || tickerPoiScanning) ? 'rgba(255,180,60,0.35)' : '#FFA028',
-                  padding: '0 14px', display: 'flex', alignItems: 'center', gap: 6,
+                  ...mono, fontSize: 14, fontWeight: 900, letterSpacing: 1.8,
+                  cursor: 'pointer', background: 'transparent', border: 'none',
+                  color: tickerScanMode === 'poi' ? '#FFA028' : '#ffffff',
+                  padding: '0 16px',
                 }}
-              >
-                {tickerPoiScanning
-                  ? <svg width="9" height="9" viewBox="0 0 11 11" style={{ animation: 'stPulse 0.8s ease-in-out infinite' }}><rect x="2" y="2" width="7" height="7" rx="1" fill="currentColor" /></svg>
-                  : <svg width="9" height="9" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="3.5" stroke="currentColor" strokeWidth="1.5" /><circle cx="5.5" cy="5.5" r="1.2" fill="currentColor" /></svg>
-                }
-                {tickerPoiScanning ? 'SCANNING' : 'POI'}
-              </button>
-              {/* Divider */}
+              >POI</button>
               <div style={{ width: 1, background: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />
-              {/* PIVOT half */}
               <button
-                onClick={runTickerScan}
-                disabled={tickerScanning || tickerPoiScanning}
-                title="Scan for volatility contractions (pivot setups)"
+                onClick={() => setTickerScanMode('pivot')}
                 style={{
-                  ...mono, fontSize: 12, fontWeight: 900, letterSpacing: 1.5,
-                  cursor: (tickerScanning || tickerPoiScanning) ? 'not-allowed' : 'pointer',
-                  background: tickerScanning ? 'rgba(60,140,255,0.2)' : 'linear-gradient(180deg,#0e1e3a,#070f1e)',
-                  border: 'none',
-                  color: (tickerScanning || tickerPoiScanning) ? 'rgba(100,180,255,0.35)' : '#41B6F6',
-                  padding: '0 14px', display: 'flex', alignItems: 'center', gap: 6,
+                  ...mono, fontSize: 14, fontWeight: 900, letterSpacing: 1.8,
+                  cursor: 'pointer', background: 'transparent', border: 'none',
+                  color: tickerScanMode === 'pivot' ? '#FFA028' : '#ffffff',
+                  padding: '0 16px',
                 }}
-              >
-                {tickerScanning
-                  ? <svg width="9" height="9" viewBox="0 0 11 11" style={{ animation: 'stPulse 0.8s ease-in-out infinite' }}><rect x="2" y="2" width="7" height="7" rx="1" fill="currentColor" /></svg>
-                  : <svg width="9" height="9" viewBox="0 0 11 11"><polygon points="2,1 10,5.5 2,10" fill="currentColor" /></svg>
-                }
-                {tickerScanning ? 'SCANNING' : 'PIVOT'}
-              </button>
+              >CONTRACTIONS</button>
             </div>
 
-            {/* POI lookback pills */}
-            <div style={{ display: 'flex', alignItems: 'stretch', borderRadius: 5, overflow: 'hidden', height: 26, border: '1px solid rgba(255,140,0,0.25)', background: 'rgba(20,10,0,0.8)' }}>
-              {([90, 252, 1260] as const).map((v, i) => (
-                <button key={v} onClick={() => setPoiLookback(v)} style={{
-                  ...mono, fontSize: 10, fontWeight: 900, letterSpacing: 1,
-                  padding: '0 9px', cursor: 'pointer',
-                  background: poiLookback === v ? 'rgba(255,140,0,0.2)' : 'transparent',
-                  color: poiLookback === v ? '#FFA028' : 'rgba(255,255,255,0.35)',
-                  border: 'none', borderLeft: i > 0 ? '1px solid rgba(255,140,0,0.15)' : 'none',
-                  transition: 'background 0.1s, color 0.1s',
-                }}>{v === 90 ? '90D' : v === 252 ? '1Y' : '5Y'}</button>
-              ))}
-            </div>
+            {/* Scan button */}
+            {(tickerScanning || tickerPoiScanning) ? (
+              <div style={{ ...mono, fontSize: 14, fontWeight: 900, letterSpacing: 1.8, height: 38, padding: '0 17px', display: 'flex', alignItems: 'center', gap: 7, color: '#FFA028', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 6, background: 'linear-gradient(180deg,#1a1a1a,#0d0d0d)', flexShrink: 0 }}>
+                <svg width="11" height="11" viewBox="0 0 11 11" style={{ animation: 'stPulse 0.8s ease-in-out infinite' }}><rect x="2" y="2" width="7" height="7" rx="1" fill="currentColor" /></svg>
+                SCANNING
+              </div>
+            ) : (
+              <button
+                onClick={() => tickerScanMode === 'poi' ? runTickerPoiScan() : runTickerScan()}
+                disabled={tickerScanning || tickerPoiScanning}
+                style={{
+                  ...mono, fontSize: 14, fontWeight: 900, letterSpacing: 1.8, height: 38,
+                  cursor: 'pointer', background: 'linear-gradient(180deg,#1a1a1a,#0d0d0d)',
+                  border: '1px solid rgba(255,255,255,0.14)', borderRadius: 6,
+                  color: '#ffffff', padding: '0 17px', display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0,
+                }}
+              >
+                <svg width="11" height="11" viewBox="0 0 11 11"><polygon points="2,1 10,5.5 2,10" fill="currentColor" /></svg>
+                SCAN
+              </button>
+            )}
           </div>
 
           {/* ── SCAN ALL group ──────────────────────────────────────────────── */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, paddingRight: 16, borderRight: '1px solid rgba(255,255,255,0.07)', flexShrink: 0, alignSelf: 'stretch' }}>
-            <div style={{ display: 'flex', alignItems: 'stretch', borderRadius: 6, overflow: 'hidden', height: 38, border: '1px solid rgba(100,100,100,0.3)', flexShrink: 0 }}>
-              {/* SCAN ALL POI */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingRight: 16, borderRight: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
+
+            {/* ALL POI / ALL PIVOT toggle */}
+            <div style={{ display: 'flex', alignItems: 'stretch', borderRadius: 6, overflow: 'hidden', height: 38, border: '1px solid rgba(255,255,255,0.14)', background: 'linear-gradient(180deg,#1a1a1a,#0d0d0d)', flexShrink: 0 }}>
+              <button
+                onClick={() => setAllScanMode('poi')}
+                style={{
+                  ...mono, fontSize: 14, fontWeight: 900, letterSpacing: 1.8,
+                  cursor: 'pointer', background: 'transparent', border: 'none',
+                  color: allScanMode === 'poi' ? '#FFA028' : '#ffffff',
+                  padding: '0 16px',
+                }}
+              >ALL POI</button>
+              <div style={{ width: 1, background: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />
+              <button
+                onClick={() => setAllScanMode('pivot')}
+                style={{
+                  ...mono, fontSize: 14, fontWeight: 900, letterSpacing: 1.8,
+                  cursor: 'pointer', background: 'transparent', border: 'none',
+                  color: allScanMode === 'pivot' ? '#FFA028' : '#ffffff',
+                  padding: '0 16px',
+                }}
+              >ALL PIVOT</button>
+            </div>
+
+            {/* Scan All button */}
+            {(isScanning || allPoiScanning) ? (
+              <button
+                onClick={() => {
+                  if (isScanning) abortRef.current?.abort()
+                  if (allPoiScanning) { allPoiAbortRef.current?.abort(); setAllPoiScanning(false) }
+                }}
+                style={{
+                  ...mono, fontSize: 14, fontWeight: 900, letterSpacing: 1.8, height: 38, padding: '0 17px',
+                  cursor: 'pointer',
+                  background: 'linear-gradient(180deg,#1a1a1a,#0d0d0d)',
+                  border: '1px solid rgba(255,60,80,0.6)',
+                  borderRadius: 6,
+                  color: '#ff4060',
+                  display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0,
+                }}
+              >
+                <svg width="11" height="11" viewBox="0 0 11 11" style={{ animation: 'stPulse 0.8s ease-in-out infinite' }}>
+                  <rect x="2" y="2" width="7" height="7" rx="1" fill="currentColor" />
+                </svg>
+                STOP
+              </button>
+            ) : (
+              <button
+                onClick={() => allScanMode === 'poi' ? runAllPoi() : run()}
+                disabled={isScanning || allPoiScanning}
+                style={{
+                  ...mono, fontSize: 14, fontWeight: 900, letterSpacing: 1.8, height: 38,
+                  cursor: 'pointer', background: 'linear-gradient(180deg,#1a1a1a,#0d0d0d)',
+                  border: '1px solid rgba(255,255,255,0.14)', borderRadius: 6,
+                  color: (phase === 'done' || phase === 'error') && allScanMode === 'pivot' ? '#FFA028' : '#ffffff',
+                  padding: '0 17px', display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0,
+                }}
+              >
+                {(phase === 'done' || phase === 'error') && allScanMode === 'pivot'
+                  ? <svg width="11" height="11" viewBox="0 0 13 13" fill="none" style={{ animation: 'stSpin 2.5s linear infinite' }}><path d="M11 6.5A4.5 4.5 0 1 1 9.2 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" /><polygon points="9.2,0.5 12.5,3.5 6.5,3.5" fill="currentColor" /></svg>
+                  : <svg width="11" height="11" viewBox="0 0 11 11"><polygon points="2,1 10,5.5 2,10" fill="currentColor" /></svg>
+                }
+                {(phase === 'done' || phase === 'error') && allScanMode === 'pivot' ? 'RESCAN' : 'SCAN'}
+              </button>
+            )}
+
+            {/* Scan POI for contraction results — appears after ALL CONTRACTIONS completes */}
+            {phase === 'done' && allScanMode === 'pivot' && results.length > 0 && (
               <button
                 onClick={runAllPoi}
-                disabled={isScanning || allPoiScanning}
-                title="Scan dark pool POI for full universe"
+                disabled={allPoiScanning}
+                title="Scan POI for all contraction results"
                 style={{
-                  ...mono, fontSize: 12, fontWeight: 900, letterSpacing: 1,
-                  cursor: (isScanning || allPoiScanning) ? 'not-allowed' : 'pointer',
-                  background: allPoiScanning ? 'rgba(255,140,0,0.2)' : 'linear-gradient(180deg,#2a1200,#180a00)',
-                  border: 'none',
-                  color: (isScanning || allPoiScanning) ? 'rgba(255,180,60,0.35)' : '#FFA028',
-                  padding: '0 14px', display: 'flex', alignItems: 'center', gap: 6,
+                  ...mono, fontSize: 14, fontWeight: 900, letterSpacing: 1.8, height: 38,
+                  cursor: allPoiScanning ? 'default' : 'pointer',
+                  background: 'linear-gradient(180deg,#1a1a1a,#0d0d0d)',
+                  border: '1px solid rgba(255,255,255,0.14)', borderRadius: 6,
+                  color: allPoiScanning ? '#FFA028' : '#ffffff',
+                  padding: '0 17px', display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0,
                 }}
               >
                 {allPoiScanning
-                  ? <svg width="9" height="9" viewBox="0 0 11 11" style={{ animation: 'stPulse 0.8s ease-in-out infinite' }}><rect x="2" y="2" width="7" height="7" rx="1" fill="currentColor" /></svg>
-                  : <svg width="9" height="9" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="3.5" stroke="currentColor" strokeWidth="1.5" /><circle cx="5.5" cy="5.5" r="1.2" fill="currentColor" /></svg>
+                  ? <svg width="11" height="11" viewBox="0 0 11 11" style={{ animation: 'stPulse 0.8s ease-in-out infinite' }}><rect x="2" y="2" width="7" height="7" rx="1" fill="currentColor" /></svg>
+                  : <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="3.5" stroke="currentColor" strokeWidth="1.5" /><circle cx="5.5" cy="5.5" r="1.2" fill="currentColor" /></svg>
                 }
-                {allPoiScanning ? 'SCANNING…' : 'SCAN ALL POI'}
+                {allPoiScanning ? 'SCANNING…' : 'SCAN POI'}
               </button>
-              {/* Divider */}
-              <div style={{ width: 1, background: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />
-              {/* SCAN ALL PIVOT */}
-              {isScanning ? (
-                <button onClick={() => abortRef.current?.abort()} style={{
-                  ...mono, fontSize: 12, fontWeight: 900, letterSpacing: 1, padding: '0 14px', height: '100%',
-                  cursor: 'pointer', background: 'linear-gradient(180deg,#FF2040,#A00018)',
-                  border: 'none', color: '#FFFFFF', display: 'flex', alignItems: 'center', gap: 6,
-                }}>
-                  <svg width="9" height="9" viewBox="0 0 10 10" style={{ animation: 'stPulse 1s ease-in-out infinite' }}><rect width="10" height="10" rx="1.5" fill="currentColor" /></svg>
-                  STOP
-                </button>
-              ) : (
-                <button onClick={run} style={{
-                  ...mono, fontSize: 12, fontWeight: 900, letterSpacing: 1, padding: '0 14px', height: '100%',
-                  cursor: 'pointer',
-                  background: phase === 'done' || phase === 'error'
-                    ? 'linear-gradient(180deg,#162040,#0a1228)'
-                    : 'linear-gradient(180deg,#0e1e3a,#070f1e)',
-                  border: 'none', color: '#41B6F6', display: 'flex', alignItems: 'center', gap: 6,
-                }}>
-                  {phase === 'done' || phase === 'error'
-                    ? <svg width="9" height="9" viewBox="0 0 13 13" fill="none" style={{ animation: 'stSpin 2.5s linear infinite' }}><path d="M11 6.5A4.5 4.5 0 1 1 9.2 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" /><polygon points="9.2,0.5 12.5,3.5 6.5,3.5" fill="currentColor" /></svg>
-                    : <svg width="9" height="9" viewBox="0 0 11 11"><polygon points="2,1 10,5.5 2,10" fill="currentColor" /></svg>
-                  }
-                  {phase === 'done' || phase === 'error' ? 'RESCAN PIVOT' : 'SCAN ALL PIVOT'}
-                </button>
-              )}
-            </div>
+            )}
           </div>
 
           {/* Portfolio button */}
           <button onClick={() => setShowPortfolio(true)} style={{
-            ...mono, fontSize: 13, fontWeight: 900, letterSpacing: 1.5, padding: '0 15px', height: 38,
+            ...mono, fontSize: 16, fontWeight: 900, letterSpacing: 1.8, padding: '0 18px', height: 46,
             cursor: 'pointer', borderRadius: 6, flexShrink: 0,
             background: 'linear-gradient(180deg, #0e1e3a 0%, #070f1e 100%)',
             border: '1px solid rgba(255,154,0,0.35)',
             boxShadow: '0 3px 0 rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06)',
             color: '#FF9A00',
-            display: 'flex', alignItems: 'center', gap: 7,
+            display: 'flex', alignItems: 'center', gap: 8,
           }}>
-            <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
               <polygon points="10,2 18,8 15,18 5,18 2,8" fill="rgba(255,154,0,0.15)" stroke="#FF9A00" strokeWidth="1.5" />
               <circle cx="10" cy="11" r="3" fill="#FF9A00" opacity="0.8" />
             </svg>
@@ -3379,7 +3509,7 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
       )}
 
       {/* ── Idle splash ──────────────────────────────────────────────────── */}
-      {phase === 'idle' && !tickerScanning && (
+      {phase === 'idle' && !tickerScanning && !allPoiScanning && (
         <div style={{
           flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 40,
           background: 'radial-gradient(ellipse at 50% 60%, rgba(255,140,0,0.04) 0%, transparent 65%)',
@@ -3392,7 +3522,7 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
               DEALER &amp; TRADER POSITIONING SCANNER
             </div>
           </div>
-          <button onClick={run} style={{
+          <button onClick={() => allScanMode === 'poi' ? runAllPoi() : run()} style={{
             ...mono, fontSize: 24, fontWeight: 900, letterSpacing: '4px',
             padding: '18px 60px', cursor: 'pointer', borderRadius: 10,
             background: 'linear-gradient(180deg, #FF9A00 0%, #CC6000 100%)',
@@ -3405,7 +3535,45 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
             onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = '0 5px 0 rgba(100,30,0,0.9),0 8px 24px rgba(255,140,0,0.3),inset 0 1px 0 rgba(255,230,100,0.4)' }}
           >
             <svg width="22" height="22" viewBox="0 0 12 12"><polygon points="1,1 11,6 1,11" fill="currentColor" /></svg>
-            SCAN NOW
+            {allScanMode === 'poi' ? 'SCAN ALL POI' : 'SCAN ALL PIVOT'}
+          </button>
+        </div>
+      )}
+
+      {/* ── ALL POI scanning splash ───────────────────────────────────────── */}
+      {allPoiScanning && (
+        <div style={{
+          flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 32,
+          background: 'radial-gradient(ellipse at 50% 60%, rgba(255,140,0,0.04) 0%, transparent 65%)',
+        }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ ...mono, fontSize: 52, fontWeight: 900, color: '#ffffff', letterSpacing: '6px', lineHeight: 1, textShadow: '0 0 50px rgba(255,255,255,0.07)' }}>
+              STRADDLE TOWN
+            </div>
+            <div style={{ ...mono, fontSize: 20, fontWeight: 700, color: '#FF8C00', letterSpacing: '4px', marginTop: 14, textShadow: '0 0 24px rgba(255,140,0,0.35)' }}>
+              SCANNING POINTS OF INTEREST — ALL TICKERS
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <svg width="18" height="18" viewBox="0 0 11 11" style={{ animation: 'stPulse 0.8s ease-in-out infinite', color: '#FF8C00' }}><rect x="2" y="2" width="7" height="7" rx="1" fill="currentColor" /></svg>
+            <span style={{ ...mono, fontSize: 18, fontWeight: 700, color: '#FF8C00', letterSpacing: '3px' }}>
+              {allPoiProgress.total > 0
+                ? `${allPoiProgress.done} / ${allPoiProgress.total} TICKERS`
+                : 'BUILDING CACHE…'}
+            </span>
+          </div>
+          {allPoiProgress.total > 0 && (
+            <div style={{ width: 320, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+              <div style={{ height: '100%', borderRadius: 2, background: '#FF8C00', width: `${Math.round((allPoiProgress.done / allPoiProgress.total) * 100)}%`, transition: 'width 0.3s ease' }} />
+            </div>
+          )}
+          <button onClick={() => { allPoiAbortRef.current?.abort(); setAllPoiScanning(false) }} style={{
+            ...mono, fontSize: 16, fontWeight: 900, letterSpacing: '3px',
+            padding: '12px 40px', cursor: 'pointer', borderRadius: 8,
+            background: 'transparent', border: '1px solid rgba(255,60,80,0.5)',
+            color: '#ff4060', marginTop: 8,
+          }}>
+            STOP
           </button>
         </div>
       )}

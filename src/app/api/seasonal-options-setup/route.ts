@@ -34,7 +34,7 @@ function parsePeriodEndDate(periodEnd: string): Date | null {
 // ── Fetch real expiration dates from Polygon and return the first one ≥ target ──
 async function getExpiryAfter(symbol: string, targetDate: Date, apiKey: string): Promise<string> {
   const minStr = targetDate.toISOString().split('T')[0]
-  const maxDate = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000)
+  const maxDate = new Date(Date.now() + 400 * 24 * 60 * 60 * 1000)
   const maxStr = maxDate.toISOString().split('T')[0]
   const url = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${symbol}&expiration_date.gte=${minStr}&expiration_date.lte=${maxStr}&contract_type=call&limit=50&sort=expiration_date&order=asc&apikey=${apiKey}`
   const resp = await fetch(url, { signal: AbortSignal.timeout(6000) })
@@ -79,6 +79,7 @@ export async function GET(req: NextRequest) {
   const symbol = searchParams.get('symbol')?.toUpperCase()
   const direction = searchParams.get('direction') // 'call' | 'put'
   const periodEnd = searchParams.get('periodEnd') ?? '' // e.g. "Apr 10"
+  const isLeaps = searchParams.get('leaps') === 'true'
 
   if (!symbol || (direction !== 'call' && direction !== 'put')) {
     return NextResponse.json({ error: 'symbol and direction (call|put) required' }, { status: 400 })
@@ -88,11 +89,13 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Target: first available expiry at least 7 days after the seasonal period end
+    // Target: first available expiry on or after the seasonal period end
+    // For leaps: use period end directly so the option captures the full sweet spot window
     const periodEndDate = parsePeriodEndDate(periodEnd)
+    const extraDays = isLeaps ? 0 : 7
     const targetDate = periodEndDate
-      ? new Date(periodEndDate.getTime() + 7 * 24 * 60 * 60 * 1000)
-      : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) // fallback: 2 weeks from now
+      ? new Date(periodEndDate.getTime() + extraDays * 24 * 60 * 60 * 1000)
+      : new Date(Date.now() + (isLeaps ? 7 : 14) * 24 * 60 * 60 * 1000)
     const expiryDate = await getExpiryAfter(symbol, targetDate, POLYGON_API_KEY)
     const dte = Math.max(
       1,

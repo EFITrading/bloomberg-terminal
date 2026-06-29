@@ -90,24 +90,34 @@ const TOP_1000_BY_MARKET_CAP: string[] = [
     'COMS', 'CONN', 'CONX', 'COOP', 'CORR', 'CORS', 'CORT', 'COUR', 'COVA', 'CPNG',
 ]
 
-const topCache = new Map<number, { symbols: string[]; ts: number }>()
+const topCache = new Map<number, { symbols: string[]; marketCaps: number[]; ts: number }>()
 const TOP_CACHE_TTL = 4 * 60 * 60 * 1000 // 4 hours
+
+// Generate rank-based pseudo market caps using a power law decay.
+// rank=1 is largest; result is normalized so values sum to 1.
+// Power of 0.7 gives moderate concentration (less extreme than real market cap).
+function rankBasedMarketCaps(n: number): number[] {
+    const raw = Array.from({ length: n }, (_, i) => 1 / Math.pow(i + 1, 0.7))
+    const total = raw.reduce((s, v) => s + v, 0)
+    return raw.map((v) => v / total)
+}
 
 export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const limitParam = parseInt(searchParams.get('limit') || '10')
     const limit = Math.min(1000, Math.max(1, isNaN(limitParam) ? 10 : limitParam))
 
-    // Return from static list directly (fast, reliable)
+    // Return from cache
     const cachedResult = topCache.get(limit)
     if (cachedResult && Date.now() - cachedResult.ts < TOP_CACHE_TTL) {
-        return NextResponse.json({ symbols: cachedResult.symbols, source: 'cache' })
+        return NextResponse.json({ symbols: cachedResult.symbols, marketCaps: cachedResult.marketCaps, source: 'cache' })
     }
 
     // Try Polygon reference tickers first (dynamic, real market cap)
     try {
         const pagesNeeded = Math.ceil(limit / 250)
         const allSymbols: string[] = []
+        const allMarketCaps: number[] = []
         let nextUrl = `https://api.polygon.io/v3/reference/tickers?market=stocks&active=true&order=desc&sort=market_cap&limit=250&apiKey=${POLYGON_API_KEY}`
 
         for (let page = 0; page < pagesNeeded && nextUrl; page++) {
@@ -130,6 +140,7 @@ export async function GET(request: NextRequest) {
                     t.locale === 'us'
                 ) {
                     allSymbols.push(t.ticker)
+                    allMarketCaps.push(t.market_cap || 0)
                 }
             }
 
@@ -139,15 +150,28 @@ export async function GET(request: NextRequest) {
 
         if (allSymbols.length >= Math.min(limit, 10)) {
             const symbols = allSymbols.slice(0, limit)
-            topCache.set(limit, { symbols, ts: Date.now() })
-            return NextResponse.json({ symbols, source: 'polygon' })
+            let marketCaps = allMarketCaps.slice(0, limit)
+
+            // If Polygon didn't return market_cap values, fall back to rank-based approximation
+            const hasRealMC = marketCaps.some((v) => v > 0)
+            if (!hasRealMC) {
+                marketCaps = rankBasedMarketCaps(symbols.length)
+            } else {
+                // Normalize so they sum to 1
+                const total = marketCaps.reduce((s, v) => s + v, 0)
+                marketCaps = total > 0 ? marketCaps.map((v) => v / total) : rankBasedMarketCaps(symbols.length)
+            }
+
+            topCache.set(limit, { symbols, marketCaps, ts: Date.now() })
+            return NextResponse.json({ symbols, marketCaps, source: 'polygon' })
         }
     } catch {
         // Fall through to static list
     }
 
-    // Fallback: use static list
+    // Fallback: use static list with rank-based market cap approximation
     const symbols = TOP_1000_BY_MARKET_CAP.slice(0, limit)
-    topCache.set(limit, { symbols, ts: Date.now() })
-    return NextResponse.json({ symbols, source: 'static' })
+    const marketCaps = rankBasedMarketCaps(symbols.length)
+    topCache.set(limit, { symbols, marketCaps, ts: Date.now() })
+    return NextResponse.json({ symbols, marketCaps, source: 'static' })
 }

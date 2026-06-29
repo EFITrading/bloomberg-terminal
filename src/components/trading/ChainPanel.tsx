@@ -733,128 +733,75 @@ function ChainPanel({
     }
   }
 
-  // Fetch options chain for selected expiration
-
+  // Fetch options chain — single bulk snapshot request with pagination
   const fetchOptionsChain = useCallback(async () => {
-    if (!selectedExpiration || !stockPrice) {
-      return
-    }
+    if (!selectedExpiration || !stockPrice) return
 
-    // Abort previous and bail if already running the same data
-    if (chainAbort.current) {
-      chainAbort.current.abort()
-    }
+    if (chainAbort.current) chainAbort.current.abort()
     const controller = new AbortController()
     chainAbort.current = controller
     isFetchingChain.current = true
 
     setLoading(true)
-
     setError(null)
 
     try {
-      // Fetch a wide range (100%) so we can filter client-side without refetching
+      const calls: OptionContract[] = []
+      const puts: OptionContract[] = []
 
-      const lowerBound = Math.floor(stockPrice * 0.0)
+      let nextUrl: string | null =
+        `https://api.polygon.io/v3/snapshot/options/${symbol}?expiration_date=${selectedExpiration}&limit=250&order=asc&sort=strike_price&apikey=${POLYGON_API_KEY}`
 
-      const upperBound = Math.ceil(stockPrice * 2.0)
+      while (nextUrl) {
+        if (controller.signal.aborted) break
 
-      const url = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${symbol}&expiration_date=${selectedExpiration}&strike_price.gte=${lowerBound}&strike_price.lte=${upperBound}&limit=1000&apikey=${POLYGON_API_KEY}`
+        const resp = await fetch(nextUrl, { signal: controller.signal })
+        const data = await resp.json()
 
-      const response = await fetch(url, { signal: controller.signal })
+        if (!data.results?.length) break
 
-      const data = await response.json()
+        data.results.forEach((r: any) => {
+          const d = r.details ?? {}
+          const q = r.last_quote ?? {}
+          const t = r.last_trade ?? {}
+          const g = r.greeks ?? {}
+          const day = r.day ?? {}
 
-      if (data.results && data.results.length > 0) {
-        const calls: OptionContract[] = []
-
-        const puts: OptionContract[] = []
-
-        // Separate calls and puts
-
-        data.results.forEach((contract: any) => {
-          const option: OptionContract = {
-            ticker: contract.ticker,
-
-            strike_price: contract.strike_price,
-
-            contract_type: contract.contract_type,
-
-            expiration_date: contract.expiration_date,
+          const contract: OptionContract = {
+            ticker: d.ticker,
+            strike_price: d.strike_price,
+            contract_type: d.contract_type,
+            expiration_date: d.expiration_date,
+            bid: q.bid,
+            ask: q.ask,
+            last_price: t.price ?? day.close,
+            volume: day.volume,
+            open_interest: r.open_interest,
+            implied_volatility: r.implied_volatility,
+            delta: g.delta,
+            gamma: g.gamma,
+            theta: g.theta,
+            vega: g.vega,
+            change_percent: day.change_percent,
+            previous_close: day.previous_close,
+            high: day.high,
+            low: day.low,
           }
 
-          if (contract.contract_type === 'call') {
-            calls.push(option)
-          } else {
-            puts.push(option)
-          }
+          if (d.contract_type === 'call') calls.push(contract)
+          else puts.push(contract)
         })
 
-        // Sort by strike price
+        // Update UI after each page so rows appear progressively
+        setCallOptions([...calls])
+        setPutOptions([...puts])
+        setLastUpdate(new Date())
 
-        calls.sort((a, b) => a.strike_price - b.strike_price)
+        // next_url does NOT include the apikey — must append it
+        nextUrl = data.next_url ? `${data.next_url}&apikey=${POLYGON_API_KEY}` : null
+      }
 
-        puts.sort((a, b) => a.strike_price - b.strike_price)
-
-        // Get unique strikes
-
-        const allStrikes = [...new Set([...calls, ...puts].map((o) => o.strike_price))].sort(
-          (a, b) => a - b
-        )
-
-        // Find the closest strike to current price (ATM)
-
-        const atmIndex = allStrikes.findIndex((strike) => strike >= stockPrice)
-
-        const startIndex = Math.max(0, atmIndex - 10)
-
-        const endIndex = Math.min(allStrikes.length, atmIndex + 40)
-
-        const initialStrikes = allStrikes.slice(startIndex, endIndex)
-
-        // Fetch quotes in small batches to avoid rate limiting
-
-        const callsToFetch = calls.filter((c) => initialStrikes.includes(c.strike_price))
-
-        const putsToFetch = puts.filter((p) => initialStrikes.includes(p.strike_price))
-
-        const allToFetch = [...callsToFetch, ...putsToFetch]
-
-        const BATCH_SIZE = 5 // Smaller batches to avoid overwhelming API
-
-        const DELAY_MS = 200 // Delay between batches
-
-        for (let i = 0; i < allToFetch.length; i += BATCH_SIZE) {
-          const batch = allToFetch.slice(i, i + BATCH_SIZE)
-
-          await Promise.all(
-            batch.map(async (option) => {
-              const quote = await fetchOptionQuote(option.ticker)
-
-              Object.assign(option, quote)
-            })
-          )
-
-          // Update UI progressively
-
-          setCallOptions([...calls])
-
-          setPutOptions([...puts])
-
-          setLastUpdate(new Date())
-
-          // Delay between batches to avoid rate limiting
-
-          if (i + BATCH_SIZE < allToFetch.length) {
-            await new Promise((resolve) => setTimeout(resolve, DELAY_MS))
-          }
-
-          // Stop if a newer fetch was triggered
-          if (controller.signal.aborted) break
-        }
-      } else {
-        console.warn('No options found in response')
-
+      if (calls.length === 0 && puts.length === 0) {
         setError('No options contracts found for selected expiration')
       }
     } catch (error: any) {
@@ -866,7 +813,7 @@ function ChainPanel({
       isFetchingChain.current = false
       setLoading(false)
     }
-  }, [symbol, selectedExpiration, stockPrice, otmRange])
+  }, [symbol, selectedExpiration])
 
   // Initialize - load everything on mount
 
@@ -904,13 +851,12 @@ function ChainPanel({
     initializeData()
   }, [symbol]) // Only depend on symbol
 
-  // Fetch chain when expiration changes (not OTM range - that's client-side filtering)
-
+  // Fetch chain when expiration changes (stockPrice only needed for guard, not re-fetch trigger)
   useEffect(() => {
     if (selectedExpiration && stockPrice > 0) {
       fetchOptionsChain()
     }
-  }, [selectedExpiration, stockPrice])
+  }, [selectedExpiration])
 
   // Get all unique strikes filtered by OTM range (client-side filtering)
 

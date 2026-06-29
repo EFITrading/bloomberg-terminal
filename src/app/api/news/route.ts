@@ -163,6 +163,7 @@ async function fetchAllRSS(): Promise<any[]> {
     RSS_SOURCES.map(async (src) => {
       const res = await fetch(src.url, {
         headers: { 'User-Agent': 'EFI-Bloomberg-Terminal/1.0' },
+        cache: 'no-store',
         signal: AbortSignal.timeout(5000),
       })
       if (!res.ok) return []
@@ -314,8 +315,7 @@ export async function GET(request: NextRequest) {
         'ein presswire',
         'globe wire',
         'marketwired',
-        'investing.com',
-        'investing com',
+  'investing com',
       ]
 
       // Block ALL articles from blacklisted publishers
@@ -406,14 +406,24 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Drop stale RSS articles — if the feed hasn't updated (e.g. holiday weekend)
+    // old articles would dominate after Polygon blacklist filtering
+    const cutoff24h = Date.now() - 24 * 60 * 60 * 1000
+    const freshSocialArticles = socialArticles.filter(
+      (a) => new Date(a.published_utc).getTime() > cutoff24h
+    )
+    if (socialArticles.length !== freshSocialArticles.length) {
+      console.log(`[news-api-debug] Dropped ${socialArticles.length - freshSocialArticles.length} stale RSS articles (>24h old)`)
+    }
+
     // Combine and sort all articles
     console.log(
       ' Combining articles - Polygon:',
       sortedArticles.length,
       'Social:',
-      socialArticles.length
+      freshSocialArticles.length
     )
-    const combinedArticles = [...sortedArticles, ...socialArticles]
+    const combinedArticles = [...sortedArticles, ...freshSocialArticles]
     console.log(' Combined total:', combinedArticles.length)
 
     const finalSorted = combinedArticles.sort((a, b) => {

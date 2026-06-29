@@ -534,7 +534,7 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
                 color: currentYearMode !== 'off' ? '#00D4FF' : undefined,
               }}
             >
-              {currentYearMode === 'benchmarked' ? '⊨ Benchmarked' : '⊨ Current Year'}
+              {currentYearMode === 'benchmarked' ? '⊨ Benchmarked' : '⊨ Current'}
               {currentYearMode !== 'off' && ' ✓'}
               <span style={{ fontSize: '8px', marginLeft: '4px', opacity: 0.7 }}>▼</span>
             </button>
@@ -544,7 +544,7 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
                   className={`election-option${currentYearMode === 'raw' ? ' selected' : ''}`}
                   onMouseDown={() => { onCurrentYearModeChange(currentYearMode === 'raw' ? 'off' : 'raw'); setIsCurrentYearDropdownOpen(false) }}
                 >
-                  Current Year
+                  Current
                 </div>
                 <div
                   className={`election-option${currentYearMode === 'benchmarked' ? ' selected' : ''}`}
@@ -613,7 +613,7 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
                 style={{ borderColor: currentYearMode !== 'off' ? '#00D4FF' : undefined, color: currentYearMode !== 'off' ? '#00D4FF' : undefined }}
               >
                 <option value="off">Cur Year</option>
-                <option value="raw">Current Year</option>
+                <option value="raw">Current</option>
                 <option value="benchmarked">Benchmarked</option>
               </select>
             ) : (
@@ -626,7 +626,7 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
                     color: currentYearMode !== 'off' ? '#00D4FF' : undefined,
                   }}
                 >
-                  {currentYearMode === 'benchmarked' ? '⊨ Benchmarked' : '⊨ Current Year'}
+                  {currentYearMode === 'benchmarked' ? '⊨ Benchmarked' : '⊨ Current'}
                   {currentYearMode !== 'off' && ' ✓'}
                   <span style={{ fontSize: '8px', marginLeft: '4px', opacity: 0.7 }}>▼</span>
                 </button>
@@ -636,7 +636,7 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
                       className={`election-option${currentYearMode === 'raw' ? ' selected' : ''}`}
                       onMouseDown={() => { onCurrentYearModeChange(currentYearMode === 'raw' ? 'off' : 'raw'); setIsCurrentYearDropdownOpen(false) }}
                     >
-                      Current Year
+                      Current
                     </div>
                     <div
                       className={`election-option${currentYearMode === 'benchmarked' ? ' selected' : ''}`}
@@ -649,7 +649,7 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
               </div>
             )
           )}
-          {isMobileView && (
+          {isMobileView ? (
             <select
               className="date-select"
               value={activeQuickScan || ''}
@@ -659,6 +659,35 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
               <option value="" disabled>Xtra</option>
               {QUICK_SCANS.map(scan => <option key={scan.name} value={scan.name}>{scan.icon} {scan.label}</option>)}
             </select>
+          ) : (
+            <div style={{ position: 'relative', display: 'inline-block' }}>
+              <button
+                className={`compare-btn${activeQuickScan ? ' active' : ''}`}
+                onClick={() => { setIsXtraDropdownOpen(v => !v); setIsOpen(false); setIsElectionDropdownOpen(false) }}
+                style={{
+                  borderColor: activeQuickScan ? QUICK_SCANS.find(s => s.name === activeQuickScan)?.color : undefined,
+                  color: activeQuickScan ? QUICK_SCANS.find(s => s.name === activeQuickScan)?.color : undefined,
+                }}
+                title="Quick multi-symbol scans"
+              >
+                {activeQuickScan ? `${QUICK_SCANS.find(s => s.name === activeQuickScan)?.icon} ${QUICK_SCANS.find(s => s.name === activeQuickScan)?.label}` : 'Xtras'}
+                <span style={{ fontSize: '8px', marginLeft: '4px', opacity: 0.7 }}>▼</span>
+              </button>
+              {isXtraDropdownOpen && (
+                <div className="election-dropdown">
+                  {QUICK_SCANS.map((scan) => (
+                    <div
+                      key={scan.name}
+                      className={`election-option${activeQuickScan === scan.name ? ' selected' : ''}`}
+                      onMouseDown={() => { handleQuickScanClick(scan); setIsXtraDropdownOpen(false) }}
+                      style={{ color: activeQuickScan === scan.name ? scan.color : undefined }}
+                    >
+                      {scan.icon} {scan.label}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
           {isMobileView && onMonthsToggle && (
             <button

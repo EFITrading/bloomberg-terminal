@@ -68,36 +68,25 @@ export default function TickerScroller() {
 
     // ── 1. Seed prev-day closes once via REST ──
     const seedPrevCloses = async () => {
-      const today = new Date()
-      const fiveDaysAgo = new Date(today)
-      fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5)
-      const todayStr = today.toISOString().split('T')[0]
-      const fiveDaysAgoStr = fiveDaysAgo.toISOString().split('T')[0]
-
-      await Promise.all(
-        TICKER_SYMBOLS.map(async (symbol) => {
-          try {
-            const apiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
-            // Fetch last completed session close (prev close baseline)
-            const aggUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${fiveDaysAgoStr}/${todayStr}?adjusted=true&sort=desc&apiKey=${apiKey}`
-            const aggResult = await polygonRateLimiter.fetch(aggUrl)
-            if (!aggResult?.results?.length) return
-            const prevClose = aggResult.results[0].c // most recent completed session
-            prevCloseRef.current[symbol] = prevClose
-
-            // Fetch live last trade price
-            const lastTradeUrl = `https://api.polygon.io/v2/last/trade/${symbol}?apiKey=${apiKey}`
-            const lastTradeResult = await polygonRateLimiter.fetch(lastTradeUrl)
-            const lastPrice = lastTradeResult?.results?.p ?? prevClose
-            const changePercent = ((lastPrice - prevClose) / prevClose) * 100
-            setTickerData((prev) =>
-              prev.map((t) => (t.symbol === symbol ? { ...t, change: changePercent } : t))
-            )
-          } catch {
-            /* singleton will keep retrying */
-          }
-        })
-      )
+      try {
+        const apiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+        // Single snapshot call returns current price + prev close for all tickers at once
+        const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${TICKER_SYMBOLS.join(',')}&apiKey=${apiKey}`
+        const result = await polygonRateLimiter.fetch(url)
+        if (!result?.tickers) return
+        for (const t of result.tickers) {
+          const prevClose = t.day?.prevC ?? t.prevDay?.c
+          const lastPrice = t.lastTrade?.p ?? t.lastQuote?.P ?? prevClose
+          if (!prevClose || !lastPrice) continue
+          prevCloseRef.current[t.ticker] = prevClose
+          const changePercent = ((lastPrice - prevClose) / prevClose) * 100
+          setTickerData((prev) =>
+            prev.map((d) => (d.symbol === t.ticker ? { ...d, change: changePercent } : d))
+          )
+        }
+      } catch {
+        /* singleton will keep retrying */
+      }
     }
 
     // ── 2. Subscribe to shared singleton for real-time AM.* updates ──

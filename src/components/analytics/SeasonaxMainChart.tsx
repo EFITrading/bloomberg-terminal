@@ -278,8 +278,6 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
           if (data && canvasRef.current) {
             if (width > 100 && height > 100 && width < 5000 && height < 3000) {
               drawCharts()
-            } else {
-              console.warn(`Skipping redraw - invalid dimensions: ${width}x${height}`)
             }
           }
         } catch (error) {
@@ -461,6 +459,8 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
 
   useEffect(() => {
     if (data) {
+      // Skip drawing when container is hidden (display:none makes offsetWidth=0)
+      if (!containerRef.current || containerRef.current.offsetWidth === 0) return
       drawCharts()
     }
   }, [mousePos, zoomLevel, panOffset, data, comparisonData, multiScanData, hiddenLines, settings])
@@ -501,7 +501,6 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
       containerWidth === 0 ||
       containerHeight === 0
     ) {
-      console.warn(`Invalid container dimensions: ${containerWidth}x${containerHeight}`)
       return
     }
 
@@ -1042,32 +1041,50 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
 
       // Draw Sweet Spot highlighting (green overlay)
       if (sweetSpotPeriod) {
-        const startX = padding.left + (sweetSpotPeriod.startDay / 365) * chartWidth
-        const endX = padding.left + (sweetSpotPeriod.endDay / 365) * chartWidth
+        const chartCenter = 0.5
+        const ssBaseStart = sweetSpotPeriod.startDay / 365
+        const ssBaseEnd = sweetSpotPeriod.endDay / 365
+        const startX = padding.left + (chartCenter + (ssBaseStart - chartCenter) * zoomLevel + panOffset) * chartWidth
+        const endX = padding.left + (chartCenter + (ssBaseEnd - chartCenter) * zoomLevel + panOffset) * chartWidth
+
+        // Clamp to chart area
+        const clampedStart = Math.max(padding.left, Math.min(startX, padding.left + chartWidth))
+        const clampedEnd = Math.max(padding.left, Math.min(endX, padding.left + chartWidth))
 
         ctx.fillStyle = 'rgba(0, 255, 0, 0.15)' // Low opacity green
-        ctx.fillRect(startX, padding.top, endX - startX, chartHeight)
+        ctx.fillRect(clampedStart, padding.top, clampedEnd - clampedStart, chartHeight)
 
-        // Add Sweet Spot label
-        ctx.fillStyle = '#00FF00'
-        ctx.font = 'bold 14px "Roboto Mono", monospace'
-        ctx.textAlign = 'center'
-        ctx.fillText('SWEET SPOT', (startX + endX) / 2, padding.top - 5)
+        // Add Sweet Spot label (only if visible)
+        if (clampedEnd > clampedStart) {
+          ctx.fillStyle = '#00FF00'
+          ctx.font = 'bold 14px "Roboto Mono", monospace'
+          ctx.textAlign = 'center'
+          ctx.fillText('SWEET SPOT', (clampedStart + clampedEnd) / 2, padding.top + 16)
+        }
       }
 
       // Draw Pain Point highlighting (red overlay)
       if (painPointPeriod) {
-        const startX = padding.left + (painPointPeriod.startDay / 365) * chartWidth
-        const endX = padding.left + (painPointPeriod.endDay / 365) * chartWidth
+        const chartCenter = 0.5
+        const ppBaseStart = painPointPeriod.startDay / 365
+        const ppBaseEnd = painPointPeriod.endDay / 365
+        const startX = padding.left + (chartCenter + (ppBaseStart - chartCenter) * zoomLevel + panOffset) * chartWidth
+        const endX = padding.left + (chartCenter + (ppBaseEnd - chartCenter) * zoomLevel + panOffset) * chartWidth
+
+        // Clamp to chart area
+        const clampedStart = Math.max(padding.left, Math.min(startX, padding.left + chartWidth))
+        const clampedEnd = Math.max(padding.left, Math.min(endX, padding.left + chartWidth))
 
         ctx.fillStyle = 'rgba(255, 0, 0, 0.15)' // Low opacity red
-        ctx.fillRect(startX, padding.top, endX - startX, chartHeight)
+        ctx.fillRect(clampedStart, padding.top, clampedEnd - clampedStart, chartHeight)
 
-        // Add Pain Point label
-        ctx.fillStyle = '#FF0000'
-        ctx.font = 'bold 14px "Roboto Mono", monospace'
-        ctx.textAlign = 'center'
-        ctx.fillText('PAIN POINT', (startX + endX) / 2, padding.top - 5)
+        // Add Pain Point label (only if visible)
+        if (clampedEnd > clampedStart) {
+          ctx.fillStyle = '#FF0000'
+          ctx.font = 'bold 14px "Roboto Mono", monospace'
+          ctx.textAlign = 'center'
+          ctx.fillText('PAIN POINT', (clampedStart + clampedEnd) / 2, padding.top + 16)
+        }
       }
 
       // Draw current date line if enabled and not in monthly view

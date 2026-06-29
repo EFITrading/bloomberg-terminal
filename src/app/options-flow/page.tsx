@@ -1,11 +1,13 @@
 ﻿'use client'
 
-import React, { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useState, useRef, useCallback } from 'react'
 
 import { OptionsFlowTable } from '@/components/OptionsFlowTable'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import AlgoFlowScreener from '@/components/AlgoFlowScreener'
+import { polygonOptionsWS, parseOCCTicker } from '@/lib/polygonOptionsWS'
+import type { PolygonOptionsTradeMsg } from '@/lib/polygonOptionsWS'
 
 // Polygon API key
 const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
@@ -42,25 +44,21 @@ const getFlowTradingDate = (): string => {
   return toDs(target)
 }
 
-// Persist the liveOIMap from applyLiveOI into the database, one row per ticker.
-// Fire-and-forget — does not block the UI.
+// Persist the liveOIMap to localStorage so LiquidPanel and other panels
+// can read it instantly across tabs — no database operations needed.
 const persistLiveOIByTicker = (liveOIMap: Map<string, number>) => {
+  if (typeof window === 'undefined') return
   const tradingDate = getFlowTradingDate()
-  // Group map entries by underlying ticker (first segment of the contract key)
-  const byTicker = new Map<string, [string, number][]>()
+  const byTicker: Record<string, [string, number][]> = {}
   for (const [key, val] of liveOIMap) {
     const ticker = key.split('_')[0]
-    if (!byTicker.has(ticker)) byTicker.set(ticker, [])
-    byTicker.get(ticker)!.push([key, val])
+    if (!byTicker[ticker]) byTicker[ticker] = []
+    byTicker[ticker].push([key, val])
   }
-  for (const [ticker, entries] of byTicker) {
-    fetch('/api/live-oi', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticker, tradingDate, entries }),
-    }).catch(() => {
-      // Non-critical — ignore save errors
-    })
+  try {
+    localStorage.setItem('efi_live_oi', JSON.stringify({ tradingDate, tickers: byTicker }))
+  } catch {
+    // Non-critical — ignore storage errors
   }
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -113,6 +111,20 @@ const enrichTradeDataCombined = async (
   }
 
   // Step 2: Fetch unique contracts and cache results
+  // Index options require the I: prefixed underlying for Polygon's snapshot API.
+  // e.g. SPXW options → I:SPX, NDXP options → I:NDX, RUTW options → I:RUT
+  // Some tickers have dots stripped for OCC format but need them restored for snapshot.
+  // e.g. BRKB (from OCC) → BRK.B for Polygon snapshot
+  const INDEX_UNDERLYING_MAP: Record<string, string> = {
+    SPXW: 'I:SPX',
+    SPX: 'I:SPX',
+    NDXP: 'I:NDX',
+    NDX: 'I:NDX',
+    RUTW: 'I:RUT',
+    RUT: 'I:RUT',
+    BRKB: 'BRK.B',
+  }
+
   type ContractData = { volume: number; open_interest: number; bid: number; ask: number } | null
   const cache = new Map<string, ContractData>()
 
@@ -121,7 +133,8 @@ const enrichTradeDataCombined = async (
     await Promise.all(
       batch.map(async ([optionTicker, { underlying }]) => {
         try {
-          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${underlying}/${optionTicker}?apikey=${POLYGON_API_KEY}`
+          const snapshotUnderlying = INDEX_UNDERLYING_MAP[underlying] ?? underlying
+          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${snapshotUnderlying}/${optionTicker}?apikey=${POLYGON_API_KEY}`
           const response = await fetch(snapshotUrl, {
             signal: AbortSignal.timeout(5000),
           } as RequestInit)
@@ -134,11 +147,13 @@ const enrichTradeDataCombined = async (
           const data = await response.json()
           if (data.results) {
             const r = data.results
+            const bid = r.last_quote?.bid || 0
+            const ask = r.last_quote?.ask || 0
             cache.set(optionTicker, {
               volume: r.day?.volume || 0,
               open_interest: r.open_interest || 0,
-              bid: r.last_quote?.bid || 0,
-              ask: r.last_quote?.ask || 0,
+              bid,
+              ask,
             })
           } else {
             cache.set(optionTicker, null)
@@ -467,6 +482,7 @@ interface OptionsFlowData {
   bid?: number
   ask?: number
   bid_ask_spread?: number
+  exchange_id?: number
 }
 
 interface OptionsFlowSummary {
@@ -544,7 +560,6 @@ const tryLoadHistoricalFromSaved = async (
               : allTrades
           filtered.forEach((t: any) => { if (!t.trading_date) t.trading_date = day })
           cachedTrades.push(...filtered)
-          console.log(`[tryLoadHistoricalFromSaved] ${day}: ${filtered.length} trades from storage`)
         } catch {
           missingDays.push(day)
         }
@@ -585,7 +600,6 @@ const tryLoadFromSavedFiltered = async (tickerSet: Set<string> | null): Promise<
     const flowTradingDate = getFlowTradingDate()
     const latestDateRaw = dates[0].date
     const latestDateDay = new Date(latestDateRaw).toISOString().split('T')[0]
-    console.log('[tryLoadFromSavedFiltered] flowTradingDate:', flowTradingDate, '| latestSaved:', latestDateDay)
     if (latestDateDay !== flowTradingDate) return null
     const flowResp = await fetch(`/api/flows/${encodeURIComponent(latestDateRaw)}`)
     if (!flowResp.ok) return null
@@ -601,13 +615,11 @@ const tryLoadFromSavedFiltered = async (tickerSet: Set<string> | null): Promise<
       return ds === flowTradingDate
     })
     if (!tradesMatchDate) {
-      console.log('[tryLoadFromSavedFiltered] trade timestamps do not match flowTradingDate', flowTradingDate, '— scanning fresh')
       return null
     }
     const filtered = tickerSet
       ? allTrades.filter((t) => tickerSet.has(t.underlying_ticker?.toUpperCase() ?? ''))
       : allTrades
-    console.log('[tryLoadFromSavedFiltered]', filtered.length, 'of', allTrades.length, 'total')
     return filtered.length > 0 ? filtered : null
   } catch (err) {
     console.warn('[tryLoadFromSavedFiltered] error:', err)
@@ -631,7 +643,6 @@ const tryLoadFromSaved = async (ticker: string): Promise<OptionsFlowData[] | nul
     const flowTradingDate = getFlowTradingDate()
     const latestDateRaw = dates[0].date // ordered by createdAt desc
     const latestDateDay = new Date(latestDateRaw).toISOString().split('T')[0]
-    console.log('[tryLoadFromSaved] flowTradingDate:', flowTradingDate, '| latestSaved:', latestDateDay)
     if (latestDateDay !== flowTradingDate) return null
 
     // Fetch using the actual stored date key
@@ -649,18 +660,140 @@ const tryLoadFromSaved = async (ticker: string): Promise<OptionsFlowData[] | nul
       return ds === flowTradingDate
     })
     if (!tradesMatchDate) {
-      console.log('[tryLoadFromSaved] trade timestamps do not match flowTradingDate', flowTradingDate, '— scanning fresh')
       return null
     }
     const filtered = allTrades.filter(
       (t) => t.underlying_ticker?.toUpperCase() === ticker.toUpperCase()
     )
-    console.log('[tryLoadFromSaved]', ticker, '→', filtered.length, 'trades from', allTrades.length, 'total')
     return filtered.length > 0 ? filtered : null
   } catch (err) {
     console.warn('[tryLoadFromSaved] error:', err)
     return null
   }
+}
+
+// ── Live batch classification ────────────────────────────────────────────────
+// Runs on each 1-second buffer flush before enrichment.
+// Priority: MULTI-LEG → SWEEP (multi-exchange bundle) → BLOCK → MINI
+// MINI = anything that is not a sweep, block, or multi-leg (user spec).
+function classifyLiveBatch(trades: OptionsFlowData[]): OptionsFlowData[] {
+  if (trades.length === 0) return trades
+
+  // Step 1 — Multi-leg: same underlying within 100ms, different strikes/types/expiries,
+  //           all legs ≥100 contracts, combined premium ≥$25k, 2-4 legs.
+  const mlGroups = new Map<string, OptionsFlowData[]>()
+  for (const t of trades) {
+    const ts = new Date(t.trade_timestamp).getTime()
+    const bucket = Math.floor(ts / 100) * 100
+    const key = `${t.underlying_ticker}_${bucket}`
+    if (!mlGroups.has(key)) mlGroups.set(key, [])
+    mlGroups.get(key)!.push(t)
+  }
+  const multiLegIds = new Set<string>()
+  for (const [, group] of mlGroups) {
+    if (group.length < 2 || group.length > 4) continue
+    const strikes = new Set(group.map(t => t.strike))
+    const types = new Set(group.map(t => t.type))
+    const expiries = new Set(group.map(t => t.expiry))
+    const hasMultiStructure = strikes.size >= 2 || types.size >= 2 || expiries.size >= 2
+    const allBig = group.every(t => t.trade_size >= 100)
+    const totalPrem = group.reduce((s, t) => s + t.total_premium, 0)
+    if (hasMultiStructure && allBig && totalPrem >= 25000) {
+      for (const t of group) multiLegIds.add(`${t.ticker}_${t.trade_timestamp}`)
+    }
+  }
+
+  // Step 2 — Sweep: same contract within a 3-second window across 2+ different exchanges.
+  //           Bundle matching fills into one aggregated row.
+  const sweepGroups = new Map<string, OptionsFlowData[]>()
+  for (const t of trades) {
+    if (multiLegIds.has(`${t.ticker}_${t.trade_timestamp}`)) continue
+    const ts = new Date(t.trade_timestamp).getTime()
+    const win = Math.floor(ts / 3000) * 3000
+    const key = `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}_${win}`
+    if (!sweepGroups.has(key)) sweepGroups.set(key, [])
+    sweepGroups.get(key)!.push(t)
+  }
+  const consumedIds = new Set<string>()
+  const swept: OptionsFlowData[] = []
+  for (const [, group] of sweepGroups) {
+    const exchanges = new Set(group.map(t => t.exchange_name))
+    if (exchanges.size < 2) continue // single exchange — not a sweep
+    for (const t of group) consumedIds.add(`${t.ticker}_${t.trade_timestamp}`)
+    const totalSize = group.reduce((s, t) => s + t.trade_size, 0)
+    const totalPrem = group.reduce((s, t) => s + t.total_premium, 0)
+    const weightedPrice = totalSize > 0 ? totalPrem / (totalSize * 100) : group[0].premium_per_contract
+    swept.push({
+      ...group[0],
+      trade_size: totalSize,
+      premium_per_contract: weightedPrice,
+      total_premium: totalPrem,
+      trade_type: 'SWEEP',
+      exchange_name: `MULTI-EXCHANGE (${group.length} fills, ${exchanges.size} exchanges)`,
+    })
+  }
+
+  // Step 3 — Remaining: BLOCK (≥250 contracts, single exchange) or MINI (everything else)
+  const result: OptionsFlowData[] = [...swept]
+  for (const t of trades) {
+    const id = `${t.ticker}_${t.trade_timestamp}`
+    if (consumedIds.has(id)) continue
+    if (multiLegIds.has(id)) {
+      result.push({ ...t, trade_type: 'MULTI-LEG' })
+    } else if (t.trade_size >= 250) {
+      result.push({ ...t, trade_type: 'BLOCK' })
+    } else {
+      result.push({ ...t, trade_type: 'MINI' })
+    }
+  }
+  return result
+}
+// ────────────────────────────────────────────────────────────────────────────
+
+// Incremental live OI: updates the persistent oiMap with only the new batch of trades
+// (O(batch_size) per flush instead of O(all_accumulated_trades)).
+// The running map carries the full day's OI history so accuracy is never lost.
+const applyLiveOIIncremental = (
+  newTrades: OptionsFlowData[],
+  oiMap: Map<string, number>
+): OptionsFlowData[] => {
+  if (newTrades.length === 0) return newTrades
+  // Sort batch chronologically so OI accumulates in the right order
+  const sorted = [...newTrades].sort(
+    (a, b) => new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
+  )
+  const result: OptionsFlowData[] = []
+  for (const trade of sorted) {
+    const key = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`
+    const contracts = trade.trade_size ?? 0
+    const baseOI = trade.open_interest ?? 0
+    // Seed from base OI on first encounter for this contract today
+    const currentOI = oiMap.has(key) ? oiMap.get(key)! : baseOI
+    let liveOI = currentOI
+    switch (trade.fill_style) {
+      case 'A':
+      case 'AA':
+      case 'BB':
+        liveOI += contracts
+        break
+      case 'B':
+        liveOI = contracts > baseOI
+          ? liveOI + contracts  // size exceeds prior OI — must be new opening
+          : Math.max(0, liveOI - contracts)
+        break
+      // N/A — no change
+    }
+    liveOI = Math.max(0, liveOI)
+    oiMap.set(key, liveOI)
+    result.push({
+      ...trade,
+      base_open_interest: trade.base_open_interest ?? trade.open_interest,
+      open_interest: liveOI,
+    })
+  }
+  // Persist to DB (fire-and-forget, same as before)
+  persistLiveOIByTicker(oiMap)
+  return result
 }
 
 export default function OptionsFlowPage() {
@@ -671,6 +804,7 @@ export default function OptionsFlowPage() {
   const rafFlushRef = useRef<number | null>(null)
   const cancelRef = useRef<boolean>(false)
   const activeSSEsRef = useRef<Set<{ es: EventSource; abort: () => void }>>(new Set())
+
   const flushPendingTrades = () => {
     if (pendingTradesRef.current.length === 0) return
     const batch = pendingTradesRef.current.splice(0)
@@ -703,6 +837,154 @@ export default function OptionsFlowPage() {
   // Historical scan: '1D' = today only, '2'–'20' = N trading days back
   const [historicalDays, setHistoricalDays] = useState<string>('1D')
   const [showAlgoFlow, setShowAlgoFlow] = useState<boolean>(false)
+
+  // ── Live WebSocket streaming state ──────────────────────────────────────────
+  const [isLiveMode, setIsLiveMode] = useState<boolean>(false)
+  const [manualLiveMode, setManualLiveMode] = useState<boolean>(false)
+  // When true, overrides auto-start even during market hours (user explicitly stopped)
+  const [manuallyStopped, setManuallyStopped] = useState<boolean>(false)
+  const [liveConnected, setLiveConnected] = useState<boolean>(false)
+  const [liveTradeCount, setLiveTradeCount] = useState<number>(0)
+  const liveTradeCountRef = useRef<number>(0)
+  const liveConnectedRef = useRef<boolean>(false) // track connection without causing renders
+  // Live display filter: false = show only $50k+ trades, true = show all trades
+  const [liveShowAll, setLiveShowAll] = useState<boolean>(false)
+  const liveShowAllRef = useRef<boolean>(false) // readable inside setInterval without stale closure
+  // Buffer for live trades to avoid per-message setState
+  const liveTradeBufferRef = useRef<OptionsFlowData[]>([])
+  const liveFlushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Persistent running OI map — holds accumulated OI for every contract seen today.
+  // Never stored in React state so it never triggers re-renders.
+  const liveOIMapRef = useRef<Map<string, number>>(new Map())
+  // Full trade archive — all trades received today, no cap.
+  // React state holds a reference to this same array for rendering.
+  const allTradesRef = useRef<OptionsFlowData[]>([])
+  // Live ticker filter — when set, display only trades for this ticker from the archive
+  const liveTickerFilterRef = useRef<string>('')
+
+  // Convert a raw Polygon options trade message to OptionsFlowData
+  const convertLiveTrade = useCallback((msg: PolygonOptionsTradeMsg): OptionsFlowData | null => {
+    const parsed = parseOCCTicker(msg.sym)
+    if (!parsed) return null
+    const { underlying, expiry, type, strike } = parsed
+    const totalPremium = msg.p * msg.s * 100
+    const expDate = new Date(expiry)
+    const daysToExpiry = Math.max(0, Math.round((expDate.getTime() - Date.now()) / 86_400_000))
+    const exchangeName = polygonOptionsWS.getExchangeName(msg.x)
+    return {
+      ticker: msg.sym,
+      underlying_ticker: underlying,
+      strike,
+      expiry,
+      type,
+      trade_size: msg.s,
+      premium_per_contract: msg.p,
+      total_premium: totalPremium,
+      spot_price: 0,
+      exchange_name: exchangeName,
+      exchange_id: msg.x,
+      trade_type: 'MINI', // placeholder — classifyLiveBatch overrides this every flush
+      trade_timestamp: new Date(msg.t).toISOString(),
+      moneyness: 'OTM',
+      days_to_expiry: daysToExpiry,
+    }
+  }, [])
+
+  // Handle incoming batch of live trade messages from WebSocket
+  // Only buffers trades — the 1-second flush interval handles setState
+  const handleLiveTrades = useCallback((msgs: PolygonOptionsTradeMsg[]) => {
+    // Mark connected once via ref to avoid calling setState on every message
+    if (!liveConnectedRef.current) {
+      liveConnectedRef.current = true
+      setLiveConnected(true)
+    }
+    for (const msg of msgs) {
+      const trade = convertLiveTrade(msg)
+      if (trade) liveTradeBufferRef.current.push(trade)
+    }
+  }, [convertLiveTrade])
+
+  // Start/stop live streaming based on market hours or manual toggle
+  useEffect(() => {
+    const marketOpen = isMarketCurrentlyOpen()
+
+    const todayDS = (() => {
+      const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    })()
+    const isHoliday = US_MARKET_HOLIDAYS_SET.has(todayDS)
+
+    if (((marketOpen && !isHoliday) || manualLiveMode) && !manuallyStopped) {
+      setIsLiveMode(true)
+      setLiveConnected(false)
+      liveConnectedRef.current = false
+      liveTradeCountRef.current = 0
+      setLiveTradeCount(0)
+      liveTradeBufferRef.current = []
+      // Reset the incremental OI map, full archive, and ticker filter for the new session
+      liveOIMapRef.current = new Map()
+      allTradesRef.current = []
+      liveTickerFilterRef.current = ''
+      setData([])
+
+      const unsub = polygonOptionsWS.addHandler(handleLiveTrades)
+
+      // Flush buffered trades every 1 second — enriches every batch with vol/OI + fill style
+      liveFlushTimerRef.current = setInterval(async () => {
+        if (liveTradeBufferRef.current.length === 0) return
+        const batch = liveTradeBufferRef.current.splice(0)
+        const t0 = performance.now()
+
+        // 1. Classify: assign SWEEP/BLOCK/MULTI-LEG/MINI
+        const classified = classifyLiveBatch(batch)
+        const t1 = performance.now()
+
+        // 1b. Drop sub-$1000 premium trades before enrichment — fewer Polygon API calls
+        const aboveMin = classified.filter(t => t.total_premium >= 1000)
+        if (aboveMin.length === 0) return
+
+        // 2. Enrich every tick — vol/OI + bid/ask fill style for every batch
+        let enriched: OptionsFlowData[]
+        try {
+          enriched = await enrichTradeDataCombined(aboveMin)
+        } catch {
+          enriched = aboveMin
+        }
+
+        // 3. Apply live OI incrementally — only processes this new batch (O(batch_size))
+        //    The liveOIMapRef carries the full running tally so accuracy is preserved
+        //    across the entire day without needing to replay all previous trades.
+        const withOI = applyLiveOIIncremental(enriched.reverse(), liveOIMapRef.current)
+
+        // Prepend new trades to the full archive (no cap — all trades stay accessible)
+        allTradesRef.current = [...withOI, ...allTradesRef.current]
+
+        liveTradeCountRef.current += withOI.length
+        setLiveTradeCount(liveTradeCountRef.current)
+        // Display filter: apply $50k+ and optional ticker filter from search bar
+        const displayTrades = allTradesRef.current.filter(t => {
+          if (!liveShowAllRef.current && t.total_premium < 50000) return false
+          if (liveTickerFilterRef.current && t.underlying_ticker.toUpperCase() !== liveTickerFilterRef.current) return false
+          return true
+        })
+        setData(displayTrades)
+        setLastUpdate(new Date().toLocaleTimeString())
+      }, 1000)
+
+      return () => {
+        unsub()
+        if (liveFlushTimerRef.current !== null) {
+          clearInterval(liveFlushTimerRef.current)
+          liveFlushTimerRef.current = null
+        }
+      }
+    } else {
+      setIsLiveMode(false)
+      setLiveConnected(false)
+    }
+  }, [handleLiveTrades, manualLiveMode, manuallyStopped])
+
+  // ────────────────────────────────────────────────────────────────────────────
 
   // Lock body scroll when AlgoFlow is active so the page cannot scroll behind it
   useEffect(() => {
@@ -866,7 +1148,7 @@ export default function OptionsFlowPage() {
               setStreamingProgress(null)
               setStreamingStatus('Enriching vol/OI & fill style...')
               setData((rawTrades) => {
-                enrichTradeDataCombined(rawTrades, (partial) => setData(partial)).then((final) => {
+                enrichTradeDataCombined(rawTrades).then((final) => {
                   setStreamingStatus('Computing live OI...')
                   setData(applyLiveOI(final))
                   setLoading(false)
@@ -1029,7 +1311,6 @@ export default function OptionsFlowPage() {
                     total = d.totalSymbols || 0
                     summary = d.summary || null
                     market_info = d.market_info || null
-                    console.log(`[SCAN] Chunk offset=${offset} done in ${((Date.now() - _chunkStart) / 1000).toFixed(1)}s — ${trades.length} trades from ${completedTickers.length} tickers`)
                     doResolve({ trades, total, summary, market_info })
                     break
                   case 'error':
@@ -1091,7 +1372,6 @@ export default function OptionsFlowPage() {
                   if (d.ticker) _tickersDone.push(d.ticker)
                 }
                 if (d.type === 'complete') {
-                  console.log(`[SCAN] ${label} done in ${((Date.now() - _start) / 1000).toFixed(1)}s — ${trades.length} trades from: ${_tickersDone.join(', ') || 'none'}`)
                   doResolve(trades)
                 }
                 if (d.type === 'error') {
@@ -1171,7 +1451,6 @@ export default function OptionsFlowPage() {
           setData((prev) => {
             const existingIds = new Set(prev.map((t) => `${t.ticker}-${t.trade_timestamp}-${t.strike}`))
             const newETF = withOI2.filter((t) => !existingIds.has(`${t.ticker}-${t.trade_timestamp}-${t.strike}`))
-
             return [...prev, ...newETF]
           })
           setLastUpdate(new Date().toLocaleString())
@@ -1193,7 +1472,6 @@ export default function OptionsFlowPage() {
           setData((prev) => {
             const existingIds = new Set(prev.map((t) => `${t.ticker}-${t.trade_timestamp}-${t.strike}`))
             const newMAG7 = withOI3.filter((t) => !existingIds.has(`${t.ticker}-${t.trade_timestamp}-${t.strike}`))
-
             return [...prev, ...newMAG7]
           })
 
@@ -1301,9 +1579,7 @@ export default function OptionsFlowPage() {
               setStreamError('')
               setStreamingStatus('Enriching vol/OI & fill style...')
               setData((rawTrades) => {
-                enrichTradeDataCombined(rawTrades, (partial) => {
-                  setData(partial)
-                }).then((final) => {
+                enrichTradeDataCombined(rawTrades).then((final) => {
                   setStreamingStatus('Computing live OI...')
                   setData(applyLiveOI(final))
                   setLoading(false)
@@ -1446,6 +1722,18 @@ export default function OptionsFlowPage() {
   // useEffect removed - scan only on explicit user action
 
   const handleRefresh = (tickerOverride?: string) => {
+    if (isLiveMode) {
+      // In live mode: filter the existing archive by ticker instantly
+      const ticker = (tickerOverride || '').trim().toUpperCase()
+      liveTickerFilterRef.current = ticker
+      const displayTrades = allTradesRef.current.filter(t => {
+        if (!liveShowAllRef.current && t.total_premium < 50000) return false
+        if (ticker && t.underlying_ticker.toUpperCase() !== ticker) return false
+        return true
+      })
+      setData(displayTrades)
+      return
+    }
     setStreamError('')
     setIsStreamComplete(false)
     fetchOptionsFlowStreaming(tickerOverride)
@@ -1515,8 +1803,33 @@ export default function OptionsFlowPage() {
           streamingProgress={streamingProgress}
           streamError={streamError}
           historicalDays={historicalDays}
-          onHistoricalDaysChange={setHistoricalDays}
+          onHistoricalDaysChange={isLiveMode ? undefined : setHistoricalDays}
           onAlgoFlowClick={() => setShowAlgoFlow(true)}
+          isLiveMode={isLiveMode}
+          liveConnected={liveConnected}
+          liveTradeCount={liveTradeCount}
+          onToggleLive={() => {
+            if (isLiveMode) {
+              // User is stopping — set override so auto-start doesn't re-trigger
+              setManuallyStopped(true)
+              setManualLiveMode(false)
+            } else {
+              // User is starting — clear override and force start
+              setManuallyStopped(false)
+              setManualLiveMode(true)
+            }
+          }}
+          liveShowAll={liveShowAll}
+          onToggleLiveShowAll={() => {
+            const next = !liveShowAll
+            setLiveShowAll(next)
+            liveShowAllRef.current = next
+            // Re-apply display filter immediately without waiting for next flush
+            setData(next
+              ? allTradesRef.current
+              : allTradesRef.current.filter(t => t.total_premium >= 50000)
+            )
+          }}
         />
       </div>
     </div>

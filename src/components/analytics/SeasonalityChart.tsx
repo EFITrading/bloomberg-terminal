@@ -1863,7 +1863,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
         style={{
           width: '100%',
           position: 'relative',
-          top: '-8px',
+          top: '0px',
+          marginTop: '0px',
           paddingRight: 0,
           overflow: 'visible',
         }}
@@ -2219,7 +2220,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
               gridTemplateColumns: isFullscreen ? '50% 50%' : (hideScreener ? '100%' : '45% 54%'),
               gap: '1%',
               width: '100%',
-              marginTop: isFullscreen ? '4px' : '12px',
+              marginTop: isFullscreen ? '4px' : '0px',
               overflow: 'visible',
               ...(isFullscreen ? { height: '100%', alignItems: 'stretch' } : {}),
             }}

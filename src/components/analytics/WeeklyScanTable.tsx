@@ -33,7 +33,7 @@ interface PolygonDataPoint {
 
 const polygonService = new PolygonService();
 
-const WeeklyScanTable: React.FC = () => {
+const WeeklyScanTable: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
   const [sectorsData, setSectorsData] = useState<WeeklyData[]>([]);
   const [industriesData, setIndustriesData] = useState<WeeklyData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -328,6 +328,15 @@ const WeeklyScanTable: React.FC = () => {
   return (
     <div className="weekly-scan-table-container">
       <div className="weekly-scan-tabs">
+        {onBack && (
+          <button
+            onClick={onBack}
+            style={{ height: '22px', padding: '0 8px', background: 'linear-gradient(180deg,#1e0e00 0%,#0c0600 100%)', border: '1px solid rgba(255,102,0,0.7)', borderBottom: '2px solid #661a00', borderRadius: '4px', color: '#ff6600', WebkitTextFillColor: '#ff6600', fontSize: '9px', fontFamily: '"JetBrains Mono",monospace', fontWeight: 800, letterSpacing: '0.5px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', flexShrink: 0, marginRight: '4px' }}
+          >
+            <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M19 12H5M12 5l-7 7 7 7" /></svg>
+            BACK
+          </button>
+        )}
         <button
           className={`weekly-tab ${activeTab === 'sectors' ? 'active' : ''}`}
           onClick={() => setActiveTab('sectors')}

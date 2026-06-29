@@ -46,7 +46,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
     externalFilters || { highWinRate: '', startingSoon: '', fiftyTwoWeek: false }
   )
   const [seasonedMode, setSeasonedMode] = useState(false) // Track if showing seasoned multi-timeframe results
-  const [bestMode, setBestMode] = useState(false) // Track if showing BEST scan results
+  const [leapsMode, setLeapsMode] = useState(false) // Track if showing Seasonal Leaps results
   const [expandedKey, setExpandedKey] = useState<string | null>(null) // Track which card is expanded
   const autoStartTriggered = useRef(false)
   const [isMobileView, setIsMobileView] = useState(false)
@@ -80,10 +80,11 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
     filtered = filtered.sort((a, b) => b.winRate - a.winRate)
     // Entry window filter
     if (filters.startingSoon) {
-      const days = filters.startingSoon === '1d' ? 1 : filters.startingSoon === '3d' ? 3 : 9
       filtered = filtered.filter((opp) => {
         const d = (opp as any).daysUntilStart ?? 0
-        return d >= -days && d <= days
+        if (filters.startingSoon === 'upcoming') return d >= 1 && d <= 9
+        if (filters.startingSoon === 'recent') return d >= -10 && d <= -5
+        return true
       })
     }
     if (filters.fiftyTwoWeek) {
@@ -194,9 +195,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       setShowWebsite(false)
       setOpportunities([])
       setSeasonedMode(false)
-      setBestMode(false)
+      setLeapsMode(false)
       setStreamStatus(
-        `⚡ Loading real seasonal data from ${market} (${marketStocks.length} stocks)...`
       )
       setProgressStats({ processed: 0, total: marketStocks.length, found: 0 })
 
@@ -312,7 +312,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       setShowWebsite(false)
       setOpportunities([])
       setSeasonedMode(true)
-      setBestMode(false)
+      setLeapsMode(false)
       setStreamStatus(
         `🌟 SEASONED SCAN: Analyzing ${marketStocks.length} stocks across 4 timeframes (5Y, 10Y, 15Y, 20Y)...`
       )
@@ -436,11 +436,9 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
     loadMarketData(market)
   }
 
-  // Load best bullish and bearish for each timeframe - scan 5Y, 10Y, 15Y, 20Y and find best of each
-  const loadBestData = async (selectedMarket?: string) => {
+  // ── Seasonal Leaps scan: sweet-spot/pain-point (50–90 day), 8–15 years ──
+  const loadLeapsData = async (selectedMarket?: string) => {
     try {
-      console.log('🏆 Starting BEST scan - Top bullish & bearish for each timeframe...')
-
       const { default: SeasonalScreenerService } = await import('@/lib/seasonalScreenerService')
       const { getMarketStocks } = await import('@/lib/marketIndices')
       const seasonalService = new SeasonalScreenerService()
@@ -454,120 +452,37 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       setShowWebsite(false)
       setOpportunities([])
       setSeasonedMode(false)
-      setBestMode(true) // Set BEST mode flag
-      setStreamStatus(
-        `🏆 BEST SCAN: Analyzing ${marketStocks.length} stocks across 4 timeframes (5Y, 10Y, 15Y, 20Y)...`
+      setLeapsMode(true)
+      setStreamStatus(`🚀 SEASONAL LEAPS: Scanning ${marketStocks.length} stocks (8–15 year sweet-spot windows)...`)
+      setProgressStats({ processed: 0, total: marketStocks.length, found: 0 })
+
+      const results = await seasonalService.screenSeasonalLeaps(
+        marketStocks.length,
+        50,
+        (processed, total, found) => {
+          setProgressStats({ processed, total, found: found.length })
+          setStreamStatus(`🚀 ${processed}/${total} scanned | ${found.length} leaps found`)
+        },
+        marketStocks
       )
-      setProgressStats({ processed: 0, total: marketStocks.length * 4, found: 0 })
 
-      const timeframes = [5, 10, 15, 20]
-      const bestResults: any[] = []
-
-      // Scan each timeframe
-      for (let i = 0; i < timeframes.length; i++) {
-        const years = timeframes[i]
-        console.log(`📊 Scanning ${years}Y timeframe for best trades...`)
-
-        setStreamStatus(`🏆 Scanning ${years}Y timeframe (${i + 1}/4)...`)
-
-        const results = await seasonalService.screenSeasonalOpportunitiesWithWorkers(
-          years,
-          marketStocks.length,
-          50,
-          (processed, total, foundOpportunities) => {
-            const overallProcessed = i * marketStocks.length + processed
-            const overallTotal = marketStocks.length * 4
-
-            setProgressStats({
-              processed: overallProcessed,
-              total: overallTotal,
-              found: bestResults.length,
-            })
-
-            setStreamStatus(
-              `🏆 ${years}Y: ${processed}/${total} | Best picks: ${bestResults.length}/8`
-            )
-          }
-        )
-
-        if (results && results.length > 0) {
-          // Filter qualified patterns (win rate 60%+)
-          const qualifiedPatterns = results.filter((p: any) => p.winRate >= 60)
-
-          if (qualifiedPatterns.length > 0) {
-            // Find best bullish (highest positive return)
-            const bullishPatterns = qualifiedPatterns.filter(
-              (p: any) => (p.averageReturn || p.avgReturn || 0) >= 0
-            )
-            if (bullishPatterns.length > 0) {
-              const bestBullish = bullishPatterns.reduce((prev, curr) => {
-                const prevReturn = Math.abs(prev.averageReturn || prev.avgReturn || 0)
-                const currReturn = Math.abs(curr.averageReturn || curr.avgReturn || 0)
-                return currReturn > prevReturn ? curr : prev
-              })
-              bestResults.push({
-                ...bestBullish,
-                timeframe: years,
-                timeframeLabel: `${years}Y`,
-              })
-            }
-
-            // Find best bearish (most negative return)
-            const bearishPatterns = qualifiedPatterns.filter(
-              (p: any) => (p.averageReturn || p.avgReturn || 0) < 0
-            )
-            if (bearishPatterns.length > 0) {
-              const bestBearish = bearishPatterns.reduce((prev, curr) => {
-                const prevReturn = Math.abs(prev.averageReturn || prev.avgReturn || 0)
-                const currReturn = Math.abs(curr.averageReturn || curr.avgReturn || 0)
-                return currReturn > prevReturn ? curr : prev
-              })
-              bestResults.push({
-                ...bestBearish,
-                timeframe: years,
-                timeframeLabel: `${years}Y`,
-              })
-            }
-          }
-        }
-      }
-
-      console.log(`✅ BEST SCAN Complete! Found ${bestResults.length} best picks`)
-
-      if (bestResults.length > 0) {
-        // Check 52-week status
+      if (results.length > 0) {
         setStreamStatus('🔍 Checking 52-week high/low status...')
-        const enrichedOpportunities = await check52WeekStatus(bestResults)
-
-        // Sort: bullish first (by timeframe), then bearish (by timeframe)
-        const sorted = enrichedOpportunities.sort((a: any, b: any) => {
-          const aReturn = a.averageReturn || a.avgReturn || 0
-          const bReturn = b.averageReturn || b.avgReturn || 0
-          const aIsBullish = aReturn >= 0
-          const bIsBullish = bReturn >= 0
-
-          // Bullish first
-          if (aIsBullish && !bIsBullish) return -1
-          if (!aIsBullish && bIsBullish) return 1
-
-          // Within same type, sort by timeframe
-          return a.timeframe - b.timeframe
-        })
-
-        setOpportunities(sorted as unknown as SeasonalPattern[])
+        const enriched = await check52WeekStatus(results)
+        setOpportunities(enriched as unknown as SeasonalPattern[])
         setLoading(false)
         setShowWebsite(true)
-        setStreamStatus(`✅ Found ${bestResults.length} BEST picks!`)
+        setStreamStatus(`✅ Found ${results.length} Seasonal Leaps!`)
       } else {
-        setError('No qualified patterns found (60%+ win rate required)')
+        setError('No active seasonal leaps found right now.')
         setLoading(false)
         setShowWebsite(false)
       }
     } catch (error) {
-      console.error('BEST scan failed:', error)
-      setError(`BEST scan failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      console.error('Seasonal Leaps scan failed:', error)
+      setError(`Leaps scan failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
       setLoading(false)
-      setSeasonedMode(false)
+      setLeapsMode(false)
     }
   }
 
@@ -577,10 +492,10 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
     loadSeasonedData(market)
   }
 
-  const handleBestScan = (market: string) => {
-    console.log(`Starting BEST scan for ${market}`)
+  const handleLeapsScan = (market: string) => {
+    console.log(`Starting SEASONAL LEAPS scan for ${market}`)
     setActiveMarket(market)
-    loadBestData(market)
+    loadLeapsData(market)
   }
 
   const handleTabChange = (tabId: string) => {
@@ -625,7 +540,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   }
 
   return (
-    <div className="seasonax-container" style={{ marginTop: '-40px' }}>
+    <div className="seasonax-container" style={{ marginTop: '0' }}>
       {/* Hide scrollbars CSS + mobile 2-col grid */}
       <style>
         {`
@@ -667,7 +582,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
         timePeriodOptions={timePeriodOptions}
         onFilterChange={handleFilterChange}
         onSeasonedScan={handleSeasonedScan}
-        onBestScan={handleBestScan}
+        onBestScan={handleLeapsScan}
       />
 
       {/* Results Grid */}
@@ -742,6 +657,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                         }}
                       >
                         {bullishOpps.map((opportunity, index) => {
+                          const cardKey = `bullish-${(opportunity as any).symbol}-${index}`
                           const qualifyingCount = (opportunity as any).qualifyingTimeframes || 0
                           const timeframeYears =
                             (opportunity as any).timeframe ||
@@ -757,8 +673,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                               sidebarMode={sidebarMode}
                               seasonedQualifying={qualifyingCount}
                               years={timeframeYears}
-                              hideBestBadge={bestMode}
-                              multiframeYears={multiframeYears}
+                              hideBestBadge={leapsMode}
+                              isLeaps={leapsMode}
                               isExpanded={expandedKey === cardKey}
                               onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
                             />
@@ -821,6 +737,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                         }}
                       >
                         {bearishOpps.map((opportunity, index) => {
+                          const cardKey = `bearish-${(opportunity as any).symbol}-${index}`
                           const qualifyingCount = (opportunity as any).qualifyingTimeframes || 0
                           const timeframeYears =
                             (opportunity as any).timeframe ||
@@ -836,8 +753,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                               sidebarMode={sidebarMode}
                               seasonedQualifying={qualifyingCount}
                               years={timeframeYears}
-                              hideBestBadge={bestMode}
-                              multiframeYears={multiframeYears}
+                              hideBestBadge={leapsMode}
+                              isLeaps={leapsMode}
                               isExpanded={expandedKey === cardKey}
                               onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
                             />
@@ -939,7 +856,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                             isTopBullish={isTopBullish}
                             isTopBearish={false}
                             sidebarMode={sidebarMode}
-                            hideBestBadge={bestMode}
+                            hideBestBadge={leapsMode}
+                            isLeaps={leapsMode}
                             years={timeframeYears}
                             isExpanded={expandedKey === cardKey}
                             onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
@@ -1018,7 +936,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                             rank={index + 1}
                             isTopBullish={false}
                             isTopBearish={isTopBearish}
-                            hideBestBadge={bestMode}
+                            hideBestBadge={leapsMode}
+                            isLeaps={leapsMode}
                             sidebarMode={sidebarMode}
                             years={timeframeYears}
                             isExpanded={expandedKey === cardKey}

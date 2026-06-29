@@ -549,12 +549,12 @@ const RRGChart: React.FC<RRGChartProps> = ({
     improving: '#00D4FF' // BLUE/CYAN - Leading Positive (top-left)
   };
 
-  // Standard RRG Color Scheme
+  // Standard RRG Color Scheme — deep muted tones so quadrants are subtle on black
   const standardQuadrantColors = {
-    leading: '#228B22', // GREEN - Leading (top-right)
-    weakening: '#FFD700', // YELLOW - Weakening (bottom-right)
-    lagging: '#FF0000', // RED - Lagging (bottom-left)
-    improving: '#0000FF' // BLUE - Improving (top-left)
+    leading: '#1a5c1a',   // dark green  - Leading (top-right)
+    weakening: '#7a6000', // dark gold   - Weakening (bottom-right)
+    lagging: '#6b0000',   // dark red    - Lagging (bottom-left)
+    improving: '#00008b'  // dark blue   - Improving (top-left)
   };
 
   // Use IV colors when in IV mode, otherwise use standard colors
@@ -846,7 +846,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
         .attr('width', xScale(domainMaxX) - xScale(100))
         .attr('height', yScale(100) - yScale(domainMaxY))
         .attr('fill', quadrantColors.leading)
-        .attr('opacity', 0.4);
+        .attr('opacity', 0.15);
 
       // Weakening quadrant (bottom-right) - RS Ratio >= 100, RS Momentum < 100
       chartGroup.append('rect')
@@ -856,7 +856,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
         .attr('width', xScale(domainMaxX) - xScale(100))
         .attr('height', yScale(domainMinY) - yScale(100))
         .attr('fill', quadrantColors.weakening)
-        .attr('opacity', 0.4);
+        .attr('opacity', 0.15);
 
       // Lagging quadrant (bottom-left) - RS Ratio < 100, RS Momentum < 100
       chartGroup.append('rect')
@@ -866,7 +866,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
         .attr('width', xScale(100) - xScale(domainMinX))
         .attr('height', yScale(domainMinY) - yScale(100))
         .attr('fill', quadrantColors.lagging)
-        .attr('opacity', 0.4);
+        .attr('opacity', 0.15);
 
       // Improving quadrant (top-left) - RS Ratio < 100, RS Momentum >= 100
       chartGroup.append('rect')
@@ -876,7 +876,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
         .attr('width', xScale(100) - xScale(domainMinX))
         .attr('height', yScale(100) - yScale(domainMaxY))
         .attr('fill', quadrantColors.improving)
-        .attr('opacity', 0.4);
+        .attr('opacity', 0.15);
     }
 
     // Create axes that stay fixed at chart edges but use updated scales

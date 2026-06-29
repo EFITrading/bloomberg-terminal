@@ -1,6 +1,6 @@
 'use client'
 
-import { TbStar, TbStarFilled } from 'react-icons/tb'
+import { TbStar, TbStarFilled, TbPencil } from 'react-icons/tb'
 import * as XLSX from 'xlsx'
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -61,10 +61,18 @@ const PriceDisplay = React.memo(function PriceDisplay({
 
   isNotablePick?: boolean
 }) {
-  // Don't show anything if spot price is missing or invalid
-
+  // When spot_price is 0 (live stream trades have no entry price) fall back to
+  // showing just the live current price so the cell isn't blank.
   if (!spotPrice || spotPrice <= 0) {
-    return <span className="text-gray-500">No Price Data</span>
+    if (currentPrice && currentPrice > 0) {
+      return (
+        <span style={{ color: 'white', fontWeight: isNotablePick ? 'bold' : undefined }}>
+          ${currentPrice.toFixed(2)}
+        </span>
+      )
+    }
+    if (isLoading) return <span className="text-gray-400 animate-pulse text-xs">fetching...</span>
+    return <span className="text-gray-500">--</span>
   }
 
   if (isLoading) {
@@ -173,6 +181,7 @@ interface OptionsFlowData {
   ask?: number
 
   bid_ask_spread?: number
+  exchange_id?: number
 }
 
 interface OptionsFlowSummary {
@@ -302,6 +311,14 @@ interface OptionsFlowTableProps {
   onAlgoFlowClick?: () => void
   onCancel?: () => void
   hideCharts?: boolean
+  /** When true (markets open), hides scan shortcuts and historical selector */
+  isLiveMode?: boolean
+  liveTradeCount?: number
+  liveConnected?: boolean
+  onToggleLive?: () => void
+  /** When true in live mode, display all trades. When false (default), display $50k+ only. */
+  liveShowAll?: boolean
+  onToggleLiveShowAll?: () => void
 }
 
 const ALL_UNIQUE_FILTERS = ['ITM', 'OTM', 'SWEEP_ONLY', 'BLOCK_ONLY', 'MULTI_LEG_ONLY', 'MINI_ONLY']
@@ -346,6 +363,12 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   onAlgoFlowClick,
   onCancel,
   hideCharts = false,
+  isLiveMode = false,
+  liveTradeCount = 0,
+  liveConnected = false,
+  onToggleLive,
+  liveShowAll = false,
+  onToggleLiveShowAll,
 }) => {
   const [sortField, setSortField] = useState<keyof OptionsFlowData | 'positioning_grade' | 'leap_grade'>(
     'trade_timestamp'
@@ -1021,6 +1044,13 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   }, [mktSnap, mktCtx, snapDriven, loadingArtIndex])
 
   const [hoveredGradeIndex, setHoveredGradeIndex] = useState<number | null>(null)
+  const [quickGradePopup, setQuickGradePopup] = useState<{
+    id: string
+    trade: OptionsFlowData
+    isLeap: boolean
+    anchorTop: number
+    anchorLeft: number
+  } | null>(null)
 
   const [notableFilterActive, setNotableFilterActive] = useState<boolean>(false)
 
@@ -1232,8 +1262,11 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
         await new Promise((resolve) => setTimeout(resolve, tickerIndex * 50))
 
         try {
+          // Some tickers have dots stripped in OCC format but need them restored for Polygon
+          const TICKER_RESTORE_MAP: Record<string, string> = { BRKB: 'BRK.B', BRKA: 'BRK.A' }
+          const polygonTicker = TICKER_RESTORE_MAP[ticker] ?? ticker
           const response = await fetch(
-            `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apikey=${POLYGON_API_KEY}`,
+            `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${polygonTicker}?apikey=${POLYGON_API_KEY}`,
 
             {
               method: 'GET',
@@ -1274,7 +1307,11 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
       setPriceLoadingState((prev) => ({ ...prev, ...batchLoadingUpdate }))
 
-      setCurrentPrices((prev) => ({ ...prev, ...batchPricesUpdate }))
+      setCurrentPrices((prev) => {
+        const changed = Object.keys(batchPricesUpdate).some((k) => prev[k] !== batchPricesUpdate[k])
+        if (!changed) return prev
+        return { ...prev, ...batchPricesUpdate }
+      })
     }
 
     // Process batches with controlled concurrency
@@ -1304,8 +1341,13 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     // Debounce API calls to prevent excessive requests
 
     const debounceTimer = setTimeout(() => {
+      // Index option underlyings (SPXW, SPX, NDX, RUTW etc.) always 404 on the
+      // stocks snapshot endpoint — Polygon requires an Indices plan for these.
+      // Skip them entirely to avoid wasted requests and console noise.
+      const INDEX_UNDERLYINGS = new Set(['SPXW', 'SPX', 'NDXP', 'NDX', 'RUTW', 'RUT', 'XSP'])
       const tickers = [...new Set(data.map((trade) => trade.underlying_ticker))]
-      fetchCurrentPrices(tickers)
+        .filter(t => !INDEX_UNDERLYINGS.has(t.toUpperCase()))
+      if (tickers.length > 0) fetchCurrentPrices(tickers)
     }, 500) // 500ms debounce
 
     return () => clearTimeout(debounceTimer)
@@ -1317,7 +1359,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     if (!data || data.length === 0) return
     const interval = setInterval(
       () => {
+        const INDEX_UNDERLYINGS = new Set(['SPXW', 'SPX', 'NDXP', 'NDX', 'RUTW', 'RUT', 'XSP'])
         const uniqueTickers = [...new Set(data.map((trade) => trade.underlying_ticker))]
+          .filter(t => !INDEX_UNDERLYINGS.has(t.toUpperCase()))
 
         // Only refresh prices
 
@@ -3031,6 +3075,37 @@ Stock Reaction: ${scores.stockReaction}/15`
     return `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_timestamp}-${trade.trade_size}`
   }
 
+  const handleQuickGrade = (trade: OptionsFlowData, e: React.MouseEvent) => {
+    const id = generateFlowId(trade)
+    if (quickGradePopup?.id === id) {
+      setQuickGradePopup(null)
+      return
+    }
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const isLeap = trade.days_to_expiry > 35
+    const anchorTop = rect.bottom + 6
+    const anchorLeft = Math.min(rect.left, window.innerWidth - 480)
+
+    // Build option ticker to check if price is already loaded
+    const expiry = trade.expiry.replace(/-/g, '').slice(2)
+    const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
+    const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
+    const normalizedTk = normalizeTickerForOptions(trade.underlying_ticker)
+    const optionTicker = `O:${normalizedTk}${expiry}${optionType}${strikeFormatted}`
+
+    console.log('[QuickGrade] ticker:', trade.underlying_ticker, '| key:', optionTicker)
+    console.log('[QuickGrade] price loaded:', !!currentOptionPrices[optionTicker], '| value:', currentOptionPrices[optionTicker])
+    console.log('[QuickGrade] total prices cached:', Object.keys(currentOptionPrices).length)
+    console.log('[QuickGrade] efiActive:', efiHighlightsActive, '| leapActive:', leapActive, '| fetching:', optionPricesFetching)
+
+    if (!currentOptionPrices[optionTicker] && !optionPricesFetching) {
+      console.log('[QuickGrade] triggering single-trade price fetch')
+      fetchCurrentOptionPrices([trade])
+    }
+
+    setQuickGradePopup({ id, trade, isLeap, anchorTop, anchorLeft })
+  }
+
   const isInFlowTracking = (trade: OptionsFlowData): boolean => {
     const flowId = generateFlowId(trade)
 
@@ -3383,11 +3458,13 @@ Stock Reaction: ${scores.stockReaction}/15`
   }, [tradesWithFillStyles])
 
   const filteredAndSortedData = useMemo(() => {
-    // OPTIMIZED: Only merge if we have enriched data, otherwise just use raw
-
+    // In live mode: data is already pre-enriched — skip tradesWithFillStyles merge entirely
+    // (avoids the one-render lag that causes double-compute flicker on every flush)
     let sourceData: OptionsFlowData[]
 
-    if (tradesWithFillStyles.length === 0) {
+    if (isLiveMode) {
+      sourceData = data
+    } else if (tradesWithFillStyles.length === 0) {
       // No enriched data yet - use raw data directly (fast path)
 
       sourceData = data
@@ -3413,9 +3490,50 @@ Stock Reaction: ${scores.stockReaction}/15`
       })
     }
 
+    // Patch moneyness for live trades where spot_price = 0 — use currentPrices to compute real ITM/OTM/ATM
+    sourceData = sourceData.map((trade) => {
+      if (trade.spot_price > 0) return trade
+      const spot = currentPrices[trade.underlying_ticker]
+      if (!spot || spot <= 0) return trade
+      const pct = (trade.strike - spot) / spot
+      const ATM_BAND = 0.005 // 0.5% band = ATM
+      let moneyness: 'ATM' | 'ITM' | 'OTM'
+      if (trade.type === 'call') {
+        moneyness = pct <= -ATM_BAND ? 'ITM' : pct >= ATM_BAND ? 'OTM' : 'ATM'
+      } else {
+        moneyness = pct >= ATM_BAND ? 'ITM' : pct <= -ATM_BAND ? 'OTM' : 'ATM'
+      }
+      if (moneyness === trade.moneyness) return trade
+      return { ...trade, moneyness }
+    })
+
+    // Live mode ITM depth filter — exclude trades that are too deep in the money.
+    // Uses currentPrices (already fetched). Stocks: max 10% ITM. ETFs: max 5% ITM.
+    if (isLiveMode) {
+      const ITM_ETF_MAX = 0.05   // 5%
+      const ITM_STOCK_MAX = 0.10 // 10%
+      const etfSetItm = new Set(['SPY', 'QQQ', 'IWM', 'DIA', 'XLF', 'XLK', 'XLE', 'XLV', 'XLI',
+        'XLP', 'XLU', 'XLY', 'XLB', 'XLRE', 'XLC', 'SMH', 'GLD', 'SLV', 'TLT', 'HYG', 'LQD',
+        'EEM', 'EFA', 'VXX', 'UVXY', 'SQQQ', 'TQQQ', 'SPXL', 'SPXS', 'GDX', 'GDXJ', 'XBI',
+        'IBB', 'SOXX', 'ARKK', 'RSP', 'MDY', 'IWF', 'IWD', 'USO', 'IBIT', 'MSTR'])
+      sourceData = sourceData.filter((trade) => {
+        const spot = currentPrices[trade.underlying_ticker]
+        if (!spot || spot <= 0) return true // no price data — let it through
+        const isEtf = etfSetItm.has(trade.underlying_ticker.toUpperCase())
+        const maxItm = isEtf ? ITM_ETF_MAX : ITM_STOCK_MAX
+        // ITM depth: how far in the money is this contract?
+        let itmDepth = 0
+        if (trade.type === 'call') {
+          itmDepth = (spot - trade.strike) / spot // positive = ITM for calls
+        } else {
+          itmDepth = (trade.strike - spot) / spot // positive = ITM for puts
+        }
+        return itmDepth <= maxItm // exclude if deeper than threshold
+      })
+    }
+
     // Step 1: Fast deduplication using Set (O(n) instead of O(n·))
     // Skipped when data was loaded from a saved flow — it's already clean
-
     let deduplicatedData: OptionsFlowData[]
     if (data === loadedDataRef.current) {
       // Exact same array reference that came from a saved load — skip dedup
@@ -3423,7 +3541,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     } else {
       const seen = new Set<string>()
       deduplicatedData = sourceData.filter((trade: OptionsFlowData) => {
-        const tradeKey = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_size}-${trade.total_premium}-${trade.spot_price}-${trade.trade_timestamp}-${trade.exchange_name}`
+        const tradeKey = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_size}-${trade.total_premium}-${trade.trade_timestamp}-${trade.exchange_id ?? trade.exchange_name}`
         if (seen.has(tradeKey)) return false
         seen.add(tradeKey)
         return true
@@ -3431,78 +3549,52 @@ Stock Reaction: ${scores.stockReaction}/15`
     }
 
     // Step 2: Bundle small trades (<$500) for same contract within 1 minute
+    // Skipped in live mode — every print shows as its own individual row
+    let bundledData: OptionsFlowData[]
+    if (isLiveMode) {
+      bundledData = deduplicatedData
+    } else {
+      const _bundledData: OptionsFlowData[] = []
+      const smallTradeGroups = new Map<string, OptionsFlowData[]>()
 
-    const bundledData: OptionsFlowData[] = []
-
-    const smallTradeGroups = new Map<string, OptionsFlowData[]>()
-
-    // First pass: separate large trades and group small trades
-
-    deduplicatedData.forEach((trade: OptionsFlowData) => {
-      if (trade.total_premium >= 500) {
-        // Large trade - keep as is
-
-        bundledData.push(trade)
-      } else {
-        // Small trade - group by contract and minute
-
-        const tradeTime = new Date(trade.trade_timestamp)
-
-        const minuteKey = `${tradeTime.getFullYear()}-${tradeTime.getMonth()}-${tradeTime.getDate()}-${tradeTime.getHours()}-${tradeTime.getMinutes()}`
-
-        const groupKey = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${minuteKey}`
-
-        if (!smallTradeGroups.has(groupKey)) {
-          smallTradeGroups.set(groupKey, [])
+      // First pass: separate large trades and group small trades
+      deduplicatedData.forEach((trade: OptionsFlowData) => {
+        if (trade.total_premium >= 500) {
+          _bundledData.push(trade)
+        } else {
+          const tradeTime = new Date(trade.trade_timestamp)
+          const minuteKey = `${tradeTime.getFullYear()}-${tradeTime.getMonth()}-${tradeTime.getDate()}-${tradeTime.getHours()}-${tradeTime.getMinutes()}`
+          const groupKey = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${minuteKey}`
+          if (!smallTradeGroups.has(groupKey)) smallTradeGroups.set(groupKey, [])
+          smallTradeGroups.get(groupKey)!.push(trade)
         }
+      })
 
-        smallTradeGroups.get(groupKey)!.push(trade)
-      }
-    })
-
-    // Second pass: bundle small trades
-
-    smallTradeGroups.forEach((trades, groupKey) => {
-      if (trades.length === 1) {
-        // Only one small trade in this group - keep as is
-
-        bundledData.push(trades[0])
-      } else {
-        // Multiple small trades - bundle them
-
-        const totalContracts = trades.reduce((sum, t) => sum + t.trade_size, 0)
-
-        const totalPremium = trades.reduce((sum, t) => sum + t.total_premium, 0)
-
-        const avgPricePerContract = totalPremium / totalContracts
-
-        // Use the first trade as template and update values
-
-        const bundledTrade: OptionsFlowData = {
-          ...trades[0],
-
-          trade_size: totalContracts,
-
-          premium_per_contract: avgPricePerContract,
-
-          total_premium: totalPremium,
-
-          exchange_name: `BUNDLED (${trades.length} trades)`,
-
-          // Keep the earliest timestamp as string
-
-          trade_timestamp: trades.reduce((earliest, t) =>
-            new Date(t.trade_timestamp) < new Date(earliest.trade_timestamp) ? t : earliest
-          ).trade_timestamp,
+      // Second pass: bundle small trades
+      smallTradeGroups.forEach((trades) => {
+        if (trades.length === 1) {
+          _bundledData.push(trades[0])
+        } else {
+          const totalContracts = trades.reduce((sum, t) => sum + t.trade_size, 0)
+          const totalPremium = trades.reduce((sum, t) => sum + t.total_premium, 0)
+          const avgPricePerContract = totalPremium / totalContracts
+          const bundledTrade: OptionsFlowData = {
+            ...trades[0],
+            trade_size: totalContracts,
+            premium_per_contract: avgPricePerContract,
+            total_premium: totalPremium,
+            exchange_name: `BUNDLED (${trades.length} trades)`,
+            trade_timestamp: trades.reduce((earliest, t) =>
+              new Date(t.trade_timestamp) < new Date(earliest.trade_timestamp) ? t : earliest
+            ).trade_timestamp,
+          }
+          _bundledData.push(bundledTrade)
         }
-
-        bundledData.push(bundledTrade)
-      }
-    })
+      })
+      bundledData = _bundledData
+    } // end !isLiveMode bundling block
 
     let filtered = bundledData
-
-    // EFI Highlights filter - when active, show ONLY trades that meet EFI criteria
     if (efiHighlightsActive) {
       filtered = filtered.filter((trade) => meetsEfiCriteria(trade))
     }
@@ -3603,6 +3695,21 @@ Stock Reaction: ${scores.stockReaction}/15`
         'FXI', 'KWEB', 'MCHI', 'ASHR', 'VGK', 'EWJ', 'EWZ', 'EWC', 'EWG', 'EWU',
         'EURL', 'HEDJ', 'DBJP', 'DBEF'])
 
+      // Compute overblown tickers once before the filter loop (O(n) not O(n²))
+      let overblownSet: Set<string> | null = null
+      if (selectedTickerFilters.includes('OVERBLOWN_TICKERS')) {
+        const tradeCounts = new Map<string, number>()
+        for (const t of filtered) {
+          const tk = t.underlying_ticker
+          tradeCounts.set(tk, (tradeCounts.get(tk) ?? 0) + 1)
+        }
+        const topSpam = [...tradeCounts.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([tk]) => tk)
+        overblownSet = new Set(topSpam)
+      }
+
       filtered = filtered.filter((trade) => {
         return selectedTickerFilters.every((filter) => {
           switch (filter) {
@@ -3621,20 +3728,13 @@ Stock Reaction: ${scores.stockReaction}/15`
             case 'EXCLUDE_ETF':
               return !etfSet.has(trade.underlying_ticker)
 
-            case 'OVERBLOWN_TICKERS': {
-              // Count trades per ticker across the full filtered set so far
-              const tradeCounts = new Map<string, number>()
-              for (const t of filtered) {
-                const tk = t.underlying_ticker
-                tradeCounts.set(tk, (tradeCounts.get(tk) ?? 0) + 1)
-              }
-              // Find top 3 most-repeated tickers
-              const topSpam = [...tradeCounts.entries()]
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 3)
-                .map(([tk]) => tk)
-              return !topSpam.includes(trade.underlying_ticker)
+            case 'EXCLUDE_FUTURES': {
+              const futuresSet = new Set(['SPXW', 'SPX', 'NDXP', 'NDX', 'RUTW', 'RUT', 'XSP', 'VIX', 'VIXW'])
+              return !futuresSet.has(trade.underlying_ticker.toUpperCase())
             }
+
+            case 'OVERBLOWN_TICKERS':
+              return !overblownSet!.has(trade.underlying_ticker)
 
             case 'HIGHLIGHTS_ONLY':
               return meetsEfiCriteria(trade)
@@ -3823,6 +3923,8 @@ Stock Reaction: ${scores.stockReaction}/15`
     leapActive,
     quickFilters,
     notableFilterActive,
+    currentPrices,
+    isLiveMode,
   ])
 
   // Memoize all grade calculations - massive performance boost for 100+ trades
@@ -4620,6 +4722,101 @@ Stock Reaction: ${scores.stockReaction}/15`
 
   return (
     <div style={{ display: 'flex', width: '100%', alignItems: 'flex-start' }}>
+      {/* Quick Grade Popup — fixed overlay, same design as grade column */}
+      {quickGradePopup && (() => {
+        const { trade: qt, isLeap, anchorTop, anchorLeft } = quickGradePopup
+
+        // Compute grade LIVE so popup reacts when prices load
+        const result = isLeap
+          ? calculateLeapGrade(qt, comboTradeMap)
+          : calculatePositioningGrade(qt, comboTradeMap)
+        const { grade, score, color: scoreColor } = result
+
+        const expiry = qt.expiry.replace(/-/g, '').slice(2)
+        const strikeFormatted = String(Math.round(qt.strike * 1000)).padStart(8, '0')
+        const optionType = qt.type.toLowerCase() === 'call' ? 'C' : 'P'
+        const normalizedTk = normalizeTickerForOptions(qt.underlying_ticker)
+        const optionTicker = `O:${normalizedTk}${expiry}${optionType}${strikeFormatted}`
+        const currentOptionPrice = currentOptionPrices[optionTicker] ?? null
+        const isSoldToOpen = qt.fill_style === 'B' || qt.fill_style === 'BB'
+        let percentChange: number | null = null
+        let currentValue: number | null = null
+        if (currentOptionPrice && currentOptionPrice > 0) {
+          const rawPct = ((currentOptionPrice - qt.premium_per_contract) / qt.premium_per_contract) * 100
+          percentChange = isSoldToOpen ? -rawPct : rawPct
+          currentValue = currentOptionPrice * qt.trade_size * 100
+        }
+        const priceColor = percentChange !== null ? (percentChange > 0 ? '#00ff00' : '#ff0000') : '#ffffff'
+        const formatVal = (v: number) => v >= 1000000 ? `$${(v / 1000000).toFixed(1)}M` : v >= 1000 ? `$${(v / 1000).toFixed(1)}K` : `$${v.toFixed(0)}`
+        return (
+          <>
+            {/* Backdrop */}
+            <div onClick={() => setQuickGradePopup(null)} style={{ position: 'fixed', inset: 0, zIndex: 999990 }} />
+            {/* Card */}
+            <div style={{
+              position: 'fixed',
+              top: anchorTop,
+              left: anchorLeft,
+              zIndex: 999999,
+              background: '#000000',
+              border: `2px solid ${scoreColor}`,
+              borderRadius: '14px',
+              width: '300px',
+              fontFamily: 'monospace',
+              overflow: 'hidden',
+            }}>
+              {/* Header */}
+              <div style={{ background: `linear-gradient(90deg, ${scoreColor}22 0%, transparent 100%)`, borderBottom: `1px solid ${scoreColor}40`, padding: '12px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ color: '#ffffff', fontWeight: 800, fontSize: '23px', letterSpacing: '0.5px' }}>{qt.underlying_ticker}</span>
+                  <span style={{ color: qt.type === 'call' ? '#22c55e' : '#ef4444', fontSize: '19px', fontWeight: 700 }}>{qt.type.toUpperCase()}</span>
+                  <span style={{ color: '#ffffff', fontSize: '18px' }}>${qt.strike} · {qt.expiry.slice(5).replace('-', '/')}</span>
+                </div>
+                <button onClick={() => setQuickGradePopup(null)} style={{ background: 'none', border: 'none', color: '#ffffff', cursor: 'pointer', fontSize: '23px', lineHeight: 1, padding: '0 2px' }}>✕</button>
+              </div>
+              {/* Grade circle + price info */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '24px', padding: '20px 22px', borderBottom: `1px solid #1f2937` }}>
+                {/* Circle */}
+                <div style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  width: '116px', height: '116px', flexShrink: 0,
+                  border: `8px solid ${scoreColor}`,
+                  borderRadius: '50%',
+                  background: `linear-gradient(135deg, ${scoreColor}20 0%, ${scoreColor}05 50%, ${scoreColor}30 100%)`,
+                  transform: 'rotate(-12deg)',
+                  boxShadow: `0 8px 16px rgba(0,0,0,0.6), inset 0 -3px 8px rgba(0,0,0,0.7), inset 0 3px 8px rgba(255,255,255,0.1)`,
+                  position: 'relative',
+                }}>
+                  <div style={{ position: 'absolute', top: '4px', left: '4px', right: '4px', bottom: '4px', border: `2px dashed ${scoreColor}80`, borderRadius: '50%' }} />
+                  <span style={{
+                    color: scoreColor, fontWeight: 'normal', fontSize: '34px', fontStyle: 'italic',
+                    fontFamily: 'Impact, Georgia, serif',
+                    textShadow: `0 3px 0 rgba(0,0,0,0.8), 0 -1px 0 rgba(255,255,255,0.3), 2px 2px 4px rgba(0,0,0,0.9)`,
+                    transform: 'rotate(12deg)', letterSpacing: '1px',
+                    WebkitTextStroke: `0.5px ${scoreColor}`,
+                  }}>{grade}</span>
+                </div>
+                {/* Price info */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {currentOptionPrice !== null ? (
+                    <>
+                      <div style={{ color: '#ffffff', fontSize: '26px', fontWeight: 700 }}>${currentOptionPrice.toFixed(2)}</div>
+                      {currentValue !== null && <div style={{ color: priceColor, fontSize: '19px' }}>{formatVal(currentValue)}</div>}
+                      {percentChange !== null && (
+                        <div style={{ color: priceColor, fontWeight: 700, fontSize: '23px' }}>{percentChange > 0 ? '+' : ''}{percentChange.toFixed(1)}%</div>
+                      )}
+                    </>
+                  ) : (
+                    <div style={{ color: '#ffffff', fontSize: '18px' }}>Prices loading…</div>
+                  )}
+                </div>
+              </div>
+
+            </div>
+          </>
+        )
+      })()}
+
       {/* Filter Dialog Modal */}
 
       {isFilterDialogOpen && (
@@ -5367,6 +5564,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                             { label: 'Mag 7 Only', value: 'MAG7_ONLY' },
                             { label: 'Exclude Mag 7', value: 'EXCLUDE_MAG7' },
                             { label: 'Exclude ETFs', value: 'EXCLUDE_ETF' },
+                            { label: 'Exclude Futures', value: 'EXCLUDE_FUTURES' },
                             { label: 'Overblown Tickers', value: 'OVERBLOWN_TICKERS' },
                           ].map(({ label, value }) => {
                             const active = selectedTickerFilters.includes(value)
@@ -5985,43 +6183,58 @@ Stock Reaction: ${scores.stockReaction}/15`
                   value={inputTicker}
                   onChange={(e) => setInputTicker(e.target.value.toUpperCase())}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && inputTicker.trim()) {
+                    if (e.key === 'Enter') {
                       const ticker = inputTicker.trim()
-
                       onTickerChange(ticker)
-
                       onRefresh?.(ticker)
+                    }
+                    if (e.key === 'Escape') {
+                      setInputTicker('')
+                      onTickerChange('')
+                      onRefresh?.('')
                     }
                   }}
                   placeholder="TICKER"
                   className="text-white font-mono placeholder-gray-500 transition-all duration-200 w-full"
                   style={{
                     height: '40px',
-
                     paddingLeft: '2rem',
-
-                    paddingRight: '0.5rem',
-
+                    paddingRight: inputTicker ? '1.5rem' : '0.5rem',
                     borderRadius: '4px',
-
                     fontSize: '12px',
-
                     fontWeight: '700',
-
                     letterSpacing: '1px',
-
                     background: 'linear-gradient(180deg, #000000 0%, #0a0a0a 100%)',
-
-                    border: '2px solid #1f1f1f',
-
+                    border: inputTicker ? '2px solid #f59e0b' : '2px solid #1f1f1f',
                     textTransform: 'uppercase',
-
                     boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-
                     outline: 'none',
                   }}
                   maxLength={20}
                 />
+                {inputTicker && (
+                  <button
+                    onClick={() => {
+                      setInputTicker('')
+                      onTickerChange('')
+                      onRefresh?.('')
+                    }}
+                    style={{
+                      position: 'absolute',
+                      right: '6px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: '#f59e0b',
+                      fontSize: '14px',
+                      lineHeight: 1,
+                      padding: '2px',
+                    }}
+                    title="Clear ticker filter"
+                  >✕</button>
+                )}
               </div>
 
               {/* Right side buttons — order: PICKS, ALGO, TRACK, FILTER, ⋮ */}
@@ -6544,66 +6757,76 @@ Stock Reaction: ${scores.stockReaction}/15`
                     onChange={(e) => setInputTicker(e.target.value.toUpperCase())}
                     onFocus={(e) => {
                       setIsInputFocused(true)
-
                       e.target.style.borderColor = '#ff8500'
-
                       e.target.style.boxShadow = '0 0 0 1px rgba(255,133,0,0.15)'
                     }}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && inputTicker.trim()) {
+                      if (e.key === 'Enter') {
                         const ticker = inputTicker.trim()
-
                         onTickerChange(ticker)
-
                         onRefresh?.(ticker)
-
+                        setIsInputFocused(false)
+                      }
+                      if (e.key === 'Escape') {
+                        setInputTicker('')
+                        onTickerChange('')
+                        onRefresh?.('')
                         setIsInputFocused(false)
                       }
                     }}
                     onBlur={(e) => {
                       setIsInputFocused(false)
-
-                      e.target.style.borderColor = '#2a2a2a'
-
+                      e.target.style.borderColor = inputTicker ? '#f59e0b' : '#2a2a2a'
                       e.target.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -1px 0 rgba(0,0,0,0.4)'
                     }}
                     placeholder="TICKER"
                     className="text-white font-mono placeholder-gray-600"
                     style={{
                       width: '100%',
-
                       height: '34px',
-
                       paddingLeft: '2.1rem',
-
-                      paddingRight: '0.75rem',
-
+                      paddingRight: inputTicker ? '1.6rem' : '0.75rem',
                       borderRadius: '6px',
-
                       fontSize: '12px',
-
                       fontWeight: '700',
-
                       letterSpacing: '1.5px',
-
                       background: 'linear-gradient(180deg, #1c1c1c 0%, #0e0e0e 100%)',
-
-                      border: '1px solid #2a2a2a',
-
+                      border: inputTicker ? '1px solid #f59e0b' : '1px solid #2a2a2a',
                       textTransform: 'uppercase',
-
                       boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.5), 0 2px 4px rgba(0,0,0,0.5)',
-
                       outline: 'none',
-
                       transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
                     }}
                     maxLength={20}
                   />
+                  {inputTicker && (
+                    <button
+                      onClick={() => {
+                        setInputTicker('')
+                        onTickerChange('')
+                        onRefresh?.('')
+                      }}
+                      style={{
+                        position: 'absolute',
+                        right: '6px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: '#f59e0b',
+                        fontSize: '13px',
+                        lineHeight: 1,
+                        padding: '2px',
+                        zIndex: 20,
+                      }}
+                      title="Clear ticker filter"
+                    >✕</button>
+                  )}
                 </div>
 
-                {/* Historical Days Dropdown */}
-                {onHistoricalDaysChange && (
+                {/* Historical Days Dropdown — hidden in live mode */}
+                {!isLiveMode && onHistoricalDaysChange && (
                   <select
                     value={historicalDays}
                     onChange={(e) => onHistoricalDaysChange(e.target.value)}
@@ -6648,43 +6871,57 @@ Stock Reaction: ${scores.stockReaction}/15`
                   </select>
                 )}
 
-                {/* Divider */}
-                <div className="hidden md:block" style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.14)' }}></div>
+                {/* Live Mode Indicator — shown instead of scan shortcuts when markets are open */}
+                {isLiveMode && (
+                  <div className="hidden md:flex items-center gap-3">
+                    <div style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.14)' }} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0 12px', height: '31px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.45)', borderRadius: '20px' }}>
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: liveConnected ? '#10b981' : '#f59e0b', boxShadow: liveConnected ? '0 0 6px #10b981' : '0 0 6px #f59e0b', display: 'inline-block', animation: liveConnected ? 'pulse 1.4s ease-in-out infinite' : 'none' }} />
+                      <span style={{ color: liveConnected ? '#34d399' : '#fbbf24', fontFamily: 'monospace', fontWeight: 800, fontSize: 11, letterSpacing: '1.5px' }}>
+                        {liveConnected ? 'LIVE' : 'CONNECTING...'}
+                      </span>
+                      {liveTradeCount > 0 && (
+                        <span style={{ color: 'rgba(255,255,255,0.5)', fontFamily: 'monospace', fontSize: 10, letterSpacing: '0.5px' }}>
+                          {liveTradeCount.toLocaleString()} trades
+                        </span>
+                      )}
+                    </div>
+                    {onToggleLive && (
+                      <button
+                        onClick={onToggleLive}
+                        title="Stop live stream"
+                        style={{
+                          height: '31px',
+                          padding: '0 12px',
+                          background: 'rgba(239,68,68,0.1)',
+                          border: '1px solid rgba(239,68,68,0.5)',
+                          borderRadius: '20px',
+                          fontSize: '11px',
+                          letterSpacing: '1.2px',
+                          fontWeight: 700,
+                          color: '#f87171',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <svg width="8" height="8" viewBox="0 0 8 8" fill="#f87171"><rect width="8" height="8" rx="1" /></svg>
+                        STOP
+                      </button>
+                    )}
+                  </div>
+                )}
 
-                {/* Scan Shortcuts */}
+                {/* Divider + Scan Shortcuts — hidden in live mode */}
+                {!isLiveMode && (<>
+                  <div className="hidden md:block" style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.14)' }}></div>
 
-                <div className="hidden md:flex items-center gap-2">
-                  {useDropdowns ? (
-                    <button
-                      onClick={() => {
-                        if (loading) { onCancel?.(); return }
-                        setInputTicker('ALL')
-                        onTickerChange('ALL')
-                        onRefresh?.('ALL')
-                      }}
-                      className="toolbar-pill font-bold uppercase transition-all duration-150"
-                      style={{
-                        height: '31px',
-                        padding: '0 13px',
-                        background: loading
-                          ? 'linear-gradient(180deg, rgba(239,68,68,0.22) 0%, rgba(239,68,68,0.06) 55%, rgba(0,0,0,0.2) 100%)'
-                          : inputTicker === 'ALL' ? 'linear-gradient(180deg, rgba(255,133,0,0.22) 0%, rgba(255,133,0,0.06) 55%, rgba(0,0,0,0.2) 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
-                        border: loading ? '1px solid #ef4444' : inputTicker === 'ALL' ? '1px solid #ff8500' : '1px solid #666',
-                        borderRadius: '20px',
-                        fontSize: '12px',
-                        letterSpacing: '1.2px',
-                        fontWeight: '700',
-                        boxShadow: loading ? '0 0 10px rgba(239,68,68,0.3)' : inputTicker === 'ALL' ? 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 10px rgba(255,133,0,0.22)' : 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.35)',
-                        outline: 'none',
-                        color: loading ? '#fca5a5' : inputTicker === 'ALL' ? '#ffaa55' : '#d4d4d4',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
-                      }}
-                    >
-                      {loading ? '✕ CANCEL' : 'SCAN ALL'}
-                    </button>
-                  ) : (
-                    <>
+                  {/* Scan Shortcuts */}
+
+                  <div className="hidden md:flex items-center gap-2">
+                    {useDropdowns ? (
                       <button
                         onClick={() => {
                           if (loading) { onCancel?.(); return }
@@ -6713,11 +6950,42 @@ Stock Reaction: ${scores.stockReaction}/15`
                       >
                         {loading ? '✕ CANCEL' : 'SCAN ALL'}
                       </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => {
+                            if (loading) { onCancel?.(); return }
+                            setInputTicker('ALL')
+                            onTickerChange('ALL')
+                            onRefresh?.('ALL')
+                          }}
+                          className="toolbar-pill font-bold uppercase transition-all duration-150"
+                          style={{
+                            height: '31px',
+                            padding: '0 13px',
+                            background: loading
+                              ? 'linear-gradient(180deg, rgba(239,68,68,0.22) 0%, rgba(239,68,68,0.06) 55%, rgba(0,0,0,0.2) 100%)'
+                              : inputTicker === 'ALL' ? 'linear-gradient(180deg, rgba(255,133,0,0.22) 0%, rgba(255,133,0,0.06) 55%, rgba(0,0,0,0.2) 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
+                            border: loading ? '1px solid #ef4444' : inputTicker === 'ALL' ? '1px solid #ff8500' : '1px solid #666',
+                            borderRadius: '20px',
+                            fontSize: '12px',
+                            letterSpacing: '1.2px',
+                            fontWeight: '700',
+                            boxShadow: loading ? '0 0 10px rgba(239,68,68,0.3)' : inputTicker === 'ALL' ? 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 10px rgba(255,133,0,0.22)' : 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.35)',
+                            outline: 'none',
+                            color: loading ? '#fca5a5' : inputTicker === 'ALL' ? '#ffaa55' : '#d4d4d4',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          {loading ? '✕ CANCEL' : 'SCAN ALL'}
+                        </button>
 
-                      {/* MAG7 and ETF buttons removed from toolbar UI (logic unchanged) */}
-                    </>
-                  )}
-                </div>
+                        {/* MAG7 and ETF buttons removed from toolbar UI (logic unchanged) */}
+                      </>
+                    )}
+                  </div>
+                </>)}
 
                 {/* Divider */}
 
@@ -6865,6 +7133,62 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                   {/* Status badge removed: showing ON/OFF text was disabled */}
                 </button>
+
+                {/* Live display filter toggle — $50K+ default vs show all */}
+                {isLiveMode && onToggleLiveShowAll && (
+                  <button
+                    onClick={onToggleLiveShowAll}
+                    title={liveShowAll ? 'Currently showing all trades — click to show $50K+ only' : 'Currently showing $50K+ only — click to show all trades'}
+                    style={{
+                      height: '35px',
+                      padding: '0 13px',
+                      background: liveShowAll
+                        ? 'linear-gradient(180deg, rgba(251,191,36,0.22) 0%, rgba(245,158,11,0.07) 55%, rgba(0,0,0,0.2) 100%)'
+                        : 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
+                      border: liveShowAll ? '1px solid #f59e0b' : '1px solid #374151',
+                      borderRadius: '7px',
+                      fontSize: '11px',
+                      letterSpacing: '1.2px',
+                      fontWeight: '700',
+                      color: liveShowAll ? '#fbbf24' : '#6b7280',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      boxShadow: liveShowAll ? '0 0 10px rgba(251,191,36,0.2)' : 'none',
+                    }}
+                  >
+                    {liveShowAll ? 'SHOW ALL' : '$50K+'}
+                  </button>
+                )}
+
+                {/* LIVE button — toggles live streaming on/off */}
+                {onToggleLive && (
+                  <button
+                    onClick={onToggleLive}
+                    className={`toolbar-mode${isLiveMode ? ' toolbar-mode--active' : ''} flex items-center gap-1.5 font-bold uppercase transition-all duration-150 focus:outline-none`}
+                    title={isLiveMode ? 'Stop live stream' : selectedTickerFilter ? `Start live stream for ${selectedTickerFilter}` : 'Start live stream'}
+                    style={{
+                      height: '35px',
+                      padding: '0 15px',
+                      background: isLiveMode
+                        ? 'linear-gradient(180deg, rgba(34,197,94,0.24) 0%, rgba(16,185,129,0.08) 55%, rgba(0,0,0,0.2) 100%)'
+                        : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
+                      border: isLiveMode ? '1px solid #22c55e' : '1px solid #166534',
+                      borderRadius: '7px',
+                      fontSize: '12px',
+                      letterSpacing: '1.5px',
+                      fontWeight: '700',
+                      boxShadow: isLiveMode ? 'inset 0 1px 0 rgba(255,255,255,0.2), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 14px rgba(34,197,94,0.25)' : 'inset 0 1px 0 rgba(255,255,255,0.09), inset 0 -1px 0 rgba(0,0,0,0.4)',
+                      color: isLiveMode ? '#22c55e' : '#16a34a',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center' }}>
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: isLiveMode ? '#22c55e' : '#4b5563', display: 'inline-block', marginRight: 6, boxShadow: isLiveMode ? '0 0 6px #22c55e' : 'none', animation: isLiveMode ? 'pulse 1.5s ease-in-out infinite' : 'none' }} />
+                    </span>
+                    <span>{isLiveMode ? (selectedTickerFilter ? `LIVE · ${selectedTickerFilter}` : 'LIVE') : 'LIVE'}</span>
+                  </button>
+                )}
 
                 {/* Grading Progress — now shown in fullscreen overlay, hidden from header */}
 
@@ -8118,6 +8442,25 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             <div className="md:hidden flex flex-col items-center space-y-1">
                               <div className="flex items-center justify-center gap-2">
+                                {/* Quick Grade Pen Icon (Mobile) */}
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleQuickGrade(trade, e) }}
+                                  title={`Quick Grade (${trade.days_to_expiry <= 35 ? 'EFI' : 'LEAP'} logic)`}
+                                  className="quick-grade-pen"
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    padding: '2px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    animation: quickGradePopup?.id === generateFlowId(trade) ? 'none' : 'penPulse 2.4s ease-in-out infinite',
+                                    color: quickGradePopup?.id === generateFlowId(trade) ? '#ffffff' : '#a78bfa',
+                                    transform: quickGradePopup?.id === generateFlowId(trade) ? 'rotate(-8deg) scale(1.15)' : undefined,
+                                  }}
+                                >
+                                  <TbPencil style={{ width: '12px', height: '12px' }} />
+                                </button>
                                 <button
                                   onClick={() => handleTickerClick(trade.underlying_ticker)}
                                   className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 py-1 rounded-lg cursor-pointer border-none shadow-sm text-xs ${selectedTickerFilter === trade.underlying_ticker
@@ -8196,6 +8539,25 @@ Stock Reaction: ${scores.stockReaction}/15`
                               )
                             })()}
                             <div className="flex items-center justify-center gap-2">
+                              {/* Quick Grade Pen Icon (Desktop) */}
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleQuickGrade(trade, e) }}
+                                title={`Quick Grade (${trade.days_to_expiry <= 35 ? 'EFI' : 'LEAP'} logic)`}
+                                className="quick-grade-pen"
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  padding: '2px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  animation: quickGradePopup?.id === generateFlowId(trade) ? 'none' : 'penPulse 2.4s ease-in-out infinite',
+                                  color: quickGradePopup?.id === generateFlowId(trade) ? '#ffffff' : '#a78bfa',
+                                  transform: quickGradePopup?.id === generateFlowId(trade) ? 'rotate(-8deg) scale(1.15)' : undefined,
+                                }}
+                              >
+                                <TbPencil style={{ width: '14px', height: '14px' }} />
+                              </button>
                               <button
                                 onClick={() => handleTickerClick(trade.underlying_ticker)}
                                 className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 md:px-3 py-1 md:py-2 rounded-lg cursor-pointer border-none shadow-sm text-xs md:text-lg ${selectedTickerFilter === trade.underlying_ticker

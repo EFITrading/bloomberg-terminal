@@ -295,7 +295,7 @@ const IVRRGAnalytics: React.FC<IVRRGAnalyticsProps> = ({
   // ── END LAYOUT DEBUG ──────────────────────────────────────────────────────
 
   return (
-    <div ref={_dbgRef} style={{ width: '100%', flex: 1, minHeight: 0, background: '#000000' }}>
+    <div style={{ width: '100%', flex: 1, minHeight: 0, background: '#000000' }}>
       {loading && getCurrentSymbols().trim() ? (
         <div style={{
           display: 'flex',

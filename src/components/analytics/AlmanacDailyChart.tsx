@@ -102,6 +102,13 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
   >([])
   const [showPatternDetails, setShowPatternDetails] = useState(false)
 
+  // Sweet Spot / Pain Point / Candlenality
+  const [showSweetSpot, setShowSweetSpot] = useState(false)
+  const [showPainPoint, setShowPainPoint] = useState(false)
+  const [candlenalityMode, setCandlenalityMode] = useState(false)
+  const [sweetSpotRange, setSweetSpotRange] = useState<{ start: number; end: number; label: string } | null>(null)
+  const [painPointRange, setPainPointRange] = useState<{ start: number; end: number; label: string } | null>(null)
+
   const almanacService = new AlmanacService()
 
   useEffect(() => {
@@ -164,6 +171,25 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     // Use .join(',') so a new [] reference doesn't re-trigger this effect
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalSelectedPatterns?.join(','), symbol])
+
+  // Compute sweet spot / pain point windows from seasonal data
+  useEffect(() => {
+    if (seasonalData.length === 0) { setSweetSpotRange(null); setPainPointRange(null); return }
+    const data = seasonalData[0].dailyData
+    if (data.length < 5) return
+    let bestBullish = { start: data[0].tradingDay, end: data[4].tradingDay, gain: -Infinity }
+    let bestBearish = { start: data[0].tradingDay, end: data[4].tradingDay, gain: Infinity }
+    for (let w = 5; w <= 7; w++) {
+      for (let i = 0; i <= data.length - w; i++) {
+        // Sum the average daily return for each day in the window — positive = bullish, negative = bearish
+        const windowReturn = data.slice(i, i + w).reduce((sum, p) => sum + p.avgReturn, 0)
+        if (windowReturn > bestBullish.gain) bestBullish = { start: data[i].tradingDay, end: data[i + w - 1].tradingDay, gain: windowReturn }
+        if (windowReturn < bestBearish.gain) bestBearish = { start: data[i].tradingDay, end: data[i + w - 1].tradingDay, gain: windowReturn }
+      }
+    }
+    setSweetSpotRange({ start: bestBullish.start, end: bestBullish.end, label: `+${bestBullish.gain.toFixed(2)}%` })
+    setPainPointRange({ start: bestBearish.start, end: bestBearish.end, label: `${bestBearish.gain.toFixed(2)}%` })
+  }, [seasonalData])
 
   useEffect(() => {
     if (seasonalData.length > 0 && canvasRef.current && activeView === 'chart') {
@@ -321,6 +347,11 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     showElection,
     showEventPerformance,
     eventPerformanceData,
+    showSweetSpot,
+    showPainPoint,
+    sweetSpotRange,
+    painPointRange,
+    candlenalityMode,
   ])
 
   const loadData = async () => {
@@ -956,9 +987,11 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
 
     // CRITICAL: 70px bottom padding ensures x-axis labels never get cropped
     const isMobileView = width < 768
+    // Right padding: 80px for index mode (DIA/SPY/QQQ/IWM + "SPY E" labels), 50px for year labels (25Y/15Y/E)
+    const desktopRightPad = isIndex ? 80 : 50
     const PADDING = isMobileView
-      ? { top: 20, right: 58, bottom: 28, left: 45 }
-      : { top: 20, right: 72, bottom: 70, left: 60 }
+      ? { top: 5, right: 72, bottom: 28, left: 45 }
+      : { top: 5, right: desktopRightPad, bottom: 70, left: 60 }
     const chartWidth = width - PADDING.left - PADDING.right
     const chartHeight = height - PADDING.top - PADDING.bottom
 
@@ -1117,97 +1150,188 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     ctx.rect(PADDING.left, PADDING.top, chartWidth, chartHeight)
     ctx.clip()
 
+    // ── Sweet Spot / Pain Point overlays (drawn before lines so lines appear on top) ──
+    if (!showEventPerformance && !showPatternPerformance) {
+      if (showSweetSpot && sweetSpotRange) {
+        const x1 = getX(sweetSpotRange.start)
+        const x2 = getX(sweetSpotRange.end)
+        ctx.fillStyle = 'rgba(0, 255, 65, 0.13)'
+        ctx.fillRect(x1, PADDING.top, x2 - x1, chartHeight)
+        ctx.strokeStyle = '#00ff41'
+        ctx.lineWidth = 1.5
+        ctx.setLineDash([4, 3])
+        ctx.beginPath()
+        ctx.moveTo(x1, PADDING.top); ctx.lineTo(x1, PADDING.top + chartHeight)
+        ctx.moveTo(x2, PADDING.top); ctx.lineTo(x2, PADDING.top + chartHeight)
+        ctx.stroke()
+        ctx.setLineDash([])
+        // Label
+        ctx.fillStyle = '#00ff41'
+        ctx.font = 'bold 11px "JetBrains Mono", monospace'
+        ctx.textAlign = 'center'
+        ctx.fillText(`★ ${sweetSpotRange.label}`, (x1 + x2) / 2, PADDING.top + 14)
+      }
+      if (showPainPoint && painPointRange) {
+        const x1 = getX(painPointRange.start)
+        const x2 = getX(painPointRange.end)
+        ctx.fillStyle = 'rgba(255, 50, 50, 0.13)'
+        ctx.fillRect(x1, PADDING.top, x2 - x1, chartHeight)
+        ctx.strokeStyle = '#ff3232'
+        ctx.lineWidth = 1.5
+        ctx.setLineDash([4, 3])
+        ctx.beginPath()
+        ctx.moveTo(x1, PADDING.top); ctx.lineTo(x1, PADDING.top + chartHeight)
+        ctx.moveTo(x2, PADDING.top); ctx.lineTo(x2, PADDING.top + chartHeight)
+        ctx.stroke()
+        ctx.setLineDash([])
+        // Label
+        ctx.fillStyle = '#ff3232'
+        ctx.font = 'bold 11px "JetBrains Mono", monospace'
+        ctx.textAlign = 'center'
+        ctx.fillText(`▼ ${painPointRange.label}`, (x1 + x2) / 2, PADDING.top + 14)
+      }
+    }
+
     // Draw data lines (only if event or pattern performance is not active)
     if (!showEventPerformance && !showPatternPerformance) {
       // In isIndex mode, reuse showMaxYears/show15Y/show10Y/showElection as per-symbol toggles
       const indexVisibility: Record<string, boolean> = {
         'DJIA': showMaxYears, 'S&P 500': show15Y, 'NASDAQ': show10Y, 'Russell 2000': showElection,
       }
-      seasonalData.forEach((index) => {
-        if (isIndex && indexVisibility[index.name] === false) return
-        // For individual stocks, use white for max, orange for 10Y, pink for 15Y
-        const whiteColor = isIndex ? colors[index.name] || '#FFFFFF' : '#FFFFFF'
-        const orangeColor = '#FF6600'
-        const pinkColor = '#00BCD4'
-        const electionColor = isIndex ? colors[index.name] || '#FFFFFF' : '#FFD700'
 
-        if (isIndex || showMaxYears) {
-          // Determine if we should show white line (max years)
-          // Check if there's any difference between max and 10Y/15Y data
-          const hasDistinct10Y = index.dailyData.some(
-            (p) => Math.abs(p.cumulativeReturn - p.cumulativeReturn10Y) > 0.01
-          )
-          const hasDistinct15Y = index.dailyData.some(
-            (p) => Math.abs(p.cumulativeReturn - p.cumulativeReturn15Y) > 0.01
-          )
-          const showWhiteLine = hasDistinct10Y || hasDistinct15Y
+      // ── Candlenality mode: average all visible series → draw one set of OHLC candles ──
+      if (candlenalityMode) {
+        const refData = seasonalData[0]?.dailyData || []
+        if (refData.length > 0) {
+          // Collect cumulative return arrays for every active series/timeframe
+          const activeCumulatives: number[][] = []
+          if (isIndex) {
+            seasonalData.forEach((index) => {
+              if (indexVisibility[index.name] === false) return
+              activeCumulatives.push(index.dailyData.map((p) => p.cumulativeReturn))
+            })
+          } else {
+            const d = seasonalData[0]
+            if (d) {
+              if (showMaxYears) activeCumulatives.push(d.dailyData.map((p) => p.cumulativeReturn))
+              if (show15Y) activeCumulatives.push(d.dailyData.map((p) => p.cumulativeReturn15Y))
+              if (show10Y) activeCumulatives.push(d.dailyData.map((p) => p.cumulativeReturn10Y))
+              if (showElection) activeCumulatives.push(d.dailyData.map((p) => p.postElectionCumulative))
+            }
+          }
+          if (activeCumulatives.length === 0) {
+            // Fallback: show primary series
+            activeCumulatives.push(seasonalData[0].dailyData.map((p) => p.cumulativeReturn))
+          }
 
-          // Draw white line (max years) if it's distinct from 10Y and 15Y
-          if (showWhiteLine) {
-            ctx.strokeStyle = whiteColor
+          // Average across all active series per trading day
+          const avgCumulative: number[] = refData.map((_, i) => {
+            const vals = activeCumulatives.map((s) => s[i]).filter((v) => v !== undefined && !isNaN(v))
+            return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 0
+          })
+
+          const candleWidth = Math.max(3, Math.min(14, chartWidth / refData.length * 0.65))
+
+          refData.forEach((point, i) => {
+            const prevCum = i === 0 ? 0 : avgCumulative[i - 1]
+            const currCum = avgCumulative[i]
+            const isUp = currCum >= prevCum
+            // Wick size: half the absolute daily avg return, min 0.05% for visibility
+            const wickExt = Math.max(0.05, Math.abs(point.avgReturn) * 0.4)
+            const high = Math.max(prevCum, currCum) + wickExt
+            const low = Math.min(prevCum, currCum) - wickExt
+            const x = getX(point.tradingDay)
+            const color = isUp ? '#00ff41' : '#ff3232'
+            // Wick line
+            ctx.strokeStyle = color
+            ctx.lineWidth = 1
+            ctx.beginPath()
+            ctx.moveTo(x, getY(high))
+            ctx.lineTo(x, getY(low))
+            ctx.stroke()
+            // Body
+            const bodyTop = getY(Math.max(prevCum, currCum))
+            const bodyBot = getY(Math.min(prevCum, currCum))
+            const bodyH = Math.max(1.5, bodyBot - bodyTop)
+            ctx.fillStyle = color
+            ctx.fillRect(x - candleWidth / 2, bodyTop, candleWidth, bodyH)
+          })
+        }
+      } else {
+        // ── Normal line drawing ──
+        seasonalData.forEach((index) => {
+          if (isIndex && indexVisibility[index.name] === false) return
+          // For individual stocks, use white for max, orange for 10Y, pink for 15Y
+          const whiteColor = isIndex ? colors[index.name] || '#FFFFFF' : '#FFFFFF'
+          const orangeColor = '#FF6600'
+          const pinkColor = '#00BCD4'
+          const electionColor = isIndex ? colors[index.name] || '#FFFFFF' : '#FFD700'
+
+          if (isIndex || showMaxYears) {
+            const hasDistinct10Y = index.dailyData.some(
+              (p) => Math.abs(p.cumulativeReturn - p.cumulativeReturn10Y) > 0.01
+            )
+            const hasDistinct15Y = index.dailyData.some(
+              (p) => Math.abs(p.cumulativeReturn - p.cumulativeReturn15Y) > 0.01
+            )
+            const showWhiteLine = hasDistinct10Y || hasDistinct15Y
+
+            if (showWhiteLine) {
+              ctx.strokeStyle = whiteColor
+              ctx.lineWidth = 2
+              ctx.beginPath()
+              index.dailyData.forEach((point, i) => {
+                const x = getX(point.tradingDay)
+                const y = getY(point.cumulativeReturn)
+                if (i === 0) ctx.moveTo(x, y)
+                else ctx.lineTo(x, y)
+              })
+              ctx.stroke()
+            }
+          }
+
+          if (!isIndex && show15Y) {
+            ctx.strokeStyle = pinkColor
             ctx.lineWidth = 2
             ctx.beginPath()
-
             index.dailyData.forEach((point, i) => {
               const x = getX(point.tradingDay)
-              const y = getY(point.cumulativeReturn)
-
+              const y = getY(point.cumulativeReturn15Y)
               if (i === 0) ctx.moveTo(x, y)
               else ctx.lineTo(x, y)
             })
             ctx.stroke()
           }
-        }
 
-        if (!isIndex && show15Y) {
-          // Draw cyan line (15 years)
-          ctx.strokeStyle = pinkColor
-          ctx.lineWidth = 2
-          ctx.beginPath()
+          if (!isIndex && show10Y) {
+            ctx.strokeStyle = orangeColor
+            ctx.lineWidth = 2
+            ctx.beginPath()
+            index.dailyData.forEach((point, i) => {
+              const x = getX(point.tradingDay)
+              const y = getY(point.cumulativeReturn10Y)
+              if (i === 0) ctx.moveTo(x, y)
+              else ctx.lineTo(x, y)
+            })
+            ctx.stroke()
+          }
 
-          index.dailyData.forEach((point, i) => {
-            const x = getX(point.tradingDay)
-            const y = getY(point.cumulativeReturn15Y)
-
-            if (i === 0) ctx.moveTo(x, y)
-            else ctx.lineTo(x, y)
-          })
-          ctx.stroke()
-        }
-
-        if (!isIndex && show10Y) {
-          // Draw orange line (10 years)
-          ctx.strokeStyle = orangeColor
-          ctx.lineWidth = 2
-          ctx.beginPath()
-
-          index.dailyData.forEach((point, i) => {
-            const x = getX(point.tradingDay)
-            const y = getY(point.cumulativeReturn10Y)
-
-            if (i === 0) ctx.moveTo(x, y)
-            else ctx.lineTo(x, y)
-          })
-          ctx.stroke()
-        }
-
-        if (showElection) {
-          ctx.strokeStyle = electionColor
-          ctx.lineWidth = 2
-          ctx.setLineDash([8, 4])
-          ctx.beginPath()
-
-          index.dailyData.forEach((point, i) => {
-            const x = getX(point.tradingDay)
-            const y = getY(point.postElectionCumulative)
-
-            if (i === 0) ctx.moveTo(x, y)
-            else ctx.lineTo(x, y)
-          })
-          ctx.stroke()
-          ctx.setLineDash([])
-        }
-      })
+          if (showElection) {
+            ctx.strokeStyle = electionColor
+            ctx.lineWidth = 2
+            ctx.setLineDash([8, 4])
+            ctx.beginPath()
+            index.dailyData.forEach((point, i) => {
+              const x = getX(point.tradingDay)
+              const y = getY(point.postElectionCumulative)
+              if (i === 0) ctx.moveTo(x, y)
+              else ctx.lineTo(x, y)
+            })
+            ctx.stroke()
+            ctx.setLineDash([])
+          }
+        })
+      }
 
       // Collect end-of-line label positions for right-side ticker labels
       {
@@ -1378,7 +1502,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
 
     // ── End-of-line ticker labels (right padding, tap/click to toggle) ────────
     if (endLabels.length > 0) {
-      const labelFontSize = isMobileView ? 10 : 11
+      const labelFontSize = isMobileView ? 14 : 18
       const rightEdge = width - PADDING.right
       ctx.save()
       ctx.font = `bold ${labelFontSize}px "JetBrains Mono", monospace`
@@ -1625,352 +1749,251 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           </div>
         )}
 
-        {/* Desktop: All controls in one clean row */}
-        {!isMobileView && <div
+        {/* Desktop: Tabs + Controls */}
+        {!isMobileView && activeView === 'chart' && <div
           className="chart-controls-row chart-controls-desktop desktop-only-btn"
           data-active-view={activeView}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-            padding: '6px 10px',
-            background: '#000000',
-            borderBottom: '1px solid #222',
-            flexWrap: 'nowrap',
-            overflowX: 'auto',
-          }}
+          style={{ display: 'flex', flexDirection: 'column', background: '#000000', borderBottom: '1px solid #1a1a1a' }}
         >
           <style>{`
-            .almanac-ctrl-btn {
-              padding: 0 13px;
-              height: 34px;
-              background: linear-gradient(180deg, #1a1a1a 0%, #000000 60%);
-              color: #ffffff;
-              border: 1px solid #444444;
-              border-radius: 4px;
-              font-size: 11px;
-              font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
-              font-weight: 700;
-              letter-spacing: 0.6px;
-              cursor: pointer;
-              transition: border-color 0.15s, background 0.15s, color 0.15s;
-              white-space: nowrap;
-              outline: none;
-              display: inline-flex;
-              align-items: center;
-              justify-content: center;
-              box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+            @keyframes alm-spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
+            @keyframes alm-pulse { 0%,100% { opacity:1; transform:scale(1) } 50% { opacity:0.6; transform:scale(0.85) } }
+            @keyframes alm-orbit { 0% { transform: rotate(0deg) translateX(4px) rotate(0deg) } 100% { transform: rotate(360deg) translateX(4px) rotate(-360deg) } }
+            .alm-icon-spin { display:inline-block; animation: alm-spin 3s linear infinite; line-height:1; }
+            .alm-icon-pulse { display:inline-block; animation: alm-pulse 1.8s ease-in-out infinite; line-height:1; }
+            .alm-versatility-label {
+              display:inline-flex; align-items:center; gap:5px;
+              font-size:9px; font-family:'JetBrains Mono',monospace; font-weight:900;
+              letter-spacing:1.2px; color:#b8860b; white-space:nowrap; flex-shrink:0;
             }
-            .almanac-ctrl-btn:hover { background: linear-gradient(180deg, #222 0%, #0a0a0a 60%); border-color: #666; }
-            .almanac-ctrl-btn.active-orange { background: linear-gradient(180deg, #1a1a1a 0%, #000000 60%); color: #ff6600; border-color: #ff6600; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); }
-            .almanac-ctrl-btn.active-green  { background: linear-gradient(180deg, #1a1a1a 0%, #000000 60%); color: #00ff41; border-color: #00ff41; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); }
-            .almanac-ctrl-btn.active-cyan   { background: linear-gradient(180deg, #1a1a1a 0%, #000000 60%); color: #00CED1; border-color: #00CED1; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); }
+            .alm-golden-sep {
+              width:1px; height:28px; flex-shrink:0;
+              background: linear-gradient(180deg, transparent 0%, #b8860b 25%, #ffd700 50%, #b8860b 75%, transparent 100%);
+              box-shadow: 0 0 4px rgba(184,134,11,0.5);
+            }
             .almanac-ctrl-select {
-              padding: 0 28px 0 11px;
-              height: 34px;
-              width: fit-content;
-              min-width: 0;
-              max-width: 180px;
+              box-sizing: border-box; padding: 0 28px 0 13px;
+              height: 47px; min-height: 47px; max-height: 47px;
+              min-width: 0; width: fit-content; max-width: none;
               background:
-                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E") no-repeat right 8px center,
-                linear-gradient(180deg, #1a1a1a 0%, #000000 60%);
-              color: #ffffff;
-              border: 1px solid #444444;
-              border-radius: 4px;
-              font-size: 11px;
-              font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
-              font-weight: 700;
-              letter-spacing: 0.6px;
-              cursor: pointer;
-              outline: none;
-              appearance: none;
-              -webkit-appearance: none;
-              white-space: nowrap;
-              box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E") no-repeat right 10px center,
+                linear-gradient(180deg,#181818 0%,#060606 50%,#020202 100%);
+              color: #ffffff; border: 1px solid rgba(255,255,255,0.18); border-radius: 6px;
+              font-size: 13px; font-family: 'JetBrains Mono','Roboto Mono',monospace;
+              font-weight: 800; letter-spacing: 0.5px; cursor: pointer; outline: none;
+              appearance: none; -webkit-appearance: none; white-space: nowrap; line-height: 1;
+              overflow: hidden; text-overflow: ellipsis;
+              box-shadow: 0 1px 0 rgba(255,255,255,0.10) inset, 0 -1px 0 rgba(0,0,0,0.7) inset, 0 3px 8px rgba(0,0,0,0.9);
             }
-            .almanac-ctrl-select:hover {
-              border-color: #666;
-              background:
-                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E") no-repeat right 8px center,
-                linear-gradient(180deg, #222222 0%, #0a0a0a 60%);
-            }
+            .almanac-ctrl-select:hover { border-color: rgba(255,255,255,0.32); }
             .almanac-ctrl-select.has-value {
-              border-color: #ff6600;
-              color: #ff6600;
+              border-color: rgba(255,102,0,0.7); color: #ff6600;
               background:
-                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23ff6600'/%3E%3C/svg%3E") no-repeat right 8px center,
-                linear-gradient(180deg, #1a1a1a 0%, #000000 60%);
+                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23ff6600'/%3E%3C/svg%3E") no-repeat right 10px center,
+                linear-gradient(180deg,#1e1000 0%,#0f0800 50%,#0a0500 100%);
             }
-            .almanac-ctrl-divider {
-              width: 1px; height: 22px; background: #333; flex-shrink: 0;
-            }
-            .almanac-ctrl-select option {
-              background: #111111;
-              color: #ffffff;
-              font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
-              font-weight: 700;
-              font-size: 11px;
-            }
-            .almanac-ctrl-select optgroup {
-              background: #0a0a0a;
-              color: #666666;
-              font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
-              font-weight: 700;
-              font-size: 10px;
-            }
+            .almanac-ctrl-divider { width:1px; height:20px; background:rgba(255,255,255,0.12); flex-shrink:0; }
+            .almanac-ctrl-select option { background:#111; color:#fff; font-family:'JetBrains Mono',monospace; font-weight:700; font-size:10px; }
+            .almanac-ctrl-select optgroup { background:#0a0a0a; color:#666; font-family:'JetBrains Mono',monospace; font-weight:700; font-size:9px; }
           `}</style>
 
-          {/* Month Selector */}
-          <select
-            value={selectedMonth}
-            onChange={(e) => {
-              const newMonth = parseInt(e.target.value)
-              setSelectedMonth(newMonth)
-              onMonthChange?.(newMonth)
-            }}
-            className="almanac-ctrl-select"
-          >
-            {MONTH_NAMES.map((name, i) => (
-              <option key={i} value={i}>
-                {name}
-              </option>
-            ))}
-          </select>
+          {/* Single controls row — only when chart view */}
+          {activeView === 'chart' && (() => {
+            const base: React.CSSProperties = {
+              boxSizing: 'border-box',
+              height: '47px', minHeight: '47px', maxHeight: '47px', padding: '0 16px',
+              background: 'linear-gradient(180deg,#2a2a2a 0%,#141414 40%,#060606 70%,#020202 100%)',
+              border: '1px solid rgba(255,255,255,0.22)', borderRadius: '8px',
+              fontSize: '19px', fontFamily: '"JetBrains Mono","Roboto Mono",monospace',
+              fontWeight: 800, letterSpacing: '0.5px', cursor: 'pointer', lineHeight: '1',
+              whiteSpace: 'nowrap', outline: 'none', display: 'inline-flex',
+              alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              boxShadow: '0 2px 0 rgba(255,255,255,0.14) inset,0 -2px 0 rgba(0,0,0,0.8) inset,0 1px 0 rgba(255,255,255,0.08) inset,0 6px 16px rgba(0,0,0,0.9),0 2px 4px rgba(0,0,0,0.7)',
+              transition: 'all 0.12s ease',
+            }
+            const sweetInactive: React.CSSProperties = { ...base, color: '#00e535', WebkitTextFillColor: '#00e535' }
+            const sweetActive: React.CSSProperties = { ...base, color: '#00ff41', WebkitTextFillColor: '#00ff41', border: '1px solid rgba(0,255,65,0.75)', background: 'linear-gradient(180deg,#001a08 0%,#000f04 50%,#000802 100%)', boxShadow: '0 2px 0 rgba(255,255,255,0.08) inset,0 -2px 0 rgba(0,0,0,0.8) inset,0 0 14px rgba(0,255,65,0.35),0 6px 16px rgba(0,0,0,0.9)' }
+            const painInactive: React.CSSProperties = { ...base, color: '#ff3232', WebkitTextFillColor: '#ff3232' }
+            const painActive: React.CSSProperties = { ...base, color: '#ff2222', WebkitTextFillColor: '#ff2222', border: '1px solid rgba(255,50,50,0.75)', background: 'linear-gradient(180deg,#1a0000 0%,#0f0000 50%,#080000 100%)', boxShadow: '0 2px 0 rgba(255,255,255,0.08) inset,0 -2px 0 rgba(0,0,0,0.8) inset,0 0 14px rgba(255,50,50,0.35),0 6px 16px rgba(0,0,0,0.9)' }
+            const inactiveWhite: React.CSSProperties = { ...base, color: '#ffffff', WebkitTextFillColor: '#ffffff' }
+            const cyanActive: React.CSSProperties = { ...base, color: '#00CED1', WebkitTextFillColor: '#00CED1', border: '1px solid rgba(0,206,209,0.75)', background: 'linear-gradient(180deg,#001a1a 0%,#000f0f 50%,#000808 100%)', boxShadow: '0 2px 0 rgba(255,255,255,0.08) inset,0 -2px 0 rgba(0,0,0,0.8) inset,0 0 14px rgba(0,206,209,0.3),0 6px 16px rgba(0,0,0,0.9)' }
+            return (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 10px', flexWrap: 'nowrap', overflowX: 'auto', minHeight: '44px' }}>
 
-          <div className="almanac-ctrl-divider" />
+                {/* VERSATILITY label + dropdown — always visible */}
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                  <span className="alm-versatility-label">
+                    <svg className="alm-icon-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ffd700" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="3" /><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
+                    </svg>
+                    VERSATILITY
+                  </span>
+                  <select value={activeView} onChange={(e) => setActiveView(e.target.value as 'chart' | 'calendar' | 'table')} className={`almanac-ctrl-select${activeView !== 'chart' ? ' has-value' : ''}`} style={{ maxWidth: '185px', border: '1px solid #ff6600', borderBottom: '3px solid #cc4400', background: 'linear-gradient(180deg,#1e0e00 0%,#120800 40%,#090400 70%,#040200 100%)', color: '#ff6600', WebkitTextFillColor: '#ff6600', boxShadow: '0 2px 0 rgba(255,120,0,0.18) inset,0 -3px 0 rgba(0,0,0,0.9) inset,0 0 12px rgba(255,102,0,0.25),0 6px 18px rgba(0,0,0,0.95),2px 0 0 rgba(255,80,0,0.15),-2px 0 0 rgba(255,80,0,0.15)' }}>
+                    <option value="chart">CHART VIEW</option>
+                    <option value="calendar">SEASONAL CALENDAR</option>
+                    <option value="table">SEASONAL TABLE</option>
+                  </select>
+                </div>
 
-          {/* View Buttons */}
-          <button
-            onClick={() => setActiveView('chart')}
-            className={`almanac-ctrl-btn${activeView === 'chart' ? ' active-orange' : ''}`}
-          >
-            CHART
-          </button>
+                {/* Golden separator */}
+                <div className="alm-golden-sep" />
 
-          <button
-            onClick={() => setActiveView('calendar')}
-            className={`almanac-ctrl-btn${activeView === 'calendar' ? ' active-orange' : ''}`}
-          >
-            CALENDAR
-          </button>
-
-          <button
-            onClick={() => setActiveView(activeView === 'table' ? 'chart' : 'table')}
-            className={`almanac-ctrl-btn${activeView === 'table' ? ' active-orange' : ''}`}
-          >
-            SEASONALITY TABLE
-          </button>
-
-          <div className="almanac-ctrl-divider" />
-
-          {/* Legend — each item is a toggle */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              marginLeft: '4px',
-              fontSize: '11px',
-              fontFamily: '"JetBrains Mono", monospace',
-              fontWeight: 700,
-            }}
-          >
-            {isIndex ? (
-              <>
-                {[
-                  { label: 'DIA', color: '#FFFFFF' },
-                  { label: 'SPY', color: '#00C853' },
-                  { label: 'QQQ', color: '#2196F3' },
-                  { label: 'IWM', color: '#FF5722' },
-                ].map(({ label, color }) => (
-                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <div style={{ width: '14px', height: '2px', backgroundColor: color }} />
-                    <span style={{ color }}>{label}</span>
-                  </div>
-                ))}
-              </>
-            ) : (
-              <>
-                {[{ key: 'max', label: '25Y', color: '#FFFFFF', active: showMaxYears, toggle: () => setShowMaxYears((v) => !v) },
-                { key: '15y', label: '15Y', color: '#00BCD4', active: show15Y, toggle: () => setShow15Y((v) => !v) },
-                { key: '10y', label: '10Y', color: '#FF6600', active: show10Y, toggle: () => setShow10Y((v) => !v) },
-                { key: 'elec', label: 'Election', color: '#FFD700', active: showElection, toggle: () => setShowElection((v) => !v) },
-                ].map(({ key, label, color, active, toggle }) => (
-                  <button
-                    key={key}
-                    onClick={toggle}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: '4px',
-                      background: active ? 'rgba(255,255,255,0.06)' : 'transparent',
-                      border: `1px solid ${active ? color : '#333'}`,
-                      borderRadius: '3px',
-                      padding: '2px 6px',
-                      cursor: 'pointer',
-                      opacity: active ? 1 : 0.35,
-                      transition: 'all 0.15s',
-                    }}
-                  >
-                    {key === 'elec'
-                      ? <div style={{ width: '18px', height: '2px', background: `repeating-linear-gradient(90deg,${color} 0px,${color} 5px,transparent 5px,transparent 9px)` }} />
-                      : <div style={{ width: '14px', height: '2px', backgroundColor: color }} />
-                    }
-                    <span style={{ color }}>{label}</span>
+                {/* Chart-view-only controls */}
+                {activeView === 'chart' && (<>
+                  <select value={selectedMonth} onChange={(e) => { const m = parseInt(e.target.value); setSelectedMonth(m); onMonthChange?.(m) }} className="almanac-ctrl-select" style={{ maxWidth: '105px' }}>
+                    {MONTH_NAMES.map((name, i) => <option key={i} value={i}>{name}</option>)}
+                  </select>
+                  <div className="almanac-ctrl-divider" />
+                  {/* Candlenality / Sweet Spot / Pain Point */}
+                  <button onClick={() => setCandlenalityMode((v) => !v)} style={candlenalityMode ? cyanActive : inactiveWhite}>
+                    <svg style={{ marginRight: '5px', flexShrink: 0 }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <line x1="4" y1="3" x2="4" y2="5" /><rect x="2" y="5" width="4" height="9" rx="0.5" /><line x1="4" y1="14" x2="4" y2="17" />
+                      <line x1="12" y1="2" x2="12" y2="4" /><rect x="10" y="4" width="4" height="11" rx="0.5" fill="currentColor" fillOpacity="0.3" /><line x1="12" y1="15" x2="12" y2="18" />
+                      <line x1="20" y1="5" x2="20" y2="7" /><rect x="18" y="7" width="4" height="8" rx="0.5" /><line x1="20" y1="15" x2="20" y2="19" />
+                    </svg>
+                    CANDLENALITY
                   </button>
-                ))}
-              </>
-            )}
-          </div>
-
-          <div className="almanac-ctrl-divider" />
-
-          {/* Events Dropdown */}
-          <select
-            value={selectedEvent || ''}
-            onChange={(e) => {
-              const eventValue = e.target.value
-              if (eventValue) {
-                setSelectedEvent(eventValue)
-                setShowEventPerformance(true)
-                calculateEventPerformance(eventValue)
-              } else {
-                setSelectedEvent(null)
-                setShowEventPerformance(false)
-                setEventPerformanceData([])
-              }
-            }}
-            className={`almanac-ctrl-select${selectedEvent ? ' has-value' : ''}`}
-          >
-            <option value="">MARKET EVENTS ▼</option>
-            <optgroup label="HOLIDAYS">
-              <option value="thanksgiving">THANKSGIVING</option>
-              <option value="christmas">CHRISTMAS</option>
-              <option value="newyear">NEW YEAR</option>
-              <option value="presidentsday">PRESIDENTS DAY</option>
-              <option value="mlkday">MLK DAY</option>
-              <option value="memorialday">MEMORIAL DAY</option>
-              <option value="july4th">JULY 4TH</option>
-              <option value="laborday">LABOR DAY</option>
-            </optgroup>
-            <optgroup label="FOMC MEETINGS">
-              <option value="fomc-march">FOMC MARCH</option>
-              <option value="fomc-june">FOMC JUNE</option>
-              <option value="fomc-september">FOMC SEPTEMBER</option>
-              <option value="fomc-december">FOMC DECEMBER</option>
-            </optgroup>
-            <optgroup label="QUAD WITCHING">
-              <option value="quad-witching-mar">QUAD WITCHING MAR</option>
-              <option value="quad-witching-jun">QUAD WITCHING JUN</option>
-              <option value="quad-witching-sep">QUAD WITCHING SEP</option>
-              <option value="quad-witching-dec">QUAD WITCHING DEC</option>
-            </optgroup>
-            <optgroup label="EARNINGS & RALLIES">
-              <option value="q1-earnings">Q1 EARNINGS</option>
-              <option value="q2-earnings">Q2 EARNINGS</option>
-              <option value="q3-earnings">Q3 EARNINGS</option>
-              <option value="q4-earnings">Q4 EARNINGS</option>
-              <option value="yearendrally">YEAR END RALLY</option>
-              <option value="halloweenrally">HALLOWEEN RALLY</option>
-              <option value="santarally">SANTA RALLY</option>
-              <option value="monthlyopex">MONTHLY OPEX</option>
-            </optgroup>
-          </select>
-
-          {/* Pattern Analysis Dropdown */}
-          <select
-            value={selectedPattern || ''}
-            onChange={(e) => {
-              const patternValue = e.target.value
-              if (patternValue) {
-                const patternLabel = e.target.selectedOptions[0].text
-                setSelectedPattern(patternLabel)
-                setShowPatternPerformance(true)
-                setShowEventPerformance(false)
-                setPatternPerformanceData([])
-                // BOTH options — calculate cooldown + annual together
-                const bothMap: Record<string, [string, string, string, string]> = {
-                  '52week-high-both': [
-                    '52week-high-cooldown',
-                    '52W High (90d Cooldown)',
-                    '52week-high-annual',
-                    '52W High (Annual)',
-                  ],
-                  '52week-low-both': [
-                    '52week-low-cooldown',
-                    '52W Low (90d Cooldown)',
-                    '52week-low-annual',
-                    '52W Low (Annual)',
-                  ],
-                  'move-8-11-up-both': [
-                    'move-8-11-up-cooldown',
-                    '8-11% UP (90d Cooldown)',
-                    'move-8-11-up-annual',
-                    '8-11% UP (Annual)',
-                  ],
-                  'move-8-11-down-both': [
-                    'move-8-11-down-cooldown',
-                    '8-11% DOWN (90d Cooldown)',
-                    'move-8-11-down-annual',
-                    '8-11% DOWN (Annual)',
-                  ],
-                  'move-18-22-up-both': [
-                    'move-18-22-up-cooldown',
-                    '18-22% UP (90d Cooldown)',
-                    'move-18-22-up-annual',
-                    '18-22% UP (Annual)',
-                  ],
-                  'move-18-22-down-both': [
-                    'move-18-22-down-cooldown',
-                    '18-22% DOWN (90d Cooldown)',
-                    'move-18-22-down-annual',
-                    '18-22% DOWN (Annual)',
-                  ],
-                }
-                if (bothMap[patternValue]) {
-                  const [id1, lbl1, id2, lbl2] = bothMap[patternValue]
-                  calculatePatternPerformance(id1, lbl1, symbol)
-                  calculatePatternPerformance(id2, lbl2, symbol)
-                } else {
-                  calculatePatternPerformance(patternValue, patternLabel, symbol)
-                }
-              } else {
-                setSelectedPattern(null)
-                setShowPatternPerformance(false)
-                setPatternPerformanceData([])
-              }
-            }}
-            className={`almanac-ctrl-select${selectedPattern ? ' has-value' : ''}`}
-          >
-            <option value="">MARKET PATTERNS ▼</option>
-            <optgroup label="52-WEEK BREAKOUTS">
-              <option value="52week-high-both">52W High (BOTH)</option>
-              <option value="52week-high-cooldown">52W High (90d Cooldown)</option>
-              <option value="52week-high-annual">52W High (Annual)</option>
-              <option value="52week-low-both">52W Low (BOTH)</option>
-              <option value="52week-low-cooldown">52W Low (90d Cooldown)</option>
-              <option value="52week-low-annual">52W Low (Annual)</option>
-            </optgroup>
-            <optgroup label="8-11% MOVES">
-              <option value="move-8-11-up-both">8-11% UP (BOTH)</option>
-              <option value="move-8-11-up-cooldown">8-11% UP (90d Cooldown)</option>
-              <option value="move-8-11-up-annual">8-11% UP (Annual)</option>
-              <option value="move-8-11-down-both">8-11% DOWN (BOTH)</option>
-              <option value="move-8-11-down-cooldown">8-11% DOWN (90d Cooldown)</option>
-              <option value="move-8-11-down-annual">8-11% DOWN (Annual)</option>
-            </optgroup>
-            <optgroup label="18-22% MOVES">
-              <option value="move-18-22-up-both">18-22% UP (BOTH)</option>
-              <option value="move-18-22-up-cooldown">18-22% UP (90d Cooldown)</option>
-              <option value="move-18-22-up-annual">18-22% UP (Annual)</option>
-              <option value="move-18-22-down-both">18-22% DOWN (BOTH)</option>
-              <option value="move-18-22-down-cooldown">18-22% DOWN (90d Cooldown)</option>
-              <option value="move-18-22-down-annual">18-22% DOWN (Annual)</option>
-            </optgroup>
-          </select>
+                  <button onClick={() => setShowSweetSpot((v) => !v)} style={showSweetSpot ? sweetActive : sweetInactive}>
+                    <svg className="alm-icon-pulse" style={{ marginRight: '5px' }} width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" /></svg>
+                    SWEET SPOT
+                  </button>
+                  <button onClick={() => setShowPainPoint((v) => !v)} style={showPainPoint ? painActive : painInactive}>
+                    <svg className="alm-icon-pulse" style={{ marginRight: '5px' }} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01" /></svg>
+                    PAIN POINT
+                  </button>
+                  <div className="almanac-ctrl-divider" />
+                  {/* Market Events */}
+                  <select value={selectedEvent || ''} onChange={(e) => { const v = e.target.value; if (v) { setSelectedEvent(v); setShowEventPerformance(true); calculateEventPerformance(v) } else { setSelectedEvent(null); setShowEventPerformance(false); setEventPerformanceData([]) } }} className={`almanac-ctrl-select${selectedEvent ? ' has-value' : ''}`} style={{ maxWidth: '135px' }}>
+                    <option value="">MKT EVENTS</option>
+                    <optgroup label="HOLIDAYS">
+                      <option value="thanksgiving">THANKSGIVING</option>
+                      <option value="christmas">CHRISTMAS</option>
+                      <option value="newyear">NEW YEAR</option>
+                      <option value="presidentsday">PRESIDENTS DAY</option>
+                      <option value="mlkday">MLK DAY</option>
+                      <option value="memorialday">MEMORIAL DAY</option>
+                      <option value="july4th">JULY 4TH</option>
+                      <option value="laborday">LABOR DAY</option>
+                    </optgroup>
+                    <optgroup label="FOMC MEETINGS">
+                      <option value="fomc-march">FOMC MARCH</option>
+                      <option value="fomc-june">FOMC JUNE</option>
+                      <option value="fomc-september">FOMC SEPT</option>
+                      <option value="fomc-december">FOMC DEC</option>
+                    </optgroup>
+                    <optgroup label="QUAD WITCHING">
+                      <option value="quad-witching-mar">QW MAR</option>
+                      <option value="quad-witching-jun">QW JUN</option>
+                      <option value="quad-witching-sep">QW SEP</option>
+                      <option value="quad-witching-dec">QW DEC</option>
+                    </optgroup>
+                    <optgroup label="EARNINGS & RALLIES">
+                      <option value="q1-earnings">Q1 EARNINGS</option>
+                      <option value="q2-earnings">Q2 EARNINGS</option>
+                      <option value="q3-earnings">Q3 EARNINGS</option>
+                      <option value="q4-earnings">Q4 EARNINGS</option>
+                      <option value="yearendrally">YEAR END RALLY</option>
+                      <option value="halloweenrally">HALLOWEEN RALLY</option>
+                      <option value="santarally">SANTA RALLY</option>
+                      <option value="monthlyopex">MONTHLY OPEX</option>
+                    </optgroup>
+                  </select>
+                  {/* Market Patterns */}
+                  <select value={selectedPattern || ''} onChange={(e) => { const pv = e.target.value; if (pv) { const pl = e.target.selectedOptions[0].text; setSelectedPattern(pl); setShowPatternPerformance(true); setShowEventPerformance(false); setPatternPerformanceData([]); const bothMap: Record<string, [string, string, string, string]> = { '52week-high-both': ['52week-high-cooldown', '52W High (90d Cooldown)', '52week-high-annual', '52W High (Annual)'], '52week-low-both': ['52week-low-cooldown', '52W Low (90d Cooldown)', '52week-low-annual', '52W Low (Annual)'], 'move-8-11-up-both': ['move-8-11-up-cooldown', '8-11% UP (90d Cooldown)', 'move-8-11-up-annual', '8-11% UP (Annual)'], 'move-8-11-down-both': ['move-8-11-down-cooldown', '8-11% DOWN (90d Cooldown)', 'move-8-11-down-annual', '8-11% DOWN (Annual)'], 'move-18-22-up-both': ['move-18-22-up-cooldown', '18-22% UP (90d Cooldown)', 'move-18-22-up-annual', '18-22% UP (Annual)'], 'move-18-22-down-both': ['move-18-22-down-cooldown', '18-22% DOWN (90d Cooldown)', 'move-18-22-down-annual', '18-22% DOWN (Annual)'] }; if (bothMap[pv]) { const [i1, l1, i2, l2] = bothMap[pv]; calculatePatternPerformance(i1, l1, symbol); calculatePatternPerformance(i2, l2, symbol) } else { calculatePatternPerformance(pv, pl, symbol) } } else { setSelectedPattern(null); setShowPatternPerformance(false); setPatternPerformanceData([]) } }} className={`almanac-ctrl-select${selectedPattern ? ' has-value' : ''}`} style={{ maxWidth: '195px' }}>
+                    <option value="">MARKET PATTERNS</option>
+                    <optgroup label="52-WEEK BREAKOUTS">
+                      <option value="52week-high-both">52W High (BOTH)</option>
+                      <option value="52week-high-cooldown">52W High (90d Cooldown)</option>
+                      <option value="52week-high-annual">52W High (Annual)</option>
+                      <option value="52week-low-both">52W Low (BOTH)</option>
+                      <option value="52week-low-cooldown">52W Low (90d Cooldown)</option>
+                      <option value="52week-low-annual">52W Low (Annual)</option>
+                    </optgroup>
+                    <optgroup label="8-11% MOVES">
+                      <option value="move-8-11-up-both">8-11% UP (BOTH)</option>
+                      <option value="move-8-11-up-cooldown">8-11% UP (90d Cooldown)</option>
+                      <option value="move-8-11-up-annual">8-11% UP (Annual)</option>
+                      <option value="move-8-11-down-both">8-11% DOWN (BOTH)</option>
+                      <option value="move-8-11-down-cooldown">8-11% DOWN (90d Cooldown)</option>
+                      <option value="move-8-11-down-annual">8-11% DOWN (Annual)</option>
+                    </optgroup>
+                    <optgroup label="18-22% MOVES">
+                      <option value="move-18-22-up-both">18-22% UP (BOTH)</option>
+                      <option value="move-18-22-up-cooldown">18-22% UP (90d Cooldown)</option>
+                      <option value="move-18-22-up-annual">18-22% UP (Annual)</option>
+                      <option value="move-18-22-down-both">18-22% DOWN (BOTH)</option>
+                      <option value="move-18-22-down-cooldown">18-22% DOWN (90d Cooldown)</option>
+                      <option value="move-18-22-down-annual">18-22% DOWN (Annual)</option>
+                    </optgroup>
+                  </select>
+                </>)}
+              </div>
+            )
+          })()}
         </div>}
       </div>
 
       <div className="chart-container" ref={containerRef}
-        style={isMobileView ? { flex: 1, minHeight: 0, height: undefined } : undefined}>
+        style={isMobileView ? { flex: 1, minHeight: 0, height: undefined, position: 'relative' } : { position: 'relative' }}>
+
+        {/* Legend — top-center overlay */}
+        {activeView === 'chart' && !isMobileView && (
+          <div style={{
+            position: 'absolute',
+            top: '10px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 100,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '11px',
+            fontFamily: '"JetBrains Mono", monospace',
+            fontWeight: 700,
+            pointerEvents: 'auto',
+          }}>
+            {isIndex ? (
+              [
+                { label: 'DIA', color: '#FFFFFF' },
+                { label: 'SPY', color: '#00C853' },
+                { label: 'QQQ', color: '#2196F3' },
+                { label: 'IWM', color: '#FF5722' },
+              ].map(({ label, color }) => (
+                <div key={label} style={{
+                  display: 'flex', alignItems: 'center', gap: '5px',
+                  background: 'rgba(8,8,8,0.75)', backdropFilter: 'blur(10px)',
+                  border: `1px solid ${color}44`, borderRadius: '6px', padding: '3px 8px'
+                }}>
+                  <div style={{ width: '16px', height: '2px', backgroundColor: color, borderRadius: '1px' }} />
+                  <span style={{ color }}>{label}</span>
+                </div>
+              ))
+            ) : (
+              [{ key: 'max', label: '25Y', color: '#FFFFFF', active: showMaxYears, toggle: () => setShowMaxYears((v) => !v) },
+              { key: '15y', label: '15Y', color: '#00BCD4', active: show15Y, toggle: () => setShow15Y((v) => !v) },
+              { key: '10y', label: '10Y', color: '#FF6600', active: show10Y, toggle: () => setShow10Y((v) => !v) },
+              { key: 'elec', label: 'Election', color: '#FFD700', active: showElection, toggle: () => setShowElection((v) => !v) },
+              ].map(({ key, label, color, active, toggle }) => (
+                <button key={key} onClick={toggle} style={{
+                  display: 'flex', alignItems: 'center', gap: '5px',
+                  background: active ? 'rgba(8,8,8,0.80)' : 'rgba(8,8,8,0.50)',
+                  backdropFilter: 'blur(10px)',
+                  border: `1px solid ${active ? color + '88' : 'rgba(255,255,255,0.10)'}`,
+                  borderRadius: '6px', padding: '3px 8px',
+                  cursor: 'pointer', opacity: active ? 1 : 0.35, transition: 'all 0.15s',
+                  fontFamily: '"JetBrains Mono", monospace', fontSize: '11px', fontWeight: 700,
+                }}>
+                  {key === 'elec'
+                    ? <div style={{ width: '18px', height: '2px', background: `repeating-linear-gradient(90deg,${color} 0px,${color} 5px,transparent 5px,transparent 9px)`, borderRadius: '1px' }} />
+                    : <div style={{ width: '16px', height: '2px', backgroundColor: color, borderRadius: '1px' }} />
+                  }
+                  <span style={{ color }}>{label}</span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+
         {loading && (
           <div className="chart-loading">
             <div className="loading-spinner"></div>
@@ -1991,7 +2014,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
             style={{
               width: '100%',
               overflow: 'auto',
-              padding: getAlmanacDailyChartPadding(),
+              padding: '0',
             }}
           >
             <style>{`
@@ -2060,17 +2083,13 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
               month={selectedMonth}
               year={new Date().getFullYear()}
               symbol={symbol}
+              onBack={() => setActiveView('chart')}
             />
           </div>
         )}
         {activeView === 'table' && (
-          <div
-            style={{
-              padding: '0',
-              margin: '0',
-            }}
-          >
-            <WeeklyScanTable />
+          <div style={{ padding: '0', margin: '0' }}>
+            <WeeklyScanTable onBack={() => setActiveView('chart')} />
           </div>
         )}
       </div>

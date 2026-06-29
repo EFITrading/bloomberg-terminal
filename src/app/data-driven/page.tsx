@@ -36,8 +36,8 @@ export default function DataDriven() {
               marginTop: '0',
             }}
           >
-            <div style={{ minWidth: 0, width: '100%' }}>
-              <SeasonalityChart autoStart={true} hideScreener={true} />
+            <div style={{ minWidth: 0, width: '100%', paddingTop: '20px' }}>
+              <SeasonalityChart autoStart={true} hideScreener={true} initialSymbol="SPY" />
             </div>
             <div
               style={{

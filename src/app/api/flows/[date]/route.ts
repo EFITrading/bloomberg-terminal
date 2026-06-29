@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/prisma';
 import { gunzip } from 'zlib';
 import { promisify } from 'util';
-
-// Use direct DB URL (POSTGRES_URL) to bypass Prisma Accelerate's 5MB response size limit (P6009).
-// Flow records can exceed 5MB when compressed, so we skip the Accelerate proxy here.
-const prisma = new PrismaClient({
-  datasourceUrl: process.env.POSTGRES_URL,
-});
 
 const gunzipAsync = promisify(gunzip);
 

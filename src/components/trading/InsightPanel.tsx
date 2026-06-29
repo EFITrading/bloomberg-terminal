@@ -11,7 +11,7 @@ const EFIPopupChart = dynamic(
   () => import('./EFICharting').then((m) => ({ default: m.TradePopupChart })),
   { ssr: false }
 )
-// ── Types ────────────────────────────────────────────────────────────────────
+// â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 type BriefBlockType =
   | 'intro'
   | 'body'
@@ -59,12 +59,83 @@ interface SavedReport {
   snapshot: InsightData
 }
 
-// ── Storage & helpers ─────────────────────────────────────────────────────────
+// â”€â”€ Quick Brief types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+interface MktDataItem { label: string; value: string; change: string; up: boolean }
+interface BulletItem { category: string; text: string }
+interface KeyLevelItem { price: string; tag: string; note: string }
+interface FocusItem { id: string; ticker: string; direction: 'bull' | 'bear' | 'straddle' | 'neutral' | 'hot'; bullets: string[]; trade: string }
+interface TradeRow { id: string; ticker: string; type: 'call' | 'put' | 'straddle' | 'spread' | 'stock'; contract: string; entry: string; t1: string; t2: string; stop: string; notes: string }
+interface QuickBrief {
+  mode: 'daily' | 'weekly' | 'monthly'
+  headline: string
+  summary: string
+  layout: 'single' | 'double'
+  marketData: MktDataItem[]
+  focusItems: FocusItem[]
+  bullets: BulletItem[]
+  trades: TradeRow[]
+  keyLevels: KeyLevelItem[]
+  updatedAt: string
+}
+
+// â”€â”€ Storage & helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const STORAGE_KEY = 'efi_insight_v1'
 const HISTORY_KEY = 'efi_insight_history_v1'
+const QUICK_KEY = 'efi_quick_v1'
 
 const emptyData: InsightData = {
   brief: { blocks: [], theme: 'goldman', updatedAt: '' },
+}
+const emptyQuick: QuickBrief = {
+  mode: 'daily',
+  headline: '',
+  summary: '',
+  layout: 'single',
+  marketData: [
+    { label: 'SPX', value: '', change: '', up: true },
+    { label: 'NDX', value: '', change: '', up: true },
+    { label: 'VIX', value: '', change: '', up: false },
+    { label: 'DXY', value: '', change: '', up: false },
+    { label: 'OIL', value: '', change: '', up: true },
+    { label: 'BTC', value: '', change: '', up: true },
+  ],
+  focusItems: [],
+  bullets: [
+    { category: 'THEME', text: '' },
+    { category: 'RISK', text: '' },
+    { category: 'CATALYST', text: '' },
+    { category: 'SETUP', text: '' },
+  ],
+  trades: [],
+  keyLevels: [
+    { price: '', tag: 'RESISTANCE', note: '' },
+    { price: '', tag: 'CURRENT', note: '' },
+    { price: '', tag: 'SUPPORT', note: '' },
+  ],
+  updatedAt: '',
+}
+const BULLET_CATS = ['THEME', 'RISK', 'CATALYST', 'SETUP', 'WATCH', 'NOTE']
+const LEVEL_TAGS = ['RESISTANCE', 'SUPPORT', 'CURRENT', 'PIVOT', 'TARGET', 'STOP', 'KEY']
+const BRIEF_MODES = [{ id: 'daily', label: 'DAILY PULSE' }, { id: 'weekly', label: 'WEEKLY BRIEF' }, { id: 'monthly', label: 'MONTHLY OUTLOOK' }]
+const BULLET_COLORS: Record<string, string> = {
+  THEME: '#FF6600', RISK: '#FF3B3B', CATALYST: '#22D3EE',
+  SETUP: '#A855F7', WATCH: '#FFD700', NOTE: 'rgba(255,255,255,0.35)',
+}
+const LEVEL_TAG_COLORS: Record<string, string> = {
+  RESISTANCE: '#FF3B3B', SUPPORT: '#00D68F', CURRENT: '#FFD700',
+  PIVOT: '#A855F7', TARGET: '#22D3EE', STOP: '#FF3B3B', KEY: '#FF6600',
+}
+// â”€â”€ Quick-pulse direction helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const QD_COLOR: Record<string, string> = { bull: '#00D68F', bear: '#FF3B3B', straddle: '#A855F7', neutral: '#9AAAB8', hot: '#FF6600' }
+const QD_LABEL: Record<string, string> = { bull: 'BULLISH', bear: 'BEARISH', straddle: 'STRADDLE', neutral: 'NEUTRAL', hot: 'TOP FOCUS' }
+const QD_TRADE_CLR: Record<string, string> = { call: '#00D68F', put: '#FF3B3B', straddle: '#A855F7', spread: '#FFD700', stock: '#22D3EE' }
+function renderDirIcon(d: string, size = 18): React.ReactElement {
+  const c = QD_COLOR[d] || '#9AAAB8'
+  if (d === 'bull') return <svg width={size} height={size} viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="8.5" fill={`${c}22`} stroke={c} strokeWidth="1" /><path d="M9 13V5M6 8l3-3 3 3" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+  if (d === 'bear') return <svg width={size} height={size} viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="8.5" fill={`${c}22`} stroke={c} strokeWidth="1" /><path d="M9 5v8M12 10l-3 3-3-3" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+  if (d === 'straddle') return <svg width={size} height={size} viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="8.5" fill={`${c}22`} stroke={c} strokeWidth="1" /><path d="M3 9h12M6 6l-3 3 3 3M12 6l3 3-3 3" stroke={c} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+  if (d === 'hot') return <svg width={size} height={size} viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="8.5" fill={`${c}22`} stroke={c} strokeWidth="1" /><path d="M10 3.5L7 9h4l-3 5.5" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+  return <svg width={size} height={size} viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="8.5" fill={`${c}22`} stroke={c} strokeWidth="1" /><path d="M5.5 9h7" stroke={c} strokeWidth="2" strokeLinecap="round" /></svg>
 }
 
 const uid = () => Math.random().toString(36).slice(2, 10)
@@ -80,7 +151,7 @@ const fmtTs = (iso: string) =>
     })
     : ''
 
-// ── Design tokens — multi-layer premium palette ──────────────────────────────
+// â”€â”€ Design tokens â€” multi-layer premium palette â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const GS = {
   gold: '#D4A843', // warm amber-gold
   goldFaint: '#080808', // pure void black
@@ -97,7 +168,7 @@ const GS = {
   live: '#FF2D55',
 }
 
-// ── Shared inline styles — glossy premium ────────────────────────────────────
+// â”€â”€ Shared inline styles â€” glossy premium â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const iBase: React.CSSProperties = {
   background: '#020202',
   border: '1px solid rgba(212,168,67,0.25)',
@@ -122,7 +193,7 @@ const goldBtn: React.CSSProperties = {
   fontFamily: 'monospace',
   cursor: 'pointer',
   borderRadius: '4px',
-  boxShadow: '0 4px 16px rgba(212,168,67,0.3), inset 0 1px 0 rgba(255,255,255,0.2)',
+  boxShadow: '0 4px 16px rgba(212,168,67,0.3), inset 0 1px 0 rgba(255,255,255,0.65)',
 }
 const rmBtn: React.CSSProperties = {
   background: 'rgba(255,45,85,0.07)',
@@ -150,7 +221,7 @@ const ghostBtn = (color: string): React.CSSProperties => ({
   boxShadow: `0 0 10px ${color}18`,
 })
 
-// ── Draggable chart wrapper ────────────────────────────────────────────────────
+// â”€â”€ Draggable chart wrapper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function ChartDraggableWrapper({
   children,
   editMode,
@@ -198,7 +269,7 @@ function ChartDraggableWrapper({
               width: '40px',
               height: '3px',
               borderRadius: '2px',
-              background: 'rgba(255,255,255,0.18)',
+              background: '#FFFFFF',
             }}
           />
         </div>
@@ -208,11 +279,11 @@ function ChartDraggableWrapper({
   )
 }
 
-// ── Accent theming context ────────────────────────────────────────────────────
+// â”€â”€ Accent theming context â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const AccentCtx = React.createContext('#D4A843')
 const useAccent = () => React.useContext(AccentCtx)
 
-// ── Shared sub-components — premium ──────────────────────────────────────────
+// â”€â”€ Shared sub-components â€” premium â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const SectionTitle = ({ children }: { children: React.ReactNode }) => {
   const accent = useAccent()
   return (
@@ -352,7 +423,7 @@ const AddFormBox = ({ children }: { children: React.ReactNode }) => {
   )
 }
 
-// ── Rich Body Editor ─────────────────────────────────────────────────────────
+// â”€â”€ Rich Body Editor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const FONTS = [
   { label: 'Georgia', value: 'Georgia, serif' },
   { label: 'Times New Roman', value: '"Times New Roman", serif' },
@@ -387,7 +458,7 @@ function RichBodyEditor({
   const editorRef = useRef<HTMLDivElement>(null)
   const isInitialized = useRef(false)
   const [colorMode, setColorMode] = React.useState<'text' | 'hl'>('text')
-  // Self-contained undo/redo stack — never touches anything outside this editor
+  // Self-contained undo/redo stack â€” never touches anything outside this editor
   const histRef = useRef<string[]>([])
   const histIdxRef = useRef(-1)
   const applyingRef = useRef(false)
@@ -485,7 +556,7 @@ function RichBodyEditor({
     height: '24px',
     borderRadius: '4px',
     background: bg === 'transparent' ? '#181818' : bg,
-    border: bg === 'transparent' ? '1px dashed #555' : '1px solid rgba(255,255,255,0.18)',
+    border: bg === 'transparent' ? '1px dashed #555' : '1px solid #FFFFFF',
     cursor: 'pointer',
     padding: 0,
     flexShrink: 0,
@@ -566,7 +637,7 @@ function RichBodyEditor({
           style={{
             ...btn(),
             background: colorMode === 'text' ? `${accent}22` : 'rgba(255,255,255,0.07)',
-            border: `1px solid ${colorMode === 'text' ? accent : 'rgba(255,255,255,0.2)'}`,
+            border: `1px solid ${colorMode === 'text' ? accent : 'rgba(255,255,255,0.65)'}`,
             color: colorMode === 'text' ? accent : '#F1F5F9',
             minWidth: '44px',
           }}
@@ -587,7 +658,7 @@ function RichBodyEditor({
               borderRadius: '4px',
               background: c.v === 'transparent' ? '#181818' : c.v,
               border:
-                c.v === 'transparent' ? '1px dashed #555' : '1px solid rgba(255,255,255,0.18)',
+                c.v === 'transparent' ? '1px dashed #555' : '1px solid #FFFFFF',
               cursor: 'pointer',
               padding: 0,
               flexShrink: 0,
@@ -624,7 +695,7 @@ function RichBodyEditor({
             undo()
           }}
         >
-          ↩
+          â†©
         </button>
         <button
           style={btn()}
@@ -634,7 +705,7 @@ function RichBodyEditor({
             redo()
           }}
         >
-          ↪
+          â†ª
         </button>
         <button
           style={btn()}
@@ -673,7 +744,7 @@ function RichBodyEditor({
   )
 }
 
-// ── BRIEF ─ Block Layout Editor ─────────────────────────────────────────────────
+// â”€â”€ BRIEF â”€ Block Layout Editor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const BRIEF_THEMES: Record<string, string> = {
   goldman: '#D4A843',
   bloomberg: '#FF6B00',
@@ -748,7 +819,7 @@ const EMPTY_TARGETS: FlowTargets = {
 
 // Compute live DTE from today using expiry string (YYYY-MM-DD)
 function liveDTE(expiry: string): number {
-  // market close is 4:00 PM ET — derive correct UTC offset (EDT=-04:00, EST=-05:00)
+  // market close is 4:00 PM ET â€” derive correct UTC offset (EDT=-04:00, EST=-05:00)
   const probe = new Date(expiry + 'T12:00:00Z')
   const isEDT = probe
     .toLocaleString('en-US', { timeZone: 'America/New_York', timeZoneName: 'short' })
@@ -964,7 +1035,7 @@ function FlowBlockView({ block, accent }: { block: BriefBlock; accent: string })
             fontWeight: 700,
           }}
         >
-          FLOW — SELECT FROM TRACKER IN EDIT
+          FLOW â€” SELECT FROM TRACKER IN EDIT
         </span>
       </div>
     )
@@ -1099,281 +1170,116 @@ function FlowBlockView({ block, accent }: { block: BriefBlock; accent: string })
   if (flow.exchange_name)
     detailCells.push({ label: 'EXCH', value: flow.exchange_name, color: '#ffffff' })
 
+  const isCall = flow.type === 'call'
+  const sideLabel = isSoldToOpen ? 'SOLD TO OPEN' : 'BOT TO OPEN'
+  const detailGrid = detailCells.filter(c => !['STOCK PRICE', 'OPT PRICE'].includes(c.label))
+  const liveData = detailCells.filter(c => ['STOCK PRICE', 'OPT PRICE'].includes(c.label))
+
   return (
-    <div
-      style={{
-        marginBottom: '20px',
-        borderRadius: '6px',
-        overflow: 'hidden',
-        background: 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 40%, #050505 100%)',
-        border: '1px solid #ff8800',
-        boxShadow: '0 4px 16px rgba(0,0,0,0.8)',
-      }}
-    >
-      <div style={{ padding: '4px' }}>
-        <table
-          style={{
-            width: '100%',
-            textAlign: 'center',
-            tableLayout: 'fixed',
-            borderCollapse: 'collapse',
-          }}
-        >
-          <tbody>
-            <tr style={{ borderBottom: '1px solid #444' }}>
-              <td style={{ padding: '6px 4px', width: '15%' }}>
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: '4px',
-                  }}
-                >
-                  <span
-                    style={{
-                      background: 'linear-gradient(180deg, #1f2937, #000)',
-                      color: '#ff8800',
-                      fontWeight: 'bold',
-                      padding: '3px 8px',
-                      border: '1px solid #666',
-                      fontSize: '22px',
-                      fontFamily: 'monospace',
-                    }}
-                  >
-                    {flow.underlying_ticker}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: '18px',
-                      color: '#ffffff',
-                      fontWeight: 'bold',
-                      fontFamily: 'monospace',
-                    }}
-                  >
-                    {flowFmtTime(flow.trade_timestamp)}
-                  </span>
-                </div>
-              </td>
-              <td style={{ padding: '6px 4px', width: '15%' }}>
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: '4px',
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: '22px',
-                      color: '#ffffff',
-                      fontWeight: 700,
-                      fontFamily: 'monospace',
-                    }}
-                  >
-                    ${flow.strike}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: '20px',
-                      color: typeColor,
-                      fontWeight: 'bold',
-                      fontFamily: 'monospace',
-                    }}
-                  >
-                    {flow.type?.toUpperCase()}
-                  </span>
-                </div>
-              </td>
-              <td style={{ padding: '6px 4px', width: '30%' }}>
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: '4px',
-                  }}
-                >
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      flexWrap: 'wrap',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: '22px',
-                        color: '#00ccff',
-                        fontWeight: 'bold',
-                        fontFamily: 'monospace',
-                      }}
-                    >
-                      {(flow.trade_size || 0).toLocaleString()}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: '22px',
-                        color: '#FFD700',
-                        fontFamily: 'monospace',
-                        fontWeight: 700,
-                      }}
-                    >
-                      @${entryPrice?.toFixed(2)}
-                    </span>
-                    {fillStyle && (
-                      <span
-                        style={{
-                          fontSize: '22px',
-                          fontWeight: 'bold',
-                          color: fillColor,
-                          fontFamily: 'monospace',
-                        }}
-                      >
-                        {fillStyle}
-                      </span>
-                    )}
-                  </div>
-                  <span
-                    style={{
-                      fontSize: '20px',
-                      fontWeight: 'bold',
-                      color: '#00ff44',
-                      fontFamily: 'monospace',
-                    }}
-                  >
-                    {flowFmtCurrency(flow.total_premium)}
-                  </span>
-                </div>
-              </td>
-              <td style={{ padding: '6px 4px', width: '20%' }}>
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: '4px',
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: '20px',
-                      color: '#ffffff',
-                      fontFamily: 'monospace',
-                      fontWeight: 700,
-                    }}
-                  >
-                    {flowFmtDate(flow.expiry)}
-                  </span>
-                  {(flow.trade_type === 'SWEEP' || flow.trade_type === 'BLOCK') && (
-                    <span
-                      style={{
-                        fontSize: '20px',
-                        fontWeight: 'bold',
-                        color: tradeTypeColor,
-                        fontFamily: 'monospace',
-                      }}
-                    >
-                      {flow.trade_type}
-                    </span>
-                  )}
-                </div>
-              </td>
-              <td style={{ padding: '6px 4px', width: '20%' }}>
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: '4px',
-                  }}
-                >
-                  {hasPnl ? (
-                    <span
-                      style={{
-                        fontSize: '20px',
-                        fontWeight: 'bold',
-                        color: priceHigher ? '#00ff00' : '#ff0000',
-                        fontFamily: 'monospace',
-                      }}
-                    >
-                      {priceHigher ? '+' : ''}
-                      {percentChange.toFixed(1)}%
-                    </span>
-                  ) : (
-                    <span
-                      style={{
-                        fontSize: '20px',
-                        color: '#ffffff',
-                        fontFamily: 'monospace',
-                        fontWeight: 700,
-                      }}
-                    >
-                      -
-                    </span>
-                  )}
-                  {gradeResult.grade !== 'N/A' && (
-                    <span
-                      style={{
-                        fontSize: '26px',
-                        fontWeight: 900,
-                        color: gradeResult.color,
-                        textShadow: `0 0 8px ${gradeResult.color}`,
-                        fontFamily: 'monospace',
-                      }}
-                    >
-                      {gradeResult.grade}
-                    </span>
-                  )}
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+    <div style={{
+      marginBottom: '18px',
+      border: `1px solid rgba(255,255,255,0.08)`,
+      borderLeft: `3px solid ${typeColor}`,
+      background: '#050505',
+      fontFamily: 'monospace',
+      overflow: 'hidden',
+    }}>
+      {/* â”€â”€ Wire ticket header bar â”€â”€ */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '6px 12px',
+        background: '#0a0a0a',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        gap: '8px', flexWrap: 'wrap',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {isCall ? <CallIcon size={16} /> : <PutIcon size={16} />}
+          <span style={{ fontSize: '10px', fontWeight: 900, letterSpacing: '3px', color: typeColor }}>{flow.type?.toUpperCase()}</span>
+          {fillStyle && (
+            <span style={{
+              fontSize: '9px', padding: '1px 6px', letterSpacing: '2px', fontWeight: 700,
+              border: `1px solid ${fillColor}44`, background: `${fillColor}0D`, color: fillColor,
+            }}>{sideLabel} · {fillStyle}</span>
+          )}
+          {(flow.trade_type === 'SWEEP' || flow.trade_type === 'BLOCK') && (
+            <span style={{
+              fontSize: '9px', padding: '1px 6px', letterSpacing: '2px', fontWeight: 700,
+              border: `1px solid ${tradeTypeColor}44`, background: `${tradeTypeColor}0D`, color: tradeTypeColor,
+            }}>{flow.trade_type}</span>
+          )}
+        </div>
+        <span style={{ fontSize: '9px', color: '#FFFFFF', letterSpacing: '1.5px' }}>
+          {flowFmtTime(flow.trade_timestamp)} · EXP {flowFmtDate(flow.expiry)}
+        </span>
       </div>
-      {detailCells.length > 0 && (
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            padding: '8px 4px',
-            borderTop: '1px solid #444',
-          }}
-        >
-          {detailCells.map((item, idx) => (
-            <div
-              key={idx}
-              style={{
-                flex: '1 1 auto',
-                minWidth: '70px',
-                padding: '4px 8px',
-                borderRight: idx < detailCells.length - 1 ? '1px solid #333' : 'none',
-                textAlign: 'center',
-              }}
-            >
-              <div
-                style={{
-                  fontSize: '12px',
-                  fontFamily: 'monospace',
-                  color: '#ff8800',
-                  letterSpacing: '1px',
-                  marginBottom: '3px',
-                  fontWeight: 700,
-                }}
-              >
+
+      {/* â”€â”€ Primary row: ticker + title â”€â”€ */}
+      <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '8px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '20px', fontWeight: 900, color: '#FFFFFF', letterSpacing: '1px' }}>
+            {flow.underlying_ticker}
+          </span>
+          <span style={{ fontSize: '14px', fontWeight: 700, color: typeColor, letterSpacing: '0.5px' }}>
+            ${flow.strike} {flow.type?.toUpperCase()}
+          </span>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {hasPnl && (
+              <span style={{
+                fontSize: '13px', fontWeight: 900,
+                color: priceHigher ? '#00D68F' : '#FF3B3B',
+              }}>
+                {priceHigher ? '▲' : '▼'} {priceHigher ? '+' : ''}{percentChange.toFixed(1)}%
+              </span>
+            )}
+            {gradeResult.grade !== 'N/A' && (
+              <span style={{
+                fontSize: '13px', fontWeight: 900, color: gradeResult.color,
+                border: `1px solid ${gradeResult.color}44`, padding: '1px 6px',
+              }}>{gradeResult.grade}</span>
+            )}
+          </div>
+        </div>
+
+        {/* â”€â”€ Key deal metrics â”€â”€ */}
+        <div style={{ display: 'flex', gap: '0', flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+          {[
+            { label: 'CONTRACTS', value: (flow.trade_size || 0).toLocaleString(), color: '#22D3EE' },
+            { label: 'ENTRY', value: `$${entryPrice?.toFixed(2)}`, color: '#FFD700' },
+            { label: 'TOTAL PREM', value: flowFmtCurrency(flow.total_premium), color: '#00D68F' },
+            ...liveData.map(c => ({ label: c.label.replace(' PRICE', ''), value: c.value, color: c.color || '#fff' })),
+          ].map((item, i, arr) => (
+            <div key={i} style={{
+              padding: '8px 12px',
+              borderRight: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+              minWidth: '80px',
+            }}>
+              <div style={{ fontSize: '8px', color: '#FFFFFF', letterSpacing: '2px', marginBottom: '3px', fontWeight: 700 }}>
                 {item.label}
               </div>
-              <div
-                style={{
-                  fontSize: '16px',
-                  fontFamily: 'monospace',
-                  fontWeight: 700,
-                  color: item.color || '#ffffff',
-                }}
-              >
+              <div style={{ fontSize: '13px', fontWeight: 700, color: item.color }}>
+                {item.value}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* â”€â”€ Analytics grid â”€â”€ */}
+      {detailGrid.length > 0 && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(85px, 1fr))',
+        }}>
+          {detailGrid.map((item, idx, arr) => (
+            <div key={idx} style={{
+              padding: '6px 10px',
+              borderRight: idx < arr.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+              borderTop: '1px solid rgba(255,255,255,0.04)',
+            }}>
+              <div style={{ fontSize: '8px', color: '#FFFFFF', letterSpacing: '2px', marginBottom: '3px', fontWeight: 700 }}>
+                {item.label}
+              </div>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: item.color || '#FFFFFF' }}>
                 {item.value}
               </div>
             </div>
@@ -1388,151 +1294,167 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
   switch (block.type) {
     case 'header':
       return (
-        <div
-          style={{
-            paddingBottom: '24px',
-            marginBottom: '32px',
-            borderBottom: `1px solid ${accent}30`,
-            position: 'relative',
-          }}
-        >
-          <div
-            style={{
-              position: 'absolute',
-              bottom: 0,
-              left: 0,
-              right: 0,
-              height: '3px',
-              background: `linear-gradient(90deg, ${accent}, ${accent}00)`,
-            }}
-          />
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: '16px',
-            }}
-          >
-            <span
-              style={{
-                fontSize: '18px',
-                letterSpacing: '6px',
-                color: accent,
-                fontWeight: 900,
-                fontFamily: 'monospace',
-              }}
-            >
-              {block.logoText || 'EFI TRADING DESK'}
-            </span>
+        <div style={{ marginBottom: '32px', position: 'relative' }}>
+          {/* Top wire rule */}
+          <div style={{ height: '3px', background: accent, marginBottom: '0' }} />
+          <div style={{ height: '1px', background: `${accent}40`, marginBottom: '12px' }} />
+          {/* Masthead row */}
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+            padding: '10px 0 10px',
+            borderBottom: `1px solid ${accent}25`,
+            marginBottom: '20px',
+          }}>
+            <div>
+              <div style={{
+                fontSize: '11px', fontWeight: 900, letterSpacing: '5px',
+                color: accent, fontFamily: 'monospace', lineHeight: 1,
+                marginBottom: '4px', textTransform: 'uppercase',
+              }}>
+                {block.logoText || 'EFI TRADING DESK'}
+              </div>
+              <div style={{
+                fontSize: '11px', letterSpacing: '2px',
+                color: '#FFFFFF', fontFamily: 'monospace',
+              }}>
+                MARKET INTELLIGENCE · PROPRIETARY RESEARCH
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{
+                fontSize: '11px', letterSpacing: '2px',
+                color: '#FFFFFF', fontFamily: 'monospace',
+                marginBottom: '3px',
+              }}>
+                {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).toUpperCase()}
+              </div>
+              <div style={{
+                fontSize: '11px', letterSpacing: '2px',
+                color: accent, fontFamily: 'monospace', fontWeight: 700,
+              }}>
+                INTERNAL USE ONLY
+              </div>
+            </div>
           </div>
-          <div
-            style={{
-              fontSize: '54px',
-              fontWeight: 900,
-              letterSpacing: '4px',
-              lineHeight: 1.05,
-              fontFamily: 'serif',
-              background: `linear-gradient(135deg, #FFFFFF 20%, ${accent} 110%)`,
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-            }}
-          >
+          {/* Headline */}
+          <div style={{
+            fontSize: '34px', fontWeight: 900, lineHeight: 1.15,
+            fontFamily: '"Times New Roman", Georgia, serif',
+            color: '#FFFFFF', letterSpacing: '0.5px',
+            marginBottom: block.subtitle ? '12px' : '0',
+          }}>
             {block.title || 'MARKET BRIEF'}
           </div>
+          {/* Deck / subtitle */}
           {block.subtitle && (
-            <div
-              style={{
-                fontSize: '20px',
-                color: accent,
-                letterSpacing: '3px',
-                marginTop: '10px',
-                fontFamily: 'monospace',
-              }}
-            >
+            <div style={{
+              fontSize: '15px', color: '#FFFFFF',
+              lineHeight: 1.6, fontFamily: 'Georgia, serif',
+              paddingTop: '10px',
+              borderTop: `1px solid rgba(255,255,255,0.08)`,
+              marginTop: '4px',
+            }}>
               {block.subtitle}
             </div>
           )}
+          {/* Bottom rule */}
+          <div style={{ height: '1px', background: `${accent}25`, marginTop: '20px' }} />
         </div>
       )
     case 'intro':
       return (
-        <div
-          style={{ borderLeft: `6px solid ${accent}`, paddingLeft: '22px', marginBottom: '28px' }}
-        >
-          <div
-            style={{
-              color: GS.white,
-              fontSize: '22px',
-              lineHeight: '1.9',
-              fontFamily: 'Georgia, serif',
+        <div style={{ marginBottom: '24px', position: 'relative' }}>
+          {/* Lede label */}
+          <div style={{
+            fontSize: '9px', fontWeight: 900, letterSpacing: '4px',
+            color: accent, fontFamily: 'monospace', marginBottom: '10px',
+            paddingBottom: '6px', borderBottom: `1px solid ${accent}20`,
+          }}>LEAD · SUMMARY</div>
+          <div style={{
+            borderLeft: `3px solid ${accent}`,
+            paddingLeft: '18px',
+          }}>
+            <div style={{
+              color: '#F1F5F9', fontSize: '16px', lineHeight: '1.85',
+              fontFamily: 'Georgia, serif', fontWeight: 400,
             }}
-            dangerouslySetInnerHTML={{ __html: block.content || '' }}
-          />
+              dangerouslySetInnerHTML={{ __html: block.content || '' }}
+            />
+          </div>
         </div>
       )
     case 'body':
       return (
-        <div style={{ marginBottom: '28px' }}>
-          <div
-            style={{
-              color: GS.offWhite,
-              fontSize: '19px',
-              lineHeight: '2.1',
-              fontFamily: 'Georgia, serif',
-            }}
+        <div style={{ marginBottom: '22px', paddingBottom: '22px', borderBottom: `1px solid rgba(255,255,255,0.05)` }}>
+          <div style={{
+            color: 'rgba(225,232,240,0.88)', fontSize: '14px', lineHeight: '1.95',
+            fontFamily: 'Georgia, serif',
+          }}
             dangerouslySetInnerHTML={{ __html: block.content || '' }}
           />
         </div>
       )
     case 'quote':
       return (
-        <div
-          style={{
-            borderLeft: `8px solid ${accent}`,
-            background: '#070707',
-            padding: '22px 28px',
-            marginBottom: '28px',
-          }}
-        >
-          <pre
-            style={{
-              color: accent,
-              fontSize: '22px',
-              fontStyle: 'italic',
-              lineHeight: '1.85',
-              whiteSpace: 'pre-wrap',
-              margin: 0,
-              fontFamily: 'Georgia, serif',
-            }}
-          >{`\u201C${block.content}\u201D`}</pre>
+        <div style={{
+          margin: '24px 0', padding: '20px 24px 20px 24px',
+          background: 'rgba(255,255,255,0.02)',
+          borderLeft: `4px solid ${accent}`,
+          borderTop: `1px solid ${accent}20`,
+          borderBottom: `1px solid ${accent}20`,
+          position: 'relative',
+        }}>
+          {/* Giant quotation mark */}
+          <div style={{
+            position: 'absolute', top: '8px', left: '20px',
+            fontSize: '48px', lineHeight: 1, color: `${accent}30`,
+            fontFamily: 'Georgia, serif', fontWeight: 900, userSelect: 'none',
+            pointerEvents: 'none',
+          }}>\u201C</div>
+          <div style={{
+            color: '#E8EDF2', fontSize: '15px', fontStyle: 'italic',
+            lineHeight: '1.8', fontFamily: 'Georgia, serif',
+            paddingLeft: '16px', paddingTop: '14px',
+          }}>
+            {block.content}
+          </div>
+          <div style={{
+            position: 'absolute', bottom: '8px', right: '20px',
+            fontSize: '48px', lineHeight: 1, color: `${accent}30`,
+            fontFamily: 'Georgia, serif', fontWeight: 900, userSelect: 'none',
+            pointerEvents: 'none',
+          }}>\u201D</div>
         </div>
       )
     case 'conclusion':
       return (
-        <div style={{ borderTop: `2px solid ${accent}`, paddingTop: '24px', marginBottom: '28px' }}>
-          <div
-            style={{
-              fontSize: '12px',
-              fontWeight: 900,
-              color: accent,
-              letterSpacing: '6px',
-              marginBottom: '14px',
-              fontFamily: 'monospace',
-            }}
-          >
-            CONCLUSION
+        <div style={{ marginBottom: '24px' }}>
+          {/* Section header bar */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '12px',
+            marginBottom: '14px',
+          }}>
+            <div style={{ width: '3px', height: '18px', background: accent, borderRadius: '2px', flexShrink: 0 }} />
+            <span style={{
+              fontSize: '10px', fontWeight: 900, letterSpacing: '5px',
+              color: accent, fontFamily: 'monospace',
+            }}>BOTTOM LINE</span>
+            <div style={{ flex: 1, height: '1px', background: `${accent}25` }} />
           </div>
-          <div
-            style={{
-              color: GS.white,
-              fontSize: '22px',
-              lineHeight: '1.9',
+          <div style={{
+            background: `linear-gradient(135deg, ${accent}08 0%, transparent 60%)`,
+            border: `1px solid ${accent}20`,
+            borderLeft: `3px solid ${accent}`,
+            padding: '16px 20px',
+            borderRadius: '0 4px 4px 0',
+          }}>
+            <div style={{
+              color: '#FFFFFF', fontSize: '14px', lineHeight: '1.85',
               fontFamily: 'Georgia, serif',
             }}
-            dangerouslySetInnerHTML={{ __html: block.content || '' }}
-          />
+              dangerouslySetInnerHTML={{ __html: block.content || '' }}
+            />
+          </div>
         </div>
       )
     case 'seasonality': {
@@ -1585,7 +1507,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
                   {stTicker}
                 </span>
               </div>
-              {/* Year label top-right (view mode only — edit mode has year dropdown in controls) */}
+              {/* Year label top-right (view mode only â€” edit mode has year dropdown in controls) */}
               {!editMode && (
                 <div
                   style={{
@@ -1607,40 +1529,24 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
               )}
             </div>
           ) : (
-            <div
-              style={{
-                width: '100%',
-                height: '380px',
-                border: `2px dashed ${accent}`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: '#040404',
-              }}
-            >
-              <span
-                style={{
-                  fontSize: '17px',
-                  letterSpacing: '6px',
-                  color: accent,
-                  fontFamily: 'monospace',
-                }}
-              >
-                SEASONALITY — ENTER TICKER IN EDIT
+            <div style={{
+              height: '220px', border: `1px dashed ${accent}30`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: '#050505',
+            }}>
+              <span style={{ fontSize: '9px', letterSpacing: '5px', color: `${accent}60`, fontFamily: 'monospace' }}>
+                SEASONALITY â€” ENTER TICKER IN EDIT
               </span>
             </div>
           )}
           {block.caption && (
-            <div
-              style={{
-                fontSize: '17px',
-                color: accent,
-                letterSpacing: '2px',
-                marginTop: '8px',
-                fontFamily: 'monospace',
-              }}
-            >
-              {block.caption}
+            <div style={{
+              padding: '6px 12px', borderTop: '1px solid rgba(255,255,255,0.06)',
+              background: '#080808',
+            }}>
+              <span style={{ fontSize: '11px', color: '#E0E6F0', fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>
+                {block.caption}
+              </span>
             </div>
           )}
         </div>
@@ -1655,40 +1561,24 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
           {ticker ? (
             <EFIPopupChart key={ticker} symbol={ticker} fallbackCandles={[]} />
           ) : (
-            <div
-              style={{
-                width: '100%',
-                height: '380px',
-                border: `2px dashed ${accent}`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: '#040404',
-              }}
-            >
-              <span
-                style={{
-                  fontSize: '17px',
-                  letterSpacing: '6px',
-                  color: accent,
-                  fontFamily: 'monospace',
-                }}
-              >
-                CHART — ENTER TICKER IN EDIT
+            <div style={{
+              height: '220px', border: `1px dashed ${accent}30`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: '#050505',
+            }}>
+              <span style={{ fontSize: '9px', letterSpacing: '5px', color: `${accent}60`, fontFamily: 'monospace' }}>
+                CHART â€” ENTER TICKER IN EDIT
               </span>
             </div>
           )}
           {block.caption && (
-            <div
-              style={{
-                fontSize: '17px',
-                color: accent,
-                letterSpacing: '2px',
-                marginTop: '8px',
-                fontFamily: 'monospace',
-              }}
-            >
-              {block.caption}
+            <div style={{
+              padding: '6px 12px', borderTop: '1px solid rgba(255,255,255,0.06)',
+              background: '#080808', marginTop: '2px',
+            }}>
+              <span style={{ fontSize: '11px', color: '#E0E6F0', fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>
+                {block.caption}
+              </span>
             </div>
           )}
         </ChartDraggableWrapper>
@@ -1696,49 +1586,32 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
     }
     case 'image':
       return (
-        <div style={{ marginBottom: '28px' }}>
+        <div style={{ marginBottom: '22px', border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden' }}>
           {block.url ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={block.url}
-              alt={block.caption || ''}
-              style={{ width: '100%', border: `1px solid ${accent}`, display: 'block' }}
-            />
+            <img src={block.url} alt={block.caption || ''} style={{ width: '100%', display: 'block' }} />
           ) : (
-            <div
-              style={{
-                width: '100%',
-                height: '280px',
-                border: `2px dashed ${accent}`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: '#040404',
-              }}
-            >
-              <span
-                style={{
-                  fontSize: '17px',
-                  letterSpacing: '6px',
-                  color: accent,
-                  fontFamily: 'monospace',
-                }}
-              >
-                IMAGE — ADD URL IN EDIT MODE
+            <div style={{
+              height: '220px', border: `1px dashed ${accent}30`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: '#050505',
+            }}>
+              <span style={{ fontSize: '9px', letterSpacing: '5px', color: `${accent}60`, fontFamily: 'monospace' }}>
+                IMAGE â€” ADD URL IN EDIT
               </span>
             </div>
           )}
           {block.caption && (
-            <div
-              style={{
-                fontSize: '17px',
-                color: accent,
-                letterSpacing: '2px',
-                marginTop: '8px',
-                fontFamily: 'monospace',
-              }}
-            >
-              {block.caption}
+            <div style={{
+              padding: '8px 12px',
+              background: '#080808',
+              borderTop: '1px solid rgba(255,255,255,0.06)',
+              display: 'flex', alignItems: 'center', gap: '8px',
+            }}>
+              <div style={{ width: '2px', height: '12px', background: accent, flexShrink: 0 }} />
+              <span style={{ fontSize: '11px', color: '#E0E6F0', fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>
+                {block.caption}
+              </span>
             </div>
           )}
         </div>
@@ -1752,7 +1625,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
           {
             label: 'BULLISH',
             sub: 'ZONE',
-            value: items[0]?.value || '—',
+            value: items[0]?.value || 'â€”',
             color: GS.green,
             bg: 'rgba(52,211,153,0.055)',
             glowColor: 'rgba(52,211,153,0.12)',
@@ -1761,7 +1634,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
           {
             label: 'CHOP',
             sub: 'ZONE',
-            value: items[1]?.value || '—',
+            value: items[1]?.value || 'â€”',
             color: GS.amber,
             bg: 'rgba(255,149,0,0.055)',
             glowColor: 'rgba(255,149,0,0.12)',
@@ -1770,7 +1643,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
           {
             label: 'BEARISH',
             sub: 'ZONE',
-            value: items[2]?.value || '—',
+            value: items[2]?.value || 'â€”',
             color: GS.red,
             bg: 'rgba(255,45,85,0.055)',
             glowColor: 'rgba(255,45,85,0.12)',
@@ -1778,140 +1651,42 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
           },
         ]
         return (
-          <div
-            style={{
-              marginBottom: '28px',
-              borderRadius: '6px',
-              overflow: 'hidden',
-              border: `1px solid ${accent}20`,
-              background: '#070707',
-              boxShadow: `0 4px 24px rgba(0,0,0,0.5)`,
-            }}
-          >
+          <div style={{
+            marginBottom: '20px',
+            border: '1px solid rgba(255,255,255,0.07)',
+            overflow: 'hidden',
+            fontFamily: 'monospace',
+          }}>
             {/* Header */}
-            <div
-              style={{
-                padding: '16px 18px',
-                background: `linear-gradient(90deg, ${accent}16 0%, transparent 80%)`,
-                borderBottom: `1px solid ${accent}1A`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
-                <span
-                  style={{
-                    fontSize: '30px',
-                    fontWeight: 900,
-                    letterSpacing: '6px',
-                    fontFamily: 'monospace',
-                    lineHeight: 1,
-                    background:
-                      'linear-gradient(180deg, #FFE57A 0%, #E8B84B 28%, #C9881C 55%, #F5D06A 78%, #A0660A 100%)',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                    backgroundClip: 'text',
-                    filter: 'drop-shadow(0 1px 6px rgba(212,168,67,0.55))',
-                    textShadow: 'none',
-                  }}
-                >
-                  {ticker || 'TICKER'}
-                </span>
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '7px',
-                  padding: '5px 11px',
-                  border: `1px solid ${accent}33`,
-                  borderRadius: '4px',
-                  background: `${accent}0C`,
-                }}
-              >
-                <LevelsGridIcon size={14} color={accent} />
-                <span
-                  style={{
-                    fontSize: '13px',
-                    fontWeight: 900,
-                    color: accent,
-                    letterSpacing: '3px',
-                    fontFamily: 'monospace',
-                  }}
-                >
-                  3 ZONES
-                </span>
-              </div>
+            <div style={{
+              padding: '8px 14px',
+              background: '#080808',
+              borderBottom: '1px solid rgba(255,255,255,0.06)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            }}>
+              <span style={{ fontSize: '16px', fontWeight: 900, letterSpacing: '2px', color: '#FFFFFF' }}>
+                {ticker || 'TICKER'}
+              </span>
+              <span style={{ fontSize: '9px', letterSpacing: '3px', color: accent, fontWeight: 700 }}>MARKET ZONES</span>
             </div>
             {/* Zone rows */}
             {zoneRows.map((r, i) => (
-              <div
-                key={i}
-                style={{
-                  display: 'flex',
-                  alignItems: 'stretch',
-                  borderLeft: `4px solid ${r.color}`,
-                  borderBottom: i < 2 ? `1px solid rgba(255,255,255,0.06)` : 'none',
-                  background: r.bg,
-                }}
-              >
-                {/* Icon + label column */}
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px',
-                    padding: '14px 16px',
-                    minWidth: '88px',
-                    background: r.glowColor,
-                    borderRight: `1px solid ${r.color}33`,
-                  }}
-                >
-                  <r.Icon size={40} />
-                  <div style={{ textAlign: 'center' }}>
-                    <div
-                      style={{
-                        fontSize: '13px',
-                        fontWeight: 900,
-                        color: r.color,
-                        letterSpacing: '2px',
-                        fontFamily: 'monospace',
-                        lineHeight: 1,
-                      }}
-                    >
-                      {r.label}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: '11px',
-                        color: r.color,
-                        letterSpacing: '3px',
-                        fontFamily: 'monospace',
-                        marginTop: '3px',
-                        opacity: 0.6,
-                      }}
-                    >
-                      {r.sub}
-                    </div>
-                  </div>
+              <div key={i} style={{
+                display: 'grid', gridTemplateColumns: '100px 1fr',
+                borderLeft: `3px solid ${r.color}`,
+                borderBottom: i < 2 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+              }}>
+                <div style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center',
+                  justifyContent: 'center', padding: '12px 8px',
+                  background: `${r.color}0A`, borderRight: `1px solid ${r.color}22`,
+                  gap: '4px',
+                }}>
+                  <r.Icon size={28} />
+                  <span style={{ fontSize: '9px', fontWeight: 900, color: r.color, letterSpacing: '2px' }}>{r.label}</span>
                 </div>
-                {/* Value text */}
-                <div
-                  style={{ flex: 1, padding: '16px 20px', display: 'flex', alignItems: 'center' }}
-                >
-                  <span
-                    style={{
-                      fontSize: '18px',
-                      fontWeight: 700,
-                      color: '#E8EDF2',
-                      fontFamily: 'monospace',
-                      letterSpacing: '0.5px',
-                      lineHeight: 1.6,
-                    }}
-                  >
+                <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center' }}>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'rgba(232,237,242,0.85)', lineHeight: 1.7 }}>
                     {r.value}
                   </span>
                 </div>
@@ -1921,9 +1696,9 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
         )
       }
       if (mode === 'directional') {
-        const bull = items[0]?.value || '—'
-        const target = items[1]?.value || '—'
-        const stop = items[2]?.value || '—'
+        const bull = items[0]?.value || 'â€”'
+        const target = items[1]?.value || 'â€”'
+        const stop = items[2]?.value || 'â€”'
         const note = block.caption || ''
         const isBearish = items[0]?.delta === 'bear'
         const dirRows = [
@@ -1956,140 +1731,50 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
           },
         ]
         return (
-          <div
-            style={{
-              marginBottom: '28px',
-              borderRadius: '6px',
-              overflow: 'hidden',
-              border: `1px solid ${accent}20`,
-              background: '#000000',
-              boxShadow: '0 4px 24px rgba(0,0,0,0.6)',
-            }}
-          >
-            {/* Header — ticker + mode inline */}
-            <div
-              style={{
-                padding: '12px 18px',
-                background: `linear-gradient(90deg, rgba(34,211,153,0.08) 0%, rgba(59,130,246,0.06) 50%, rgba(255,45,85,0.08) 100%)`,
-                borderBottom: `1px solid rgba(255,255,255,0.07)`,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0',
-              }}
-            >
-              <span
-                style={{
-                  fontSize: '26px',
-                  fontWeight: 900,
-                  letterSpacing: '5px',
-                  fontFamily: 'monospace',
-                  color: '#FFFFFF',
-                  lineHeight: 1,
-                }}
-              >
+          <div style={{
+            marginBottom: '20px',
+            border: '1px solid rgba(255,255,255,0.07)',
+            overflow: 'hidden',
+            fontFamily: 'monospace',
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '8px 14px',
+              background: '#080808',
+              borderBottom: '1px solid rgba(255,255,255,0.06)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            }}>
+              <span style={{ fontSize: '16px', fontWeight: 900, letterSpacing: '2px', color: '#FFFFFF' }}>
                 {ticker || 'TICKER'}
               </span>
-              <span
-                style={{
-                  fontSize: '13px',
-                  fontWeight: 900,
-                  letterSpacing: '4px',
-                  fontFamily: 'monospace',
-                  color: 'rgba(255,255,255,0.25)',
-                  margin: '0 10px',
-                  lineHeight: 1,
-                }}
-              >
-                ·
-              </span>
-              <DirectionalBadgeIcon size={13} color="#22D3EE" />
-              <span
-                style={{
-                  fontSize: '12px',
-                  fontWeight: 900,
-                  letterSpacing: '4px',
-                  fontFamily: 'monospace',
-                  color: '#22D3EE',
-                  marginLeft: '6px',
-                  lineHeight: 1,
-                }}
-              >
-                DIRECTIONAL
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <DirectionalBadgeIcon size={10} color="#22D3EE" />
+                <span style={{ fontSize: '9px', letterSpacing: '3px', color: '#22D3EE', fontWeight: 700 }}>DIRECTIONAL</span>
+              </div>
             </div>
-            {/* Notes */}
             {note && (
-              <div
-                style={{
-                  padding: '10px 18px',
-                  borderBottom: `1px solid rgba(255,255,255,0.07)`,
-                  fontSize: '17px',
-                  color: '#FFFFFF',
-                  letterSpacing: '0.5px',
-                  fontFamily: 'monospace',
-                  lineHeight: 1.7,
-                }}
-              >
+              <div style={{ padding: '8px 14px', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '12px', color: '#FFFFFF', lineHeight: 1.6 }}>
                 {note}
               </div>
             )}
-            {/* Single row — 3 equal columns */}
+            {/* 3 columns */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr' }}>
               {dirRows.map((r, i) => (
-                <div
-                  key={i}
-                  style={{
-                    borderLeft: i === 0 ? `4px solid ${r.color}` : 'none',
-                    borderTop: `4px solid ${r.color}`,
-                    borderRight: i < 2 ? '1px solid rgba(255,255,255,0.06)' : 'none',
-                    background: r.bg,
-                    padding: '18px 16px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '10px',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <r.Icon size={28} />
+                <div key={i} style={{
+                  borderTop: `2px solid ${r.color}`,
+                  borderRight: i < 2 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                  background: `${r.color}08`,
+                  padding: '12px 14px',
+                  display: 'flex', flexDirection: 'column', gap: '8px',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <r.Icon size={22} />
                     <div>
-                      <div
-                        style={{
-                          fontSize: '12px',
-                          fontWeight: 900,
-                          color: r.color,
-                          letterSpacing: '2px',
-                          fontFamily: 'monospace',
-                          lineHeight: 1,
-                        }}
-                      >
-                        {r.label}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: '10px',
-                          color: r.color,
-                          letterSpacing: '3px',
-                          fontFamily: 'monospace',
-                          marginTop: '2px',
-                          opacity: 0.55,
-                        }}
-                      >
-                        {r.sub}
-                      </div>
+                      <div style={{ fontSize: '9px', fontWeight: 900, color: r.color, letterSpacing: '2px', lineHeight: 1 }}>{r.label}</div>
+                      <div style={{ fontSize: '8px', color: `${r.color}88`, letterSpacing: '2px', marginTop: '2px' }}>{r.sub}</div>
                     </div>
                   </div>
-                  <div
-                    style={{
-                      fontSize: '16px',
-                      fontWeight: 700,
-                      color: '#FFFFFF',
-                      fontFamily: 'monospace',
-                      letterSpacing: '0.5px',
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    {r.value}
-                  </div>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#FFFFFF', lineHeight: 1.5 }}>{r.value}</div>
                 </div>
               ))}
             </div>
@@ -2114,261 +1799,94 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
       }
       // straddle
       const note = block.caption || ''
-      const callVal = items[0]?.value || '—'
-      const callT = items[1]?.value || '—'
-      const putVal = items[2]?.value || '—'
-      const putT = items[3]?.value || '—'
+      const callVal = items[0]?.value || 'â€”'
+      const callT = items[1]?.value || 'â€”'
+      const putVal = items[2]?.value || 'â€”'
+      const putT = items[3]?.value || 'â€”'
       return (
-        <div
-          style={{
-            marginBottom: '28px',
-            borderRadius: '6px',
-            overflow: 'hidden',
-            border: `1px solid ${accent}20`,
-            background: '#000000',
-            boxShadow: '0 4px 24px rgba(0,0,0,0.6)',
-          }}
-        >
-          {/* Header — ticker + mode inline */}
-          <div
-            style={{
-              padding: '12px 18px',
-              background: `linear-gradient(90deg, rgba(52,211,153,0.07) 0%, rgba(0,0,0,0) 50%, rgba(255,45,85,0.07) 100%)`,
-              borderBottom: `1px solid rgba(255,255,255,0.07)`,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0',
-            }}
-          >
-            <span
-              style={{
-                fontSize: '26px',
-                fontWeight: 900,
-                letterSpacing: '5px',
-                fontFamily: 'monospace',
-                color: '#FFFFFF',
-                lineHeight: 1,
-              }}
-            >
+        <div style={{
+          marginBottom: '20px',
+          border: '1px solid rgba(255,255,255,0.07)',
+          overflow: 'hidden',
+          fontFamily: 'monospace',
+        }}>
+          {/* Header */}
+          <div style={{
+            padding: '8px 14px', background: '#080808',
+            borderBottom: '1px solid rgba(255,255,255,0.06)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}>
+            <span style={{ fontSize: '16px', fontWeight: 900, letterSpacing: '2px', color: '#FFFFFF' }}>
               {ticker || 'TICKER'}
             </span>
-            <span
-              style={{
-                fontSize: '13px',
-                fontWeight: 900,
-                letterSpacing: '4px',
-                fontFamily: 'monospace',
-                color: 'rgba(255,255,255,0.25)',
-                margin: '0 10px',
-                lineHeight: 1,
-              }}
-            >
-              ·
-            </span>
-            <LevelsGridIcon size={13} color="#22D3EE" />
-            <span
-              style={{
-                fontSize: '12px',
-                fontWeight: 900,
-                letterSpacing: '4px',
-                fontFamily: 'monospace',
-                color: '#22D3EE',
-                marginLeft: '6px',
-                lineHeight: 1,
-              }}
-            >
-              STRADDLE
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <LevelsGridIcon size={10} color="#22D3EE" />
+              <span style={{ fontSize: '9px', letterSpacing: '3px', color: '#22D3EE', fontWeight: 700 }}>STRADDLE</span>
+            </div>
           </div>
-          {/* Notes */}
           {note && (
-            <div
-              style={{
-                padding: '10px 18px',
-                borderBottom: `1px solid rgba(255,255,255,0.07)`,
-                fontSize: '17px',
-                color: '#FFFFFF',
-                letterSpacing: '0.5px',
-                fontFamily: 'monospace',
-                lineHeight: 1.7,
-              }}
-            >
+            <div style={{ padding: '8px 14px', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '12px', color: '#FFFFFF', lineHeight: 1.6 }}>
               {note}
             </div>
           )}
-          {/* Call / Put columns */}
+          {/* Call / Put side-by-side */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
-            {/* CALL */}
-            <div
-              style={{
-                borderRight: '1px solid rgba(255,255,255,0.06)',
-                borderLeft: `4px solid ${GS.green}`,
-                background: 'rgba(52,211,153,0.055)',
-                borderBottom: block.url ? `1px solid rgba(255,255,255,0.07)` : undefined,
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  padding: '14px 16px',
-                  background: 'rgba(52,211,153,0.12)',
-                  borderBottom: `1px solid ${GS.green}33`,
-                }}
-              >
-                <CallIcon size={32} />
-                <span
-                  style={{
-                    fontSize: '16px',
-                    fontWeight: 900,
-                    color: GS.green,
-                    letterSpacing: '4px',
-                    fontFamily: 'monospace',
-                  }}
-                >
-                  CALL
-                </span>
+            <div style={{
+              borderTop: `2px solid ${GS.green}`, borderRight: '1px solid rgba(255,255,255,0.06)',
+              background: 'rgba(52,211,153,0.05)', padding: '12px 14px',
+              display: 'flex', flexDirection: 'column', gap: '6px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <CallIcon size={18} />
+                <span style={{ fontSize: '9px', fontWeight: 900, color: GS.green, letterSpacing: '3px' }}>CALL</span>
               </div>
-              <div
-                style={{
-                  padding: '14px 16px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '8px',
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: '17px',
-                    fontWeight: 900,
-                    color: '#E8EDF2',
-                    letterSpacing: '0.5px',
-                    fontFamily: 'monospace',
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {callVal}
-                </div>
-                {callT && callT !== '—' && (
-                  <div
-                    style={{
-                      fontSize: '13px',
-                      fontWeight: 700,
-                      color: GS.green,
-                      letterSpacing: '2px',
-                      fontFamily: 'monospace',
-                    }}
-                  >
-                    TARGET: {callT}
-                  </div>
-                )}
-              </div>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#E8EDF2', lineHeight: 1.6 }}>{callVal}</div>
+              {callT && callT !== 'â€”' && <div style={{ fontSize: '11px', color: GS.green, fontWeight: 700 }}>TARGET: {callT}</div>}
             </div>
-            {/* PUT */}
-            <div
-              style={{
-                borderLeft: `4px solid ${GS.red}`,
-                background: 'rgba(255,45,85,0.055)',
-                borderBottom: block.url ? `1px solid rgba(255,255,255,0.07)` : undefined,
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  padding: '14px 16px',
-                  background: 'rgba(255,45,85,0.12)',
-                  borderBottom: `1px solid ${GS.red}33`,
-                }}
-              >
-                <PutIcon size={32} />
-                <span
-                  style={{
-                    fontSize: '16px',
-                    fontWeight: 900,
-                    color: GS.red,
-                    letterSpacing: '4px',
-                    fontFamily: 'monospace',
-                  }}
-                >
-                  PUT
-                </span>
+            <div style={{
+              borderTop: `2px solid ${GS.red}`,
+              background: 'rgba(255,45,85,0.05)', padding: '12px 14px',
+              display: 'flex', flexDirection: 'column', gap: '6px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <PutIcon size={18} />
+                <span style={{ fontSize: '9px', fontWeight: 900, color: GS.red, letterSpacing: '3px' }}>PUT</span>
               </div>
-              <div
-                style={{
-                  padding: '14px 16px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '8px',
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: '17px',
-                    fontWeight: 900,
-                    color: '#E8EDF2',
-                    letterSpacing: '0.5px',
-                    fontFamily: 'monospace',
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {putVal}
-                </div>
-                {putT && putT !== '—' && (
-                  <div
-                    style={{
-                      fontSize: '13px',
-                      fontWeight: 700,
-                      color: GS.red,
-                      letterSpacing: '2px',
-                      fontFamily: 'monospace',
-                    }}
-                  >
-                    TARGET: {putT}
-                  </div>
-                )}
-              </div>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#E8EDF2', lineHeight: 1.6 }}>{putVal}</div>
+              {putT && putT !== 'â€”' && <div style={{ fontSize: '11px', color: GS.red, fontWeight: 700 }}>TARGET: {putT}</div>}
             </div>
           </div>
-          {/* Embedded image */}
           {block.url && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={block.url}
-              alt=""
-              style={{
-                width: '100%',
-                display: 'block',
-                maxHeight: '340px',
-                objectFit: 'contain',
-                background: '#050505',
-              }}
-            />
+            <img src={block.url} alt="" style={{
+              width: '100%', display: 'block', maxHeight: '320px',
+              objectFit: 'contain', background: '#050505',
+              borderTop: '1px solid rgba(255,255,255,0.06)',
+            }} />
           )}
         </div>
       )
     }
     case 'divider':
       return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '28px' }}>
-          <div style={{ flex: 1, height: '1px', background: accent }} />
+        <div style={{ margin: '28px 0', position: 'relative' }}>
+          <div style={{ height: '1px', background: `rgba(255,255,255,0.08)` }} />
           {block.content && (
-            <span
-              style={{
-                fontSize: '18px',
-                letterSpacing: '5px',
-                color: accent,
-                fontWeight: 900,
-                fontFamily: 'monospace',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {block.content}
-            </span>
+            <div style={{
+              position: 'absolute', top: '50%', left: '50%',
+              transform: 'translate(-50%, -50%)',
+              background: '#000000',
+              padding: '0 16px',
+            }}>
+              <span style={{
+                fontSize: '9px', fontWeight: 900, letterSpacing: '5px',
+                color: accent, fontFamily: 'monospace',
+                whiteSpace: 'nowrap', textTransform: 'uppercase',
+              }}>
+                {block.content}
+              </span>
+            </div>
           )}
-          <div style={{ flex: 1, height: '1px', background: accent }} />
         </div>
       )
     default:
@@ -2376,11 +1894,11 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
   }
 }
 
-// ── SVG Zone Icons ───────────────────────────────────────────────────────────
+// â”€â”€ SVG Zone Icons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function BullishZoneIcon({ size = 40 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 40 40" fill="none" style={{ flexShrink: 0 }}>
-      {/* Zone band — solid fill */}
+      {/* Zone band â€” solid fill */}
       <rect x="4" y="6" width="32" height="5" rx="2" fill="#34D399" />
       {/* Uptrend line */}
       <polyline
@@ -2407,9 +1925,9 @@ function BullishZoneIcon({ size = 40 }: { size?: number }) {
 function ChopZoneIcon({ size = 40 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 40 40" fill="none" style={{ flexShrink: 0 }}>
-      {/* Upper band — solid fill same as bullish/bearish rect */}
+      {/* Upper band â€” solid fill same as bullish/bearish rect */}
       <rect x="4" y="6" width="32" height="5" rx="2" fill="#FF9500" />
-      {/* Lower band — solid fill same as bullish/bearish rect */}
+      {/* Lower band â€” solid fill same as bullish/bearish rect */}
       <rect x="4" y="29" width="32" height="5" rx="2" fill="#FF9500" />
       {/* Zigzag between the two bands */}
       <polyline
@@ -2427,7 +1945,7 @@ function ChopZoneIcon({ size = 40 }: { size?: number }) {
 function BearishZoneIcon({ size = 40 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 40 40" fill="none" style={{ flexShrink: 0 }}>
-      {/* Zone band — solid fill */}
+      {/* Zone band â€” solid fill */}
       <rect x="4" y="29" width="32" height="5" rx="2" fill="#FF2D55" />
       {/* Downtrend line */}
       <polyline
@@ -2530,7 +2048,7 @@ function DirectionalBadgeIcon({ size = 14, color = '#D4A843' }: { size?: number;
   )
 }
 
-// ── SVG Market Icons (animated, no emoji) ───────────────────────────────────
+// â”€â”€ SVG Market Icons (animated, no emoji) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function CallIcon({ size = 28 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 28 28" fill="none" style={{ flexShrink: 0 }}>
@@ -2621,7 +2139,7 @@ function PutIcon({ size = 28 }: { size?: number }) {
   )
 }
 
-// ── Brief block editors ───────────────────────────────────────────────────────
+// â”€â”€ Brief block editors â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function FlowEditRow({
   flow,
@@ -3194,7 +2712,7 @@ function FlowBlockEdit({
           borderRadius: '4px',
         }}
       >
-        NO FLOWS IN TRACKER — ADD FLOWS FROM THE LIVE FLOW PANEL FIRST
+        NO FLOWS IN TRACKER â€” ADD FLOWS FROM THE LIVE FLOW PANEL FIRST
       </div>
     )
 
@@ -3342,7 +2860,7 @@ function SeasonalityBlockEdit({
           style={toggleStyle(sweetOn)}
           onClick={() => updateBlock(block.id, { title: sweetOn ? '0' : '1' })}
         >
-          {sweetOn ? '★' : '☆'} SWEET SPOT
+          {sweetOn ? 'â˜…' : 'â˜†'} SWEET SPOT
         </button>
         <button
           style={toggleStyle(painOn)}
@@ -3437,7 +2955,7 @@ function ImageBlockEdit({
           boxSizing: 'border-box',
         }}
       >
-        <span style={{ fontSize: '28px' }}>📋</span>
+        <span style={{ fontSize: '28px' }}>ðŸ“‹</span>
         <span
           style={{
             fontSize: '13px',
@@ -3467,7 +2985,7 @@ function ImageBlockEdit({
           textAlign: 'center' as const,
         }}
       >
-        📁 PICK FILE INSTEAD
+        ðŸ“ PICK FILE INSTEAD
       </button>
 
       {block.url && (
@@ -3795,7 +3313,7 @@ function MetricsBlockEdit({
               outline: 'none',
             }}
           >
-            <span style={{ fontSize: '20px' }}>📋</span>
+            <span style={{ fontSize: '20px' }}>ðŸ“‹</span>
             <span
               style={{
                 fontSize: '11px',
@@ -3805,7 +3323,7 @@ function MetricsBlockEdit({
                 fontWeight: 700,
               }}
             >
-              {imgFocused ? 'PASTE NOW (CTRL+V)' : 'CLICK → CTRL+V  OR  DROP'}
+              {imgFocused ? 'PASTE NOW (CTRL+V)' : 'CLICK â†’ CTRL+V  OR  DROP'}
             </span>
           </div>
           <button
@@ -3819,7 +3337,7 @@ function MetricsBlockEdit({
               textAlign: 'center' as const,
             }}
           >
-            📁 PICK FILE
+            ðŸ“ PICK FILE
           </button>
           {block.url && (
             <div style={{ position: 'relative' }}>
@@ -3938,6 +3456,396 @@ function MetricsBlockEdit({
   )
 }
 
+// â”€â”€ QuickSection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function QuickSection({
+  quick, persist, editMode, accent,
+}: { quick: QuickBrief; persist: (q: QuickBrief) => void; editMode: boolean; accent: string }) {
+  const save = (u: Partial<QuickBrief>) => persist({ ...quick, ...u, updatedAt: nowTs() })
+  const focusItems: FocusItem[] = quick.focusItems || []
+  const trades: TradeRow[] = quick.trades || []
+  const modeLabel = BRIEF_MODES.find(m => m.id === quick.mode)?.label || 'DAILY PULSE'
+  const isDouble = quick.layout === 'double'
+
+  const updMkt = (i: number, f: keyof MktDataItem, v: any) => save({ marketData: quick.marketData.map((d, j) => j === i ? { ...d, [f]: v } : d) })
+  const updLvl = (i: number, f: keyof KeyLevelItem, v: string) => save({ keyLevels: quick.keyLevels.map((l, j) => j === i ? { ...l, [f]: v } : l) })
+
+  const addFocus = () => save({ focusItems: [...focusItems, { id: uid(), ticker: '', direction: 'hot', bullets: [''], trade: '' }] })
+  const updFocus = (id: string, upd: Partial<FocusItem>) => save({ focusItems: focusItems.map(f => f.id === id ? { ...f, ...upd } : f) })
+  const delFocus = (id: string) => save({ focusItems: focusItems.filter(f => f.id !== id) })
+  const addFocusBullet = (id: string, buls: string[]) => updFocus(id, { bullets: [...buls, ''] })
+  const updFocusBullet = (id: string, buls: string[], bi: number, v: string) => updFocus(id, { bullets: buls.map((b, j) => j === bi ? v : b) })
+  const delFocusBullet = (id: string, buls: string[], bi: number) => updFocus(id, { bullets: buls.filter((_, j) => j !== bi) })
+
+  const addTrade = () => save({ trades: [...trades, { id: uid(), ticker: '', type: 'call', contract: '', entry: '', t1: '', t2: '', stop: '', notes: '' }] })
+  const updTrade = (id: string, upd: Partial<TradeRow>) => save({ trades: trades.map(t => t.id === id ? { ...t, ...upd } : t) })
+  const delTrade = (id: string) => save({ trades: trades.filter(t => t.id !== id) })
+
+  const inp: React.CSSProperties = { ...iBase, padding: '7px 10px', fontSize: '12px' }
+  const TRADE_TYPES = ['call', 'put', 'straddle', 'spread', 'stock']
+  const DIRECTIONS: FocusItem['direction'][] = ['hot', 'bull', 'bear', 'straddle', 'neutral']
+  const secLabel = (txt: string, icon?: React.ReactElement) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', paddingBottom: '8px', borderBottom: `1px solid ${accent}25` }}>
+      {icon}
+      <span style={{ fontSize: '11px', fontWeight: 900, letterSpacing: '4px', color: accent, fontFamily: 'monospace' }}>{txt}</span>
+    </div>
+  )
+
+  // â”€â”€ EDIT MODE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  if (editMode) return (
+    <div style={{ fontFamily: 'monospace', display: 'flex', flexDirection: 'column', gap: '22px', padding: '4px 0' }}>
+      {/* Config row: mode + layout */}
+      <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontSize: '9px', letterSpacing: '4px', color: accent, marginBottom: '6px', fontWeight: 900 }}>BRIEFING MODE</div>
+          <div style={{ display: 'flex', gap: '4px' }}>
+            {BRIEF_MODES.map(m => (
+              <button key={m.id} onClick={() => save({ mode: m.id as QuickBrief['mode'] })} style={{ padding: '5px 12px', fontSize: '9px', fontWeight: 900, letterSpacing: '2px', fontFamily: 'monospace', cursor: 'pointer', border: `1px solid ${quick.mode === m.id ? accent : 'rgba(255,255,255,0.1)'}`, background: quick.mode === m.id ? `${accent}18` : 'transparent', color: quick.mode === m.id ? accent : 'rgba(255,255,255,0.35)' }}>{m.label}</button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: '9px', letterSpacing: '4px', color: accent, marginBottom: '6px', fontWeight: 900 }}>LAYOUT</div>
+          <div style={{ display: 'flex', gap: '4px' }}>
+            {(['single', 'double'] as const).map(l => (
+              <button key={l} onClick={() => save({ layout: l })} style={{ padding: '5px 12px', fontSize: '9px', fontWeight: 900, letterSpacing: '2px', fontFamily: 'monospace', cursor: 'pointer', border: `1px solid ${(quick.layout || 'single') === l ? accent : 'rgba(255,255,255,0.1)'}`, background: (quick.layout || 'single') === l ? `${accent}18` : 'transparent', color: (quick.layout || 'single') === l ? accent : 'rgba(255,255,255,0.35)' }}>{l === 'single' ? 'â‘  SINGLE COL' : 'â‘¡ DOUBLE COL'}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Headline + Summary */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <div>
+          <div style={{ fontSize: '9px', letterSpacing: '4px', color: accent, marginBottom: '6px', fontWeight: 900 }}>HEADLINE</div>
+          <textarea value={quick.headline} onChange={e => save({ headline: e.target.value })} placeholder="Main market takeaway..." style={{ ...iBase, padding: '10px 12px', fontSize: '13px', resize: 'vertical', minHeight: '48px', lineHeight: '1.6', fontFamily: 'Georgia, serif', width: '100%' }} />
+        </div>
+        <div>
+          <div style={{ fontSize: '9px', letterSpacing: '4px', color: accent, marginBottom: '6px', fontWeight: 900 }}>MARKET SUMMARY</div>
+          <textarea value={quick.summary || ''} onChange={e => save({ summary: e.target.value })} placeholder="Context paragraph â€” macro drivers, overnight news..." style={{ ...iBase, padding: '10px 12px', fontSize: '12px', resize: 'vertical', minHeight: '48px', lineHeight: '1.65', fontFamily: 'Georgia, serif', width: '100%' }} />
+        </div>
+      </div>
+
+      {/* Market Data */}
+      <div>
+        <div style={{ fontSize: '9px', letterSpacing: '4px', color: accent, marginBottom: '8px', fontWeight: 900 }}>MARKET DATA</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 55px 1fr 95px 42px)', gap: '4px 6px', alignItems: 'center', marginBottom: '4px' }}>
+          {[0, 1, 2].map(col => ['LABEL', 'VALUE', 'CHG', 'DIR'].map(h => <div key={`${col}-${h}`} style={{ fontSize: '8px', color: '#FFFFFF', letterSpacing: '2px' }}>{h}</div>))}
+        </div>
+        {[0, 1].map(row => (
+          <div key={row} style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 55px 1fr 95px 42px)', gap: '4px 6px', marginBottom: '4px', alignItems: 'center' }}>
+            {[0, 1, 2].map(col => {
+              const i = row * 3 + col
+              const d = quick.marketData[i]
+              if (!d) return null
+              return (
+                <React.Fragment key={i}>
+                  <input value={d.label} onChange={e => updMkt(i, 'label', e.target.value)} style={{ ...inp, textAlign: 'center', fontWeight: 900, letterSpacing: '2px' }} />
+                  <input value={d.value} onChange={e => updMkt(i, 'value', e.target.value)} placeholder="5,612" style={inp} />
+                  <input value={d.change} onChange={e => updMkt(i, 'change', e.target.value)} placeholder="+1.2%" style={inp} />
+                  <button onClick={() => updMkt(i, 'up', !d.up)} style={{ ...inp, cursor: 'pointer', textAlign: 'center', color: d.up ? '#00D68F' : '#FF3B3B', fontWeight: 900, background: 'transparent', border: `1px solid ${d.up ? '#00D68F44' : '#FF3B3B44'}` }}>{d.up ? '▲' : '▼'}</button>
+                </React.Fragment>
+              )
+            })}
+          </div>
+        ))}
+      </div>
+
+      {/* Focus Items */}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+          <div style={{ fontSize: '9px', letterSpacing: '4px', color: accent, fontWeight: 900 }}>TOP FOCUS ITEMS</div>
+          <button onClick={addFocus} style={{ ...ghostBtn(accent), padding: '4px 12px', fontSize: '9px', letterSpacing: '2px', cursor: 'pointer' }}>+ ADD TICKER</button>
+        </div>
+        {focusItems.length === 0 && <div style={{ fontSize: '10px', color: '#FFFFFF', letterSpacing: '2px', padding: '4px 0' }}>No focus items â€” click + ADD TICKER</div>}
+        {focusItems.map((fi) => (
+          <div key={fi.id} style={{ border: `1px solid ${QD_COLOR[fi.direction] || accent}30`, marginBottom: '10px', background: '#040404' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '110px 140px 1fr 32px', gap: '6px', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)', alignItems: 'center' }}>
+              <input value={fi.ticker} onChange={e => updFocus(fi.id, { ticker: e.target.value.toUpperCase() })} placeholder="TICKER" style={{ ...inp, fontWeight: 900, letterSpacing: '3px', fontSize: '13px', textAlign: 'center' }} />
+              <select value={fi.direction} onChange={e => updFocus(fi.id, { direction: e.target.value as FocusItem['direction'] })} style={{ ...iSm, padding: '7px 8px', fontSize: '10px', letterSpacing: '2px', color: QD_COLOR[fi.direction] || accent }}>
+                {DIRECTIONS.map(d => <option key={d} value={d}>{QD_LABEL[d]}</option>)}
+              </select>
+              <input value={fi.trade} onChange={e => updFocus(fi.id, { trade: e.target.value })} placeholder="Trade note (e.g. $212.5 Puts & $220 Calls 6/26)" style={{ ...inp, fontSize: '11px' }} />
+              <button onClick={() => delFocus(fi.id)} style={{ ...rmBtn, padding: '5px 7px', cursor: 'pointer', fontSize: '13px' }}>✕</button>
+            </div>
+            <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {fi.bullets.map((b, bi) => (
+                <div key={bi} style={{ display: 'grid', gridTemplateColumns: '1fr 30px', gap: '4px', alignItems: 'center' }}>
+                  <input value={b} onChange={e => updFocusBullet(fi.id, fi.bullets, bi, e.target.value)} placeholder={`Bullet ${bi + 1} â€” thesis, setup, risk...`} style={{ ...inp, fontSize: '12px' }} />
+                  <button onClick={() => delFocusBullet(fi.id, fi.bullets, bi)} style={{ ...rmBtn, padding: '5px 6px', cursor: 'pointer', fontSize: '11px' }}>✕</button>
+                </div>
+              ))}
+              <button onClick={() => addFocusBullet(fi.id, fi.bullets)} style={{ ...ghostBtn(accent), padding: '3px 10px', fontSize: '9px', letterSpacing: '2px', cursor: 'pointer', alignSelf: 'flex-start', marginTop: '2px' }}>+ BULLET</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Trade Setups */}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+          <div style={{ fontSize: '9px', letterSpacing: '4px', color: accent, fontWeight: 900 }}>TRADE SETUPS</div>
+          <button onClick={addTrade} style={{ ...ghostBtn(accent), padding: '4px 12px', fontSize: '9px', letterSpacing: '2px', cursor: 'pointer' }}>+ ADD TRADE</button>
+        </div>
+        {trades.length === 0 && <div style={{ fontSize: '10px', color: '#FFFFFF', letterSpacing: '2px', padding: '4px 0' }}>No trades â€” click + ADD TRADE</div>}
+        <div style={{ display: 'grid', gridTemplateColumns: '70px 66px 1fr 70px 70px 70px 72px 1fr 30px', gap: '4px', marginBottom: '4px' }}>
+          {['TICKER', 'TYPE', 'CONTRACT', 'ENTRY', 'T1', 'T2', 'STOP', 'NOTES', ''].map(h => <div key={h} style={{ fontSize: '8px', color: '#FFFFFF', letterSpacing: '2px' }}>{h}</div>)}
+        </div>
+        {trades.map(tr => (
+          <div key={tr.id} style={{ display: 'grid', gridTemplateColumns: '70px 66px 1fr 70px 70px 70px 72px 1fr 30px', gap: '4px', marginBottom: '5px', alignItems: 'center' }}>
+            <input value={tr.ticker} onChange={e => updTrade(tr.id, { ticker: e.target.value.toUpperCase() })} placeholder="TICK" style={{ ...inp, fontWeight: 900, letterSpacing: '2px', textAlign: 'center' }} />
+            <select value={tr.type} onChange={e => updTrade(tr.id, { type: e.target.value as TradeRow['type'] })} style={{ ...iSm, padding: '7px 4px', fontSize: '10px', color: QD_TRADE_CLR[tr.type] || '#fff' }}>
+              {TRADE_TYPES.map(t => <option key={t} value={t}>{t.toUpperCase()}</option>)}
+            </select>
+            <input value={tr.contract} onChange={e => updTrade(tr.id, { contract: e.target.value })} placeholder="6/27 $580C" style={{ ...inp, fontSize: '11px' }} />
+            <input value={tr.entry} onChange={e => updTrade(tr.id, { entry: e.target.value })} placeholder="ENTRY" style={{ ...inp, textAlign: 'center' }} />
+            <input value={tr.t1} onChange={e => updTrade(tr.id, { t1: e.target.value })} placeholder="T1" style={{ ...inp, textAlign: 'center' }} />
+            <input value={tr.t2} onChange={e => updTrade(tr.id, { t2: e.target.value })} placeholder="T2" style={{ ...inp, textAlign: 'center' }} />
+            <input value={tr.stop} onChange={e => updTrade(tr.id, { stop: e.target.value })} placeholder="STOP" style={{ ...inp, textAlign: 'center', color: '#FF3B3B' }} />
+            <input value={tr.notes} onChange={e => updTrade(tr.id, { notes: e.target.value })} placeholder="Notes..." style={{ ...inp, fontSize: '11px' }} />
+            <button onClick={() => delTrade(tr.id)} style={{ ...rmBtn, padding: '5px 6px', cursor: 'pointer', fontSize: '11px' }}>✕</button>
+          </div>
+        ))}
+      </div>
+
+      {/* Key Levels */}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+          <div style={{ fontSize: '9px', letterSpacing: '4px', color: accent, fontWeight: 900 }}>KEY LEVELS</div>
+          <button onClick={() => save({ keyLevels: [...quick.keyLevels, { price: '', tag: 'KEY', note: '' }] })} style={{ ...ghostBtn(accent), padding: '3px 10px', fontSize: '10px', letterSpacing: '2px', cursor: 'pointer' }}>+ ADD</button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '75px 100px 1fr 30px', gap: '4px 6px', alignItems: 'center', marginBottom: '4px' }}>
+          {['PRICE', 'TAG', 'NOTE', ''].map(h => <div key={h} style={{ fontSize: '8px', color: '#FFFFFF', letterSpacing: '2px' }}>{h}</div>)}
+        </div>
+        {quick.keyLevels.map((l, i) => (
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: '75px 100px 1fr 30px', gap: '4px 6px', marginBottom: '4px', alignItems: 'center' }}>
+            <input value={l.price} onChange={e => updLvl(i, 'price', e.target.value)} placeholder="5,612" style={{ ...inp, textAlign: 'right', fontWeight: 700 }} />
+            <select value={l.tag} onChange={e => updLvl(i, 'tag', e.target.value)} style={{ ...iSm, padding: '7px 8px', fontSize: '10px', letterSpacing: '2px' }}>
+              {LEVEL_TAGS.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <input value={l.note} onChange={e => updLvl(i, 'note', e.target.value)} placeholder="Note..." style={inp} />
+            <button onClick={() => save({ keyLevels: quick.keyLevels.filter((_, j) => j !== i) })} style={{ ...rmBtn, padding: '5px 7px', fontSize: '13px', cursor: 'pointer' }}>✕</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+
+  // â”€â”€ VIEW MODE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const hasAnyContent = quick.headline || quick.summary || focusItems.some(f => f.ticker) || trades.some(t => t.ticker) || quick.marketData.some(d => d.value) || quick.bullets.some(b => b.text)
+  if (!hasAnyContent) return (
+    <div style={{ padding: '52px 0', textAlign: 'center' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '12px', justifyContent: 'center' }}>
+        <div style={{ flex: 1, height: '1px', background: 'rgba(255,107,0,0.2)' }} />
+        <span style={{ fontSize: '10px', letterSpacing: '5px', color: '#FF8C00', fontFamily: 'monospace', fontWeight: 900 }}>NO BRIEF PUBLISHED</span>
+        <div style={{ flex: 1, height: '1px', background: 'rgba(255,107,0,0.2)' }} />
+      </div>
+      <div style={{ fontSize: '11px', color: '#FFFFFF', letterSpacing: '3px', fontFamily: 'monospace' }}>
+        SWITCH TO EDIT MODE TO CREATE A BRIEF
+      </div>
+    </div>
+  )
+
+  const activeMktData = quick.marketData.filter(d => d.value)
+
+  // â”€â”€ Section blocks â”€â”€
+  const mastheadEl = (
+    <div style={{ borderBottom: `2px solid ${accent}`, paddingBottom: '10px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+      <div>
+        <div style={{ fontSize: '9px', letterSpacing: '5px', color: accent, fontWeight: 900, marginBottom: '4px' }}>EFI CAPITAL · MARKET INTELLIGENCE</div>
+        <div style={{ fontSize: '20px', fontWeight: 900, letterSpacing: '5px', color: accent }}>{modeLabel}</div>
+      </div>
+      <div style={{ textAlign: 'right' }}>
+        <div style={{ fontSize: '10px', color: '#FFFFFF', letterSpacing: '2px' }}>
+          {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase()}
+        </div>
+        {quick.updatedAt && <div style={{ fontSize: '9px', color: '#E0E6F0', letterSpacing: '1px', marginTop: '2px' }}>UPDATED {fmtTs(quick.updatedAt).toUpperCase()}</div>}
+      </div>
+    </div>
+  )
+
+  const headlineEl = quick.headline ? (
+    <div style={{ paddingBottom: '4px' }}>
+      <div style={{ fontSize: '9px', letterSpacing: '4px', color: '#FFFFFF', marginBottom: '6px', fontWeight: 900 }}>HEADLINE</div>
+      <div style={{ fontSize: '17px', fontWeight: 600, color: '#FFFFFF', fontFamily: '"Times New Roman", Georgia, serif', lineHeight: 1.45 }}>{quick.headline}</div>
+    </div>
+  ) : null
+
+  const summaryEl = quick.summary ? (
+    <div>
+      <div style={{ fontSize: '9px', letterSpacing: '4px', color: '#FFFFFF', marginBottom: '8px', fontWeight: 900 }}>MARKET OVERVIEW</div>
+      <div style={{ fontSize: '13px', color: '#D8E0EC', fontFamily: 'Georgia, "Times New Roman", serif', lineHeight: 1.75 }}>{quick.summary}</div>
+    </div>
+  ) : null
+
+  const snapshotEl = activeMktData.length > 0 ? (
+    <div>
+      <div style={{ fontSize: '9px', letterSpacing: '4px', color: '#FFFFFF', marginBottom: '8px', fontWeight: 900 }}>MARKET SNAPSHOT</div>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(activeMktData.length, 6)}, 1fr)`, border: '1px solid rgba(255,255,255,0.07)' }}>
+        {activeMktData.map((d, i) => (
+          <div key={i} style={{ padding: '10px', borderRight: i < activeMktData.length - 1 ? '1px solid rgba(255,255,255,0.07)' : 'none', borderTop: `2px solid ${d.up ? '#00D68F' : '#FF3B3B'}` }}>
+            <div style={{ fontSize: '8px', letterSpacing: '2px', color: '#FFFFFF', marginBottom: '5px', fontWeight: 700 }}>{d.label}</div>
+            <div style={{ fontSize: '13px', fontWeight: 900, color: '#FFFFFF', marginBottom: '3px' }}>{d.value}</div>
+            {d.change && <div style={{ fontSize: '11px', fontWeight: 700, color: d.up ? '#00D68F' : '#FF3B3B' }}>{d.change}</div>}
+          </div>
+        ))}
+      </div>
+    </div>
+  ) : null
+
+  const focusEl = focusItems.some(f => f.ticker) ? (
+    <div>
+      {secLabel('TOP FOCUS',
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="9" stroke="#FF6600" strokeWidth="1.5" />
+          <circle cx="12" cy="12" r="4" stroke="#FF6600" strokeWidth="1.5" />
+          <line x1="12" y1="3" x2="12" y2="7" stroke="#FF6600" strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="12" y1="17" x2="12" y2="21" stroke="#FF6600" strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="3" y1="12" x2="7" y2="12" stroke="#FF6600" strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="17" y1="12" x2="21" y2="12" stroke="#FF6600" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      )}
+      {focusItems.filter(f => f.ticker).map((fi) => {
+        const dc = QD_COLOR[fi.direction] || '#9AAAB8'
+        return (
+          <div key={fi.id} style={{ marginBottom: '18px', borderLeft: `3px solid ${dc}`, paddingLeft: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              {renderDirIcon(fi.direction, 20)}
+              <span style={{ fontSize: '16px', fontWeight: 900, color: '#FFFFFF', letterSpacing: '3px', fontFamily: 'monospace' }}>{fi.ticker}</span>
+              <span style={{ fontSize: '8px', fontWeight: 900, color: dc, letterSpacing: '2px', padding: '2px 7px', border: `1px solid ${dc}44`, background: `${dc}0D`, fontFamily: 'monospace' }}>{QD_LABEL[fi.direction] || fi.direction.toUpperCase()}</span>
+            </div>
+            {fi.bullets.filter(b => b.trim()).map((b, bi) => (
+              <div key={bi} style={{ display: 'flex', gap: '8px', marginBottom: '5px' }}>
+                <span style={{ color: dc, fontSize: '12px', flexShrink: 0, marginTop: '1px' }}>•</span>
+                <span style={{ fontSize: '13px', color: '#D8E0EC', lineHeight: 1.65, fontFamily: 'Georgia, serif' }}>{b}</span>
+              </div>
+            ))}
+            {fi.trade && (
+              <div style={{ marginTop: '9px', padding: '7px 12px', background: `${dc}0F`, border: `1px solid ${dc}28`, borderRadius: '2px' }}>
+                <span style={{ fontSize: '12px', fontWeight: 900, color: dc, fontFamily: 'monospace', letterSpacing: '1px' }}>{fi.trade}</span>
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  ) : null
+
+  // Legacy bullets (shown only when no focus items, backward compat)
+  const legacyBulletsEl = quick.bullets.some(b => b.text) && focusItems.length === 0 ? (
+    <div>
+      <div style={{ fontSize: '9px', letterSpacing: '4px', color: '#FFFFFF', marginBottom: '8px', fontWeight: 900 }}>KEY INSIGHTS</div>
+      <div style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
+        {quick.bullets.filter(b => b.text).map((b, i, arr) => {
+          const col = BULLET_COLORS[b.category] || BULLET_COLORS.NOTE
+          return (
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '76px 1fr', borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+              <div style={{ padding: '10px', background: `${col}0A`, borderRight: `1px solid ${col}1A`, display: 'flex', alignItems: 'center' }}>
+                <span style={{ fontSize: '9px', fontWeight: 900, color: col, letterSpacing: '2px' }}>{b.category}</span>
+              </div>
+              <div style={{ padding: '10px 14px', display: 'flex', alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', color: '#E8EDF2', lineHeight: 1.55 }}>{b.text}</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  ) : null
+
+  const tradesEl = trades.some(t => t.ticker) ? (
+    <div>
+      {secLabel('TRADE SETUPS',
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <rect x="3" y="5" width="18" height="14" rx="1" stroke={accent} strokeWidth="1.5" />
+          <line x1="3" y1="9" x2="21" y2="9" stroke={accent} strokeWidth="1.2" />
+          <line x1="9" y1="9" x2="9" y2="19" stroke={accent} strokeWidth="1.2" />
+        </svg>
+      )}
+      <div style={{ border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '80px 58px 1fr 72px 72px 72px 72px', background: '#0A0A0A', borderBottom: '1px solid rgba(255,255,255,0.07)', padding: '6px 10px', gap: '6px' }}>
+          {['TICKER', 'TYPE', 'CONTRACT', 'ENTRY', 'T1', 'T2', 'STOP'].map(h => (
+            <div key={h} style={{ fontSize: '8px', letterSpacing: '2px', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>{h}</div>
+          ))}
+        </div>
+        {trades.filter(t => t.ticker).map((tr) => {
+          const tc = QD_TRADE_CLR[tr.type] || '#FFD700'
+          return (
+            <div key={tr.id}>
+              <div style={{ display: 'grid', gridTemplateColumns: '80px 58px 1fr 72px 72px 72px 72px', padding: '10px', gap: '6px', borderBottom: '1px solid rgba(255,255,255,0.04)', borderLeft: `3px solid ${tc}`, alignItems: 'center' }}>
+                <div style={{ fontSize: '13px', fontWeight: 900, color: '#FFFFFF', letterSpacing: '1px' }}>{tr.ticker}</div>
+                <div style={{ fontSize: '9px', fontWeight: 900, color: tc, letterSpacing: '1px', padding: '2px 4px', border: `1px solid ${tc}44`, background: `${tc}0F`, textAlign: 'center' }}>{tr.type.toUpperCase()}</div>
+                <div style={{ fontSize: '12px', color: '#E8EDF2', fontFamily: 'monospace', fontWeight: 600 }}>{tr.contract}</div>
+                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.8)', textAlign: 'center', fontFamily: 'monospace' }}>{tr.entry}</div>
+                <div style={{ fontSize: '12px', color: '#00D68F', fontWeight: 700, textAlign: 'center', fontFamily: 'monospace' }}>{tr.t1}</div>
+                <div style={{ fontSize: '12px', color: '#00D68F', fontWeight: 700, textAlign: 'center', fontFamily: 'monospace' }}>{tr.t2}</div>
+                <div style={{ fontSize: '12px', color: '#FF3B3B', fontWeight: 700, textAlign: 'center', fontFamily: 'monospace' }}>{tr.stop}</div>
+              </div>
+              {tr.notes && (
+                <div style={{ padding: '5px 14px 8px', background: '#030303', borderBottom: '1px solid rgba(255,255,255,0.03)', borderLeft: `3px solid ${tc}44` }}>
+                  <span style={{ fontSize: '11px', color: '#FFFFFF', fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>{tr.notes}</span>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  ) : null
+
+  const levelsEl = quick.keyLevels.some(l => l.price) ? (
+    <div>
+      {secLabel('KEY LEVELS',
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <line x1="3" y1="6" x2="21" y2="6" stroke="#9AAAB8" strokeWidth="1.5" strokeDasharray="3 2" />
+          <line x1="3" y1="12" x2="21" y2="12" stroke="#FF6600" strokeWidth="1.5" />
+          <line x1="3" y1="18" x2="21" y2="18" stroke="#9AAAB8" strokeWidth="1.5" strokeDasharray="3 2" />
+          <circle cx="12" cy="12" r="2.5" fill="#FF6600" />
+        </svg>
+      )}
+      <div style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '80px 100px 1fr', padding: '5px 10px', background: '#060606', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          {['PRICE', 'TAG', 'NOTE'].map(h => <span key={h} style={{ fontSize: '8px', letterSpacing: '2px', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>{h}</span>)}
+        </div>
+        {quick.keyLevels.filter(l => l.price).map((l, i, arr) => {
+          const col = LEVEL_TAG_COLORS[l.tag] || accent
+          return (
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '80px 100px 1fr', padding: '9px 10px', borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none', borderLeft: `3px solid ${col}` }}>
+              <div style={{ fontSize: '13px', fontWeight: 900, color: '#FFFFFF', letterSpacing: '0.5px', fontFamily: 'monospace' }}>{l.price}</div>
+              <div><span style={{ fontSize: '9px', fontWeight: 900, color: col, letterSpacing: '2px', padding: '1px 5px', border: `1px solid ${col}30`, background: `${col}0D`, fontFamily: 'monospace' }}>{l.tag}</span></div>
+              <div style={{ fontSize: '11px', color: '#FFFFFF', fontStyle: 'italic', fontFamily: 'Georgia, serif' }}>{l.note}</div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  ) : null
+
+  // â”€â”€ Double column â”€â”€
+  if (isDouble) return (
+    <div style={{ display: 'grid', gridTemplateColumns: '58% 1fr', gap: '28px', alignItems: 'start' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        {mastheadEl}{headlineEl}{summaryEl}{snapshotEl}{focusEl}{legacyBulletsEl}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        {tradesEl}{levelsEl}
+      </div>
+    </div>
+  )
+
+  // â”€â”€ Single column â”€â”€
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {mastheadEl}{headlineEl}{summaryEl}{snapshotEl}{focusEl}{legacyBulletsEl}{tradesEl}{levelsEl}
+      {quick.updatedAt && (
+        <div style={{ paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.04)', display: 'flex', justifyContent: 'flex-end' }}>
+          <span style={{ fontSize: '8px', color: '#E0E6F0', letterSpacing: '2px' }}>END OF BRIEF · EFI CAPITAL</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── BriefSection ─────────────────────────────────────────────────────────────
 function BriefSection({
   data,
   persist,
@@ -4004,28 +3912,14 @@ function BriefSection({
   return (
     <div>
       {blocks.length === 0 && !editMode ? (
-        <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-          <div
-            style={{
-              fontSize: '25px',
-              letterSpacing: '4px',
-              color: GS.white,
-              fontWeight: 900,
-              fontFamily: 'monospace',
-            }}
-          >
-            NO BRIEF PUBLISHED
+        <div style={{ padding: '60px 24px', textAlign: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '28px', justifyContent: 'center' }}>
+            <div style={{ flex: 1, height: '1px', background: 'rgba(255,107,0,0.2)' }} />
+            <span style={{ fontSize: '9px', letterSpacing: '5px', color: 'rgba(255,107,0,0.6)', fontFamily: 'monospace', fontWeight: 900 }}>NO WIRE PUBLISHED</span>
+            <div style={{ flex: 1, height: '1px', background: 'rgba(255,107,0,0.2)' }} />
           </div>
-          <div
-            style={{
-              fontSize: '18px',
-              letterSpacing: '2px',
-              color: '#F1F5F9',
-              marginTop: '10px',
-              fontFamily: 'monospace',
-            }}
-          >
-            ENABLE EDIT MODE AND PICK A LAYOUT
+          <div style={{ fontSize: '12px', color: '#FFFFFF', letterSpacing: '3px', fontFamily: 'monospace' }}>
+            Open Options menu · Enable Edit Mode · Select a layout
           </div>
         </div>
       ) : editMode ? (
@@ -4070,7 +3964,7 @@ function BriefSection({
                         cursor: 'pointer',
                       }}
                     >
-                      ↑
+                      â†‘
                     </button>
                     <button
                       onClick={() => moveBlock(block.id, 1)}
@@ -4083,7 +3977,7 @@ function BriefSection({
                         cursor: 'pointer',
                       }}
                     >
-                      ↓
+                      â†“
                     </button>
                     <button
                       onClick={() => deleteBlock(block.id)}
@@ -4146,42 +4040,71 @@ function BriefSection({
           </div>
         </div>
       ) : (
-        <div>
+        <div style={{ width: '100%' }}>
+          {/* Edition stamp */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '10px',
+            marginBottom: '24px', paddingBottom: '12px',
+            borderBottom: `2px solid ${accent}`,
+          }}>
+            <div style={{ flex: 1, height: '1px', background: 'rgba(255,107,0,0.2)' }} />
+            <span style={{
+              fontSize: '9px', fontWeight: 900, letterSpacing: '4px', color: '#FF8C00', fontFamily: 'monospace',
+              padding: '3px 10px',
+              border: `1px solid rgba(255,140,0,0.3)`,
+            }}>
+              MARKET BRIEF · {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase()}
+            </span>
+            <div style={{ flex: 1, height: '1px', background: 'rgba(255,107,0,0.2)' }} />
+          </div>
           {blocks.map((block) => (
             <div key={block.id}>{viewBriefBlock(block, accent, editMode)}</div>
           ))}
+          {/* End-of-wire mark */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '10px',
+            marginTop: '32px', paddingTop: '16px',
+            borderTop: `1px solid rgba(255,255,255,0.06)`,
+          }}>
+            <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.04)' }} />
+            <span style={{
+              fontSize: '9px', letterSpacing: '4px', color: '#FFFFFF',
+              fontFamily: 'monospace',
+            }}>END OF WIRE · EFI CAPITAL</span>
+            <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.04)' }} />
+          </div>
         </div>
       )}
     </div>
   )
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
+// â”€â”€ Main Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function InsightPanel({ onClose }: { onClose: () => void }) {
   const [editMode, setEditMode] = useState(false)
+  const [activeTab, setActiveTab] = useState<'pulse' | 'brief'>('pulse')
   const [data, setData] = useState<InsightData>(emptyData)
+  const [quickData, setQuickData] = useState<QuickBrief>(emptyQuick)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [history, setHistory] = useState<SavedReport[]>([])
   const [savedToast, setSavedToast] = useState(false)
   const [optionsOpen, setOptionsOpen] = useState(false)
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      if (saved) setData(JSON.parse(saved))
-    } catch { }
-    try {
-      const hist = localStorage.getItem(HISTORY_KEY)
-      if (hist) setHistory(JSON.parse(hist))
-    } catch { }
+    try { const s = localStorage.getItem(STORAGE_KEY); if (s) setData(JSON.parse(s)) } catch { }
+    try { const h = localStorage.getItem(HISTORY_KEY); if (h) setHistory(JSON.parse(h)) } catch { }
+    try { const q = localStorage.getItem(QUICK_KEY); if (q) setQuickData(JSON.parse(q)) } catch { }
   }, [])
 
   const persist = (next: InsightData) => {
     setData(next)
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-    } catch { }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch { }
+  }
+
+  const persistQuick = (next: QuickBrief) => {
+    setQuickData(next)
+    try { localStorage.setItem(QUICK_KEY, JSON.stringify(next)) } catch { }
   }
 
   const saveReport = () => {
@@ -4189,9 +4112,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
     const report: SavedReport = { id: uid(), title, savedAt: nowTs(), snapshot: data }
     setHistory((prev) => {
       const next = [report, ...prev].slice(0, 50)
-      try {
-        localStorage.setItem(HISTORY_KEY, JSON.stringify(next))
-      } catch { }
+      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(next)) } catch { }
       return next
     })
     setSavedToast(true)
@@ -4223,75 +4144,42 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
         position: 'relative',
       }}
     >
-      {/* ── Prismatic accent strip ── */}
-      <div
-        style={{
-          height: '2px',
-          flexShrink: 0,
-          background:
-            'linear-gradient(90deg, #D4A843 0%, #FF2D55 22%, #C084FC 44%, #22D3EE 66%, #34D399 88%, #D4A843 100%)',
-        }}
-      />
+      {/* â”€â”€ Wire masthead top rules â”€â”€ */}
+      <div style={{ height: '3px', background: '#FF6B00', flexShrink: 0 }} />
+      <div style={{ height: '1px', background: 'rgba(255,107,0,0.25)', flexShrink: 0 }} />
 
-      {/* ── Header ── */}
-      <div
-        style={{
-          padding: '14px 20px',
-          flexShrink: 0,
-          background: 'linear-gradient(135deg, #030303 0%, #000000 60%, #020202 100%)',
-          borderBottom: '1px solid rgba(212,168,67,0.15)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          boxShadow:
-            'inset 0 2px 0 rgba(255,255,255,0.1), inset 0 1px 0 rgba(255,255,255,0.06), 0 4px 24px rgba(0,0,0,0.95)',
-          position: 'relative',
-        }}
-      >
+      {/* â”€â”€ Header â”€â”€ */}
+      <div style={{
+        padding: '10px 18px',
+        flexShrink: 0,
+        background: '#050505',
+        borderBottom: '1px solid rgba(255,107,0,0.18)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        position: 'relative',
+      }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px', position: 'relative' }}>
-          <div style={{ padding: '8px 14px' }}>
-            <div
-              style={{
-                fontSize: '18px',
-                fontWeight: '900',
-                letterSpacing: '5px',
-                color: '#FF6B00',
-                lineHeight: 1,
-                marginBottom: '3px',
-              }}
-            >
-              EFI CAPITAL
-            </div>
-            <div
-              style={{
-                fontSize: '26px',
-                fontWeight: '900',
-                letterSpacing: '5px',
-                lineHeight: 1.1,
-                color: '#FF6B00',
-              }}
-            >
-              INSIGHT
-            </div>
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '2px' }}>
+            <div style={{
+              fontSize: '9px', fontWeight: 900, letterSpacing: '5px',
+              color: 'rgba(255,107,0,0.7)', fontFamily: 'monospace',
+            }}>EFI CAPITAL</div>
+            <div style={{
+              fontSize: '17px', fontWeight: 900, letterSpacing: '4px',
+              color: '#FF6B00', fontFamily: 'monospace', lineHeight: 1,
+            }}>MARKET INSIGHT</div>
           </div>
-          <div
-            style={{
-              width: '1px',
-              height: '36px',
-              background:
-                'linear-gradient(180deg, transparent, rgba(212,168,67,0.35), transparent)',
-            }}
-          />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <span
-              style={{
-                fontSize: '18px',
-                color: '#FFFFFF',
-                letterSpacing: '3px',
-                fontWeight: '600',
-              }}
-            >
-              MARKET INTELLIGENCE HUB
+          <div style={{
+            width: '1px', height: '28px',
+            background: 'linear-gradient(180deg, transparent, rgba(255,107,0,0.3), transparent)',
+          }} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+            <span style={{
+              fontSize: '11px', color: 'rgba(255,255,255,0.5)',
+              letterSpacing: '3px', fontWeight: 600, fontFamily: 'monospace',
+            }}>
+              INTELLIGENCE WIRE
             </span>
             {editMode ? (
               <input
@@ -4318,7 +4206,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
                   minHeight: '18px',
                 }}
               >
-                {data.reportTitle || 'No title — enter in Edit Mode'}
+                {data.reportTitle || 'No title â€” enter in Edit Mode'}
               </span>
             )}
           </div>
@@ -4331,7 +4219,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
               onClick={() => setOptionsOpen((o) => !o)}
               style={{
                 background: optionsOpen ? 'rgba(255,100,0,0.15)' : 'rgba(255,255,255,0.04)',
-                border: `1px solid ${optionsOpen ? 'rgba(255,100,0,0.6)' : 'rgba(255,255,255,0.18)'}`,
+                border: `1px solid ${optionsOpen ? 'rgba(255,100,0,0.6)' : '#FFFFFF'}`,
                 color: '#FF6400',
                 padding: '7px',
                 cursor: 'pointer',
@@ -4375,7 +4263,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
                   onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.07)')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                 >
-                  ⏱ HISTORICAL
+                  â± HISTORICAL
                 </button>
                 <button
                   onClick={() => { saveReport(); setOptionsOpen(false) }}
@@ -4391,7 +4279,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
                   onMouseEnter={e => (e.currentTarget.style.background = 'rgba(34,197,94,0.08)')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                 >
-                  {savedToast ? '✅ SAVED!' : '✦ SAVE REPORT'}
+                  {savedToast ? 'âœ… SAVED!' : 'âœ¦ SAVE REPORT'}
                 </button>
                 <button
                   onClick={() => { setEditMode((e) => !e); setOptionsOpen(false) }}
@@ -4407,7 +4295,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
                   onMouseEnter={e => (e.currentTarget.style.background = 'rgba(6,182,212,0.08)')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                 >
-                  {editMode ? '● EDITING' : '✎ EDIT MODE'}
+                  {editMode ? 'â— EDITING' : 'âœŽ EDIT MODE'}
                 </button>
               </div>
             )}
@@ -4416,7 +4304,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
             onClick={onClose}
             style={{
               background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.18)',
+              border: '1px solid #FFFFFF',
               color: '#F1F5F9',
               cursor: 'pointer',
               fontSize: '18px',
@@ -4430,22 +4318,42 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
         </div>
       </div>
 
-      {/* ── Content ── */}
+      {/* â”€â”€ Tab bar â”€â”€ */}
+      <div style={{
+        display: 'flex', flexShrink: 0,
+        background: '#030303',
+        borderBottom: '1px solid rgba(255,107,0,0.12)',
+      }}>
+        {([
+          { id: 'pulse', label: 'QUICK PULSE', sub: 'DAILY · WEEKLY · MONTHLY' },
+          { id: 'brief', label: 'DEEP BRIEF', sub: 'BLOCK BUILDER' },
+        ] as const).map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+            flex: 1, padding: '9px 12px', cursor: 'pointer',
+            background: 'transparent', border: 'none',
+            borderBottom: activeTab === t.id ? `2px solid #FF6B00` : '2px solid transparent',
+            borderRight: '1px solid rgba(255,107,0,0.1)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
+          }}>
+            <span style={{ fontSize: '10px', fontWeight: 900, letterSpacing: '3px', color: activeTab === t.id ? '#FF6B00' : 'rgba(255,255,255,0.65)', fontFamily: 'monospace' }}>{t.label}</span>
+            <span style={{ fontSize: '8px', letterSpacing: '2px', color: activeTab === t.id ? '#FF8C00' : 'rgba(255,255,255,0.45)', fontFamily: 'monospace' }}>{t.sub}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* â”€â”€ Content â”€â”€ */}
       <AccentCtx.Provider value={GS.gold}>
-        <div
-          style={{
-            flex: 1,
-            overflowY: 'auto',
-            padding: '20px 18px',
-            background: '#000000',
-            position: 'relative',
-          }}
-        >
-          <BriefSection data={data} persist={persist} editMode={editMode} />
+        <div style={{ flex: 1, overflowY: 'auto', background: '#000000', position: 'relative' }}>
+          <div style={{ padding: '18px 28px' }}>
+            {activeTab === 'pulse'
+              ? <QuickSection quick={quickData} persist={persistQuick} editMode={editMode} accent={GS.gold} />
+              : <BriefSection data={data} persist={persist} editMode={editMode} />
+            }
+          </div>
         </div>
       </AccentCtx.Provider>
 
-      {/* ── History Drawer ── */}
+      {/* â”€â”€ History Drawer â”€â”€ */}
       {historyOpen && (
         <div
           style={{
@@ -4480,7 +4388,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
                 fontWeight: '700',
               }}
             >
-              ⏱ HISTORICAL REPORTS
+              â± HISTORICAL REPORTS
             </span>
             <button
               onClick={() => setHistoryOpen(false)}
@@ -4508,7 +4416,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
             {history.length === 0 && (
               <div
                 style={{
-                  color: 'rgba(255,255,255,0.25)',
+                  color: '#FFFFFF',
                   fontSize: '14px',
                   textAlign: 'center',
                   marginTop: '40px',
@@ -4517,7 +4425,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
               >
                 No saved reports yet.
                 <br />
-                Click ✦ SAVE REPORT to archive the current report.
+                Click âœ¦ SAVE REPORT to archive the current report.
               </div>
             )}
             {history.map((report) => (
@@ -4594,29 +4502,22 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
-      {/* ── Footer ── */}
-      <div
-        style={{
-          borderTop: '1px solid rgba(255,255,255,0.04)',
-          padding: '8px 20px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexShrink: 0,
-          background: 'linear-gradient(180deg, #020202 0%, #000000 100%)',
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
-        }}
-      >
-        <span
-          style={{ fontSize: '18px', color: '#9AAAB8', letterSpacing: '3px', fontWeight: '600' }}
-        >
-          EFI TRADING · INTERNAL USE
+      {/* â”€â”€ Footer â”€â”€ */}
+      <div style={{
+        borderTop: '1px solid rgba(255,107,0,0.12)',
+        padding: '6px 18px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexShrink: 0,
+        background: '#030303',
+      }}>
+        <span style={{ fontSize: '9px', color: '#E0E6F0', letterSpacing: '3px', fontFamily: 'monospace' }}>
+          EFI CAPITAL · MARKET INTELLIGENCE · INTERNAL USE ONLY
         </span>
         {editMode && (
-          <span
-            style={{ fontSize: '17px', color: GS.amber, letterSpacing: '2px', fontWeight: '900' }}
-          >
-            ● EDIT MODE ACTIVE — CHANGES SAVE AUTOMATICALLY
+          <span style={{ fontSize: '9px', color: GS.amber, letterSpacing: '3px', fontWeight: 900, fontFamily: 'monospace' }}>
+            â— LIVE EDIT
           </span>
         )}
       </div>

@@ -1388,7 +1388,6 @@ export default function LeadershipScan() {
 
   return (
     <div
-      ref={_dbgRef}
       className="terminal-panel"
       style={{
         margin: '20px',

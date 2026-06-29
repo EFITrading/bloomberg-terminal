@@ -30,6 +30,7 @@ interface AlmanacCalendarProps {
   month?: number
   year?: number
   symbol?: string
+  onBack?: () => void
 }
 
 const MONTH_NAMES = [
@@ -438,6 +439,7 @@ const AlmanacCalendar: React.FC<AlmanacCalendarProps> = ({
   month: propMonth = new Date().getMonth(),
   year: propYear = new Date().getFullYear(),
   symbol = 'SPY',
+  onBack,
 }) => {
   const month = propMonth
   const year = propYear
@@ -589,7 +591,16 @@ const AlmanacCalendar: React.FC<AlmanacCalendarProps> = ({
             ? DAY_NAMES_SHORT
             : DAY_NAMES
           ).map((d, i) => (
-            <div key={i} className="day-header">
+            <div key={i} className="day-header" style={i === 0 ? { display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: '8px' } : {}}>
+              {i === 0 && onBack && (
+                <button
+                  onClick={onBack}
+                  style={{ height: '22px', padding: '0 8px', background: 'linear-gradient(180deg,#1e0e00 0%,#0c0600 100%)', border: '1px solid rgba(255,102,0,0.7)', borderBottom: '2px solid #661a00', borderRadius: '4px', color: '#ff6600', WebkitTextFillColor: '#ff6600', fontSize: '9px', fontFamily: '"JetBrains Mono",monospace', fontWeight: 800, letterSpacing: '0.5px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}
+                >
+                  <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M19 12H5M12 5l-7 7 7 7" /></svg>
+                  BACK
+                </button>
+              )}
               {d}
             </div>
           ))}

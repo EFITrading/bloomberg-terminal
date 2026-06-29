@@ -885,6 +885,164 @@ class SeasonalScreenerService {
     return (winningYears / allYearReturns.length) * 100;
   }
 
+  // ── Analyze sweet-spot / pain-point (50–90 day windows, same as SeasonalityChart) ──
+  private analyzeSweetSpotPainPoint(
+    dailyData: any[],
+    dailyGroups: { [dayOfYear: number]: { date: Date; return: number; year: number }[] }
+  ) {
+    let bestSpot = { startDay: 1, endDay: 50, avgReturn: -999, totalReturn: -Infinity, period: '', startDate: '', endDate: '' };
+    let worstPain = { startDay: 1, endDay: 50, avgReturn: 999, totalReturn: Infinity, period: '', startDate: '', endDate: '' };
+
+    for (let windowSize = 50; windowSize <= 90; windowSize++) {
+      for (let startDay = 1; startDay <= 365 - windowSize; startDay++) {
+        const endDay = startDay + windowSize - 1;
+        const windowData = dailyData.filter((d: any) => d.dayOfYear >= startDay && d.dayOfYear <= endDay);
+        if (windowData.length < Math.floor(windowSize * 0.8)) continue;
+
+        const sortedWindow = [...windowData].sort((a: any, b: any) => a.dayOfYear - b.dayOfYear);
+        const totalReturn = sortedWindow.reduce((s: number, d: any) => s + d.avgReturn, 0);
+        const avgReturn = totalReturn / sortedWindow.length;
+
+        const startPt = dailyData.find((d: any) => d.dayOfYear === startDay);
+        const endPt = dailyData.find((d: any) => d.dayOfYear === endDay);
+        if (!startPt || !endPt) continue;
+
+        const period = `${startPt.monthName} ${startPt.day} - ${endPt.monthName} ${endPt.day}`;
+        const startDate = `${startPt.monthName} ${startPt.day}`;
+        const endDate = `${endPt.monthName} ${endPt.day}`;
+
+        if (totalReturn > bestSpot.totalReturn) {
+          bestSpot = { startDay, endDay, avgReturn, totalReturn, period, startDate, endDate };
+        }
+        if (totalReturn < worstPain.totalReturn) {
+          worstPain = { startDay, endDay, avgReturn, totalReturn, period, startDate, endDate };
+        }
+      }
+    }
+
+    const spotWinRate = this.calculateWindowWinRate(dailyGroups, bestSpot.startDay, bestSpot.endDay);
+    const painWinRate = this.calculateWindowWinRate(dailyGroups, worstPain.startDay, worstPain.endDay);
+
+    return {
+      sweetSpot: { ...bestSpot, winRate: spotWinRate },
+      painPoint: { ...worstPain, winRate: painWinRate },
+    };
+  }
+
+  // ── Check if a leap-sized seasonal window is actionable (active or starting within 60 days) ──
+  private isLeapWindowActive(startDate: string): boolean {
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    let date = new Date(`${startDate}, ${currentYear}`);
+    const diff = (date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+    if (diff < -180) date = new Date(`${startDate}, ${currentYear + 1}`);
+    const finalDiff = Math.round((date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    // Active if started up to 9 days ago OR starts within next 9 days
+    return finalDiff >= -9 && finalDiff <= 9;
+  }
+
+  // ── Seasonal Leaps scan: sweet-spot/pain-point windows, 8–15 years, active opportunities ──
+  async screenSeasonalLeaps(
+    maxStocks: number = 500,
+    maxConcurrent: number = 50,
+    onProgress?: (processed: number, total: number, found: SeasonalOpportunity[]) => void,
+    marketSymbols?: string[]
+  ): Promise<SeasonalOpportunity[]> {
+    const MIN_YEARS = 8;
+    const MAX_YEARS = 15;
+
+    const symbolList = marketSymbols && marketSymbols.length > 0
+      ? marketSymbols.map(symbol => ({ symbol, name: symbol }))
+      : TOP1800_BY_MARKET_CAP;
+
+    const stocksToProcess = symbolList.slice(0, Math.min(maxStocks, symbolList.length));
+    const opportunities: SeasonalOpportunity[] = [];
+
+    try {
+      const symbols = ['SPY', ...stocksToProcess.map(s => s.symbol)];
+      const allHistoricalData = await this.fetchBulkHistoricalData(symbols, MAX_YEARS);
+
+      const spyData = allHistoricalData.get('SPY');
+      if (!spyData?.results?.length) throw new Error('Failed to get SPY data');
+
+      let processedCount = 0;
+
+      for (const stock of stocksToProcess) {
+        const stockData = allHistoricalData.get(stock.symbol);
+        if (!stockData?.results?.length) { processedCount++; continue; }
+
+        try {
+          const yearsOfData = this.calculateYearsOfData(stockData.results);
+          if (yearsOfData < MIN_YEARS) { processedCount++; continue; }
+
+          const actualYears = Math.min(yearsOfData, MAX_YEARS);
+
+          // Build raw seasonal data to get dailyGroups + dailyData
+          const seasonalData = this.processDailySeasonalData(
+            stockData.results, spyData.results, stock.symbol, stock.name, actualYears
+          );
+          if (!seasonalData?.dailyData) { processedCount++; continue; }
+
+          // Re-derive dailyGroups for win-rate calculation (need raw groups)
+          // We use the built-in calculateWindowWinRate via analyzeSweetSpotPainPoint
+          // which requires dailyGroups — so we rebuild a minimal version from dailyData
+          const rebuiltGroups: { [dayOfYear: number]: { date: Date; return: number; year: number }[] } = {};
+          // Approximate from dailyData (we only need totals per year per window)
+          seasonalData.dailyData.forEach((d: any) => {
+            if (!rebuiltGroups[d.dayOfYear]) rebuiltGroups[d.dayOfYear] = [];
+            // Insert a synthetic entry per occurrence using avgReturn
+            for (let i = 0; i < (d.occurrences || 1); i++) {
+              rebuiltGroups[d.dayOfYear].push({ date: new Date(), return: d.avgReturn, year: 2000 + i });
+            }
+          });
+
+          const { sweetSpot, painPoint } = this.analyzeSweetSpotPainPoint(seasonalData.dailyData, rebuiltGroups);
+
+          const spotActive = this.isLeapWindowActive(sweetSpot.startDate);
+          const painActive = this.isLeapWindowActive(painPoint.startDate);
+
+          if (!spotActive && !painActive) { processedCount++; continue; }
+
+          // Pick the one with higher magnitude, or the active one
+          let chosen: typeof sweetSpot & { sentiment: 'Bullish' | 'Bearish' };
+          if (spotActive && painActive) {
+            const pickSpot = Math.abs(sweetSpot.totalReturn) >= Math.abs(painPoint.totalReturn);
+            chosen = pickSpot
+              ? { ...sweetSpot, sentiment: 'Bullish' }
+              : { ...painPoint, sentiment: 'Bearish' };
+          } else if (spotActive) {
+            chosen = { ...sweetSpot, sentiment: 'Bullish' };
+          } else {
+            chosen = { ...painPoint, sentiment: 'Bearish' };
+          }
+
+          opportunities.push({
+            symbol: stock.symbol,
+            companyName: stock.name,
+            sentiment: chosen.sentiment,
+            period: chosen.period,
+            startDate: chosen.startDate,
+            endDate: chosen.endDate,
+            averageReturn: chosen.totalReturn, // cumulative period return
+            winRate: chosen.winRate,
+            years: actualYears,
+            daysUntilStart: this.calculateDaysUntilStart(chosen.startDate),
+            isCurrentlyActive: true,
+          });
+        } catch { /* skip */ }
+
+        processedCount++;
+        if (onProgress && processedCount % 25 === 0) {
+          onProgress(processedCount, stocksToProcess.length, opportunities);
+        }
+      }
+
+      return opportunities.sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));
+    } catch (error) {
+      return [];
+    }
+  }
+
 }
 
 export default SeasonalScreenerService;

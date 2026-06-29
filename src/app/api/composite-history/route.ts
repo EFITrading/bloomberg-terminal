@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 
-const prisma = new PrismaClient()
+const globalForPrisma = global as unknown as { prismaCH: PrismaClient }
+const prisma = globalForPrisma.prismaCH ?? new PrismaClient()
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prismaCH = prisma
+
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY!
 
 // ─── Sector / industry groupings — exact same as calculateEnhancedRegime ─────

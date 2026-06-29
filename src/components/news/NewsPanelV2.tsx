@@ -112,6 +112,7 @@ interface NewsTabProps {
   symbol?: string
   onClose?: () => void
   onTabChange?: (tab: 'breaking' | 'feed' | 'movers' | 'calendar') => void
+  isVisible?: boolean
 }
 
 // ─── Economic Calendar Data ───────────────────────────────────────────────────
@@ -482,7 +483,7 @@ function typeIcon(type: CalendarEvent['type']) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange }) => {
+const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange, isVisible = true }) => {
   const [articles, setArticles] = useState<NewsArticle[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -545,6 +546,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
   const [historicalLoading, setHistoricalLoading] = useState(false)
   const [historicalExpanded, setHistoricalExpanded] = useState(true)
   const historicalFetchedRef = useRef(false)
+  const [generalArticles, setGeneralArticles] = useState<NewsArticle[]>([])
 
   const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
@@ -1060,18 +1062,28 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
           hour12: true,
         }) + ' PST'
       )
+    if (!isVisible) return
     tick()
     const id = setInterval(tick, 1000)
     return () => clearInterval(id)
-  }, [])
+  }, [isVisible])
 
   useLayoutEffect(() => {
     if (scrollRef.current && savedScrollPos.current > 0)
       scrollRef.current.scrollTop = savedScrollPos.current
-  })
+  }, [articles])
 
   const handleScroll = useCallback(() => {
     if (scrollRef.current) savedScrollPos.current = scrollRef.current.scrollTop
+  }, [])
+
+  const fetchGeneralNews = useCallback(async () => {
+    try {
+      const params = new URLSearchParams({ limit: '50', _t: Date.now().toString() })
+      const res = await fetch(`/api/news?${params}`, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } })
+      const data: NewsResponse = await res.json()
+      if (data.success && data.articles?.length) setGeneralArticles(data.articles)
+    } catch { /* silent */ }
   }, [])
 
   const fetchNews = useCallback(async (ticker?: string) => {
@@ -1144,6 +1156,13 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
     const id = setInterval(() => fetchNews(searchTicker), 5 * 60 * 1000)
     return () => clearInterval(id)
   }, [fetchNews, searchTicker])
+
+  // Breaking news tab always uses global feed (no ticker)
+  useEffect(() => {
+    fetchGeneralNews()
+    const id = setInterval(fetchGeneralNews, 5 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [fetchGeneralNews])
 
   // ── Auto-scan historical breaking news on mount ─────────────────────────
   useEffect(() => {
@@ -1343,7 +1362,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
   }
 
   // ── Derived ─────────────────────────────────────────────────────────────
-  const breakingArticles = articles.filter((a) => a.urgency >= 0.65 || a.category === 'breaking')
+  const breakingArticles = (generalArticles.length ? generalArticles : articles).filter((a) => a.urgency >= 0.65 || a.category === 'breaking')
   const leadStory = breakingArticles[0] ?? articles[0]
   const otherBreaking = breakingArticles.slice(1, 7)
   const moversEvents = (marketSentiment?.market_moving_events ?? [])

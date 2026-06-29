@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { TbStar, TbStarFilled, TbTrendingDown, TbTrendingUp, TbX } from 'react-icons/tb'
 import {
@@ -547,6 +547,494 @@ export function TradePopupChart({
               letterSpacing: '0.1em',
             }}
           >
+            LIVE…
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── TradeCardChart ─────────────────────────────────────────────────────────
+const CARD_TIMEFRAMES = [
+  { label: '5M', value: '5m', days: 10, defaultBars: 78 },
+  { label: '1H', value: '1h', days: 365, defaultBars: 120 },
+  { label: '1D', value: '1d', days: 365, defaultBars: 60 },
+  { label: '1W', value: '1w', days: 2555, defaultBars: 104 },
+]
+
+function TradeCardChart({ symbol, industrySymbol }: { symbol: string; industrySymbol?: string }) {
+  const canvasRef = React.useRef<HTMLCanvasElement>(null)
+  const [timeframe, setTimeframe] = React.useState('1D')
+  const [candles, setCandles] = React.useState<any[]>([])
+  const [spyCandles, setSpyCandles] = React.useState<any[]>([])
+  const [industryCandles, setIndustryCandles] = React.useState<any[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [fetching, setFetching] = React.useState(false)
+
+  const stateRef = React.useRef({ offset: 0, barsVisible: 21 })
+  const dragRef = React.useRef({ active: false, startX: 0, startOffset: 0, velocity: 0, lastX: 0, lastTime: 0 })
+  const inertiaRef = React.useRef<number | null>(null)
+  const drawRef = React.useRef<() => void>(() => { })
+
+  React.useEffect(() => {
+    const tf = CARD_TIMEFRAMES.find((t) => t.label === timeframe) ?? CARD_TIMEFRAMES[2]
+    const from = new Date(Date.now() - tf.days * 86400000).toISOString().split('T')[0]
+    const to = new Date().toISOString().split('T')[0]
+    if (timeframe === '1D') setLoading(true)
+    else setFetching(true)
+    const syms = industrySymbol ? [symbol, 'SPY', industrySymbol] : [symbol, 'SPY']
+    fetch('/api/bulk-chart-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbols: syms, timeframe: tf.value, startDate: from, endDate: to }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        const sc = data.data?.[symbol] || []
+        const spy = data.data?.['SPY'] || []
+        const ind = industrySymbol ? (data.data?.[industrySymbol] || []) : []
+        setCandles(sc)
+        setSpyCandles(spy)
+        setIndustryCandles(ind)
+        stateRef.current = { offset: 0, barsVisible: Math.min(tf.defaultBars, sc.length) }
+      })
+      .catch(() => { })
+      .finally(() => { setLoading(false); setFetching(false) })
+  }, [symbol, timeframe]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const draw = React.useCallback(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const dpr = window.devicePixelRatio || 1
+    const W = canvas.offsetWidth
+    const H = canvas.offsetHeight
+    if (W === 0 || H === 0) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.setLineDash([])
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.imageSmoothingEnabled = false
+    ctx.clearRect(0, 0, W, H)
+    ctx.fillStyle = '#000000'
+    ctx.fillRect(0, 0, W, H)
+
+    if (loading || candles.length === 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.25)'
+      ctx.font = 'bold 11px "Courier New",monospace'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(loading ? 'LOADING…' : 'NO DATA', W / 2, H / 2)
+      return
+    }
+
+    const isDaily = timeframe === '1D' || timeframe === '1W'
+    const { offset, barsVisible } = stateRef.current
+    const total = candles.length
+    const start = Math.max(0, total - barsVisible - offset)
+    const end = Math.min(total, start + barsVisible)
+    const visible = candles.slice(start, end)
+    if (visible.length === 0) return
+
+    // Build SPY map
+    const spyMap = new Map<string, number>()
+    spyCandles.forEach((c: any) => {
+      const ts = c.timestamp ?? c.t
+      let key: string
+      if (isDaily) {
+        const d = ts ? new Date(ts) : new Date((c.date || '') + 'T00:00:00')
+        key = `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`
+      } else {
+        key = ts ? String(Math.round(ts / 60000)) : ''
+      }
+      if (key) spyMap.set(key, c.close)
+    })
+
+    // Build industry map
+    const industryMap = new Map<string, number>()
+    industryCandles.forEach((c: any) => {
+      const ts = c.timestamp ?? c.t
+      let key: string
+      if (isDaily) {
+        const d = ts ? new Date(ts) : new Date((c.date || '') + 'T00:00:00')
+        key = `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`
+      } else {
+        key = ts ? String(Math.round(ts / 60000)) : ''
+      }
+      if (key) industryMap.set(key, c.close)
+    })
+
+    const PAD_L = 56, PAD_R = 64, PAD_T = 18, PAD_B = 28
+    const chartW = W - PAD_L - PAD_R
+    const availH = H - PAD_T - PAD_B
+    const showRatio = isDaily
+    const RATIO_H = showRatio ? Math.floor(availH * 0.26) : 0
+    const SEP = showRatio ? 1 : 0
+    const GAP = showRatio ? 8 : 0
+    const CANDLE_H = availH - RATIO_H - GAP - SEP
+    const lblSize = Math.min(15, Math.max(11, Math.floor(W * 0.0325)))
+    const fmtP = (v: number) => v >= 1000 ? v.toFixed(0) : v.toFixed(1)
+
+    // ── Candle panel ──
+    const highs = visible.map((c: any) => c.high ?? c.close)
+    const lows = visible.map((c: any) => c.low ?? c.close)
+    const hi = Math.max(...highs)
+    const lo = Math.min(...lows)
+    const priceRange = hi - lo || hi * 0.02 || 1
+    const toY = (v: number) => PAD_T + CANDLE_H - ((v - lo) / priceRange) * CANDLE_H
+    const barW = chartW / visible.length
+
+    visible.forEach((c: any, i: number) => {
+      const o = c.open ?? c.close
+      const cl = c.close
+      const h = c.high ?? c.close
+      const l = c.low ?? c.close
+      const color = cl >= o ? '#00ff00' : '#ff0000'
+      // Integer-snapped coordinates for crispy rendering
+      const x0 = Math.round(PAD_L + i * barW)
+      const x1 = Math.round(PAD_L + (i + 1) * barW)
+      const bw = Math.max(1, x1 - x0)
+      const midX = x0 + Math.floor(bw / 2)
+      const wickW = Math.max(1, Math.round(bw * 0.1))
+      // Wick
+      ctx.strokeStyle = color
+      ctx.lineWidth = wickW
+      ctx.beginPath()
+      ctx.moveTo(midX + 0.5, Math.round(toY(h)) + 0.5)
+      ctx.lineTo(midX + 0.5, Math.round(toY(l)) + 0.5)
+      ctx.stroke()
+      // Body
+      const bodyTop = Math.round(toY(Math.max(o, cl)))
+      const bodyBot = Math.round(toY(Math.min(o, cl)))
+      const bodyH = Math.max(1, bodyBot - bodyTop)
+      ctx.fillStyle = color
+      ctx.fillRect(x0 + wickW, bodyTop, Math.max(1, bw - wickW * 2), bodyH)
+    })
+
+    // Gray separator between candle panel and ratio panel
+    if (showRatio) {
+      ctx.fillStyle = 'rgba(120,120,120,0.45)'
+      ctx.fillRect(PAD_L, PAD_T + CANDLE_H + SEP, chartW, 1)
+    }
+
+    // Right Y-axis vertical border line — candle panel
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)'
+    ctx.lineWidth = 1
+    ctx.setLineDash([])
+    ctx.beginPath()
+    ctx.moveTo(W - PAD_R, PAD_T)
+    ctx.lineTo(W - PAD_R, PAD_T + CANDLE_H)
+    ctx.stroke()
+
+    // Y-axis: last-close orange label first (highest priority), then static levels that don't overlap it
+    ctx.font = `bold ${lblSize}px "Courier New",monospace`
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'middle'
+    const lastClose = visible[visible.length - 1]?.close
+    const lcY = lastClose !== undefined ? Math.round(toY(lastClose)) : -9999
+    const yGap = Math.ceil(lblSize * 1.5)
+    for (let i = 0; i <= 4; i++) {
+      const val = lo + (priceRange / 4) * i
+      const y = Math.round(toY(val))
+      if (Math.abs(y - lcY) < yGap) continue  // skip: would overlap orange label
+      if (y > PAD_T + CANDLE_H - Math.ceil(lblSize * 0.7)) continue  // skip: too close to ratio panel border
+      const lbl = fmtP(val)
+      const lw = ctx.measureText(lbl).width
+      ctx.fillStyle = '#000000'
+      ctx.fillRect(W - PAD_R + 2, y - Math.ceil(lblSize * 0.65), lw + 6, Math.ceil(lblSize * 1.3))
+      ctx.fillStyle = '#ffffff'
+      ctx.fillText(lbl, W - PAD_R + 4, y)
+    }
+    if (lastClose !== undefined) {
+      const lcText = fmtP(lastClose)
+      const lcTW = ctx.measureText(lcText).width
+      ctx.fillStyle = '#000000'
+      ctx.fillRect(W - PAD_R + 2, lcY - Math.ceil(lblSize * 0.65), lcTW + 6, Math.ceil(lblSize * 1.3))
+      ctx.fillStyle = '#FF6600'
+      ctx.fillText(lcText, W - PAD_R + 4, lcY)
+    }
+
+    // ── Ratio panel (daily/weekly only) ──
+    const ratioY0 = PAD_T + CANDLE_H + SEP + GAP
+    if (showRatio) {
+      // Collect raw ratio points for SPY and industry
+      type RawPt = { x: number; rawRatio: number }
+      const spyRaw: RawPt[] = []
+      const indRaw: RawPt[] = []
+      visible.forEach((c: any, i: number) => {
+        const ts = c.timestamp ?? c.t
+        const d = ts ? new Date(ts) : new Date((c.date || '') + 'T00:00:00')
+        const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`
+        const xc = PAD_L + i * barW + barW * 0.5
+        const spyC = spyMap.get(key)
+        if (spyC) spyRaw.push({ x: xc, rawRatio: c.close / spyC })
+        const indC = industryMap.get(key)
+        if (indC) indRaw.push({ x: xc, rawRatio: c.close / indC })
+      })
+
+      // Normalize both lines to 1.0 at their first visible point so they share a Y scale
+      const normalize = (pts: RawPt[]) => {
+        if (pts.length === 0) return []
+        const base = pts[0].rawRatio
+        return pts.map(p => ({ x: p.x, norm: p.rawRatio / base }))
+      }
+      const spyNorm = normalize(spyRaw)
+      const indNorm = normalize(indRaw)
+
+      const allNorm = [...spyNorm.map(p => p.norm), ...indNorm.map(p => p.norm)]
+      if (allNorm.length >= 2) {
+        const rMin = Math.min(...allNorm)
+        const rMax = Math.max(...allNorm)
+        const rRange = rMax - rMin || 0.01
+        const rPad = rRange * 0.10
+        const toRY = (v: number) => ratioY0 + RATIO_H - ((v - (rMin - rPad)) / (rRange + rPad * 2)) * RATIO_H
+
+        const drawLine = (pts: { x: number; norm: number }[], color: string) => {
+          if (pts.length < 2) return
+          ctx.strokeStyle = color
+          ctx.lineWidth = 1.5
+          ctx.lineJoin = 'round'
+          ctx.beginPath()
+          pts.forEach(({ x, norm }, j) => {
+            const y = toRY(norm)
+            if (j === 0) ctx.moveTo(x, y)
+            else ctx.lineTo(x, y)
+          })
+          ctx.stroke()
+        }
+
+        // SPY line: green if up, red if down
+        const spyLast = spyNorm[spyNorm.length - 1]?.norm ?? 1
+        const SPY_COLOR = '#00BFFF'  // always cyan
+        const IND_COLOR = '#ffffff'  // always solid white
+        drawLine(spyNorm, SPY_COLOR)
+        drawLine(indNorm, IND_COLOR)
+
+        // Right Y-axis vertical border line — ratio panel
+        ctx.strokeStyle = 'rgba(255,255,255,0.8)'
+        ctx.lineWidth = 1
+        ctx.setLineDash([])
+        ctx.beginPath()
+        ctx.moveTo(W - PAD_R, ratioY0)
+        ctx.lineTo(W - PAD_R, ratioY0 + RATIO_H)
+        ctx.stroke()
+
+        // Left Y-axis: 3 normalized levels (solid white), skip if overlapping live labels
+        const ratioLblSize = Math.max(9, lblSize - 2)
+        const tickerSize = Math.round(ratioLblSize * 1.25)
+        ctx.font = `bold ${ratioLblSize}px "Courier New",monospace`
+        ctx.textBaseline = 'middle'
+
+        const spyLastY = spyNorm.length >= 2 ? Math.round(toRY(spyLast)) : -9999
+        const indLastNorm = indNorm[indNorm.length - 1]?.norm ?? -1
+        const indLastY = indNorm.length >= 2 ? Math.round(toRY(indLastNorm)) : -9999
+        const rGap = Math.ceil(ratioLblSize * 1.5)
+        const fmtN = (v: number) => `${v >= 1 ? '+' : ''}${((v - 1) * 100).toFixed(1)}%`
+
+        // Separate right-side ticker labels if too close to each other
+        let rSpyY = spyLastY
+        let rIndY = indLastY
+        if (spyNorm.length >= 2 && indNorm.length >= 2 && industrySymbol) {
+          const yDiff = rIndY - rSpyY
+          if (Math.abs(yDiff) < rGap) {
+            const nudge = Math.ceil((rGap - Math.abs(yDiff)) / 2) + 2
+            if (rSpyY <= rIndY) { rSpyY -= nudge; rIndY += nudge }
+            else { rSpyY += nudge; rIndY -= nudge }
+          }
+        }
+
+        ctx.textAlign = 'right'
+          ;[rMin, (rMin + rMax) / 2, rMax].forEach((v) => {
+            const ry = Math.round(toRY(v))
+            if (Math.abs(ry - spyLastY) < rGap || Math.abs(ry - indLastY) < rGap) return
+            ctx.fillStyle = '#ffffff'
+            ctx.fillText(fmtN(v), PAD_L - 3, ry)
+          })
+
+        // Live SPY label on left (cyan) + "SPY" on right
+        if (spyNorm.length >= 2) {
+          const lrText = fmtN(spyLast)
+          const lrTW = ctx.measureText(lrText).width
+          ctx.fillStyle = '#000000'
+          ctx.fillRect(PAD_L - 3 - lrTW - 2, spyLastY - Math.ceil(ratioLblSize * 0.65), lrTW + 5, Math.ceil(ratioLblSize * 1.3))
+          ctx.fillStyle = SPY_COLOR
+          ctx.fillText(lrText, PAD_L - 3, spyLastY)
+          ctx.textAlign = 'left'
+          ctx.font = `bold ${tickerSize}px "Courier New",monospace`
+          ctx.fillText('SPY', W - PAD_R + 4, rSpyY)
+          ctx.font = `bold ${ratioLblSize}px "Courier New",monospace`
+        }
+
+        // Live industry label on left (red) + ticker on right
+        if (indNorm.length >= 2 && industrySymbol) {
+          ctx.textAlign = 'right'
+          const irText = fmtN(indLastNorm)
+          const irTW = ctx.measureText(irText).width
+          ctx.fillStyle = '#000000'
+          ctx.fillRect(PAD_L - 3 - irTW - 2, indLastY - Math.ceil(ratioLblSize * 0.65), irTW + 5, Math.ceil(ratioLblSize * 1.3))
+          ctx.fillStyle = IND_COLOR
+          ctx.fillText(irText, PAD_L - 3, indLastY)
+          ctx.textAlign = 'left'
+          ctx.font = `bold ${tickerSize}px "Courier New",monospace`
+          ctx.fillText(industrySymbol, W - PAD_R + 4, rIndY)
+        }
+      }
+    } // end showRatio
+
+    // X-axis: up to 5 evenly-spaced date labels (solid white)
+    const xLblFont = Math.min(19, Math.max(16, Math.floor(W * 0.0413)))
+    ctx.font = `bold ${xLblFont}px "Courier New",monospace`
+    ctx.fillStyle = '#ffffff'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'top'
+    const xSteps = Math.min(5, visible.length)
+    for (let s = 0; s < xSteps; s++) {
+      const i = xSteps === 1 ? 0 : Math.round(s * (visible.length - 1) / (xSteps - 1))
+      const c = visible[i]
+      const ts = c.timestamp ?? c.t
+      let label: string
+      if (timeframe === '5M' || timeframe === '1H') {
+        const date = ts ? new Date(ts) : new Date()
+        label = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`
+      } else {
+        const d = ts ? new Date(ts) : new Date((c.date || '') + 'T00:00:00')
+        label = `${d.getUTCMonth() + 1}/${d.getUTCDate()}`
+      }
+      ctx.fillText(label, PAD_L + i * barW + barW * 0.5, H - PAD_B + 3)
+    }
+  }, [candles, spyCandles, industryCandles, loading, timeframe, industrySymbol])
+
+  drawRef.current = draw
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const dpr = window.devicePixelRatio || 1
+    const ro = new ResizeObserver(() => {
+      canvas.width = canvas.offsetWidth * dpr
+      canvas.height = canvas.offsetHeight * dpr
+      drawRef.current()
+    })
+    ro.observe(canvas)
+    canvas.width = (canvas.offsetWidth || 300) * dpr
+    canvas.height = (canvas.offsetHeight || 160) * dpr
+    draw()
+    return () => ro.disconnect()
+  }, [draw])
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const clamp = (o: number, bars: number, total: number) =>
+      Math.max(0, Math.min(Math.max(0, total - bars), o))
+    const handler = (e: WheelEvent) => {
+      e.preventDefault()
+      const total = candles.length
+      if (total === 0) return
+      if (inertiaRef.current !== null) { cancelAnimationFrame(inertiaRef.current); inertiaRef.current = null }
+      const chartW = canvas.offsetWidth - 56 - 64
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        const barPx = chartW / stateRef.current.barsVisible
+        stateRef.current.offset = clamp(stateRef.current.offset - (e.deltaX / barPx) * 1.5, stateRef.current.barsVisible, total)
+      } else {
+        const factor = e.deltaY > 0 ? 1.1 : 0.91
+        const newBars = Math.max(5, Math.min(total, stateRef.current.barsVisible * factor))
+        stateRef.current.barsVisible = newBars
+        stateRef.current.offset = clamp(stateRef.current.offset, newBars, total)
+      }
+      drawRef.current()
+    }
+    canvas.addEventListener('wheel', handler, { passive: false })
+    return () => canvas.removeEventListener('wheel', handler)
+  }, [candles])
+
+  React.useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragRef.current.active) return
+      const canvas = canvasRef.current
+      const W = canvas?.offsetWidth ?? 300
+      const barPx = (W - 56 - 64) / stateRef.current.barsVisible
+      const total = candles.length
+      const now = performance.now()
+      const dt = now - dragRef.current.lastTime
+      if (dt > 0) {
+        const rawVel = (e.clientX - dragRef.current.lastX) / barPx / dt
+        dragRef.current.velocity = dragRef.current.velocity * 0.6 + rawVel * 0.4
+      }
+      dragRef.current.lastX = e.clientX
+      dragRef.current.lastTime = now
+      const dragBars = (e.clientX - dragRef.current.startX) / barPx
+      stateRef.current.offset = Math.max(0, Math.min(Math.max(0, total - stateRef.current.barsVisible), dragRef.current.startOffset + dragBars))
+      drawRef.current()
+    }
+    const onUp = () => {
+      if (!dragRef.current.active) return
+      dragRef.current.active = false
+      let vel = dragRef.current.velocity
+      const total = candles.length
+      if (Math.abs(vel) < 0.004) return
+      const animate = () => {
+        vel *= 0.88
+        if (Math.abs(vel) < 0.0008) { inertiaRef.current = null; return }
+        stateRef.current.offset = Math.max(0, Math.min(Math.max(0, total - stateRef.current.barsVisible), stateRef.current.offset + vel * 16))
+        drawRef.current()
+        inertiaRef.current = requestAnimationFrame(animate)
+      }
+      inertiaRef.current = requestAnimationFrame(animate)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+  }, [candles])
+
+  const onMouseDown = (e: React.MouseEvent) => {
+    if (inertiaRef.current !== null) { cancelAnimationFrame(inertiaRef.current); inertiaRef.current = null }
+    dragRef.current = { active: true, startX: e.clientX, startOffset: stateRef.current.offset, velocity: 0, lastX: e.clientX, lastTime: performance.now() }
+  }
+
+  return (
+    <div
+      style={{
+        position: 'relative',
+        width: '100%',
+        height: '390px',
+        marginTop: '10px',
+        borderRadius: '6px',
+        overflow: 'hidden',
+        background: '#000',
+        boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.07)',
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        style={{ width: '100%', height: '100%', display: 'block', cursor: 'grab' }}
+        onMouseDown={onMouseDown}
+      />
+      {/* Timeframe buttons */}
+      <div style={{ position: 'absolute', top: '6px', left: '6px', display: 'flex', gap: '3px', zIndex: 10 }}>
+        {CARD_TIMEFRAMES.map((tf) => (
+          <button
+            key={tf.label}
+            onClick={() => setTimeframe(tf.label)}
+            style={{
+              padding: '2px 8px',
+              fontFamily: '"Courier New",monospace',
+              fontSize: '11px',
+              fontWeight: 800,
+              letterSpacing: '0.05em',
+              background: '#000',
+              color: timeframe === tf.label ? '#FF6600' : '#ffffff',
+              border: `1px solid ${timeframe === tf.label ? '#FF6600' : 'rgba(255,255,255,0.12)'}`,
+              borderRadius: '3px',
+              cursor: 'pointer',
+            }}
+          >
+            {tf.label}
+          </button>
+        ))}
+        {fetching && (
+          <span style={{ fontFamily: '"Courier New",monospace', fontSize: '10px', color: '#ff6600', lineHeight: '20px', letterSpacing: '0.1em' }}>
             LIVE…
           </span>
         )}
@@ -1327,8 +1815,20 @@ interface ScannerRow {
   atrPct?: number
   momentumScore?: number
   downtrendScore?: number
+  rsRating?: number
+  adScore?: number
+  volAccel?: number     // avg vol last 5 bars / avg vol last 20 bars (volume trend)
+  tightness?: number    // stdev of last 10 closes / price × 100 (base tightness)
+  upDays10?: number     // count of up-closes in last 10 bars (trend persistence)
+  vol5avg?: number      // avg vol last 5 trading days (excl. today)
+  vol13avg?: number     // avg vol last 13 trading days
+  vol252avg?: number    // avg vol last 252 trading days (1 year)
+  volPattern?: 'push-pull' | 'hv-bounce' | 'qf-bounce' | 'hv-fall-lv-bounce'
   breakoutType?: 'week-high' | 'week-low' | '52w-high' | '52w-low'
   reversalType?: 'bullish' | 'bearish'
+  monthHigh?: number
+  quarterHigh?: number
+  is52wBreak?: boolean
   sparkData?: Array<{ price: number; etMinutes: number; time: number }>
 }
 
@@ -1345,6 +1845,8 @@ interface ScanPreset {
   filter: (rows: ScannerRow[]) => ScannerRow[]
   sort: (a: ScannerRow, b: ScannerRow) => number
   limit: number
+  hidden?: boolean
+  tabLabel?: string   // override for tab button text only
 }
 
 const SCAN_CACHE: Record<ScanFetchGroup, { rows: ScannerRow[]; ts: number } | null> = {
@@ -1353,143 +1855,123 @@ const SCAN_CACHE: Record<ScanFetchGroup, { rows: ScannerRow[]; ts: number } | nu
   full: null,
 }
 
+const PRESET_PAIRS: Record<string, string> = {
+  'rs-scan': 'rs-weak',
+  'rs-weak': 'rs-scan',
+  '52w-highs': '52w-lows',
+  '52w-lows': '52w-highs',
+  'breakouts': 'breakdowns',
+  'breakdowns': 'breakouts',
+  'reversals-bull': 'reversals-bear',
+  'reversals-bear': 'reversals-bull',
+}
+
 const SCAN_TTL: Record<ScanFetchGroup, number> = {
   snapshot: 5 * 60_000,
   short: 15 * 60_000,
   full: 30 * 60_000,
 }
 
+// SPY sparkline cache keyed by timeframe ('1D'|'5M'|'1H'|'1W')
+const SPY_SPARK_CACHE: Record<string, number[]> = {}
+// Module-level sparkline cache: key = `${symbol}_${tf}` → bars array. Persists across tab switches.
+type SparkBar = { price: number; etMinutes: number; time: number; volume?: number }
+const SPARKLINE_CACHE: Record<string, SparkBar[]> = {}
+const SCAN_INFLIGHT: Partial<Record<string, boolean>> = {}
+const TICKER_BLACKLIST = new Set(['CMA', 'K', 'CYBR'])
+
+const SCAN_QUOTES: { body: string; author: string }[] = [
+  { body: "The trend is your friend — until it bends.", author: '— Wall Street Proverb' },
+  { body: "Volume is the weapon of the informed trader.", author: '— EFI Research' },
+  { body: "Block trades don't lie. Institutions leave footprints.", author: '— EFI Research' },
+  { body: "Flow precedes price. Always follow the paper.", author: '— EFI Research' },
+  { body: "The best trades come from where conviction meets volume.", author: '— EFI Research' },
+  { body: "In the short run the market is a voting machine. In the long run, a weighing machine.", author: '— Benjamin Graham' },
+  { body: "Cut your losses short and let your winners run.", author: '— Wall Street axiom' },
+  { body: "Risk comes from not knowing what you're doing.", author: '— Warren Buffett' },
+  { body: "Volatility is not risk. The permanent loss of capital is risk.", author: '— Howard Marks' },
+  { body: "Markets can remain irrational longer than you can remain solvent.", author: '— John Maynard Keynes' },
+  { body: "Unusual activity today is tomorrow's headline.", author: '— EFI Research' },
+  { body: "When the smart money speaks, it speaks in size.", author: '— EFI Research' },
+  { body: "The market moves toward max pain like a river to the sea.", author: '— EFI Research' },
+  { body: "Be fearful when others are greedy, and greedy when others are fearful.", author: '— Warren Buffett' },
+  { body: "It's not about being right. It's about being right on size.", author: '— EFI Research' },
+]
+
 const SCAN_PRESETS: ScanPreset[] = [
-  // ── Movers ──────────────────────────────────────────────────────────────────
+  // ── RS Composite Scanner ─────────────────────────────────────────────────────
   {
-    id: 'movers',
-    label: 'Movers',
-    icon: <TbChartArrowsVertical />,
-    color: '#FFFFFF',
-    group: 'Movers',
-    fetchGroup: 'snapshot',
-    description: 'Top gainers & losers side by side · Vol > 500K · Price > $5',
-    filter: (rows) => {
-      const base = rows.filter((r) => r.price >= 5 && r.volume >= 500_000)
-      const g = [...base.filter((r) => r.changePct > 0)]
-        .sort((a, b) => b.changePct - a.changePct)
-        .slice(0, 20)
-      const l = [...base.filter((r) => r.changePct < 0)]
-        .sort((a, b) => a.changePct - b.changePct)
-        .slice(0, 20)
-      return [...g, ...l]
-    },
-    sort: () => 0,
-    limit: 40,
-  },
-  {
-    id: 'volume-surge',
-    label: 'Vol Surge',
-    icon: <TbBolt />,
-    color: '#FFCC00',
-    group: 'Movers',
-    fetchGroup: 'short',
-    description: 'Trading at 2× normal volume · Unusual institutional activity',
-    filter: (rows) =>
-      rows.filter((r) => (r.volRatio ?? 0) >= 2 && r.price >= 5 && r.volume >= 1_000_000),
-    sort: (a, b) => (b.volRatio ?? 0) - (a.volRatio ?? 0),
-    limit: 30,
-  },
-  // ── Trend ────────────────────────────────────────────────────────────────────
-  {
-    id: 'momentum',
-    label: 'Momentum',
-    icon: <TbChartLine />,
+    id: 'rs-scan',
+    label: 'Standouts',
+    icon: <TbShieldCheck />,
     color: '#FF6B00',
     group: 'Trend',
-    fetchGroup: 'short',
-    description: 'Strong uptrend · Price action accelerating · Volume confirming',
+    fetchGroup: 'full',
+    description: 'RS Leaders · Multi-period relative strength + institutional accumulation',
     filter: (rows) =>
       rows.filter(
         (r) =>
-          r.rsi14 != null &&
-          r.rsi14 >= 45 &&
-          r.rsi14 <= 72 &&
-          r.ema8 != null &&
-          r.ema21 != null &&
-          r.ema8 > r.ema21 &&
-          r.price > r.ema8 &&
-          r.changePct > 0 &&
-          (r.volRatio ?? 0) >= 1.0
+          r.price >= 5 &&
+          r.volume >= 200_000 &&
+          // RS strong but not already parabolic
+          (r.rsRating ?? 0) >= 45 && (r.rsRating ?? 0) <= 82 &&
+          // Volume building (5d avg > 20d avg × 1.1) — building interest, not a single spike
+          (r.volAccel ?? 0) >= 1.1 &&
+          // Not a spike day — something happening but not already exploding
+          Math.abs(r.changePct) <= 5 && Math.abs(r.changePct) >= 0.2 &&
+          // Healthy RSI — trending up, not overbought
+          (r.rsi14 ?? 50) >= 45 && (r.rsi14 ?? 50) <= 74 &&
+          // Near MA50: not extended above it, not deep below it
+          r.ma50 != null && r.price >= r.ma50 * 0.88 && r.price <= r.ma50 * 1.12 &&
+          // Not at lows
+          (r.position52w ?? 0) >= 0.2 &&
+          // Body-weighted volume confirms buying pressure
+          (r.adScore ?? 0) >= 50
       ),
-    sort: (a, b) => (b.momentumScore ?? 0) - (a.momentumScore ?? 0),
+    sort: (a, b) => {
+      // Score = volume acceleration (most weight) + RS + AD quality
+      const sA = (a.volAccel ?? 1) * 40 + (a.rsRating ?? 0) * 0.4 + (a.adScore ?? 0) * 0.2
+      const sB = (b.volAccel ?? 1) * 40 + (b.rsRating ?? 0) * 0.4 + (b.adScore ?? 0) * 0.2
+      return sB - sA
+    },
     limit: 30,
   },
   {
-    id: 'aggressive-downtrend',
-    label: 'Downtrend',
+    id: 'rs-weak',
+    label: 'RS Laggards',
+    hidden: true,
     icon: <TbTrendingDown />,
     color: '#FF2D55',
     group: 'Trend',
-    fetchGroup: 'short',
-    description: 'Aggressive selling · Distribution on volume · Avoid or short',
-    filter: (rows) =>
-      rows.filter(
-        (r) =>
-          r.rsi14 != null &&
-          r.rsi14 < 48 &&
-          r.ema8 != null &&
-          r.ema21 != null &&
-          r.ema8 < r.ema21 &&
-          r.price < r.ema21 &&
-          r.changePct < 0 &&
-          (r.volRatio ?? 0) >= 1.0
-      ),
-    sort: (a, b) => (b.downtrendScore ?? 0) - (a.downtrendScore ?? 0),
-    limit: 30,
-  },
-  {
-    id: 'rs-leaders',
-    label: 'RS Leaders',
-    icon: <TbShieldCheck />,
-    color: '#00D4FF',
-    group: 'Trend',
-    fetchGroup: 'short',
-    description: 'Outperforming the market · Relative strength leaders',
-    filter: (rows) =>
-      rows.filter(
-        (r) =>
-          r.ma50 != null &&
-          r.price > r.ma50 &&
-          (r.momentumScore ?? 0) >= 60 &&
-          r.changePct >= 0
-      ),
-    sort: (a, b) => (b.momentumScore ?? 0) - (a.momentumScore ?? 0),
-    limit: 30,
-  },
-  {
-    id: 'trend-riders',
-    label: 'Trend Riders',
-    icon: <TbTrendingUp />,
-    color: '#A78BFA',
-    group: 'Trend',
     fetchGroup: 'full',
-    description: 'Sustained uptrend · High in yearly range · Momentum intact',
+    description: 'RS Laggards · Weakest relative strength + distribution · Short/avoid candidates',
     filter: (rows) =>
       rows.filter(
         (r) =>
-          r.ma50 != null &&
-          r.price > r.ma50 &&
-          r.rsi14 != null &&
-          r.rsi14 >= 50 &&
-          r.rsi14 <= 75 &&
-          r.ema8 != null &&
-          r.ema21 != null &&
-          r.ema8 > r.ema21 &&
-          (r.position52w ?? 0) >= 0.6
+          r.price >= 5 &&
+          r.volume >= 300_000 &&
+          (r.rsRating ?? 0) <= 40 &&
+          (r.adScore ?? 0) <= 48
       ),
-    sort: (a, b) => (b.position52w ?? 0) - (a.position52w ?? 0),
+    sort: (a, b) => (a.rsRating ?? 99) - (b.rsRating ?? 99),
     limit: 30,
+  },
+  {
+    id: 'volume-surge',
+    label: 'Volume',
+    icon: <TbBolt />,
+    color: '#FFCC00',
+    group: 'Movers',
+    fetchGroup: 'full',
+    description: 'Volume surge vs multi-period baseline · Unusual institutional activity',
+    filter: (rows) => rows.filter((r) => r.price >= 5 && r.volume >= 300_000),
+    sort: (a, b) => (b.volRatio ?? 0) - (a.volRatio ?? 0),
+    limit: 60,
   },
   // ── Structure ────────────────────────────────────────────────────────────────
   {
     id: '52w-highs',
-    label: '52W Highs',
+    label: '52 Week',
     icon: <TbMountain />,
     color: '#F59E0B',
     group: 'Structure',
@@ -1502,6 +1984,7 @@ const SCAN_PRESETS: ScanPreset[] = [
   {
     id: '52w-lows',
     label: '52W Lows',
+    hidden: true,
     icon: <TbChartPieFilled />,
     color: '#A855F7',
     group: 'Structure',
@@ -1513,7 +1996,8 @@ const SCAN_PRESETS: ScanPreset[] = [
   },
   {
     id: 'breakouts',
-    label: 'Breakouts',
+    label: 'Breakout',
+    tabLabel: 'Breaking',
     icon: <TbArrowUpRight />,
     color: '#00D4FF',
     group: 'Structure',
@@ -1527,6 +2011,7 @@ const SCAN_PRESETS: ScanPreset[] = [
   {
     id: 'breakdowns',
     label: 'Breakdowns',
+    hidden: true,
     icon: <TbArrowDownRight />,
     color: '#FF6B6B',
     group: 'Structure',
@@ -1538,14 +2023,27 @@ const SCAN_PRESETS: ScanPreset[] = [
     limit: 30,
   },
   {
-    id: 'reversals',
-    label: 'Reversals',
+    id: 'reversals-bull',
+    label: 'Bullish Reversal',
     icon: <TbArrowsExchange />,
     color: '#34D399',
     group: 'Structure',
     fetchGroup: 'short',
-    description: 'Trend change forming · Multi-signal confluence · Volume surge',
-    filter: (rows) => rows.filter((r) => r.reversalType != null),
+    description: 'Bullish reversals · Volume surge · Multi-signal confluence',
+    filter: (rows) => rows.filter((r) => r.reversalType === 'bullish'),
+    sort: (a, b) => (b.volRatio ?? 0) - (a.volRatio ?? 0),
+    limit: 30,
+  },
+  {
+    id: 'reversals-bear',
+    label: 'Bearish Reversal',
+    hidden: true,
+    icon: <TbArrowsExchange />,
+    color: '#FF6B6B',
+    group: 'Structure',
+    fetchGroup: 'short',
+    description: 'Bearish reversals · Distribution on volume · Fade/short candidates',
+    filter: (rows) => rows.filter((r) => r.reversalType === 'bearish'),
     sort: (a, b) => (b.volRatio ?? 0) - (a.volRatio ?? 0),
     limit: 30,
   },
@@ -1581,16 +2079,30 @@ function calcLastRSI(closes: number[], period = 14): number {
 
 // ─── MarketScannerPanel ───────────────────────────────────────────────────────
 export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
-  const [activePreset, setActivePreset] = useState<string>('gainers')
+  const [activePreset, setActivePreset] = useState<string>('rs-scan')
   const [rows, setRows] = useState<ScannerRow[]>([])
   const [loading, setLoading] = useState(false)
+  const [scanQuoteIdx, setScanQuoteIdx] = useState(() => Math.floor(Math.random() * SCAN_QUOTES.length))
+  const [chartTf, setChartTf] = useState<'1D' | '5M' | '1H' | '1W'>('1D')
+  const [symbolTf, setSymbolTf] = useState<Record<string, '1D' | '5M' | '1H' | '1W'>>({})
+  const [breakoutTfFilter, setBreakoutTfFilter] = useState<'week' | 'month' | 'quarter' | 'year'>('year')
+  const [reversalFilter, setReversalFilter] = useState<'all' | 'vol2x' | 'vol3x'>('all')
+  const [filter52w, setFilter52w] = useState<'all' | 'first-break'>('all')
+  const [volScanMode, setVolScanMode] = useState<'hitters' | 'push-pull' | 'hv-bounce' | 'qf-bounce' | '5D' | '13D' | '21D' | '1Y'>('hitters')
+  const [spySpark, setSpySpark] = useState<number[]>([])
   const [progress, setProgress] = useState(0)
   const [lastFetch, setLastFetch] = useState<Date | null>(null)
-  const [sparklines, setSparklines] = useState<
-    Record<string, Array<{ price: number; etMinutes: number; time: number }>>
-  >({})
+  const [sparklines, setSparklines] = useState<Record<string, SparkBar[]>>({})
   const sparkFetchedRef = useRef<string>('')
+  const [pairedRows, setPairedRows] = useState<ScannerRow[]>([])
+  const pairedSparkFetchedRef = useRef<string>('')
   const { isMobile } = useRegimesPanelMobile()
+
+  useEffect(() => {
+    if (!loading) return
+    const iv = setInterval(() => setScanQuoteIdx(i => (i + 1) % SCAN_QUOTES.length), 5000)
+    return () => clearInterval(iv)
+  }, [loading])
 
   const preset = SCAN_PRESETS.find((p) => p.id === activePreset) ?? SCAN_PRESETS[0]
 
@@ -1660,6 +2172,11 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
                 ? volBars.reduce((s: number, v: number) => s + v, 0) / volBars.length
                 : 0
             const volRatio = avgVolume > 0 ? volume / avgVolume : 1
+
+            // Multi-period volume averages (trading days only, excl. today)
+            const vol5avg = n >= 6 ? vols.slice(n - 6, n - 1).reduce((a: number, b: number) => a + b, 0) / 5 : avgVolume
+            const vol13avg = n >= 14 ? vols.slice(n - 14, n - 1).reduce((a: number, b: number) => a + b, 0) / 13 : avgVolume
+            const vol252avg = n >= 13 ? vols.slice(Math.max(0, n - 253), n - 1).reduce((a: number, b: number) => a + b, 0) / Math.min(252, n - 1) : avgVolume
 
             const ema8arr = calcEMAArr(closes, 8)
             const ema21arr = calcEMAArr(closes, 21)
@@ -1757,11 +2274,102 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
               else if (rSigs >= 2 && volRatio >= 1.1 && bearBody && rsi14 > 35) reversalType = 'bearish'
             }
 
+            // ── RS Rating raw score (percentile-ranked below after batch) ──────
+            const ret5d = n >= 6 ? (closes[n - 1] / closes[n - 6] - 1) * 100 : changePct
+            const ret21d = n >= 22 ? (closes[n - 1] / closes[n - 22] - 1) * 100 : changePct
+            const ret63d = n >= 64 ? (closes[n - 1] / closes[n - 64] - 1) * 100 : changePct
+            const ret126d = n >= 127 ? (closes[n - 1] / closes[n - 127] - 1) * 100 : ret63d
+            const rsRaw = ret63d * 0.4 + ret21d * 0.3 + ret126d * 0.2 + ret5d * 0.1
+
+            // ── Volume patterns ───────────────────────────────────────────────
+            let volPattern: ScannerRow['volPattern']
+            if (n >= 5 && avgVolume > 0) {
+              // Push + low-vol pullback: big up move 1-4 days ago on high vol, today low vol pullback
+              const prevHighVolUp = (() => {
+                for (let j = Math.max(1, n - 4); j < n - 1; j++) {
+                  const dc = (closes[j] - closes[j - 1]) / closes[j - 1] * 100
+                  if (dc > 1.5 && vols[j] > avgVolume * 1.4) return true
+                }
+                return false
+              })()
+              if (prevHighVolUp && changePct < 0 && changePct > -4 && volume < avgVolume * 0.85) volPattern = 'push-pull'
+
+              // High-vol bounce: was trending down, today bouncing on above-avg vol
+              if (!volPattern) {
+                const wasDown = closes[n - 2] < closes[Math.max(0, n - 6)]
+                if (wasDown && changePct > 0.5 && volume > avgVolume * 1.4) volPattern = 'hv-bounce'
+              }
+
+              // Quiet fall + vol bounce: fell on low vol past 3 days, now bouncing on higher vol
+              if (!volPattern) {
+                let lowVolDays = 0, downDays = 0
+                for (let j = Math.max(1, n - 4); j < n - 1; j++) {
+                  if (closes[j] < closes[j - 1]) downDays++
+                  if (vols[j] < avgVolume * 0.85) lowVolDays++
+                }
+                if (downDays >= 2 && lowVolDays >= 2 && changePct > 0 && volume > avgVolume * 1.2) volPattern = 'qf-bounce'
+              }
+
+              // High-vol fall + low-vol bounce (dead cat watch)
+              if (!volPattern) {
+                const prevHighVolDown = (() => {
+                  for (let j = Math.max(1, n - 4); j < n - 1; j++) {
+                    const dc = (closes[j] - closes[j - 1]) / closes[j - 1] * 100
+                    if (dc < -1.5 && vols[j] > avgVolume * 1.3) return true
+                  }
+                  return false
+                })()
+                if (prevHighVolDown && changePct > 0 && volume < avgVolume * 0.8) volPattern = 'hv-fall-lv-bounce'
+              }
+            }
+
+            // ── Accumulation/Distribution Score: body-weighted volume on up/down candles ─
+            const adLen = Math.min(21, n)
+            let upWtVol = 0, downWtVol = 0
+            for (let j = n - adLen; j < n; j++) {
+              const bodyPct = Math.abs(closes[j] - opens[j]) / (closes[j] || 1)
+              const weighted = vols[j] * (bodyPct + 0.001) // small floor so flat days still count
+              if (closes[j] > opens[j]) upWtVol += weighted
+              else if (closes[j] < opens[j]) downWtVol += weighted
+            }
+            const adScore = (upWtVol + downWtVol) > 0 ? Math.round(upWtVol / (upWtVol + downWtVol) * 100) : 50
+
+            // ── Volume acceleration: 5-day avg / 20-day avg (rising = building interest) ─
+            const vol5avgAccel = n >= 5 ? vols.slice(n - 5).reduce((a, b) => a + b, 0) / 5 : volume
+            const vol20avg = n >= 20 ? vols.slice(n - 20).reduce((a, b) => a + b, 0) / 20 : (avgVolume || volume)
+            const volAccel = vol20avg > 0 ? Math.round((vol5avgAccel / vol20avg) * 100) / 100 : 1
+
+            // ── Base tightness: stdev of last 10 closes / price (low = coiling) ──
+            const t10 = closes.slice(Math.max(0, n - 10))
+            const tMean = t10.reduce((a: number, b: number) => a + b, 0) / t10.length
+            const tightness = Math.round(
+              (Math.sqrt(t10.reduce((s: number, c: number) => s + (c - tMean) ** 2, 0) / t10.length) / price) * 10000
+            ) / 100
+
+            // ── Trend persistence: up-closes in last 10 bars ──
+            let upDays10 = 0
+            for (let j = Math.max(1, n - 10); j < n; j++) {
+              if (closes[j] > closes[j - 1]) upDays10++
+            }
+
+            // ── Month / Quarter highs for breakout filters ───────────────────
+            const monthHigh = n >= 5 ? Math.max(...highs.slice(Math.max(0, n - 21))) : undefined
+            const quarterHigh = n >= 5 ? Math.max(...highs.slice(Math.max(0, n - 63))) : undefined
+
+            // ── First 52w break: price at/near 52w high but wasn’t there 3 weeks ago ─
+            const prev3wHigh = n >= 20 ? Math.max(...highs.slice(Math.max(0, n - 20), n - 1)) : 0
+            const is52wBreak = high52w !== undefined && pctFrom52H !== undefined &&
+              pctFrom52H <= 1.5 && prev3wHigh < high52w * 0.985
+
             return {
               symbol: sym, price, change, changePct, volume,
               avgVolume: avgVolume || undefined, volRatio, high52w, low52w,
               position52w, pctFrom52H, weekHigh, weekLow, ma50, ema8, ema21,
-              rsi14, atr14, atrPct, momentumScore, downtrendScore, breakoutType, reversalType,
+              rsi14, atr14, atrPct, momentumScore, downtrendScore,
+              rsRating: rsRaw, adScore, volAccel, tightness, upDays10,
+              vol5avg, vol13avg, vol252avg, volPattern,
+              breakoutType, reversalType,
+              monthHigh, quarterHigh, is52wBreak,
             } as ScannerRow
           } catch {
             return null
@@ -1771,17 +2379,88 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
       batchRes.forEach((r) => { if (r) result.push(r) })
       onProgress(Math.min(99, Math.round(((i + batchSize) / SCANNER_UNIVERSE.length) * 100)))
     }
+
+    // Normalize rsRating: raw weighted return → 1-99 percentile rank
+    if (result.length > 1) {
+      const withIdx = result.map((r, i) => ({ i, raw: r.rsRating ?? 0 }))
+      withIdx.sort((a, b) => a.raw - b.raw)
+      const nR = withIdx.length
+      withIdx.forEach((item, rank) => {
+        result[item.i].rsRating = Math.max(1, Math.min(99, Math.round(rank / (nR - 1) * 99)))
+      })
+    }
+
     return result
   }
+
+  const fetchSingleSparkline = useCallback(async (symbol: string, tf: '1D' | '5M' | '1H' | '1W') => {
+    const todayStr = new Date().toISOString().split('T')[0]
+    let url: string
+    if (tf === '5M') {
+      const from = new Date(Date.now() - 6 * 86400_000).toISOString().split('T')[0]
+      url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/5/minute/${from}/${todayStr}?adjusted=true&sort=asc&limit=1000&apikey=${POLYGON_API_KEY}`
+    } else if (tf === '1H') {
+      const from = new Date(Date.now() - 32 * 86400_000).toISOString().split('T')[0]
+      url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/hour/${from}/${todayStr}?adjusted=true&sort=asc&limit=750&apikey=${POLYGON_API_KEY}`
+    } else if (tf === '1W') {
+      const from = new Date(Date.now() - 95 * 86400_000).toISOString().split('T')[0]
+      url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${from}/${todayStr}?adjusted=true&sort=asc&limit=130&apikey=${POLYGON_API_KEY}`
+    } else {
+      const tenDaysAgo = new Date(Date.now() - 10 * 86400_000).toISOString().split('T')[0]
+      let lastDay = todayStr
+      try {
+        const r = await fetch(`https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${tenDaysAgo}/${todayStr}?adjusted=true&sort=desc&limit=3&apikey=${POLYGON_API_KEY}`)
+        const d = await r.json()
+        if (d.results?.length > 0) {
+          const ts = d.results[0].t; const dt = new Date(ts)
+          lastDay = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`
+        }
+      } catch { }
+      url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/minute/${lastDay}/${lastDay}?adjusted=true&sort=asc&limit=1000&apikey=${POLYGON_API_KEY}`
+    }
+    try {
+      const r = await fetch(url)
+      const d = await r.json()
+      if (d.results?.length > 1) {
+        const bars = d.results.map((b: any) => {
+          let etMinutes = 0
+          if (tf === '1D' || tf === '5M') {
+            const date = new Date(b.t)
+            const pstStr = date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false })
+            const pst = new Date(pstStr)
+            etMinutes = pst.getHours() * 60 + pst.getMinutes()
+          }
+          return { price: b.c, etMinutes, time: b.t, volume: b.v }
+        })
+        setSparklines(prev => ({ ...prev, [symbol]: bars }))
+      }
+    } catch { }
+  }, [])
 
   const runScan = useCallback(async (p: ScanPreset, forceRefresh = false) => {
     const cached = SCAN_CACHE[p.fetchGroup]
     const ttl = SCAN_TTL[p.fetchGroup]
     if (!forceRefresh && cached && Date.now() - cached.ts < ttl) {
       setRows(p.filter(cached.rows).sort(p.sort).slice(0, p.limit))
+      const partner1 = PRESET_PAIRS[p.id] ? SCAN_PRESETS.find((x) => x.id === PRESET_PAIRS[p.id]) ?? null : null
+      if (partner1) setPairedRows(partner1.filter(cached.rows).sort(partner1.sort).slice(0, partner1.limit))
+      else setPairedRows([])
       return
     }
     if (!cached?.rows?.length) setLoading(true)
+    if (SCAN_INFLIGHT[p.fetchGroup]) {
+      while (SCAN_INFLIGHT[p.fetchGroup]) await new Promise(res => setTimeout(res, 80))
+      const ready = SCAN_CACHE[p.fetchGroup]
+      if (ready) {
+        setRows(p.filter(ready.rows).sort(p.sort).slice(0, p.limit))
+        const pw = PRESET_PAIRS[p.id] ? SCAN_PRESETS.find((x) => x.id === PRESET_PAIRS[p.id]) ?? null : null
+        if (pw) setPairedRows(pw.filter(ready.rows).sort(pw.sort).slice(0, pw.limit))
+        else setPairedRows([])
+      }
+      setLoading(false)
+      return
+    }
+    SCAN_INFLIGHT[p.fetchGroup] = true
     setProgress(0)
     try {
       let allRows: ScannerRow[] = []
@@ -1794,16 +2473,20 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
       }
       const seen = new Set<string>()
       allRows = allRows.filter((r) => {
-        if (seen.has(r.symbol)) return false
+        if (seen.has(r.symbol) || TICKER_BLACKLIST.has(r.symbol)) return false
         seen.add(r.symbol)
         return true
       })
       SCAN_CACHE[p.fetchGroup] = { rows: allRows, ts: Date.now() }
       setLastFetch(new Date())
       setRows(p.filter(allRows).sort(p.sort).slice(0, p.limit))
+      const partner2 = PRESET_PAIRS[p.id] ? SCAN_PRESETS.find((x) => x.id === PRESET_PAIRS[p.id]) ?? null : null
+      if (partner2) setPairedRows(partner2.filter(allRows).sort(partner2.sort).slice(0, partner2.limit))
+      else setPairedRows([])
     } catch (e) {
       console.error('[Scanner] Fetch failed:', e)
     } finally {
+      SCAN_INFLIGHT[p.fetchGroup] = false
       setLoading(false)
       setProgress(0)
     }
@@ -1814,62 +2497,112 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
     runScan(p)
   }, [activePreset, runScan])
 
-  useEffect(() => {
-    if (rows.length === 0) return
-    const key = rows.map((r) => r.symbol).join(',')
-    if (sparkFetchedRef.current === key) return
-    sparkFetchedRef.current = key
-    setSparklines({})
+  const fetchSparklines = useCallback(async (symbols: ScannerRow[], tf: '1D' | '5M' | '1H' | '1W') => {
+    // Serve cache hits instantly
+    const fromCache: Record<string, SparkBar[]> = {}
+    symbols.forEach(r => { const hit = SPARKLINE_CACHE[`${r.symbol}_${tf}`]; if (hit) fromCache[r.symbol] = hit })
+    if (Object.keys(fromCache).length > 0) setSparklines(prev => ({ ...prev, ...fromCache }))
+
+    const missing = symbols.filter(r => !SPARKLINE_CACHE[`${r.symbol}_${tf}`])
+    if (missing.length === 0) return
 
     const todayStr = new Date().toISOString().split('T')[0]
-    const tenDaysAgo = new Date(Date.now() - 10 * 86400_000).toISOString().split('T')[0]
-    const BATCH = 5
-
-    const fetchBatches = async () => {
-      let lastTradingDayStr = todayStr
+    let mkUrl: (sym: string) => string
+    if (tf === '5M') {
+      const from = new Date(Date.now() - 6 * 86400_000).toISOString().split('T')[0]
+      mkUrl = sym => `https://api.polygon.io/v2/aggs/ticker/${sym}/range/5/minute/${from}/${todayStr}?adjusted=true&sort=asc&limit=1000&apikey=${POLYGON_API_KEY}`
+    } else if (tf === '1H') {
+      const from = new Date(Date.now() - 32 * 86400_000).toISOString().split('T')[0]
+      mkUrl = sym => `https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/hour/${from}/${todayStr}?adjusted=true&sort=asc&limit=750&apikey=${POLYGON_API_KEY}`
+    } else if (tf === '1W') {
+      const from = new Date(Date.now() - 95 * 86400_000).toISOString().split('T')[0]
+      mkUrl = sym => `https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/day/${from}/${todayStr}?adjusted=true&sort=asc&limit=130&apikey=${POLYGON_API_KEY}`
+    } else {
+      const nowUtc = new Date(); const dow = nowUtc.getUTCDay()
+      const daysBack = dow === 0 ? 2 : dow === 6 ? 1 : 0
+      const lastMarketDay = new Date(Date.now() - daysBack * 86400_000).toISOString().split('T')[0]
+      const tenDaysAgo = new Date(Date.now() - 10 * 86400_000).toISOString().split('T')[0]
+      let lastDay = lastMarketDay
       try {
-        const r = await fetch(
-          `https://api.polygon.io/v2/aggs/ticker/${rows[0].symbol}/range/1/day/${tenDaysAgo}/${todayStr}?adjusted=true&sort=desc&limit=3&apikey=${POLYGON_API_KEY}`
-        )
+        const r = await fetch(`https://api.polygon.io/v2/aggs/ticker/${missing[0].symbol}/range/1/day/${tenDaysAgo}/${lastMarketDay}?adjusted=true&sort=desc&limit=3&apikey=${POLYGON_API_KEY}`)
         const d = await r.json()
-        if (d.results?.length > 0) {
-          const ts = d.results[0].t
-          const dt = new Date(ts)
-          lastTradingDayStr = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`
+        if (d.results?.length > 0) { const ts = d.results[0].t; const dt = new Date(ts); lastDay = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}` }
+      } catch { }
+      mkUrl = sym => `https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/minute/${lastDay}/${lastDay}?adjusted=true&sort=asc&limit=1000&apikey=${POLYGON_API_KEY}`
+    }
+
+    if (!SPY_SPARK_CACHE[tf]) {
+      try {
+        const r = await fetch(mkUrl('SPY')); const d = await r.json()
+        if (d.results?.length > 1) SPY_SPARK_CACHE[tf] = d.results.map((b: any) => b.c)
+      } catch { }
+    }
+    if (SPY_SPARK_CACHE[tf]) setSpySpark(SPY_SPARK_CACHE[tf])
+
+    const parseBars = (results: any[]): SparkBar[] => results.map((b: any) => {
+      let etMinutes = 0
+      if (tf === '1D' || tf === '5M') {
+        const date = new Date(b.t)
+        const pst = new Date(date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false }))
+        etMinutes = pst.getHours() * 60 + pst.getMinutes()
+      }
+      return { price: b.c, etMinutes, time: b.t, volume: b.v }
+    })
+
+    const fetchOne = async (sym: string): Promise<[string, SparkBar[]] | null> => {
+      try {
+        const r = await fetch(mkUrl(sym)); const d = await r.json()
+        const barCount = d.results?.length ?? 0
+        if (barCount > 1) {
+          const bars = parseBars(d.results)
+          SPARKLINE_CACHE[`${sym}_${tf}`] = bars
+          return [sym, bars]
         }
       } catch { }
+      return null
+    }
 
-      for (let i = 0; i < rows.length; i += BATCH) {
-        const batch = rows.slice(i, i + BATCH)
-        const results = await Promise.all(
-          batch.map(async (row) => {
-            try {
-              const r = await fetch(
-                `https://api.polygon.io/v2/aggs/ticker/${row.symbol}/range/1/minute/${lastTradingDayStr}/${lastTradingDayStr}?adjusted=true&sort=asc&limit=1000&apikey=${POLYGON_API_KEY}`
-              )
-              const d = await r.json()
-              if (d.results?.length > 1) {
-                const bars = d.results.map((b: any) => {
-                  const date = new Date(b.t)
-                  const pstStr = date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false })
-                  const pst = new Date(pstStr)
-                  const etMinutes = pst.getHours() * 60 + pst.getMinutes()
-                  return { price: b.c, etMinutes, time: b.t }
-                })
-                return [row.symbol, bars] as [string, Array<{ price: number; etMinutes: number; time: number }>]
-              }
-            } catch { }
-            return null
-          })
-        )
-        const updates: Record<string, Array<{ price: number; etMinutes: number; time: number }>> = {}
-        results.forEach((r) => { if (r) updates[r[0]] = r[1] })
-        setSparklines((prev) => ({ ...prev, ...updates }))
-        if (i + BATCH < rows.length) await new Promise((res) => setTimeout(res, 300))
+    // 10 concurrent workers — no batch delays
+    const queue = missing.map(r => r.symbol)
+    let buf: Record<string, SparkBar[]> = {}; let bufN = 0
+    const flush = () => { if (!Object.keys(buf).length) return; const snap = buf; buf = {}; bufN = 0; setSparklines(prev => ({ ...prev, ...snap })) }
+    const worker = async () => {
+      while (queue.length > 0) {
+        const sym = queue.shift(); if (!sym) break
+        const res = await fetchOne(sym)
+        if (res) { buf[res[0]] = res[1]; bufN++; if (bufN >= 8) flush() }
       }
     }
-    fetchBatches()
-  }, [rows])
+    await Promise.all(Array.from({ length: Math.min(10, missing.length) }, () => worker()))
+    flush()
+
+    // Retry anything that still failed (rate-limited)
+    const failed = missing.filter(r => !SPARKLINE_CACHE[`${r.symbol}_${tf}`])
+    if (failed.length > 0) {
+      await new Promise(res => setTimeout(res, 1500))
+      const retries = await Promise.all(failed.map(r => fetchOne(r.symbol)))
+      const retryMap: Record<string, SparkBar[]> = {}
+      retries.forEach(r => { if (r) retryMap[r[0]] = r[1] })
+      if (Object.keys(retryMap).length > 0) setSparklines(prev => ({ ...prev, ...retryMap }))
+    }
+  }, [])
+
+  // ── Sparklines for pairedRows ───────────────────────────────────────────────
+  useEffect(() => {
+    if (pairedRows.length === 0) return
+    const key = `${pairedRows.map((r) => r.symbol).join(',')}_${chartTf}`
+    if (pairedSparkFetchedRef.current === key) return
+    pairedSparkFetchedRef.current = key
+    fetchSparklines(pairedRows, chartTf)
+  }, [pairedRows, chartTf, fetchSparklines])
+
+  useEffect(() => {
+    if (rows.length === 0) return
+    const key = `${rows.map((r) => r.symbol).join(',')}_${chartTf}`
+    if (sparkFetchedRef.current === key) return
+    sparkFetchedRef.current = key
+    fetchSparklines(rows, chartTf)
+  }, [rows, chartTf, fetchSparklines])
 
   // ── Formatters ──────────────────────────────────────────────────────────────
   const fmtVol = (v: number) =>
@@ -1886,38 +2619,50 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
 
   const presetGroups: Array<ScanPreset['group']> = ['Movers', 'Trend', 'Structure']
 
-  const renderSparkline = (spark: Array<{ price: number; etMinutes: number; time: number }>, compact = false) => {
+  const renderSparkline = (
+    spark: Array<{ price: number; etMinutes: number; time: number; volume?: number }>,
+    compact = false,
+    heightScale = 1,
+    opts?: { showVolBars?: boolean; showRS?: boolean; tf?: '1D' | '5M' | '1H' | '1W' }
+  ) => {
+    const showVolBars = !compact
+    const showRS = !compact && (opts?.showRS ?? false) && spySpark.length > 0
+    const tf = opts?.tf ?? chartTf
+
     const prices = spark.map((p) => p.price)
     const sMin = Math.min(...prices)
     const sMax = Math.max(...prices)
     const sRange = sMax - sMin || 1
     const n = spark.length
-    // Viewbox: left padding for y-axis labels, right border, top/bottom padding
     const VW = 200, VH = 60
-    const padL = 0, padR = 2, padT = 4, padB = 4
-    const chartW = VW - padL - padR
-    const chartH = VH - padT - padB
+    const padL = 0, padR = 2, padT = 4
+    const volH = 7
+    const rsH = showRS ? 13 : 0
+    const chartBottom = VH - 2 - rsH - volH
+    const chartH = chartBottom - padT
 
-    const xFn = (i: number) => padL + (i / (n - 1)) * chartW
+    const xFn = (i: number) => padL + (i / Math.max(n - 1, 1)) * (VW - padL - padR)
     const yFn = (p: number) => padT + ((sMax - p) / sRange) * chartH
 
-    // Pre/after-hours shading zones
+    // Pre/after-hours shading (1D only)
     const zones: { x1: number; x2: number; fill: string }[] = []
-    let cz: { start: number; fill: string } | null = null
-    spark.forEach((pt, i) => {
-      const m = pt.etMinutes
-      const fill = m >= 60 && m < 390 ? 'rgba(255,165,0,0.14)' : m >= 780 && m < 1020 ? 'rgba(0,174,239,0.14)' : null
-      if (fill) {
-        if (!cz || cz.fill !== fill) {
-          if (cz) zones.push({ x1: xFn(cz.start), x2: xFn(i), fill: cz.fill })
-          cz = { start: i, fill }
+    if (tf === '1D') {
+      let cz: { start: number; fill: string } | null = null
+      spark.forEach((pt, i) => {
+        const m = pt.etMinutes
+        const fill = m >= 60 && m < 390 ? 'rgba(255,165,0,0.14)' : m >= 780 && m < 1020 ? 'rgba(0,174,239,0.14)' : null
+        if (fill) {
+          if (!cz || cz.fill !== fill) {
+            if (cz) zones.push({ x1: xFn(cz.start), x2: xFn(i), fill: cz.fill })
+            cz = { start: i, fill }
+          }
+        } else if (cz) {
+          zones.push({ x1: xFn(cz.start), x2: xFn(i), fill: cz.fill })
+          cz = null
         }
-      } else if (cz) {
-        zones.push({ x1: xFn(cz.start), x2: xFn(i), fill: cz.fill })
-        cz = null
-      }
-    })
-    if (cz) { const z = cz as { start: number; fill: string }; zones.push({ x1: xFn(z.start), x2: VW - padR, fill: z.fill }) }
+      })
+      if (cz) { const z = cz as { start: number; fill: string }; zones.push({ x1: xFn(z.start), x2: VW - padR, fill: z.fill }) }
+    }
 
     const pts = spark.map((p, i) => `${xFn(i).toFixed(1)},${yFn(p.price).toFixed(1)}`)
     const isUp = prices[n - 1] >= prices[0]
@@ -1926,27 +2671,64 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
     const lastX = parseFloat(lastPt.split(',')[0])
     const lastY = parseFloat(lastPt.split(',')[1])
     const openY = yFn(prices[0])
-    const areaPath = `M ${pts[0]} ${pts.slice(1).map((p) => `L ${p}`).join(' ')} L ${lastX},${VH - padB} L ${xFn(0)},${VH - padB} Z`
+    const areaPath = `M ${pts[0]} ${pts.slice(1).map((p) => `L ${p}`).join(' ')} L ${lastX},${chartBottom} L ${xFn(0)},${chartBottom} Z`
 
-    // Y-axis: 3 price labels (max, current, min)
     const fmtP = (p: number) => p >= 1000 ? p.toFixed(0) : p.toFixed(2)
     const curP = prices[n - 1]
 
-    // X-axis markers
-    let openI = -1, closeI = -1
-    spark.forEach((pt, i) => {
-      if (openI < 0 && pt.etMinutes >= 390) openI = i
-      if (closeI < 0 && pt.etMinutes >= 780) closeI = i
-    })
-    const openXPct = openI >= 0 ? (openI / (n - 1)) * 100 : -1
-    const closeXPct = closeI >= 0 ? (closeI / (n - 1)) * 100 : -1
+    // X-axis labels (TF-aware)
+    const xLabels: Array<{ label: string; x: number; color: string }> = []
+    if (!compact) {
+      if (tf === '1D') {
+        let openI = -1, nineI = -1, elevenI = -1, closeI = -1
+        spark.forEach((pt, i) => {
+          if (openI < 0 && pt.etMinutes >= 390) openI = i
+          if (nineI < 0 && pt.etMinutes >= 540) nineI = i
+          if (elevenI < 0 && pt.etMinutes >= 660) elevenI = i
+          if (closeI < 0 && pt.etMinutes >= 780) closeI = i
+        })
+        if (openI >= 0) xLabels.push({ label: '6:30', x: (openI / (n - 1)) * 100, color: '#FFAA00' })
+        if (nineI >= 0) xLabels.push({ label: '9 AM', x: (nineI / (n - 1)) * 100, color: '#FFFFFF' })
+        if (elevenI >= 0) xLabels.push({ label: '11 AM', x: (elevenI / (n - 1)) * 100, color: '#FFFFFF' })
+        if (closeI >= 0) xLabels.push({ label: '1 PM', x: (closeI / (n - 1)) * 100, color: '#00AAEE' })
+      } else if (tf === '5M' || tf === '1H') {
+        let prevDay = -1
+        spark.forEach((pt, i) => {
+          const day = new Date(pt.time).getUTCDay()
+          if (day !== prevDay && day >= 1 && day <= 5) {
+            xLabels.push({ label: ['', 'Mo', 'Tu', 'We', 'Th', 'Fr'][day], x: (i / (n - 1)) * 100, color: '#777777' })
+            prevDay = day
+          }
+        })
+      } else {
+        let prevMonth = -1
+        spark.forEach((pt, i) => {
+          const month = new Date(pt.time).getUTCMonth()
+          if (month !== prevMonth) {
+            xLabels.push({ label: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][month], x: (i / (n - 1)) * 100, color: '#777777' })
+            prevMonth = month
+          }
+        })
+      }
+    }
 
-    const svgHeight = compact ? (isMobile ? 85 : 52) : (isMobile ? 118 : 72)
+    // RS ratio vs SPY
+    let rsRatios: number[] | null = null
+    if (showRS && spySpark.length > 0) {
+      const len = Math.min(n, spySpark.length)
+      const stockBase = prices[0] || 1
+      const spyBase = spySpark[0] || 1
+      rsRatios = spark.slice(0, len).map((pt, i) => (pt.price / stockBase) / (spySpark[i] / spyBase))
+    }
+
+    const volBars = spark.map(p => p.volume ?? 0)
+    const maxVol = Math.max(...volBars, 1)
+
+    const svgHeight = compact ? (isMobile ? 85 : 52) : (isMobile ? Math.round(118 * heightScale) : Math.round(72 * heightScale))
 
     return (
       <div style={{ width: '100%', minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'stretch', gap: 3 }}>
-          {/* Chart */}
           <div style={{ flex: 1, minWidth: 0 }}>
             <svg viewBox={`0 0 ${VW} ${VH}`} preserveAspectRatio="none"
               style={{ width: '100%', height: svgHeight, display: 'block' }}>
@@ -1956,62 +2738,80 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
                   <stop offset="100%" stopColor={lineColor} stopOpacity="0" />
                 </linearGradient>
               </defs>
-              {/* Shading zones */}
               {zones.map((z, idx) => (
                 <rect key={idx} x={z.x1} y={padT} width={Math.max(0, z.x2 - z.x1)} height={chartH}
                   fill={z.fill} vectorEffect="non-scaling-stroke" />
               ))}
-              {/* Y-axis border */}
-              <line x1={VW - padR - 0.5} y1={padT} x2={VW - padR - 0.5} y2={VH - padB}
+              <line x1={VW - padR - 0.5} y1={padT} x2={VW - padR - 0.5} y2={chartBottom}
                 stroke="rgba(255,255,255,0.15)" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
-              {/* X-axis border */}
-              <line x1={padL} y1={VH - padB - 0.5} x2={VW - padR} y2={VH - padB - 0.5}
+              <line x1={padL} y1={chartBottom - 0.5} x2={VW - padR} y2={chartBottom - 0.5}
                 stroke="rgba(255,255,255,0.15)" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
-              {/* Prev-close dashed */}
               <line x1={padL} y1={openY.toFixed(1)} x2={VW - padR} y2={openY.toFixed(1)}
                 stroke="rgba(255,255,255,0.18)" strokeWidth="0.75" strokeDasharray="2,2"
                 vectorEffect="non-scaling-stroke" />
-              {/* Area fill */}
               <path d={areaPath} fill={`url(#sg-${spark[0].time})`} vectorEffect="non-scaling-stroke" />
-              {/* Price line */}
               <polyline fill="none" stroke={lineColor} strokeWidth="1.5"
                 points={pts.join(' ')} strokeLinecap="round" strokeLinejoin="round"
                 vectorEffect="non-scaling-stroke" />
-              {/* Last price dot */}
               <circle cx={lastX} cy={lastY} r="2.5" fill={lineColor} />
+              {/* Volume bars — green/red solid */}
+              {volBars.map((v, i) => {
+                const bH = Math.max(0.5, (v / maxVol) * (volH - 1))
+                const bW = Math.max(0.4, (VW - padL - padR) / n - 0.3)
+                const barUp = i === 0 ? prices[0] >= prices[0] : prices[i] >= prices[i - 1]
+                return <rect key={i} x={xFn(i) - bW / 2} y={chartBottom + volH - bH}
+                  width={bW} height={bH} fill={barUp ? '#00E87B' : '#FF2D55'} />
+              })}
+              {/* RS line vs SPY */}
+              {rsRatios && (() => {
+                const rsLen = rsRatios!.length
+                const rsMin = Math.min(...rsRatios!)
+                const rsMax = Math.max(...rsRatios!)
+                const rsRange = rsMax - rsMin || 0.001
+                const rsTop = VH - rsH - 2
+                const rsBot = VH - 2
+                const rsY = (v: number) => rsTop + ((rsMax - v) / rsRange) * (rsBot - rsTop)
+                const rsPts = rsRatios!.map((v, i) => `${xFn(Math.round(i * (n - 1) / (rsLen - 1))).toFixed(1)},${rsY(v).toFixed(1)}`).join(' ')
+                const rsColor = rsRatios![rsLen - 1] >= rsRatios![0] ? '#00D4FF' : '#FF6B6B'
+                const ref1Y = rsY(1)
+                return (
+                  <>
+                    <line x1={padL} y1={rsTop} x2={VW - padR} y2={rsTop}
+                      stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
+                    {ref1Y >= rsTop && ref1Y <= rsBot && (
+                      <line x1={padL} y1={ref1Y} x2={VW - padR} y2={ref1Y}
+                        stroke="rgba(255,255,255,0.2)" strokeWidth="0.4" strokeDasharray="2,2"
+                        vectorEffect="non-scaling-stroke" />
+                    )}
+                    <polyline fill="none" stroke={rsColor} strokeWidth="1"
+                      points={rsPts} strokeLinecap="round" strokeLinejoin="round"
+                      vectorEffect="non-scaling-stroke" />
+                    <text x={1.5} y={rsTop + 5} fontSize="3.5" fill="rgba(0,212,255,0.7)">RS</text>
+                  </>
+                )
+              })()}
             </svg>
-            {/* X-axis time labels */}
             {!compact && (
-              <div style={{ position: 'relative', height: 13 }}>
-                {openXPct >= 0 && (
-                  <span style={{
-                    position: 'absolute', fontSize: isMobile ? 10 : 8, color: '#FFAA00', fontWeight: 700,
-                    fontFamily: '"Courier New",monospace', left: `${openXPct}%`, transform: 'translateX(-50%)'
-                  }}>
-                    6:30
-                  </span>
-                )}
-                {closeXPct >= 0 && (
-                  <span style={{
-                    position: 'absolute', fontSize: isMobile ? 10 : 8, color: '#00AAEE', fontWeight: 700,
-                    fontFamily: '"Courier New",monospace', left: `${closeXPct}%`, transform: 'translateX(-50%)'
-                  }}>
-                    1 PM
-                  </span>
-                )}
+              <div style={{ position: 'relative', height: 26, overflow: 'visible' }}>
+                {xLabels.map((lbl, idx) => (
+                  <span key={idx} style={{
+                    position: 'absolute', fontSize: isMobile ? 20 : 16, color: lbl.color, fontWeight: 700,
+                    fontFamily: '"Courier New",monospace', left: `${Math.max(5, Math.min(93, lbl.x))}%`,
+                    transform: 'translateX(-50%)', whiteSpace: 'nowrap'
+                  }}>{lbl.label}</span>
+                ))}
               </div>
             )}
           </div>
-          {/* Y-axis labels */}
           {!compact && (
             <div style={{
-              width: 38, display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-              paddingBottom: 13, fontSize: isMobile ? 13 : 8, textAlign: 'right',
+              width: 60, display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+              paddingBottom: 26, fontSize: isMobile ? 26 : 16, textAlign: 'right',
               fontFamily: '"Courier New",monospace', gap: 0
             }}>
-              <span style={{ color: '#ffffff' }}>{fmtP(sMax)}</span>
+              <span style={{ color: '#FFFFFF', fontWeight: 700 }}>{fmtP(sMax)}</span>
               <span style={{ color: lineColor, fontWeight: 900 }}>{fmtP(curP)}</span>
-              <span style={{ color: '#ffffff' }}>{fmtP(sMin)}</span>
+              <span style={{ color: '#FFFFFF', fontWeight: 700 }}>{fmtP(sMin)}</span>
             </div>
           )}
         </div>
@@ -2050,86 +2850,182 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
   }
 
   return (
-    <div style={{ background: '#050505', minHeight: '100%', display: 'flex', flexDirection: 'column', fontFamily: '"Courier New",monospace' }}>
+    <div style={{ background: '#050505', height: '100%', display: 'flex', flexDirection: 'column', fontFamily: '"Courier New",monospace', overflow: 'hidden' }}>
 
-      {/* ── Preset Grid — 2 rows of 6, full width ───────────────────────────── */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(6, 1fr)',
-        gap: '1px',
-        borderBottom: '2px solid #FF6B00',
-        flexShrink: 0,
-        background: '#111',  /* gap color between cells */
-      }}>
-        {SCAN_PRESETS.map((p) => {
-          const isActive = activePreset === p.id
+      {/* ── Scan Tab Bar ──────────────────────────────────────────────────── */}
+      <style>{`
+        @keyframes tabSpin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+        .stab{ cursor:pointer; transition: all 0.2s ease !important; }
+        .stab:hover{ transform: translateY(-2px) !important; filter: brightness(1.2) !important; }
+        .stab:active{ transform: scale(0.97) !important; }
+        .stab-spin{ animation: tabSpin 0.8s linear infinite; }
+      `}</style>
+
+      <div style={{ flexShrink: 0, background: 'linear-gradient(180deg, #0a0a0a 0%, #000 100%)', borderBottom: '2px solid #FF6B00', padding: '8px 6px 0', display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'flex-end' }}>
+        {SCAN_PRESETS.filter((p) => !p.hidden).map((p) => {
+          const isActive = activePreset === p.id || PRESET_PAIRS[activePreset] === p.id
           return (
             <button
               key={p.id}
               onClick={() => setActivePreset(p.id)}
               title={p.description}
+              className="stab"
               style={{
-                padding: '10px 4px',
-                cursor: 'pointer',
-                fontSize: '10px',
-                fontFamily: '"Courier New",monospace',
-                fontWeight: 700,
-                letterSpacing: '0.04em',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                textAlign: 'center',
-                background: '#000000',
-                border: 'none',
-                borderBottom: isActive ? '2px solid #FF6B00' : '2px solid transparent',
-                color: isActive ? '#FF6B00' : '#FFFFFF',
-                transition: 'all 0.1s',
+                flex: '1 1 0', minWidth: 0,
+                padding: '13px 6px',
+                borderRadius: '8px 8px 0 0',
+                borderTop: isActive ? '1px solid rgba(255,107,0,0.8)' : '1px solid rgba(255,255,255,0.1)',
+                borderLeft: isActive ? '1px solid rgba(255,107,0,0.8)' : '1px solid rgba(255,255,255,0.1)',
+                borderRight: isActive ? '1px solid rgba(255,107,0,0.8)' : '1px solid rgba(255,255,255,0.1)',
+                borderBottom: 'none',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                position: 'relative', overflow: 'hidden',
+                backdropFilter: 'blur(20px) saturate(180%)',
+                WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+                background: isActive
+                  ? 'linear-gradient(135deg, rgba(255,107,0,0.25) 0%, rgba(255,107,0,0.08) 50%, rgba(0,0,0,0.6) 100%)'
+                  : 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 50%, rgba(0,0,0,0.4) 100%)',
+                boxShadow: isActive
+                  ? 'inset 0 1px 0 rgba(255,107,0,0.5), inset 0 -1px 0 rgba(0,0,0,0.8), 0 -4px 24px rgba(255,107,0,0.2)'
+                  : 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6)',
               }}
-              onMouseEnter={(e) => {
-                if (!isActive) {
-                  e.currentTarget.style.background = '#111'
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!isActive) {
-                  e.currentTarget.style.background = '#000000'
-                }
-              }}
+              onMouseEnter={(e) => { if (!isActive) { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(255,107,0,0.12) 0%, rgba(255,255,255,0.04) 50%, rgba(0,0,0,0.5) 100%)'; e.currentTarget.style.borderTopColor = 'rgba(255,107,0,0.4)'; e.currentTarget.style.borderLeftColor = 'rgba(255,107,0,0.4)'; e.currentTarget.style.borderRightColor = 'rgba(255,107,0,0.4)' } }}
+              onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 50%, rgba(0,0,0,0.4) 100%)'; e.currentTarget.style.borderTopColor = 'rgba(255,255,255,0.1)'; e.currentTarget.style.borderLeftColor = 'rgba(255,255,255,0.1)'; e.currentTarget.style.borderRightColor = 'rgba(255,255,255,0.1)' } }}
             >
-              <div style={{ fontSize: '22px', lineHeight: 1, marginBottom: '4px', display: 'flex', justifyContent: 'center' }}>{p.icon}</div>
-              <div style={{ fontSize: '11px' }}>{p.label}</div>
+              {/* Top glass sheen */}
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '40%', background: 'linear-gradient(180deg, rgba(255,255,255,0.1) 0%, transparent 100%)', pointerEvents: 'none' }} />
+              {/* Active bottom glow line */}
+              {isActive && <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, transparent, #FF6B00, transparent)', boxShadow: '0 0 10px #FF6B00' }} />}
+              <span style={{ fontSize: '16px', fontWeight: 900, letterSpacing: '0.1em', color: isActive ? '#FF6B00' : '#FFFFFF', whiteSpace: 'nowrap', fontFamily: 'system-ui,sans-serif', textTransform: 'uppercase', position: 'relative', textShadow: 'none' }}>
+                {p.tabLabel ?? p.label}
+              </span>
             </button>
           )
         })}
-        {/* ── Refresh cell ── */}
+        {/* ── Refresh ── */}
         <button
           onClick={() => runScan(preset, true)}
-          style={{
-            padding: '10px 4px',
-            cursor: 'pointer',
-            fontFamily: '"Courier New",monospace',
-            textAlign: 'center',
-            background: '#000000',
-            border: 'none',
-            borderBottom: '2px solid transparent',
-            color: '#FF6B00',
-            transition: 'all 0.1s',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '4px',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = '#111' }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = '#000000' }}
           title="Refresh scan"
+          className="stab"
+          style={{
+            flex: '0 0 auto', width: '58px',
+            padding: '13px 6px',
+            borderRadius: '8px 8px 0 0',
+            borderTop: '1px solid rgba(255,107,0,0.35)', borderLeft: '1px solid rgba(255,107,0,0.35)', borderRight: '1px solid rgba(255,107,0,0.35)', borderBottom: 'none',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '3px',
+            backdropFilter: 'blur(20px) saturate(180%)',
+            WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+            background: 'linear-gradient(135deg, rgba(255,107,0,0.1) 0%, rgba(255,107,0,0.03) 50%, rgba(0,0,0,0.5) 100%)',
+            boxShadow: 'inset 0 1px 0 rgba(255,107,0,0.3), inset 0 -1px 0 rgba(0,0,0,0.8)',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(255,107,0,0.22) 0%, rgba(255,107,0,0.08) 50%, rgba(0,0,0,0.5) 100%)'; e.currentTarget.style.borderTopColor = 'rgba(255,107,0,0.7)'; e.currentTarget.style.borderLeftColor = 'rgba(255,107,0,0.7)'; e.currentTarget.style.borderRightColor = 'rgba(255,107,0,0.7)' }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(255,107,0,0.1) 0%, rgba(255,107,0,0.03) 50%, rgba(0,0,0,0.5) 100%)'; e.currentTarget.style.borderTopColor = 'rgba(255,107,0,0.35)'; e.currentTarget.style.borderLeftColor = 'rgba(255,107,0,0.35)'; e.currentTarget.style.borderRightColor = 'rgba(255,107,0,0.35)' }}
         >
-          <div style={{ fontSize: '22px', lineHeight: 1 }}>↺</div>
-          <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
-            REFRESH
-          </div>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '40%', background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, transparent 100%)', pointerEvents: 'none' }} />
+          <div className={loading ? 'stab-spin' : ''} style={{ fontSize: '18px', color: '#FF6B00', lineHeight: 1, textShadow: '0 0 12px rgba(255,107,0,0.9)', position: 'relative' }}>↺</div>
+          <div style={{ fontSize: '10px', fontWeight: 900, letterSpacing: '0.08em', color: '#FF6B00', fontFamily: 'system-ui,sans-serif', position: 'relative', textShadow: '0 0 10px rgba(255,107,0,0.7)' }}>SCAN</div>
         </button>
       </div>
+
+      {/* ── Vol Surge filter bar ─────────────────────────────────────────── */}
+      {activePreset === 'volume-surge' && (
+        <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', background: '#000', borderBottom: '1px solid #1a1a1a', flexWrap: 'wrap' }}>
+          {/* VOL HITTERS — its own mode */}
+          {([
+            { v: 'hitters' as const, label: 'VOL HITTERS', icon: '◆', color: '#FF6B00', anim: 'iconSpin 1s linear infinite' },
+          ]).map(({ v, label, icon, color, anim }) => {
+            const active = volScanMode === v
+            return (
+              <button key={v} onClick={() => setVolScanMode(v)} style={{
+                padding: '5px 17px', borderRadius: 20, cursor: 'pointer', fontSize: 14, fontWeight: 800, letterSpacing: '0.06em',
+                display: 'flex', alignItems: 'center', gap: 5,
+                color: active ? color : '#FFFFFF',
+                background: '#000',
+                border: active ? `1px solid ${color}` : '1px solid #333',
+              }}>
+                <span style={{ fontSize: 14, color: active ? color : color + '66', display: 'inline-block', animation: active ? anim : 'none', lineHeight: 1 }}>{icon}</span>
+                {label}
+              </button>
+            )
+          })}
+          <span style={{ fontSize: 11, color: '#444', fontWeight: 700, letterSpacing: '0.1em', margin: '0 4px 0 8px' }}>|</span>
+          {/* SEQUENCE — independent pattern modes */}
+          <span style={{ fontSize: 11, color: '#fff', fontWeight: 700, letterSpacing: '0.12em', marginRight: 2 }}>SEQUENCE</span>
+          {([
+            { v: 'push-pull' as const, label: 'PUSH+PULL', icon: '↑↓', color: '#00D4FF', anim: 'iconBounce 0.7s ease-in-out infinite' },
+            { v: 'hv-bounce' as const, label: 'HV BOUNCE', icon: '↩', color: '#00E87B', anim: 'iconShake 0.6s ease-in-out infinite' },
+            { v: 'qf-bounce' as const, label: 'QUIET FALL', icon: '↘', color: '#F59E0B', anim: 'iconPulse 1.5s ease-in-out infinite' },
+          ]).map(({ v, label, icon, color, anim }) => {
+            const active = volScanMode === v
+            return (
+              <button key={v} onClick={() => setVolScanMode(v)} style={{
+                padding: '5px 17px', borderRadius: 20, cursor: 'pointer', fontSize: 14, fontWeight: 800, letterSpacing: '0.06em',
+                display: 'flex', alignItems: 'center', gap: 5,
+                color: active ? color : '#FFFFFF',
+                background: '#000',
+                border: active ? `1px solid ${color}` : '1px solid #333',
+              }}>
+                <span style={{ fontSize: 14, color: active ? color : color + '66', display: 'inline-block', animation: active ? anim : 'none', lineHeight: 1 }}>{icon}</span>
+                {label}
+              </button>
+            )
+          })}
+          <span style={{ fontSize: 11, color: '#444', fontWeight: 700, letterSpacing: '0.1em', margin: '0 4px 0 8px' }}>|</span>
+          {/* TIME PERIOD — independent baseline modes */}
+          <span style={{ fontSize: 11, color: '#fff', fontWeight: 700, letterSpacing: '0.12em', marginRight: 2 }}>TIME PERIOD</span>
+          {(['5D', '13D', '21D', '1Y'] as const).map(v => {
+            const active = volScanMode === v
+            return (
+              <button key={v} onClick={() => setVolScanMode(v)} style={{
+                padding: '5px 17px', borderRadius: 20, cursor: 'pointer', fontSize: 14, fontWeight: 800, letterSpacing: '0.06em',
+                color: active ? '#FF6B00' : '#FFFFFF',
+                background: '#000',
+                border: active ? '1px solid #FF6B00' : '1px solid #333',
+              }}>{v}</button>
+            )
+          })}
+        </div>
+      )}
+      {/* ── Per-preset filter bar ───────────────────────────────────────────── */}
+      {(activePreset === 'breakouts' || activePreset === 'breakdowns') && (
+        <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', background: '#000', borderBottom: '1px solid #1a1a1a', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, color: '#fff', fontWeight: 700, letterSpacing: '0.12em', marginRight: 2 }}>RANGE</span>
+          {(['week', 'month', 'quarter', 'year'] as const).map(v => (
+            <button key={v} onClick={() => setBreakoutTfFilter(v)} style={{
+              padding: '5px 17px', borderRadius: 20, cursor: 'pointer', fontSize: 14, fontWeight: 800, letterSpacing: '0.06em',
+              color: breakoutTfFilter === v ? '#00D4FF' : '#FFFFFF',
+              background: '#000',
+              border: breakoutTfFilter === v ? '1px solid #00D4FF' : '1px solid #333',
+            }}>{v.toUpperCase()}</button>
+          ))}
+        </div>
+      )}
+      {(activePreset === '52w-highs' || activePreset === '52w-lows') && (
+        <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', background: '#000', borderBottom: '1px solid #1a1a1a', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, color: '#fff', fontWeight: 700, letterSpacing: '0.12em', marginRight: 2 }}>FILTER</span>
+          {(['all', 'first-break'] as const).map(v => (
+            <button key={v} onClick={() => setFilter52w(v)} style={{
+              padding: '5px 17px', borderRadius: 20, cursor: 'pointer', fontSize: 14, fontWeight: 800, letterSpacing: '0.06em',
+              color: filter52w === v ? '#F59E0B' : '#FFFFFF',
+              background: '#000',
+              border: filter52w === v ? '1px solid #F59E0B' : '1px solid #333',
+            }}>{v === 'all' ? 'ALL' : 'FIRST BREAK'}</button>
+          ))}
+        </div>
+      )}
+      {(activePreset === 'reversals-bull' || activePreset === 'reversals-bear') && (
+        <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', background: '#000', borderBottom: '1px solid #1a1a1a', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, color: '#fff', fontWeight: 700, letterSpacing: '0.12em', marginRight: 2 }}>VOLUME</span>
+          {(['all', 'vol2x', 'vol3x'] as const).map(v => (
+            <button key={v} onClick={() => setReversalFilter(v)} style={{
+              padding: '5px 17px', borderRadius: 20, cursor: 'pointer', fontSize: 14, fontWeight: 800, letterSpacing: '0.06em',
+              color: reversalFilter === v ? '#34D399' : '#FFFFFF',
+              background: '#000',
+              border: reversalFilter === v ? '1px solid #34D399' : '1px solid #333',
+            }}>{v === 'all' ? 'ALL' : v === 'vol2x' ? 'VOL 2×+' : 'VOL 3×+'}</button>
+          ))}
+        </div>
+      )}
 
       {/* ── Progress bar ─────────────────────────────────────────────────────── */}
       {loading && (
@@ -2143,34 +3039,129 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
       )}
 
       {/* ── Table ────────────────────────────────────────────────────────────── */}
-      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', width: '100%' }}>
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', width: '100%', paddingBottom: 64 }}>
 
-        {/* ── MOVERS split view ── */}
-        {activePreset === 'movers' && !loading && rows.length > 0 && (() => {
-          const gainers = rows.filter((r) => r.changePct >= 0)
-          const losers = rows.filter((r) => r.changePct < 0)
-          const renderSide = (list: ScannerRow[], side: 'gainers' | 'losers') => {
-            const isGainers = side === 'gainers'
-            const accentClr = isGainers ? '#00E87B' : '#FF2D55'
-            return (
+        {/* ── 2-column layout ── */}
+        <>
+          {/* Loading */}
+          {loading && rows.length === 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '18px', padding: '60px 24px' }}>
+              <div style={{ width: '84px', height: '84px', borderRadius: '50%', border: '4px solid #222', borderTop: '4px solid #FF6B00', animation: 'bblspin 0.7s linear infinite' }} />
+              <div style={{ fontSize: '33px', color: '#FF6B00', letterSpacing: '0.22em', fontWeight: 900 }}>SCANNING{progress > 0 ? ` ${progress}%` : '...'}</div>
+              <div style={{ width: 420, height: 3, background: '#111', borderRadius: 2, overflow: 'hidden' }}>
+                <div style={{ height: '100%', background: '#FF6B00', width: `${progress}%`, transition: 'width 0.25s ease' }} />
+              </div>
+              <div style={{ maxWidth: 520, textAlign: 'center', marginTop: 12 }}>
+                <div style={{ fontSize: 27, color: '#fff', fontWeight: 600, lineHeight: 1.65, fontStyle: 'italic' }}>
+                  &ldquo;{SCAN_QUOTES[scanQuoteIdx % SCAN_QUOTES.length].body}&rdquo;
+                </div>
+                {SCAN_QUOTES[scanQuoteIdx % SCAN_QUOTES.length].author && (
+                  <div style={{ fontSize: 21, color: 'rgba(255,255,255,0.35)', fontFamily: 'monospace', marginTop: 10 }}>
+                    {SCAN_QUOTES[scanQuoteIdx % SCAN_QUOTES.length].author}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          {/* Empty */}
+          {!loading && rows.length === 0 && (
+            <div style={{ padding: '80px 20px', textAlign: 'center', fontSize: '12px', color: isMobile ? '#FFFFFF' : '#444', letterSpacing: '0.14em' }}>
+              NO SIGNALS DETECTED
+            </div>
+          )}
+          {/* 2-column split */}
+          {rows.length > 0 && (() => {
+            const isPaired = !!PRESET_PAIRS[activePreset] && pairedRows.length > 0
+            const primaryPreset = SCAN_PRESETS.find((x) => x.id === activePreset)!
+            const partnerPreset = PRESET_PAIRS[activePreset] ? SCAN_PRESETS.find((x) => x.id === PRESET_PAIRS[activePreset]) ?? null : null
+
+            // Client-side sub-filters
+            const applySubFilter = (list: ScannerRow[]) => {
+              if (activePreset === 'volume-surge') {
+                // SEQUENCE modes: filter by pattern, no time-period baseline
+                if (volScanMode === 'push-pull') return list.filter(r => r.volPattern === 'push-pull')
+                if (volScanMode === 'hv-bounce') return list.filter(r => r.volPattern === 'hv-bounce')
+                if (volScanMode === 'qf-bounce') return list.filter(r => r.volPattern === 'qf-bounce')
+                // TIME PERIOD modes: filter by volume surging vs that period's baseline
+                if (volScanMode === '5D') return list.filter(r => r.volume >= (r.vol5avg ?? r.avgVolume ?? 0) * 1.5)
+                if (volScanMode === '13D') return list.filter(r => r.volume >= (r.vol13avg ?? r.avgVolume ?? 0) * 1.5)
+                if (volScanMode === '21D') return list.filter(r => r.volume >= (r.avgVolume ?? 0) * 1.5)
+                if (volScanMode === '1Y') return list.filter(r => r.volume >= (r.vol252avg ?? r.avgVolume ?? 0) * 1.5)
+                // VOL HITTERS: best 1 from each pattern + top by volRatio
+                const allSurging = list.filter(r => r.volume >= (r.avgVolume ?? 0) * 1.5)
+                const picked = new Set<string>()
+                const result: ScannerRow[] = []
+                  ; (['push-pull', 'hv-bounce', 'qf-bounce', 'hv-fall-lv-bounce'] as const).forEach(pt => {
+                    const match = allSurging.find(r => r.volPattern === pt && !picked.has(r.symbol))
+                    if (match) { result.push(match); picked.add(match.symbol) }
+                  })
+                allSurging.filter(r => !picked.has(r.symbol)).slice(0, 6).forEach(r => result.push(r))
+                return result
+              }
+              if (activePreset === 'breakouts' || activePreset === 'breakdowns') {
+                if (breakoutTfFilter === 'week') return list.filter(r => r.breakoutType === 'week-high' || r.breakoutType === 'week-low')
+                if (breakoutTfFilter === 'month') return list.filter(r => r.monthHigh != null && r.price >= r.monthHigh * 0.985)
+                if (breakoutTfFilter === 'quarter') return list.filter(r => r.quarterHigh != null && r.price >= r.quarterHigh * 0.985)
+                return list.filter(r => r.breakoutType === '52w-high' || r.breakoutType === '52w-low') // year
+              }
+              if (activePreset === '52w-highs' || activePreset === '52w-lows') {
+                if (filter52w === 'first-break') return list.filter(r => r.is52wBreak)
+                return list
+              }
+              if (activePreset === 'reversals-bull' || activePreset === 'reversals-bear') {
+                if (reversalFilter === 'vol2x') return list.filter(r => (r.volRatio ?? 0) >= 2)
+                if (reversalFilter === 'vol3x') return list.filter(r => (r.volRatio ?? 0) >= 3)
+                return list
+              }
+              return list
+            }
+            const filteredRows = applySubFilter(rows)
+            const filteredPairedRows = applySubFilter(pairedRows)
+
+            const renderCol = (list: ScannerRow[], accentColor: string, label?: string, startIdx = 0) => (
               <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                {/* side header */}
                 <div style={{
-                  display: 'grid', gridTemplateColumns: '22px 1fr 92px',
+                  display: 'grid', gridTemplateColumns: '22px 1fr 110px',
                   gap: '0 6px', padding: '7px 10px',
-                  borderBottom: `2px solid ${accentClr}`,
+                  borderBottom: `2px solid ${accentColor}`,
                   position: 'sticky', top: 0, background: '#050505', zIndex: 10,
                 }}>
-                  {[{ l: '#', a: 'right' as const }, { l: 'SYMBOL', a: 'left' as const }, { l: 'CHANGE', a: 'center' as const }].map(({ l, a }) => (
-                    <div key={l} style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.12em', color: accentClr, opacity: 0.7, textAlign: a }}>{l}</div>
-                  ))}
+                  {label
+                    ? <div style={{ gridColumn: '1 / -1', fontSize: '13.5px', fontWeight: 700, letterSpacing: '0.15em', color: accentColor, textAlign: 'center' }}>{label}</div>
+                    : [{ l: '#', a: 'right' as const }, { l: 'SYMBOL', a: 'left' as const }, { l: 'CHANGE', a: 'center' as const }].map(({ l, a }) => (
+                      <div key={l} style={{ fontSize: '13.5px', fontWeight: 700, letterSpacing: '0.12em', color: accentColor, textAlign: a }}>{l}</div>
+                    ))
+                  }
                 </div>
                 {list.map((row, i) => {
                   const spark = sparklines[row.symbol]
                   const changeClr = row.changePct >= 0 ? '#00E87B' : '#FF2D55'
+
+                  // Standout reason note
+                  const standoutNote = activePreset === 'rs-scan' ? (() => {
+                    if (row.is52wBreak) return { text: '52W breakout · fresh institutional buy zone', color: '#F59E0B' }
+                    if ((row.volAccel ?? 0) >= 2.0) return { text: `Vol ${Math.round(((row.volAccel ?? 1) - 1) * 100)}% above avg · strong accumulation`, color: '#00E87B' }
+                    if ((row.tightness ?? 10) <= 1.2 && (row.volAccel ?? 0) >= 1.2) return { text: 'Tight base + expanding vol · coiling for move', color: '#00D4FF' }
+                    if ((row.adScore ?? 0) >= 68) return { text: 'Heavy body-weighted accumulation · dip buyers active', color: '#00E87B' }
+                    if ((row.tightness ?? 10) <= 2.0) return { text: 'Base tightening · range contraction · low-risk setup', color: '#00D4FF' }
+                    if ((row.position52w ?? 0) >= 0.88) return { text: 'Holding near 52W high · relative strength leader', color: '#F59E0B' }
+                    if ((row.rsRating ?? 0) >= 72) return { text: `RS ${row.rsRating} · outperforming peers · vol confirming`, color: '#FF6B00' }
+                    if ((row.upDays10 ?? 0) >= 8) return { text: `${row.upDays10}/10 days up · consistent quiet grind`, color: '#00E87B' }
+                    if ((row.volAccel ?? 0) >= 1.3) return { text: `Vol trend +${Math.round(((row.volAccel ?? 1) - 1) * 100)}% · quiet accumulation underway`, color: '#FFCC00' }
+                    return { text: `RS ${row.rsRating} · building strength vs market`, color: '#888' }
+                  })() : activePreset === 'volume-surge' ? (() => {
+                    const baseline = volScanMode === '5D' ? row.vol5avg : volScanMode === '13D' ? row.vol13avg : volScanMode === '1Y' ? row.vol252avg : row.avgVolume
+                    const surgeX = baseline && baseline > 0 ? (row.volume / baseline).toFixed(1) : null
+                    const periodLabel = (volScanMode === '5D' || volScanMode === '13D' || volScanMode === '21D' || volScanMode === '1Y') ? volScanMode : null
+                    if (row.volPattern === 'push-pull') return { text: `Push + low-vol pullback · healthy base${surgeX && periodLabel ? ` · ${surgeX}× ${periodLabel} avg` : ''}`, color: '#00E87B' }
+                    if (row.volPattern === 'hv-bounce') return { text: `Selling climax bounce${surgeX && periodLabel ? ` · ${surgeX}× ${periodLabel} avg` : ''} · reversal signal`, color: '#00D4FF' }
+                    if (row.volPattern === 'qf-bounce') return { text: `Quiet fall + vol expansion${surgeX && periodLabel ? ` · ${surgeX}× ${periodLabel} avg` : ''} · buyers in`, color: '#FFCC00' }
+                    if (row.volPattern === 'hv-fall-lv-bounce') return { text: `High-vol drop + quiet bounce · watch for re-test`, color: '#FF6B6B' }
+                    return null
+                  })() : null
                   return (
                     <div key={row.symbol} style={{
-                      display: 'flex', flexDirection: 'column',
+                      display: 'flex', flexDirection: 'column', flexShrink: 0,
                       padding: '6px 10px 2px',
                       borderBottom: '1px solid #111',
                       background: i % 2 === 0 ? 'transparent' : '#080808',
@@ -2179,208 +3170,103 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
                       onMouseEnter={(e) => { e.currentTarget.style.background = '#161616' }}
                       onMouseLeave={(e) => { e.currentTarget.style.background = i % 2 === 0 ? 'transparent' : '#080808' }}
                     >
-                      {/* Top row: rank | symbol | change */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '22px 1fr 92px', gap: '0 6px', alignItems: 'center', marginBottom: 4 }}>
-                        <div style={{ fontSize: '10px', color: isMobile ? '#FFFFFF' : '#444', textAlign: 'right', fontWeight: 600 }}>{i + 1}</div>
-                        <div style={{ fontSize: '14px', fontWeight: 900, color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.symbol}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: standoutNote ? 2 : 4 }}>
+                        <div style={{ fontSize: '28px', fontWeight: 900, color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: '0 0 auto' }}>{row.symbol}</div>
+                        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: 3 }}>
+                          {(['1D', '5M', '1H', '1W'] as const).map(tf => {
+                            const symTf = symbolTf[row.symbol] ?? '1D'
+                            return (
+                              <button key={tf}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setSymbolTf(prev => ({ ...prev, [row.symbol]: tf }))
+                                  fetchSingleSparkline(row.symbol, tf)
+                                }}
+                                style={{
+                                  padding: '3px 10px', borderRadius: 10, cursor: 'pointer',
+                                  background: '#000',
+                                  border: symTf === tf ? '1px solid #FF6B00' : '1px solid #222',
+                                  color: symTf === tf ? '#FF6B00' : '#FFFFFF',
+                                  fontSize: 12, fontWeight: 800, letterSpacing: '0.06em',
+                                }}
+                              >{tf}</button>
+                            )
+                          })}
+                        </div>
                         <div style={{
                           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px',
                           padding: '3px 6px', borderRadius: '3px',
                           background: row.changePct >= 0 ? 'rgba(0,232,123,0.1)' : 'rgba(255,45,85,0.1)',
                           border: `1px solid ${changeClr}`,
-                          fontSize: '12px', fontWeight: 800, color: changeClr,
+                          fontSize: '18px', fontWeight: 800, color: changeClr, flex: '0 0 auto',
                         }}>
                           {row.changePct >= 0 ? '▲' : '▼'} {Math.abs(row.changePct).toFixed(2)}%
                         </div>
                       </div>
-                      {/* Full-width sparkline */}
+                      {standoutNote && (
+                        <div style={{ fontSize: 14, color: '#FFFFFF', fontWeight: 600, letterSpacing: '0.03em', marginBottom: 4, paddingLeft: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {standoutNote.text.replace(/RS \d+ · /g, '')}
+                        </div>
+                      )}
                       <div style={{ width: '100%' }}>
-                        {spark && spark.length > 1 ? renderSparkline(spark) : <div style={{ height: isMobile ? 134 : 85 }} />}
+                        {/* Per-chart TF selector */}
+                        {(() => {
+                          const symTf = symbolTf[row.symbol] ?? '1D'
+                          return (
+                            <>
+                              {spark && spark.length > 1 ? renderSparkline(spark, false, 4.5, {
+                                showRS: activePreset === '52w-highs' || activePreset === '52w-lows' || activePreset === 'breakouts' || activePreset === 'breakdowns',
+                                tf: symTf,
+                              }) : <div style={{ height: isMobile ? 531 : 324 }} />}
+                            </>
+                          )
+                        })()}
                       </div>
                     </div>
                   )
                 })}
               </div>
             )
-          }
-          return (
-            <div style={{ display: 'flex', height: '100%', minHeight: 0 }}>
-              {renderSide(gainers, 'gainers')}
-              <div style={{ width: '1px', background: '#1e1e1e', flexShrink: 0 }} />
-              {renderSide(losers, 'losers')}
-            </div>
-          )
-        })()}
 
-        {/* ── Standard table (all non-movers presets) ── */}
-        {activePreset !== 'movers' && (
-          <>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: '26px 76px 90px 106px 80px 62px',
-              gap: '0 8px',
-              padding: '9px 16px',
-              borderBottom: '2px solid #FF6B00',
-              position: 'sticky', top: 0,
-              background: '#050505',
-              zIndex: 10,
-              boxSizing: 'border-box',
-            }}>
-              {[
-                { l: '#', align: 'right' as const },
-                { l: 'SYMBOL', align: 'left' as const },
-                { l: 'PRICE', align: 'right' as const },
-                { l: 'CHANGE', align: 'center' as const },
-                { l: 'VOLUME', align: 'left' as const },
-                { l: 'V/AVG', align: 'center' as const },
-              ].map(({ l, align }) => (
-                <div key={l} style={{
-                  fontSize: isMobile ? '13px' : '10px', fontWeight: 700, letterSpacing: '0.12em',
-                  color: isMobile ? '#FF6B00' : '#FFFFFF', opacity: isMobile ? 1 : 0.4, textAlign: align,
-                }}>
-                  {l}
-                </div>
-              ))}
-            </div>
-
-            {/* Loading */}
-            {loading && rows.length === 0 && (
-              <div style={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center',
-                justifyContent: 'center', gap: '14px', padding: '80px 20px',
-              }}>
-                <div style={{
-                  width: '32px', height: '32px', borderRadius: '50%',
-                  border: '2px solid #222',
-                  borderTop: '2px solid #FF6B00',
-                  animation: 'bblspin 0.7s linear infinite',
-                }} />
-                <div style={{ fontSize: '11px', color: '#FF6B00', letterSpacing: '0.2em' }}>
-                  SCANNING{progress > 0 ? ` ${progress}%` : '...'}
-                </div>
-              </div>
-            )}
-
-            {/* Empty */}
-            {!loading && rows.length === 0 && (
-              <div style={{
-                padding: '80px 20px', textAlign: 'center',
-                fontSize: '12px', color: isMobile ? '#FFFFFF' : '#444', letterSpacing: '0.14em',
-              }}>
-                NO SIGNALS DETECTED
-              </div>
-            )}
-
-            {/* Rows */}
-            {rows.map((row, i) => {
-              const isUp = row.changePct >= 0
-              const changeClr = isUp ? '#00E87B' : '#FF2D55'
-              const spark = sparklines[row.symbol]
-              const signal = renderSignal(row)
-              const vr = row.volRatio ?? 0
-              const vrLabel = row.volRatio != null ? `${row.volRatio.toFixed(1)}×` : '—'
-              const vrClr = vr >= 3 ? '#FF6B00' : vr >= 2 ? '#FFCC00' : vr >= 1.3 ? '#00E87B' : (isMobile ? '#FFFFFF' : '#555')
-
+            if (isPaired && partnerPreset) {
               return (
-                <div
-                  key={row.symbol}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    padding: '8px 16px 2px',
-                    borderBottom: '1px solid #111',
-                    background: i % 2 === 0 ? 'transparent' : '#080808',
-                    cursor: 'default',
-                    boxSizing: 'border-box',
-                    transition: 'background 0.08s',
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = '#161616' }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = i % 2 === 0 ? 'transparent' : '#080808' }}
-                >
-                  {/* Top row: rank | symbol | price | change | volume | v/avg | signal */}
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: '26px 76px 90px 106px 80px 62px',
-                    gap: '0 8px',
-                    alignItems: 'center',
-                    marginBottom: 4,
-                  }}>
-                    {/* Rank */}
-                    <div style={{ fontSize: '11px', color: isMobile ? '#FFFFFF' : '#444', textAlign: 'right', fontWeight: 600 }}>
-                      {i + 1}
-                    </div>
-
-                    {/* Symbol + signal badge */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden' }}>
-                      <span style={{
-                        fontSize: '15px', fontWeight: 900, letterSpacing: '0.03em',
-                        color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      }}>
-                        {row.symbol}
-                      </span>
-                      {signal && <div style={{ flexShrink: 0 }}>{signal}</div>}
-                    </div>
-
-                    {/* Price */}
-                    <div style={{ fontSize: '14px', fontWeight: 700, color: '#FFFFFF', textAlign: 'right' }}>
-                      ${fmtPrice(row.price)}
-                    </div>
-
-                    {/* Change % badge */}
-                    <div style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '3px',
-                      padding: '4px 8px', borderRadius: '3px',
-                      background: isUp ? 'rgba(0,232,123,0.1)' : 'rgba(255,45,85,0.1)',
-                      border: `1px solid ${changeClr}`,
-                      fontSize: '13px', fontWeight: 800, color: changeClr,
-                      letterSpacing: '0.01em',
-                    }}>
-                      {isUp ? '▲' : '▼'} {Math.abs(row.changePct).toFixed(2)}%
-                    </div>
-
-                    {/* Volume */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <div style={{ fontSize: '13px', color: '#FFFFFF', fontWeight: 700 }}>
-                        {fmtVol(row.volume)}
-                      </div>
-                      <div style={{ height: '3px', background: '#1a1a1a', borderRadius: '2px' }}>
-                        <div style={{
-                          height: '100%', borderRadius: '2px',
-                          width: `${Math.min(100, (Math.log10(Math.max(row.volume, 1)) / Math.log10(100_000_000)) * 100)}%`,
-                          background: '#FF6B00',
-                          opacity: 0.7,
-                        }} />
-                      </div>
-                    </div>
-
-                    {/* V/Avg */}
-                    <div style={{
-                      fontSize: '13px', textAlign: 'center', fontWeight: 800,
-                      color: vrClr,
-                    }}>
-                      {vrLabel}
-                    </div>
-                  </div>
-
-                  {/* Full-width sparkline below */}
-                  <div style={{ width: '100%' }}>
-                    {spark && spark.length > 1
-                      ? renderSparkline(spark)
-                      : <div style={{ height: isMobile ? 134 : 85 }} />}
-                  </div>
+                <div style={{ display: 'flex', minHeight: 0 }}>
+                  {renderCol(filteredRows, primaryPreset.color, primaryPreset.label.toUpperCase(), 0)}
+                  <div style={{ width: '1px', background: '#1e1e1e', flexShrink: 0 }} />
+                  {renderCol(filteredPairedRows, partnerPreset.color, partnerPreset.label.toUpperCase(), 0)}
                 </div>
               )
-            })}
+            }
 
-            {rows.length > 0 && <div style={{ height: '40px' }} />}
-          </>
-        )}
+            const half = Math.ceil(filteredRows.length / 2)
+            return (
+              <div style={{ display: 'flex', minHeight: 0 }}>
+                {renderCol(filteredRows.slice(0, half), '#FF6B00', undefined, 0)}
+                <div style={{ width: '1px', background: '#1e1e1e', flexShrink: 0 }} />
+                {renderCol(filteredRows.slice(half), '#FF6B00', undefined, half)}
+              </div>
+            )
+          })()}
+        </>
 
         {/* movers loading / empty */}
         {activePreset === 'movers' && loading && rows.length === 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '14px', padding: '80px 20px' }}>
-            <div style={{ width: '32px', height: '32px', borderRadius: '50%', border: '2px solid #222', borderTop: '2px solid #FF6B00', animation: 'bblspin 0.7s linear infinite' }} />
-            <div style={{ fontSize: '11px', color: '#FF6B00', letterSpacing: '0.2em' }}>SCANNING{progress > 0 ? ` ${progress}%` : '...'}</div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '18px', padding: '60px 24px' }}>
+            <div style={{ width: '84px', height: '84px', borderRadius: '50%', border: '4px solid #222', borderTop: '4px solid #FF6B00', animation: 'bblspin 0.7s linear infinite' }} />
+            <div style={{ fontSize: '33px', color: '#FF6B00', letterSpacing: '0.22em', fontWeight: 900 }}>SCANNING{progress > 0 ? ` ${progress}%` : '...'}</div>
+            <div style={{ width: 420, height: 3, background: '#111', borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{ height: '100%', background: '#FF6B00', width: `${progress}%`, transition: 'width 0.25s ease' }} />
+            </div>
+            <div style={{ maxWidth: 520, textAlign: 'center', marginTop: 12 }}>
+              <div style={{ fontSize: 27, color: '#fff', fontWeight: 600, lineHeight: 1.65, fontStyle: 'italic' }}>
+                &ldquo;{SCAN_QUOTES[scanQuoteIdx % SCAN_QUOTES.length].body}&rdquo;
+              </div>
+              {SCAN_QUOTES[scanQuoteIdx % SCAN_QUOTES.length].author && (
+                <div style={{ fontSize: 21, color: 'rgba(255,255,255,0.35)', fontFamily: 'monospace', marginTop: 10 }}>
+                  {SCAN_QUOTES[scanQuoteIdx % SCAN_QUOTES.length].author}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -2405,7 +3291,7 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
         </div>
       </div>
 
-      <style>{`@keyframes bblspin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`@keyframes bblspin { to { transform: rotate(360deg); } } @keyframes iconPulse { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.35);opacity:0.7} } @keyframes iconSpin { to { transform: rotate(360deg); } } @keyframes iconBounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-3px)} } @keyframes iconShake { 0%,100%{transform:rotate(0)} 25%{transform:rotate(-15deg)} 75%{transform:rotate(15deg)} }`}</style>
     </div>
   )
 })
@@ -2445,19 +3331,15 @@ export default function RegimesPanel({
   scanAllScoredRef,
 }: RegimesPanelProps) {
   const [mainTab, setMainTab] = useState<'regimes' | 'scanner'>('regimes')
+  const [expandedColumn, setExpandedColumn] = useState<'bullish' | 'bearish' | null>(null)
   const { isMobile } = useRegimesPanelMobile()
   const scrollRef = useRef<HTMLDivElement>(null)
   const savedScroll = useRef<number>(0)
 
   const getCurrentTimeframeData = useCallback(() => {
     if (!marketRegimeData) return null
-    switch (activeTab.toLowerCase()) {
-      case 'momentum':
-        return marketRegimeData.momentum
-      default:
-        return marketRegimeData.life
-    }
-  }, [marketRegimeData, activeTab])
+    return marketRegimeData.momentum ?? null
+  }, [marketRegimeData])
 
   const timeframeData = getCurrentTimeframeData()
 
@@ -2484,18 +3366,7 @@ export default function RegimesPanel({
     return { filteredBullishTrades: bullish, filteredBearishTrades: bearish }
   }, [highlightedTradesCache])
 
-  const shortTermBullish = filteredBullishTrades.filter(
-    ([, t]: [string, any]) => t.sourceTab === 'life'
-  )
-  const longTermBullish = filteredBullishTrades.filter(
-    ([, t]: [string, any]) => t.sourceTab !== 'life'
-  )
-  const shortTermBearish = filteredBearishTrades.filter(
-    ([, t]: [string, any]) => t.sourceTab === 'life'
-  )
-  const longTermBearish = filteredBearishTrades.filter(
-    ([, t]: [string, any]) => t.sourceTab !== 'life'
-  )
+
 
   useLayoutEffect(() => {
     if (scrollRef.current && savedScroll.current > 0)
@@ -2688,13 +3559,14 @@ export default function RegimesPanel({
                 </div>
               ))}
             </div>
+            <TradeCardChart symbol={symbol} industrySymbol={trade.industrySymbol} />
           </div>
         ) : (
           /* ── DESKTOP: original full layout ── */
           <div style={{ padding: '20px 20px 18px' }}>
             {/* Row 1: ticker + direction + score + star all in one row */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-              <span style={{ fontFamily: '"Courier New",monospace', fontWeight: 900, fontSize: '2rem', color: '#f59e0b', letterSpacing: '-0.02em', lineHeight: 1 }}>{symbol}</span>
+              <span style={{ fontFamily: '"Courier New",monospace', fontWeight: 900, fontSize: '2rem', color: isBullish ? '#FF6600' : '#FFD700', letterSpacing: '-0.02em', lineHeight: 1 }}>{symbol}</span>
               <span style={{ fontFamily: '"Courier New",monospace', fontSize: '22px', fontWeight: 800, color: '#fff' }}>${trade.strike?.toFixed(0)}</span>
               <span style={{ fontFamily: '"Courier New",monospace', fontSize: '22px', fontWeight: 800, color: accentClr }}>{isBullish ? 'Calls' : 'Puts'}</span>
               <span style={{ fontFamily: '"Courier New",monospace', fontSize: '22px', fontWeight: 700, color: '#ffffff' }}>
@@ -2702,7 +3574,7 @@ export default function RegimesPanel({
               </span>
               <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontFamily: '"Courier New",monospace', fontSize: '13px', color: 'rgba(255,255,255,0.85)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '1px' }}>Score</div>
+                  <div style={{ fontFamily: '"Courier New",monospace', fontSize: '13px', color: '#ffffff', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '1px' }}>Score</div>
                   <div style={{ fontFamily: '"Courier New",monospace', fontWeight: 900, fontSize: '24px', color: accentClr, lineHeight: 1, textShadow: `0 0 12px ${accentClr}66` }}>{Math.round(trade.score)}</div>
                 </div>
                 <button onClick={handleStar} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: inWatchlist ? '#FFD700' : 'rgba(255,255,255,0.6)', fontSize: '18px' }} title={inWatchlist ? 'Remove from watchlist' : 'Add to watchlist'}>
@@ -2710,17 +3582,15 @@ export default function RegimesPanel({
                 </button>
               </div>
             </div>
-            {/* Industry */}
-            <div style={{ fontFamily: 'system-ui,sans-serif', fontSize: '15px', color: '#f59e0b', fontWeight: 600, letterSpacing: '0.04em', marginBottom: '12px' }}>{trade.industry}</div>
             {/* Stats grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1px', background: 'rgba(255,255,255,0.06)', borderRadius: '5px', overflow: 'hidden', marginBottom: '1px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1px', background: 'rgba(255,255,255,0.06)', borderRadius: '5px', overflow: 'hidden', marginBottom: '1px', marginTop: '10px' }}>
               {[
                 { l: 'Premium', v: typeof trade.contractPrice === 'number' ? `$${trade.contractPrice.toFixed(2)}` : '—', c: '#fff' },
                 { l: 'IV', v: `${trade.impliedVolatility || '—'}%`, c: '#00d4ff' },
                 { l: 'Θ Decay', v: typeof trade.thetaDecay === 'number' ? `-$${Math.abs(trade.thetaDecay).toFixed(2)}` : '—', c: '#ff8c42' },
               ].map((m) => (
                 <div key={m.l} style={{ background: 'rgba(0,0,0,0.5)', padding: '10px 8px', textAlign: 'center' }}>
-                  <div style={{ fontFamily: 'system-ui,sans-serif', fontSize: '13px', fontWeight: 700, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '5px' }}>{m.l}</div>
+                  <div style={{ fontFamily: 'system-ui,sans-serif', fontSize: '13px', fontWeight: 700, color: '#ffffff', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '5px' }}>{m.l}</div>
                   <div style={{ fontFamily: '"Courier New",monospace', fontWeight: 800, fontSize: '18px', color: m.c }}>{m.v}</div>
                 </div>
               ))}
@@ -2732,11 +3602,12 @@ export default function RegimesPanel({
                 { l: 'Stop Loss', v: typeof trade.stopLoss === 'number' ? `$${trade.stopLoss.toFixed(2)}` : '—', c: '#ff3344', bg: 'rgba(255,51,68,0.06)' },
               ].map((m) => (
                 <div key={m.l} style={{ background: m.bg, padding: '10px 8px', textAlign: 'center' }}>
-                  <div style={{ fontFamily: 'system-ui,sans-serif', fontSize: '13px', fontWeight: 700, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '5px' }}>{m.l}</div>
+                  <div style={{ fontFamily: 'system-ui,sans-serif', fontSize: '13px', fontWeight: 700, color: '#ffffff', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '5px' }}>{m.l}</div>
                   <div style={{ fontFamily: '"Courier New",monospace', fontWeight: 800, fontSize: '18px', color: m.c }}>{m.v}</div>
                 </div>
               ))}
             </div>
+            <TradeCardChart symbol={symbol} industrySymbol={trade.industrySymbol} />
           </div>
         )}
       </div>
@@ -2749,7 +3620,7 @@ export default function RegimesPanel({
         ref={scrollRef}
         onScroll={handleScroll}
         style={{
-          height: '100vh',
+          height: '100%',
           overflowY: 'auto',
           overflowX: 'hidden',
           background: '#030303',
@@ -2772,7 +3643,7 @@ export default function RegimesPanel({
           {isMobile ? (
             <div style={{ display: 'flex', alignItems: 'stretch' }}>
               {(
-                [['regimes', 'REGIMES'], ['scanner', 'SCANNER']] as const
+                [['regimes', 'REGIMES']] as const
               ).map(([t, label]) => (
                 <button
                   key={t}
@@ -2820,7 +3691,6 @@ export default function RegimesPanel({
               {(
                 [
                   ['regimes', 'REGIMES'],
-                  ['scanner', 'SCANNER'],
                 ] as const
               ).map(([t, label]) => (
                 <button
@@ -3000,213 +3870,154 @@ export default function RegimesPanel({
                   </div>
                 )}
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '32px' }}>
-                  {/* Short Term section */}
-                  {[
-                    { label: 'SHORT TERM', bull: shortTermBullish, bear: shortTermBearish },
-                    { label: 'LONG TERM', bull: longTermBullish, bear: longTermBearish },
-                  ].map(({ label, bull, bear }) => (
-                    <div key={label}>
-                      {/* Section header */}
-                      <div
+                <div style={{ display: 'grid', gridTemplateColumns: expandedColumn ? '1fr' : '1fr 1fr', gap: isMobile ? '6px' : '20px' }}>
+                  {/* Bullish column */}
+                  <div style={{ display: expandedColumn === 'bearish' ? 'none' : 'block' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: isMobile ? '4px' : '10px',
+                        padding: isMobile ? '6px 8px' : '10px 14px',
+                        background: 'rgba(0,255,136,0.06)',
+                        border: '1px solid rgba(0,255,136,0.15)',
+                        borderLeft: '3px solid #00ff88',
+                        borderRadius: '5px',
+                        marginBottom: isMobile ? '6px' : '12px',
+                      }}
+                    >
+                      <TbTrendingUp size={isMobile ? 12 : 18} color="#00ff88" />
+                      <span
                         style={{
-                          position: 'relative',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          marginBottom: isMobile ? '8px' : '16px',
-                          padding: isMobile ? '6px 0' : '10px 0',
+                          fontFamily: '"Courier New",monospace',
+                          fontWeight: 900,
+                          fontSize: isMobile ? '13px' : '22px',
+                          color: '#00ff88',
+                          letterSpacing: isMobile ? '0.06em' : '0.2em',
+                          textTransform: 'uppercase',
                         }}
                       >
-                        <div
-                          style={{
-                            position: 'absolute',
-                            inset: 0,
-                            display: 'flex',
-                            alignItems: 'center',
-                          }}
-                        >
-                          <div
-                            style={{
-                              flex: 1,
-                              height: '1px',
-                              background: 'linear-gradient(90deg,transparent,rgba(255,102,0,0.4))',
-                            }}
-                          />
-                          <div
-                            style={{
-                              flex: 1,
-                              height: '1px',
-                              background: 'linear-gradient(90deg,rgba(255,102,0,0.4),transparent)',
-                            }}
-                          />
-                        </div>
-                        <div
-                          style={{
-                            position: 'relative',
-                            padding: '4px 20px',
-                            background: '#030303',
-                            border: '1px solid rgba(255,102,0,0.3)',
-                            borderRadius: '20px',
-                          }}
-                        >
-                          <span
-                            style={{
-                              fontFamily: '"Courier New",monospace',
-                              fontWeight: 900,
-                              fontSize: '14px',
-                              color: '#ff6600',
-                              letterSpacing: '0.3em',
-                              textTransform: 'uppercase',
-                            }}
-                          >
-                            {label}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: isMobile ? '6px' : '20px' }}>
-                        {/* Bullish section */}
-                        <div>
-                          <div
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: isMobile ? '4px' : '10px',
-                              padding: isMobile ? '6px 8px' : '10px 14px',
-                              background: 'rgba(0,255,136,0.06)',
-                              border: '1px solid rgba(0,255,136,0.15)',
-                              borderLeft: '3px solid #00ff88',
-                              borderRadius: '5px',
-                              marginBottom: isMobile ? '6px' : '12px',
-                            }}
-                          >
-                            <TbTrendingUp size={isMobile ? 12 : 18} color="#00ff88" />
-                            <span
-                              style={{
-                                fontFamily: '"Courier New",monospace',
-                                fontWeight: 900,
-                                fontSize: isMobile ? '13px' : '22px',
-                                color: '#00ff88',
-                                letterSpacing: isMobile ? '0.06em' : '0.2em',
-                                textTransform: 'uppercase',
-                              }}
-                            >
-                              Bullish
-                            </span>
-                            <span
-                              style={{
-                                marginLeft: 'auto',
-                                fontFamily: '"Courier New",monospace',
-                                fontSize: isMobile ? '11px' : '14px',
-                                fontWeight: 700,
-                                color: '#00ff88',
-                                background: 'rgba(0,255,136,0.14)',
-                                padding: isMobile ? '1px 5px' : '2px 10px',
-                                borderRadius: '10px',
-                              }}
-                            >
-                              {bull.length}
-                            </span>
-                          </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                            {bull.map((item: any, idx: number) => (
-                              <TradeCard key={`b-${label}-${idx}`} item={item} isBullish={true} />
-                            ))}
-                            {bull.length === 0 && (
-                              <div
-                                style={{
-                                  textAlign: 'center',
-                                  padding: '32px 0',
-                                  fontFamily: '"Courier New",monospace',
-                                  fontSize: '13px',
-                                  color: 'rgba(255,255,255,0.7)',
-                                  letterSpacing: '0.12em',
-                                  textTransform: 'uppercase',
-                                }}
-                              >
-                                No Bullish Signals
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        {/* Bearish section */}
-                        <div>
-                          <div
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: isMobile ? '4px' : '10px',
-                              padding: isMobile ? '6px 8px' : '10px 14px',
-                              background: 'rgba(255,51,68,0.06)',
-                              border: '1px solid rgba(255,51,68,0.15)',
-                              borderLeft: '3px solid #ff3344',
-                              borderRadius: '5px',
-                              marginBottom: isMobile ? '6px' : '12px',
-                            }}
-                          >
-                            <TbTrendingDown size={isMobile ? 12 : 18} color="#ff3344" />
-                            <span
-                              style={{
-                                fontFamily: '"Courier New",monospace',
-                                fontWeight: 900,
-                                fontSize: isMobile ? '13px' : '22px',
-                                color: '#ff3344',
-                                letterSpacing: isMobile ? '0.06em' : '0.2em',
-                                textTransform: 'uppercase',
-                              }}
-                            >
-                              Bearish
-                            </span>
-                            <span
-                              style={{
-                                marginLeft: 'auto',
-                                fontFamily: '"Courier New",monospace',
-                                fontSize: isMobile ? '11px' : '14px',
-                                fontWeight: 700,
-                                color: '#ff3344',
-                                background: 'rgba(255,51,68,0.14)',
-                                padding: isMobile ? '1px 5px' : '2px 10px',
-                                borderRadius: '10px',
-                              }}
-                            >
-                              {bear.length}
-                            </span>
-                          </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                            {bear.map((item: any, idx: number) => (
-                              <TradeCard key={`r-${label}-${idx}`} item={item} isBullish={false} />
-                            ))}
-                            {bear.length === 0 && (
-                              <div
-                                style={{
-                                  textAlign: 'center',
-                                  padding: '32px 0',
-                                  fontFamily: '"Courier New",monospace',
-                                  fontSize: '13px',
-                                  color: 'rgba(255,255,255,0.7)',
-                                  letterSpacing: '0.12em',
-                                  textTransform: 'uppercase',
-                                }}
-                              >
-                                No Bearish Signals
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
+                        Bullish
+                      </span>
+                      <span
+                        style={{
+                          marginLeft: 'auto',
+                          fontFamily: '"Courier New",monospace',
+                          fontSize: isMobile ? '11px' : '14px',
+                          fontWeight: 700,
+                          color: '#00ff88',
+                          background: 'rgba(0,255,136,0.14)',
+                          padding: isMobile ? '1px 5px' : '2px 10px',
+                          borderRadius: '10px',
+                        }}
+                      >
+                        {filteredBullishTrades.length}
+                      </span>
+                      <button
+                        onClick={() => setExpandedColumn(expandedColumn === 'bullish' ? null : 'bullish')}
+                        style={{ marginLeft: '8px', background: 'none', border: '1px solid rgba(0,255,136,0.5)', color: '#00ff88', borderRadius: '3px', width: '22px', height: '22px', fontFamily: 'monospace', fontSize: '16px', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, lineHeight: 1, flexShrink: 0 }}
+                      >
+                        {expandedColumn === 'bullish' ? '−' : '+'}
+                      </button>
                     </div>
-                  ))}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {filteredBullishTrades.map((item: any, idx: number) => (
+                        <TradeCard key={`b-${idx}`} item={item} isBullish={true} />
+                      ))}
+                      {filteredBullishTrades.length === 0 && (
+                        <div
+                          style={{
+                            textAlign: 'center',
+                            padding: '32px 0',
+                            fontFamily: '"Courier New",monospace',
+                            fontSize: '13px',
+                            color: 'rgba(255,255,255,0.7)',
+                            letterSpacing: '0.12em',
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          No Bullish Signals
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {/* Bearish column */}
+                  <div style={{ display: expandedColumn === 'bullish' ? 'none' : 'block' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: isMobile ? '4px' : '10px',
+                        padding: isMobile ? '6px 8px' : '10px 14px',
+                        background: 'rgba(255,51,68,0.06)',
+                        border: '1px solid rgba(255,51,68,0.15)',
+                        borderLeft: '3px solid #ff3344',
+                        borderRadius: '5px',
+                        marginBottom: isMobile ? '6px' : '12px',
+                      }}
+                    >
+                      <TbTrendingDown size={isMobile ? 12 : 18} color="#ff3344" />
+                      <span
+                        style={{
+                          fontFamily: '"Courier New",monospace',
+                          fontWeight: 900,
+                          fontSize: isMobile ? '13px' : '22px',
+                          color: '#ff3344',
+                          letterSpacing: isMobile ? '0.06em' : '0.2em',
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        Bearish
+                      </span>
+                      <span
+                        style={{
+                          marginLeft: 'auto',
+                          fontFamily: '"Courier New",monospace',
+                          fontSize: isMobile ? '11px' : '14px',
+                          fontWeight: 700,
+                          color: '#ff3344',
+                          background: 'rgba(255,51,68,0.14)',
+                          padding: isMobile ? '1px 5px' : '2px 10px',
+                          borderRadius: '10px',
+                        }}
+                      >
+                        {filteredBearishTrades.length}
+                      </span>
+                      <button
+                        onClick={() => setExpandedColumn(expandedColumn === 'bearish' ? null : 'bearish')}
+                        style={{ marginLeft: '8px', background: 'none', border: '1px solid rgba(255,51,68,0.5)', color: '#ff3344', borderRadius: '3px', width: '22px', height: '22px', fontFamily: 'monospace', fontSize: '16px', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, lineHeight: 1, flexShrink: 0 }}
+                      >
+                        {expandedColumn === 'bearish' ? '−' : '+'}
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {filteredBearishTrades.map((item: any, idx: number) => (
+                        <TradeCard key={`r-${idx}`} item={item} isBullish={false} />
+                      ))}
+                      {filteredBearishTrades.length === 0 && (
+                        <div
+                          style={{
+                            textAlign: 'center',
+                            padding: '32px 0',
+                            fontFamily: '"Courier New",monospace',
+                            fontSize: '13px',
+                            color: 'rgba(255,255,255,0.7)',
+                            letterSpacing: '0.12em',
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          No Bearish Signals
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
           </div>
         )}
 
-        {/* ── SCANNER tab ── always mounted so it scans in background like regimes */}
-        <div style={{ display: mainTab === 'scanner' ? 'block' : 'none' }}>
-          <MarketScannerPanel />
-        </div>
+        {/* ── SCANNER tab removed — now lives in its own SCREEN sidebar button ── */}
       </div>
 
       {tradeDetailPopup && (

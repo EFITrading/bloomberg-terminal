@@ -129,9 +129,6 @@ const HeroSection: React.FC<HeroSectionProps> = ({
   return (
     <div
       style={{
-        position: 'relative',
-        top: isMobileView ? '0' : '-45px',
-        marginBottom: isMobileView ? '0' : '-45px',
         fontFamily: '"Roboto Mono", monospace',
       }}
     >
@@ -223,7 +220,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
               disabled={loading}
               style={{ ...btnBase, ...solidBlack, fontSize: 7, padding: '0 4px', height: 24, minHeight: 24, letterSpacing: '0.2px', flex: 1, opacity: loading ? 0.5 : 1, whiteSpace: 'nowrap' }}
             >
-              BEST OF EACH FRAME
+              SEASONAL LEAPS
             </button>
 
             <button
@@ -264,9 +261,8 @@ const HeroSection: React.FC<HeroSectionProps> = ({
                 }}
               >
                 <option value="" style={{ background: '#0d0d0d' }}>Any</option>
-                <option value="1d" style={{ background: '#0d0d0d' }}>1 Day</option>
-                <option value="3d" style={{ background: '#0d0d0d' }}>3 Day</option>
-                <option value="9d" style={{ background: '#0d0d0d' }}>9 Day</option>
+                <option value="upcoming" style={{ background: '#0d0d0d' }}>1–9 Days</option>
+                <option value="recent" style={{ background: '#0d0d0d' }}>5–10 Days Ago</option>
               </select>
 
               <button
@@ -291,7 +287,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
         /* ── DESKTOP: original layout ── */
         <div
           style={{
-            padding: '40px 16px 10px',
+            padding: '10px 16px 10px',
             display: 'flex',
             alignItems: 'center',
             gap: 8,
@@ -362,7 +358,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
             disabled={loading}
             style={{ ...btnBase, ...solidBlack, minWidth: 120, opacity: loading ? 0.5 : 1 }}
           >
-            Best Picks
+            Seasonal Leaps
           </button>
 
           <button
@@ -398,14 +394,11 @@ const HeroSection: React.FC<HeroSectionProps> = ({
               <option value="" style={{ background: '#0d0d0d' }}>
                 Entry Window
               </option>
-              <option value="1d" style={{ background: '#0d0d0d' }}>
-                1 Day Entry
+              <option value="upcoming" style={{ background: '#0d0d0d' }}>
+                1–9 Days Ahead
               </option>
-              <option value="3d" style={{ background: '#0d0d0d' }}>
-                3 Day Entry
-              </option>
-              <option value="9d" style={{ background: '#0d0d0d' }}>
-                9 Day Entry
+              <option value="recent" style={{ background: '#0d0d0d' }}>
+                5–10 Days Ago
               </option>
             </select>
 

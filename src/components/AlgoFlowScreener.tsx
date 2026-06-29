@@ -19,9 +19,10 @@ import {
   YAxis,
 } from 'recharts'
 
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import OptionsFlowScene from './loading/OptionsFlowScene'
+import { polygonOptionsWS, parseOCCTicker, PolygonOptionsTradeMsg } from '@/lib/polygonOptionsWS'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
@@ -55,19 +56,34 @@ const fetchVolumeAndOpenInterest = async (
     let currentSpotPrice: number | null = null
 
     try {
-      // First, get the current spot price for this underlying - this will be overridden by contract data if available
+      // First, get the current spot price for this underlying
       try {
-        const spotPriceUrl =
-          underlying === 'SPX'
-            ? `https://api.polygon.io/v2/last/trade/SPX?apikey=${POLYGON_API_KEY}`
-            : `https://api.polygon.io/v2/last/trade/${underlying}?apikey=${POLYGON_API_KEY}`
+        // Index options and dot-tickers need special handling for Polygon
+        const SPOT_TICKER_MAP: Record<string, string> = {
+          SPXW: 'I:SPX', SPX: 'I:SPX', NDXP: 'I:NDX', NDX: 'I:NDX',
+          RUTW: 'I:RUT', RUT: 'I:RUT', BRKB: 'BRK.B', BRKA: 'BRK.A',
+        }
+        const spotTicker = SPOT_TICKER_MAP[underlying] ?? underlying
+        const spotPriceUrl = spotTicker.startsWith('I:')
+          ? `https://api.polygon.io/v2/snapshot/locale/us/markets/index/tickers/${spotTicker}?apikey=${POLYGON_API_KEY}`
+          : `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${spotTicker}?apikey=${POLYGON_API_KEY}`
 
         const priceResponse = await fetch(spotPriceUrl)
         if (priceResponse.ok) {
           const priceData = await priceResponse.json()
-          if (priceData.status === 'OK' && priceData.results) {
-            currentSpotPrice = priceData.results.p
+          const price =
+            priceData.ticker?.lastTrade?.p ??
+            priceData.ticker?.prevDay?.c ??
+            priceData.results?.value ??
+            priceData.results?.p
+          if (price && price > 0) {
+            currentSpotPrice = price
+            console.debug(`%c[ALGO] ${underlying} spot price%c $${price} (via ${spotTicker})`, 'color:#22c55e;font-weight:bold', 'color:#86efac')
+          } else {
+            console.warn(`[ALGO] ${underlying} spot price fetch returned no price — HTTP ${priceResponse.status} spotTicker=${spotTicker}`, priceData)
           }
+        } else {
+          console.warn(`[ALGO] ${underlying} spot price fetch failed — HTTP ${priceResponse.status} url=${spotPriceUrl}`)
         }
       } catch (error) {
         console.warn(`⚠️ Failed to fetch ${underlying} spot price fallback:`, error)
@@ -82,8 +98,15 @@ const fetchVolumeAndOpenInterest = async (
       for (const expiry of uniqueExpirations) {
         const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry
 
-        // Use underlying ticker directly (SPX works as-is)
-        const apiUnderlying = underlying
+        // Map index option underlyings to their correct Polygon snapshot underlying
+        const INDEX_UNDERLYING_MAP: Record<string, string> = {
+          SPXW: 'I:SPX', SPX: 'I:SPX', NDXP: 'I:NDX', NDX: 'I:NDX',
+          RUTW: 'I:RUT', RUT: 'I:RUT', BRKB: 'BRK.B', BRKA: 'BRK.A',
+        }
+        const apiUnderlying = INDEX_UNDERLYING_MAP[underlying] ?? underlying
+        if (INDEX_UNDERLYING_MAP[underlying]) {
+          console.debug(`%c[ALGO] ${underlying} → using snapshot underlying: ${apiUnderlying}`, 'color:#a78bfa')
+        }
 
         // FULL PAGINATION LOGIC - Get ALL contracts for this expiration
         let nextUrl: string | null =
@@ -133,7 +156,7 @@ const fetchVolumeAndOpenInterest = async (
 
       // Skip if no contracts found for any expiration
       if (allContracts.size === 0) {
-        console.warn(`⚠️ No option chain data found for any expiration of ${underlying}`)
+        console.warn(`[ALGO] ❌ No contracts found for ${underlying} — check underlying mapping and Polygon plan`)
         updatedTrades.push(
           ...underlyingTrades.map((trade) => ({
             ...trade,
@@ -146,6 +169,7 @@ const fetchVolumeAndOpenInterest = async (
       }
 
       // Use the aggregated contracts for lookup
+      console.debug(`%c[ALGO] ${underlying}%c ${allContracts.size} contracts loaded | spot=$${currentSpotPrice ?? '--'}`, 'color:#f59e0b;font-weight:bold', 'color:#fcd34d')
       const contractLookup = allContracts
 
       // Match trades to contracts and update with vol/OI data
@@ -878,6 +902,55 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
     const batch = pendingTradesRef.current.splice(0)
     setFlowData((prev) => [...prev, ...batch])
   }
+
+  // ── AlgoFlow Live WebSocket state ───────────────────────────────────────────
+  const [isAlgoLive, setIsAlgoLive] = useState(false)
+  const [algoLiveTicker, setAlgoLiveTicker] = useState<string>('')
+  const [algoLiveConnected, setAlgoLiveConnected] = useState(false)
+  const [algoLiveTradeCount, setAlgoLiveTradeCount] = useState(0)
+  const algoLiveBufferRef = useRef<OptionsFlowData[]>([])
+  const algoLiveFlushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const algoLiveAnalysisIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const algoLiveUnsubRef = useRef<(() => void) | null>(null)
+  const algoLiveConnectedRef = useRef(false)
+  const algoLiveTickerRef = useRef<string>('')
+
+  // Convert a raw Polygon WS message to OptionsFlowData for AlgoFlow
+  const convertAlgoTrade = useCallback((msg: PolygonOptionsTradeMsg): OptionsFlowData | null => {
+    const parsed = parseOCCTicker(msg.sym)
+    if (!parsed) return null
+    const { underlying, expiry, type, strike } = parsed
+    const totalPremium = msg.p * msg.s * 100
+    const expDate = new Date(expiry)
+    const daysToExpiry = Math.max(0, Math.round((expDate.getTime() - Date.now()) / 86_400_000))
+    return {
+      ticker: msg.sym,
+      underlying_ticker: underlying,
+      strike,
+      expiry,
+      type,
+      trade_size: msg.s,
+      premium_per_contract: msg.p,
+      total_premium: totalPremium,
+      spot_price: 0,
+      exchange_name: polygonOptionsWS.getExchangeName(msg.x),
+      trade_type: 'MINI',
+      trade_timestamp: new Date(msg.t).toISOString(),
+      moneyness: 'OTM',
+      days_to_expiry: daysToExpiry,
+    }
+  }, [])
+
+  const stopAlgoLive = useCallback(() => {
+    if (algoLiveUnsubRef.current) { algoLiveUnsubRef.current(); algoLiveUnsubRef.current = null }
+    if (algoLiveFlushTimerRef.current) { clearInterval(algoLiveFlushTimerRef.current); algoLiveFlushTimerRef.current = null }
+    if (algoLiveAnalysisIntervalRef.current) { clearInterval(algoLiveAnalysisIntervalRef.current); algoLiveAnalysisIntervalRef.current = null }
+    algoLiveBufferRef.current = []
+    algoLiveConnectedRef.current = false
+    setIsAlgoLive(false)
+    setAlgoLiveConnected(false)
+  }, [])
+
   const [streamStatus, setStreamStatus] = useState('')
   const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false)
   const [overlayActive, setOverlayActive] = useState(false)
@@ -1496,8 +1569,15 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
           priceTimespan = 'minute' // 30-min bars
         } // else: 1-2 days → 5-min bars (default)
 
+        // Map index option underlyings and dot-tickers to correct Polygon aggs ticker
+        const AGGS_TICKER_MAP: Record<string, string> = {
+          SPXW: 'I:SPX', SPX: 'I:SPX', NDXP: 'I:NDX', NDX: 'I:NDX',
+          RUTW: 'I:RUT', RUT: 'I:RUT', BRKB: 'BRK.B', BRKA: 'BRK.A',
+        }
+        const aggsTicker = AGGS_TICKER_MAP[ticker] ?? ticker
+
         // Fetch REAL aggregated bars from Polygon covering full scan range
-        const polygonUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/${priceMultiplier}/${priceTimespan}/${startDate}/${endDate}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
+        const polygonUrl = `https://api.polygon.io/v2/aggs/ticker/${aggsTicker}/range/${priceMultiplier}/${priceTimespan}/${startDate}/${endDate}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
         const response = await fetch(polygonUrl)
         const data = await response.json()
 
@@ -1735,6 +1815,67 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
       setAnalysis(null)
     }
   }, [flowData])
+
+  // ── AlgoFlow Live: start streaming for a ticker or all tickers ───────────────
+  const startAlgoLive = useCallback((tickerOrAll: string) => {
+    // Stop any existing live session first
+    if (algoLiveUnsubRef.current) { algoLiveUnsubRef.current(); algoLiveUnsubRef.current = null }
+    if (algoLiveFlushTimerRef.current) { clearInterval(algoLiveFlushTimerRef.current); algoLiveFlushTimerRef.current = null }
+    if (algoLiveAnalysisIntervalRef.current) { clearInterval(algoLiveAnalysisIntervalRef.current); algoLiveAnalysisIntervalRef.current = null }
+
+    const targetTicker = tickerOrAll.toUpperCase()
+    algoLiveTickerRef.current = targetTicker
+    algoLiveConnectedRef.current = false
+    algoLiveBufferRef.current = []
+    accumulatedTradesRef.current = []
+
+    setIsAlgoLive(true)
+    setAlgoLiveTicker(targetTicker)
+    setAlgoLiveConnected(false)
+    setAlgoLiveTradeCount(0)
+    setFlowData([])
+    setAnalysis(null)
+    setStreamStatus(`LIVE ${targetTicker === 'ALL' ? '· ALL TICKERS' : `· ${targetTicker}`}`)
+
+    // Subscribe to the shared Polygon WS
+    const unsub = polygonOptionsWS.addHandler((msgs: PolygonOptionsTradeMsg[]) => {
+      if (!algoLiveConnectedRef.current) {
+        algoLiveConnectedRef.current = true
+        setAlgoLiveConnected(true)
+      }
+      for (const msg of msgs) {
+        const trade = convertAlgoTrade(msg)
+        if (!trade) continue
+        // Filter by ticker if not streaming ALL
+        if (targetTicker !== 'ALL' && trade.underlying_ticker !== targetTicker) continue
+        algoLiveBufferRef.current.push(trade)
+      }
+    })
+    algoLiveUnsubRef.current = unsub
+
+    // 1-second flush: drain buffer → classify → add to flowData
+    algoLiveFlushTimerRef.current = setInterval(() => {
+      if (algoLiveBufferRef.current.length === 0) return
+      const batch = algoLiveBufferRef.current.splice(0)
+      const filtered = batch.filter(t => t.total_premium >= 1000)
+      if (filtered.length === 0) return
+      const classified: OptionsFlowData[] = filtered.map(t => ({
+        ...t,
+        trade_type: (t.trade_size >= 250 ? 'BLOCK' : 'MINI') as 'BLOCK' | 'MINI' | 'SWEEP',
+      }))
+      accumulatedTradesRef.current = [...classified, ...accumulatedTradesRef.current]
+      setFlowData(prev => [...classified, ...prev])
+      setAlgoLiveTradeCount(prev => prev + classified.length)
+    }, 1000)
+
+    // 10-second analysis refresh: recompute chart from accumulated trades
+    algoLiveAnalysisIntervalRef.current = setInterval(() => {
+      const trades = accumulatedTradesRef.current
+      if (trades.length === 0) return
+      const label = algoLiveTickerRef.current === 'ALL' ? 'ALL' : algoLiveTickerRef.current
+      performAnalysis(trades, label === 'ALL' ? undefined : label).catch(() => { })
+    }, 10000)
+  }, [convertAlgoTrade, performAnalysis])
 
   // Sync chart view window when scan timeframe changes (no auto re-analyze — user must click ANALYZE)
   useEffect(() => {
@@ -2328,9 +2469,9 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
             const Wc = 52, ampc = 2.5
             const wxc = cx - r - Wc
             const wpc = `M${wxc} ${waveY} ` +
-              `q${Wc/4} ${-ampc} ${Wc/2} 0 q${Wc/4} ${ampc} ${Wc/2} 0 ` +
-              `q${Wc/4} ${-ampc} ${Wc/2} 0 q${Wc/4} ${ampc} ${Wc/2} 0 ` +
-              `q${Wc/4} ${-ampc} ${Wc/2} 0 q${Wc/4} ${ampc} ${Wc/2} 0 ` +
+              `q${Wc / 4} ${-ampc} ${Wc / 2} 0 q${Wc / 4} ${ampc} ${Wc / 2} 0 ` +
+              `q${Wc / 4} ${-ampc} ${Wc / 2} 0 q${Wc / 4} ${ampc} ${Wc / 2} 0 ` +
+              `q${Wc / 4} ${-ampc} ${Wc / 2} 0 q${Wc / 4} ${ampc} ${Wc / 2} 0 ` +
               `V${bottom} H${wxc} Z`
             return (
               <>
@@ -2856,6 +2997,31 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
             >
               All Tickers
             </button>
+
+            {/* ALL TICKERS LIVE button */}
+            <button
+              onClick={() => isAlgoLive && algoLiveTicker === 'ALL' ? stopAlgoLive() : startAlgoLive('ALL')}
+              title={isAlgoLive && algoLiveTicker === 'ALL' ? 'Stop live stream' : 'Stream all option trades live from market open'}
+              style={{
+                height: '31px',
+                padding: '0 13px',
+                background: (isAlgoLive && algoLiveTicker === 'ALL') ? 'linear-gradient(180deg, rgba(34,197,94,0.22) 0%, rgba(16,185,129,0.06) 55%, rgba(0,0,0,0.2) 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
+                border: (isAlgoLive && algoLiveTicker === 'ALL') ? '1px solid #22c55e' : '1px solid #555',
+                borderRadius: '20px',
+                fontSize: '12px',
+                letterSpacing: '1.2px',
+                fontWeight: '700',
+                color: (isAlgoLive && algoLiveTicker === 'ALL') ? '#22c55e' : '#6b7280',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.15s ease',
+                boxShadow: (isAlgoLive && algoLiveTicker === 'ALL') ? '0 0 10px rgba(34,197,94,0.25)' : 'none',
+                fontFamily: 'JetBrains Mono, monospace',
+              }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: (isAlgoLive && algoLiveTicker === 'ALL') ? '#22c55e' : '#4b5563', display: 'inline-block', marginRight: 6, boxShadow: (isAlgoLive && algoLiveTicker === 'ALL') ? '0 0 5px #22c55e' : 'none' }} />
+              {(isAlgoLive && algoLiveTicker === 'ALL') ? 'STOP ALL LIVE' : 'ALL TICKERS LIVE'}
+            </button>
             <input
               type="text"
               value={ticker}
@@ -2902,6 +3068,45 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                   : 'ANALYZE'
               }
             </button>
+
+            {/* Per-ticker LIVE toggle */}
+            {ticker.trim() && ticker !== 'ALL' && (
+              <button
+                onClick={() => isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? stopAlgoLive() : startAlgoLive(ticker.trim())}
+                title={isAlgoLive && algoLiveTicker === ticker ? `Stop live stream for ${ticker}` : `Stream ${ticker} options live`}
+                style={{
+                  padding: '5px 16px',
+                  background: (isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase())
+                    ? 'linear-gradient(135deg, rgba(34,197,94,0.22), rgba(16,185,129,0.08))'
+                    : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.25) 100%)',
+                  border: (isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase()) ? '1px solid #22c55e' : '1px solid #555',
+                  color: (isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase()) ? '#22c55e' : '#6b7280',
+                  fontFamily: 'JetBrains Mono, monospace',
+                  fontSize: 13,
+                  fontWeight: 800,
+                  letterSpacing: '0.12em',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 7,
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.15s ease',
+                  boxShadow: (isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase()) ? '0 0 10px rgba(34,197,94,0.2)' : 'none',
+                }}
+              >
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: (isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase()) ? '#22c55e' : '#4b5563', display: 'inline-block', boxShadow: (isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase()) ? '0 0 5px #22c55e' : 'none' }} />
+                {(isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase())
+                  ? `STOP LIVE · ${algoLiveTradeCount} trades`
+                  : 'LIVE'}
+              </button>
+            )}
+
+            {/* Live connected indicator */}
+            {isAlgoLive && (
+              <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: algoLiveConnected ? '#22c55e' : '#facc15', letterSpacing: '0.1em', whiteSpace: 'nowrap' }}>
+                {algoLiveConnected ? '● CONNECTED' : '○ CONNECTING...'}
+              </span>
+            )}
           </div>
         </div>
       )} {/* end desktop header */}
@@ -3632,6 +3837,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                       initialTimeframe="1d"
                       height={700}
                       lwToolbarPosition="left"
+                      lwNavyButtonTheme={true}
                       disableSidebarAutoScan={true}
                       hideDesktopSidebar={true}
                       onSymbolChange={(s) => setSearchTicker(s)}

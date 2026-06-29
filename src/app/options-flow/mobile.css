@@ -1,5 +1,34 @@
 /* Mobile Optimization for Options Flow Screener */
 
+/* Quick Grade pen icon — clean color-cycle animation */
+@keyframes penPulse {
+  0% {
+    color: #a78bfa;
+    transform: rotate(-6deg);
+  }
+
+  33% {
+    color: #f472b6;
+    transform: rotate(0deg);
+  }
+
+  66% {
+    color: #38bdf8;
+    transform: rotate(6deg);
+  }
+
+  100% {
+    color: #a78bfa;
+    transform: rotate(-6deg);
+  }
+}
+
+.quick-grade-pen:hover {
+  animation: none !important;
+  color: #ffffff !important;
+  transform: rotate(-8deg) scale(1.2) !important;
+}
+
 /* Hide horizontal scrollbar on mobile */
 @media (max-width: 768px) {
   body {

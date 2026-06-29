@@ -81,6 +81,7 @@ import { getRiskFreeRate, getCachedRiskFreeRate } from '../../lib/riskFreeRate'
 import { useChatStore } from '../../store/chatStore'
 import ETFHoldingsModal from '../ETFHoldingsModal'
 import FlowTrackingPanel from '../FlowTrackingPanel'
+import { useOptionsFlowLive } from '../../hooks/useOptionsFlowLive'
 import EFIChartingMobileHamburger from './EFIChartingMobileHamburger'
 import HVScreener from '../HVScreener'
 import LeadershipScan from '../LeadershipScan'
@@ -4524,6 +4525,7 @@ export function TradePopupChart({
   const [timeframe, setTimeframe] = React.useState('1D')
   const [candles, setCandles] = React.useState<any[]>(fallbackCandles)
   const [fetching, setFetching] = React.useState(false)
+  const [livePrice, setLivePrice] = React.useState(0)
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
   const stateRef = React.useRef({
     offset: 0,
@@ -4585,6 +4587,17 @@ export function TradePopupChart({
       .catch(() => { })
       .finally(() => setFetching(false))
   }, [symbol, timeframe]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch live price for accurate Y-axis label on all timeframes
+  React.useEffect(() => {
+    if (!symbol) return
+    const today = new Date().toISOString().split('T')[0]
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
+    fetch(`https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/minute/${yesterday}/${today}?adjusted=true&sort=desc&limit=1&apiKey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`)
+      .then((r) => r.json())
+      .then((d) => { if (d.results?.[0]?.c) setLivePrice(d.results[0].c) })
+      .catch(() => { })
+  }, [symbol])
 
   const draw = React.useCallback(() => {
     const canvas = canvasRef.current
@@ -4728,9 +4741,10 @@ export function TradePopupChart({
 
     // Last price — crispy solid orange label on Y-axis
     const lastClose = visible[visible.length - 1]?.close
-    if (lastClose !== undefined) {
-      const lastY = toY(lastClose)
-      const lastLabel = fmtPrice(lastClose)
+    const displayPrice = livePrice > 0 ? livePrice : lastClose
+    if (displayPrice !== undefined) {
+      const lastY = toY(displayPrice)
+      const lastLabel = fmtPrice(displayPrice)
       ctx.font = 'bold 17px "Courier New", monospace'
       ctx.textAlign = 'left'
       ctx.textBaseline = 'middle'
@@ -5808,7 +5822,7 @@ const FlowPanel = React.memo(
     flowStreamingStatus: string
     flowStreamingProgress: any
     flowStreamError: string
-    setFlowData: (data: any[]) => void
+    setFlowData: (data: any[] | ((prev: any[]) => any[])) => void
     setFlowSummary: (summary: any) => void
     setFlowMarketInfo: (info: any) => void
     setFlowLoading: (loading: boolean) => void
@@ -5822,10 +5836,31 @@ const FlowPanel = React.memo(
     const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false)
     const isStreamCompleteRef = useRef<boolean>(false)
 
+    // Track the active EventSource so we can close it before opening a new one.
+    // Without this, rapid re-scans leave stale SSE connections open; browsers cap
+    // HTTP/1.1 at 6 connections per origin, so stale SSEs starve all other requests.
+    const flowEventSourceRef = useRef<EventSource | null>(null)
+
     const accumulatedTradesRef = useRef<any[]>([])
     const completeReceivedRef = useRef<boolean>(false)
 
+    // ── Live WebSocket streaming (market hours) ──────────────────────────────
+    const { isLiveMode, liveConnected, liveTradeCount, manualLiveMode, setManualLiveMode } = useOptionsFlowLive({
+      onData: (updater) => setFlowData((prev: any[]) => updater(prev)),
+      symbol: flowSelectedTicker || undefined,
+      requireManual: true,
+    })
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Close the active flow EventSource when this panel unmounts
+    useEffect(() => {
+      return () => { flowEventSourceRef.current?.close(); flowEventSourceRef.current = null }
+    }, [])
+
     const fetchOptionsFlowStreaming = async (currentRetry: number = 0, tickerOverride?: string) => {
+      // Close any in-flight EventSource from a previous scan before starting a new one
+      flowEventSourceRef.current?.close()
+      flowEventSourceRef.current = null
       setFlowLoading(true)
       setFlowStreamError('')
       accumulatedTradesRef.current = []
@@ -5920,6 +5955,7 @@ const FlowPanel = React.memo(
         // -------------------------------------------------------------------------
 
         const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerParam}`)
+        flowEventSourceRef.current = eventSource
 
         eventSource.onmessage = (event) => {
           try {
@@ -6065,6 +6101,8 @@ const FlowPanel = React.memo(
 
     const handleRefresh = useCallback(
       (tickerOverride?: string) => {
+        // Block scan while markets are live — live WebSocket stream is active instead
+        if (isLiveMode) return
         setFlowStreamError('')
         setRetryCount(0)
         setIsStreamComplete(false)
@@ -6072,7 +6110,7 @@ const FlowPanel = React.memo(
         completeReceivedRef.current = false
         fetchOptionsFlowStreaming(0, tickerOverride)
       },
-      [flowSelectedTicker]
+      [flowSelectedTicker, isLiveMode]
     )
 
     const handleClearData = useCallback(() => {
@@ -6104,6 +6142,35 @@ const FlowPanel = React.memo(
           >
             <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />
             <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>OPTIONS FLOW</span>
+            {isLiveMode && (
+              <span
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold tracking-widest px-2 py-0.5 rounded"
+                style={{ background: liveConnected ? '#00cc44' : '#ff6600', color: '#000', animation: liveConnected ? 'pulse 1.5s infinite' : undefined }}
+              >
+                {liveConnected ? `⬤ LIVE ${liveTradeCount > 0 ? liveTradeCount : ''}` : '⬤ CONNECTING'}
+              </span>
+            )}
+            {!isLiveMode && (
+              <button
+                onClick={() => setManualLiveMode(true)}
+                className="absolute right-3 top-1/2 -translate-y-1/2"
+                style={{
+                  fontSize: '12px',
+                  fontWeight: '800',
+                  letterSpacing: '0.05em',
+                  padding: '5px 14px',
+                  borderRadius: '6px',
+                  border: '1px solid #00cc44',
+                  color: '#fff',
+                  background: 'linear-gradient(180deg, #00e64d 0%, #00aa33 50%, #008a28 100%)',
+                  boxShadow: '0 0 10px rgba(0,204,68,0.5), inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -1px 0 rgba(0,0,0,0.3)',
+                  textShadow: '0 1px 2px rgba(0,0,0,0.5)',
+                  cursor: 'pointer',
+                }}
+              >
+                STREAM FLOW
+              </button>
+            )}
           </div>
           <button
             onClick={() => setActiveSidebarPanel(null)}
@@ -6150,6 +6217,9 @@ const FlowPanel = React.memo(
             useDropdowns={true}
             hideFlowTracking={true}
             isSidebarPanel={true}
+            isLiveMode={isLiveMode}
+            liveConnected={liveConnected}
+            liveTradeCount={liveTradeCount}
           />
         </div>
       </div>
@@ -6464,6 +6534,33 @@ export default function TradingViewChart({
     setIsRrgDropdownOpen(false)
     setIsPEDropdownOpen(false)
   }
+  // Close all toolbar dropdowns when clicking outside any dropdown
+  useEffect(() => {
+    const handleDocumentClick = (e: MouseEvent) => {
+      const target = e.target as Element
+      // If click is inside a toolbar button wrapper or dropdown portal, don't close
+      if (
+        target.closest('[data-toolbar-btn]') ||
+        target.closest('.toolbar-dropdown') ||
+        target.closest('[data-timeframe-dropdown]') ||
+        target.closest('[data-rrg-dropdown]')
+      ) return
+      setIsTimeframeDropdownOpen(false)
+      setIsExpectedRangeDropdownOpen(false)
+      setIsSeasonalDropdownOpen(false)
+      setIsEventDropdownOpen(false)
+      setIsSmartPerformanceOpen(false)
+      setIsSmartEventsOpen(false)
+      setIsGexDropdownOpen(false)
+      setIsIVHVDropdownOpen(false)
+      setIsTechnalysisDropdownOpen(false)
+      setIsFlowMovesDropdownOpen(false)
+      setIsRrgDropdownOpen(false)
+      setIsPEDropdownOpen(false)
+    }
+    document.addEventListener('click', handleDocumentClick)
+    return () => document.removeEventListener('click', handleDocumentClick)
+  }, [])
   const [config, setConfig] = useState<ChartConfig>({
     symbol,
     timeframe: initialTimeframe,
@@ -7077,7 +7174,7 @@ export default function TradingViewChart({
   }
 
   // Shared processing helper: convert raw trades array into FlowMoves chart data and set state
-  const processFlowMovesTradesIntoChart = (allTrades: any[], timeframe: '1D' | '3D' | '1W', bucketMinutes: number = 5) => {
+  const processFlowMovesTradesIntoChart = (allTrades: any[], timeframe: '1D' | '3D' | '1W', bucketMinutes: number = 5, tradingDaysOverride?: string[]) => {
     // Store raw trades so we can re-process when chart timeframe changes
     rawFlowTradesRef.current = allTrades
     rawFlowMovesTimeframeRef.current = timeframe
@@ -7095,7 +7192,12 @@ export default function TradingViewChart({
       const pstNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
       const daysNeeded = tf === '1D' ? 1 : tf === '3D' ? 3 : 5
       const currentDate = new Date(pstNow)
-      currentDate.setDate(currentDate.getDate() - 1)
+      // Include today if it's a valid trading day (weekday, not holiday); otherwise step back to yesterday
+      const todayDOW = currentDate.getDay()
+      const todayStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`
+      if (todayDOW === 0 || todayDOW === 6 || US_MARKET_HOLIDAYS.includes(todayStr)) {
+        currentDate.setDate(currentDate.getDate() - 1)
+      }
       while (days.length < daysNeeded) {
         const dayOfWeek = currentDate.getDay()
         const year = currentDate.getFullYear()
@@ -7110,7 +7212,8 @@ export default function TradingViewChart({
       return days.reverse()
     }
 
-    const tradingDays = getTradingDays(timeframe)
+    // Use the override (dates actually fetched) when provided, otherwise fall back to calculating from now
+    const tradingDays = tradingDaysOverride && tradingDaysOverride.length > 0 ? tradingDaysOverride : getTradingDays(timeframe)
 
     const intervalData = new Map<string, { callsPlus: number; callsMinus: number; putsPlus: number; putsMinus: number }>()
 
@@ -7146,6 +7249,7 @@ export default function TradingViewChart({
       })
     }
 
+    let tradeMatchCount = 0
     allTrades.forEach((trade) => {
       const tradeDate = new Date(trade.trade_timestamp)
       const pstTime = new Date(tradeDate.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
@@ -7176,6 +7280,7 @@ export default function TradingViewChart({
       }
       const interval = intervalData.get(timeKey)
       if (interval) {
+        tradeMatchCount++
         const isBullish = trade.fill_style === 'A' || trade.fill_style === 'AA'
         if (trade.type === 'call') {
           if (isBullish) { interval.callsPlus += trade.total_premium } else { interval.callsMinus += trade.total_premium }
@@ -7357,18 +7462,23 @@ export default function TradingViewChart({
                   return
                 }
                 // All days available — render immediately
-                processFlowMovesTradesIntoChart(combinedTrades, timeframe, getFlowBucketMinutes(config.timeframe) ?? 5)
+                processFlowMovesTradesIntoChart(combinedTrades, timeframe, getFlowBucketMinutes(config.timeframe) ?? 5, requiredDays)
                 setIsFlowMovesLoading(false)
                 return
               }
             }
           }
-        } catch { /* fall through to stream */ }
+        } catch (dbErr) { /* DB path failed, fall through to stream */ }
       }
+
       setIsFlowMovesLoading(true)
+      // Close any previous FlowMoves stream before opening a new one
+      flowMovesEventSourceRef.current?.close()
+      flowMovesEventSourceRef.current = null
       const eventSource = new EventSource(
         `/api/stream-options-flow?ticker=${symbol}&timeframe=${timeframe}`
       )
+      flowMovesEventSourceRef.current = eventSource
       let allTrades: any[] = []
 
       eventSource.onmessage = async (event) => {
@@ -7378,7 +7488,13 @@ export default function TradingViewChart({
             allTrades = data.trades
             eventSource.close()
             setIsFlowMovesLoading(false)
-            processFlowMovesTradesIntoChart(allTrades, timeframe, getFlowBucketMinutes(config.timeframe) ?? 5)
+            // Derive the actual trade dates from the data so timestamps align with candles
+            const tradeDateSet = new Set(allTrades.map((t: any) => {
+              const d = new Date(new Date(t.trade_timestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+              return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+            }))
+            const derivedDays = [...tradeDateSet].sort()
+            processFlowMovesTradesIntoChart(allTrades, timeframe, getFlowBucketMinutes(config.timeframe) ?? 5, derivedDays)
           }
         } catch (error) {
           console.error('❌ Error processing FlowMoves data:', error)
@@ -7698,6 +7814,10 @@ export default function TradingViewChart({
 
   // Sidebar panel state
   const [activeSidebarPanel, setActiveSidebarPanel] = useState<string | null>(null)
+  // Tracks which panels have been opened at least once — lazy-mount pattern so
+  // panels stay in the DOM (and keep scanning) after being closed, but never
+  // mount until the user opens them the first time.
+  const mountedPanelsRef = useRef<Set<string>>(new Set())
 
   const [newsActiveTab, setNewsActiveTab] = useState<string>('breaking')
   // sidebarPanelTop is computed live from topBarRef on every render — no stale state
@@ -7711,6 +7831,7 @@ export default function TradingViewChart({
   }
   const sidebarPanelTop = getSidebarPanelTop()
   const sidebarPanelRef = useRef<HTMLDivElement>(null)
+
   const [watchlistTab, setWatchlistTab] = useState('Watchlist')
   // Hoisted outside WatchlistPanel so scroll survives parent re-renders (inline component remounts)
   const watchlistSavedScrollRef = useRef<number>(0)
@@ -7806,6 +7927,8 @@ export default function TradingViewChart({
 
   // Fetch current option quotes (bid/ask/last)
   const fetchLiveOptionQuotes = useCallback(async (options: any[]) => {
+    const _t0 = performance.now()
+
     try {
       const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
@@ -7850,6 +7973,7 @@ export default function TradingViewChart({
     } catch (error) {
       console.error('Error fetching live option quotes:', error)
     }
+
   }, [])
 
   // Fetch ATR (Average True Range) for stock volatility calculation
@@ -9861,8 +9985,7 @@ export default function TradingViewChart({
       setIsLoadingRegimes(true)
 
       const tabConfigs = [
-        { tab: 'life', days: 5 },
-        { tab: 'momentum', days: 80 },
+        { tab: 'momentum', days: 21 },
       ]
 
       const results = await Promise.allSettled(
@@ -11352,6 +11475,9 @@ export default function TradingViewChart({
     showIV30DPanel,
   ].filter(Boolean).length
 
+  // Track the active FlowMoves EventSource to prevent stale SSE connections accumulating
+  const flowMovesEventSourceRef = useRef<EventSource | null>(null)
+
   // Flow Chart state - 4-line chart showing bullish/bearish calls/puts
   const [isFlowChartActive, setIsFlowChartActive] = useState(false)
   const [isFlowMovesLoading, setIsFlowMovesLoading] = useState(false)
@@ -11374,6 +11500,38 @@ export default function TradingViewChart({
     'detailed'
   )
   const [flowChartHeight, setFlowChartHeight] = useState(150) // Resizable height
+
+  // ── Chart-level live stream for OptionsFlow toolbar button ──────────────────
+  // Accumulates all live trades so processFlowMovesTradesIntoChart can rebuild
+  // the 4-line chart indicator from the full running set each flush.
+  const chartLiveTradesRef = useRef<any[]>([])
+  // Reset accumulated trades when symbol changes so stale data doesn't bleed through
+  useEffect(() => { chartLiveTradesRef.current = [] }, [symbol])
+
+  const {
+    isLiveMode: isFlowLiveMode,
+    liveConnected: isFlowLiveConnected,
+    liveTradeCount: flowLiveCount,
+    manualLiveMode: manualFlowLiveMode,
+    setManualLiveMode: setManualFlowLiveMode,
+  } = useOptionsFlowLive({
+    onData: (updater) => {
+      // Apply updater to the running live-trades accumulator
+      const next = updater(chartLiveTradesRef.current)
+      chartLiveTradesRef.current = next
+      // Update sidebar table
+      setFlowData(next)
+      // Feed into the 4-line chart indicator so it actually renders
+      processFlowMovesTradesIntoChart(
+        next,
+        rawFlowMovesTimeframeRef.current || '1D',
+        getFlowBucketMinutes(config.timeframe) ?? 5
+      )
+    },
+    symbol,
+    requireManual: true,
+  })
+  // ─────────────────────────────────────────────────────────────────────────────
   const [isDraggingFlowChart, setIsDraggingFlowChart] = useState(false)
   const [flowMovesTimeframe, setFlowMovesTimeframe] = useState<'1D' | '3D' | '1W'>('1D')
   const [isFlowMovesDropdownOpen, setIsFlowMovesDropdownOpen] = useState(false)
@@ -11406,6 +11564,9 @@ export default function TradingViewChart({
   const [darkPoolLoading, setDarkPoolLoading] = useState(false)
   const [darkPoolProgress, setDarkPoolProgress] = useState(0) // 0-100 fetch progress
   const [contractionEvents, setContractionEvents] = useState<{ date: string; compressionPct: number }[]>([])
+  const contractionEventsRef = useRef<{ date: string; compressionPct: number }[]>([])
+  const showDarkPoolIndicatorRef = useRef(showDarkPoolIndicator)
+  showDarkPoolIndicatorRef.current = showDarkPoolIndicator
   // Persistent cache: keyed by "symbol:YYYY-MM-DD" — survives timeframe switches
   const darkPoolCacheRef = useRef<Record<string, any>>({})
   const darkPoolCacheSymbolRef = useRef<string>('')
@@ -11420,6 +11581,8 @@ export default function TradingViewChart({
       }
     >
   >({})
+  const darkPoolDataRef = useRef<typeof darkPoolData>({})
+  darkPoolDataRef.current = darkPoolData
 
   // Timeframe dropdown state
   const [isTimeframeDropdownOpen, setIsTimeframeDropdownOpen] = useState(false)
@@ -12347,7 +12510,6 @@ export default function TradingViewChart({
     const fetchRealMarketData = async (isInitialLoad = false) => {
       const _wt0 = Date.now()
       if (isInitialLoad) {
-        console.log('[watchlist] 🔄 starting scan...')
         setWatchlistLoading(true)
       }
 
@@ -12932,7 +13094,6 @@ export default function TradingViewChart({
         // Always set loading to false after data processing
         if (isInitialLoad) {
           setWatchlistLoading(false)
-          console.log(`[watchlist] ✅ done in ${Date.now() - _wt0}ms | ${Object.keys(processedData).length} symbols loaded`)
           // Composite history prefetch deferred to here so it doesn't race the
           // watchlist fetch that runs at mount
           if (!disableSidebarAutoScan) prefetchCompositeHistory()
@@ -13654,37 +13815,11 @@ export default function TradingViewChart({
     if (!panel || isMobile || hideDesktopSidebar) return
     // PAT panel — width is controlled entirely by the JSX style prop; don't touch it
     if (showPATPanel) return
-    if (activeSidebarPanel === 'watch') {
-      panel.style.width = '1200px'
-      panel.style.maxWidth = '1200px'
-      return () => {
-        panel.style.width = ''
-        panel.style.maxWidth = ''
-      }
-    } else if (activeSidebarPanel === 'news') {
-      if (newsActiveTab === 'calendar') {
-        // Full screen for calendar
-        panel.style.left = '0px'
-        panel.style.width = '100vw'
-        panel.style.maxWidth = '100vw'
-        panel.style.borderRadius = '0px'
-      } else {
-        // 1200px wide for breaking/feed/movers
-        panel.style.left = '84px'
-        panel.style.width = '1200px'
-        panel.style.maxWidth = '1200px'
-        panel.style.borderRadius = '8px'
-      }
-      return () => {
-        panel.style.left = ''
-        panel.style.width = ''
-        panel.style.maxWidth = ''
-        panel.style.borderRadius = ''
-      }
-    } else if (activeSidebarPanel !== 'gex') {
-      // Clear any stale inline width left by GexPanel so CSS calc takes over
-      panel.style.width = ''
-      panel.style.maxWidth = ''
+    // width/maxWidth/left are all owned by the JSX style prop — no DOM mutations needed.
+    // Only borderRadius needs a DOM tweak for news-calendar (full-screen) vs normal.
+    if (activeSidebarPanel === 'news') {
+      panel.style.borderRadius = newsActiveTab === 'calendar' ? '0px' : '8px'
+      return () => { panel.style.borderRadius = '' }
     }
   }, [activeSidebarPanel, newsActiveTab, showPATPanel, isMobile, hideDesktopSidebar])
 
@@ -13781,11 +13916,7 @@ export default function TradingViewChart({
 
               // Select appropriate expiration based on market regime timeframe
               // Life (5d): ~1-2 weeks | Momentum (80d): ~3 months
-              let targetDays = 10 // Life default
-
-              if (regimeTab === 'momentum') {
-                targetDays = 90 // ~3 months
-              }
+              const targetDays = 30 // ~30 days for 21-day regime
 
               // Find closest available expiration to target, prioritizing next available
               const now = Date.now()
@@ -14629,7 +14760,10 @@ export default function TradingViewChart({
   }, [config.timeframe])
 
   // Chart interaction state
-  const [crosshairPosition, setCrosshairPosition] = useState({ x: 0, y: 0 })
+  // crosshairPosition is a ref (not state) — updates at 60fps during drag; we redraw the overlay canvas imperatively
+  const crosshairPositionRef = useRef({ x: 0, y: 0 })
+  const renderOverlayRef = useRef<(() => void) | null>(null) // latest renderOverlay fn, called by RAF
+  const crosshairRAFRef = useRef<number | null>(null) // pending crosshair redraw RAF id
   const [priceRange, setPriceRange] = useState({ min: 0, max: 0 })
 
   // Y-Axis Dynamic Scaling State
@@ -14710,26 +14844,14 @@ export default function TradingViewChart({
       darkPoolCacheSymbolRef.current = config.symbol
     }
 
-    // ── Run contraction scan on the full daily data immediately ─────────────
-    {
-      const bars = data.map((c) => ({
-        date: new Date(c.timestamp).toISOString().split('T')[0],
-        high: c.high,
-        low: c.low,
-        close: c.close,
-      }))
-      setContractionEvents(_scanHistory(bars))
-    }
-
-    // Always scan the last 90 calendar days from today — fixed window, never changes with zoom/scroll/timeframe.
-    // Build the list by walking backwards from today, skipping weekends.
+    // Always scan the last 756 trading days from today — fixed window.
     const todayUtc = new Date()
     todayUtc.setUTCHours(0, 0, 0, 0)
     const todayStr = todayUtc.toISOString().split('T')[0]
     const SESSION_PREFIX = `poi_dp_${config.symbol}_`
     const daysToShow: string[] = []
     const cursor = new Date(todayUtc)
-    while (daysToShow.length < 90) {
+    while (daysToShow.length < 756) {
       cursor.setUTCDate(cursor.getUTCDate() - 1)
       const dow = cursor.getUTCDay()
       if (dow === 0 || dow === 6) continue // skip weekends
@@ -14874,14 +14996,46 @@ export default function TradingViewChart({
     }
 
     const run = async () => {
-      // ── Worker-pool pattern ──────────────────────────────────────────────
-      // Keep CONCURRENCY fetches in-flight at all times. A slow day (25 pages)
-      // never blocks fast days (1 page) — workers just pull the next item from the queue.
-      // Results stream into state progressively so bubbles appear as days finish.
+      // ── Step 1: Load from DB cache (fills gaps that sessionStorage missed) ──
+      try {
+        const res = await fetch(`/api/dark-pool-cache?symbol=${encodeURIComponent(config.symbol)}`)
+        if (res.ok) {
+          const json = await res.json()
+          const dbDays: Array<{ date: string } & Record<string, unknown>> = json.days ?? []
+          for (const day of dbDays) {
+            const { date, ...rest } = day
+            if (date && !(date in darkPoolCacheRef.current)) {
+              darkPoolCacheRef.current[date] = rest
+              try { sessionStorage.setItem(SESSION_PREFIX + date, JSON.stringify(rest)) } catch { /* quota */ }
+            }
+          }
+        }
+      } catch { /* non-critical */ }
+      if (aborted) return
+
+      // ── Step 2: Re-evaluate what still needs fetching after DB cache ──────
+      const effectiveQueue = dayCandles.filter(c => {
+        const dk = new Date(c.timestamp).toISOString().split('T')[0]
+        return !(dk in darkPoolCacheRef.current)
+      })
+
+      if (effectiveQueue.length === 0) {
+        if (!aborted) {
+          const fromCache: typeof darkPoolData = {}
+          for (const dk of daysToShow) if (dk in darkPoolCacheRef.current) fromCache[dk] = darkPoolCacheRef.current[dk]
+          setDarkPoolData(fromCache)
+          setDarkPoolProgress(100)
+          setDarkPoolLoading(false)
+        }
+        return
+      }
+
+      // ── Step 3: Fetch remaining days from Polygon ──────────────────────────
       const CONCURRENCY = 35
-      const queue = [...dayCandles]
-      const total = dayCandles.length
+      const queue = [...effectiveQueue]
+      const total = effectiveQueue.length
       let done = 0
+      const newlyFetched: string[] = []
 
       const worker = async () => {
         while (queue.length > 0 && !aborted) {
@@ -14889,13 +15043,12 @@ export default function TradingViewChart({
           const r = await fetchDayAll(candle)
           if (r && !aborted) {
             darkPoolCacheRef.current[r.dateKey] = r.result
-            // Persist to sessionStorage — skip today since it changes intraday
             if (r.dateKey !== todayStr) {
+              newlyFetched.push(r.dateKey)
               try { sessionStorage.setItem(SESSION_PREFIX + r.dateKey, JSON.stringify(r.result)) } catch { /* quota */ }
             }
             done++
             setDarkPoolProgress(Math.round((done / total) * 100))
-            // Progressive render — push partial results to chart immediately
             const partial: typeof darkPoolData = {}
             for (const dk of daysToShow) {
               if (dk in darkPoolCacheRef.current) partial[dk] = darkPoolCacheRef.current[dk]
@@ -14905,7 +15058,6 @@ export default function TradingViewChart({
         }
       }
 
-      // Spin up min(CONCURRENCY, total) workers all running concurrently
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, total) }, worker))
 
       if (!aborted) {
@@ -14917,6 +15069,15 @@ export default function TradingViewChart({
         setDarkPoolProgress(100)
         setDarkPoolLoading(false)
 
+        // ── Step 4: Save newly fetched days to DB cache (fire-and-forget) ───
+        if (newlyFetched.length > 0) {
+          const newDays = newlyFetched.map(dk => ({ date: dk, ...darkPoolCacheRef.current[dk] }))
+          fetch('/api/dark-pool-cache', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symbol: config.symbol, days: newDays }),
+          }).catch(() => { })
+        }
       }
     }
 
@@ -14925,6 +15086,26 @@ export default function TradingViewChart({
       aborted = true
     }
   }, [showDarkPoolIndicator, config.symbol])
+
+  // ── Contraction scan — reactive to data so diamonds appear as soon as candles load ──
+  useEffect(() => {
+    if (!showDarkPoolIndicator || data.length === 0) {
+      contractionEventsRef.current = []
+      setContractionEvents([])
+      renderChartRef.current()
+      return
+    }
+    const bars = data.map((c) => ({
+      date: new Date(c.timestamp).toISOString().split('T')[0],
+      high: c.high,
+      low: c.low,
+      close: c.close,
+    }))
+    const events = _scanHistory(bars)
+    contractionEventsRef.current = events
+    setContractionEvents(events)
+    renderChartRef.current()
+  }, [showDarkPoolIndicator, data])
 
   // ============================================================================
   // P/E RATIO FETCH — routes ETFs to /api/etf-pe (constituent aggregate method),
@@ -15431,7 +15612,6 @@ export default function TradingViewChart({
   const handleSearch = async (symbol: string) => {
     if (symbol && symbol.length > 0) {
       const upperSymbol = normalizeTicker(symbol.trim().toUpperCase())
-
       // Check for TOP{N} basket pattern (e.g., TOP10, TOP50, TOP1000)
       const topNMatch = upperSymbol.match(/^TOP(\d+)$/)
       if (topNMatch) {
@@ -15650,18 +15830,23 @@ export default function TradingViewChart({
         }
 
         // BASKET MODE: TOP{N} averages top N stocks, {ETF}{N} averages top N ETF holdings
+        // NOTE: Do NOT gate on isBasketMode state — React setState is async so isBasketMode
+        // may still be false when fetchData runs. The regex match on sym is sufficient.
         const topNBasketMatch = sym.match(/^TOP(\d+)$/)
         const etfNBasketMatch = sym.match(/^([A-Z]{2,6})(\d+)$/)
-        if (isBasketMode && (topNBasketMatch || etfNBasketMatch)) {
+        if (topNBasketMatch || etfNBasketMatch) {
           try {
-            // Step 1: Resolve which symbols to include
+            // Step 1: Resolve which symbols to include + market cap weights
             let symbols: string[] = []
+            let marketCaps: number[] = [] // normalized weights (sum to 1), empty = equal weight
+
             if (topNBasketMatch) {
               const n = parseInt(topNBasketMatch[1])
               const resp = await fetch(`/api/market-cap-top?limit=${n}`)
               if (!resp.ok) throw new Error('Failed to fetch market cap rankings')
               const responseData = await resp.json()
               symbols = responseData.symbols || []
+              marketCaps = responseData.marketCaps || []
             } else if (etfNBasketMatch) {
               const etfTicker = etfNBasketMatch[1]
               const n = parseInt(etfNBasketMatch[2])
@@ -15672,6 +15857,7 @@ export default function TradingViewChart({
               }
               const responseData = await resp.json()
               symbols = responseData.symbols || []
+              marketCaps = responseData.marketCaps || []
             }
 
             if (!symbols.length) throw new Error('No symbols found for basket')
@@ -15707,7 +15893,7 @@ export default function TradingViewChart({
               })
             )
 
-            // Merge all chunks into one result map
+            // Merge all chunks into one result map (keyed by symbol)
             const allResults: Record<string, any[]> = {}
             for (const chunkResult of chunkData) {
               for (const [sym, symData] of Object.entries(chunkResult)) {
@@ -15717,52 +15903,71 @@ export default function TradingViewChart({
               }
             }
 
-            const symbolArrays = Object.values(allResults)
-            if (!symbolArrays.length) throw new Error('No data available for any basket symbol')
+            if (!Object.keys(allResults).length) throw new Error('No data available for any basket symbol')
 
-            // Step 4: Build per-symbol maps keyed by timestamp
-            const symbolMaps: Map<number, any>[] = symbolArrays.map((arr) => {
+            // Step 4: Build per-symbol maps keyed by timestamp, preserving original order for weights
+            // symbols[] preserves the market-cap order; allResults may be missing some symbols
+            const presentSymbols = symbols.filter((s) => allResults[s])
+            const presentMarketCaps = presentSymbols.map((s) => {
+              const idx = symbols.indexOf(s)
+              return marketCaps[idx] ?? 0
+            })
+
+            // Recompute hybrid weights for only the symbols that have data
+            // hybridWeight = 0.6 * mcWeight + 0.4 * equalWeight
+            const n = presentSymbols.length
+            const equalW = 1 / n
+            let mcTotal = presentMarketCaps.reduce((s, v) => s + v, 0)
+            const hybridWeights = presentSymbols.map((_, i) => {
+              const mcW = mcTotal > 0 ? presentMarketCaps[i] / mcTotal : equalW
+              return 0.6 * mcW + 0.4 * equalW
+            })
+            // Normalize hybrid weights to sum exactly to 1
+            const hwTotal = hybridWeights.reduce((s, v) => s + v, 0)
+            const normWeights = hybridWeights.map((w) => w / hwTotal)
+
+            const symbolMaps: Map<number, any>[] = presentSymbols.map((s) => {
               const m = new Map<number, any>()
-              arr.forEach((pt) => m.set(pt.t, pt))
+              allResults[s].forEach((pt) => m.set(pt.t, pt))
               return m
             })
 
             // Step 5: Collect all unique timestamps and sort ascending
             const allTimestamps = [
-              ...new Set(symbolArrays.flatMap((arr) => arr.map((pt) => pt.t))),
+              ...new Set(presentSymbols.flatMap((s) => allResults[s].map((pt: any) => pt.t))),
             ].sort((a, b) => a - b)
 
-            // Step 6: Compute simple average price across all symbols at each timestamp
+            // Step 6: Compute hybrid-weighted price across all symbols at each timestamp
             const basketData: ChartDataPoint[] = []
 
             for (const ts of allTimestamps) {
-              const closes: number[] = []
-              const opens: number[] = []
-              const highs: number[] = []
-              const lows: number[] = []
-              const volumes: number[] = []
+              let wOpen = 0, wHigh = 0, wLow = 0, wClose = 0, wVol = 0
+              let wSum = 0, volCount = 0
 
-              symbolMaps.forEach((map) => {
+              symbolMaps.forEach((map, i) => {
                 const pt = map.get(ts)
                 if (!pt) return
-                closes.push(pt.c)
-                opens.push(pt.o)
-                highs.push(pt.h)
-                lows.push(pt.l)
-                if (pt.v && pt.v > 0) volumes.push(pt.v)
+                const w = normWeights[i]
+                wOpen += pt.o * w
+                wHigh += pt.h * w
+                wLow += pt.l * w
+                wClose += pt.c * w
+                wSum += w
+                if (pt.v && pt.v > 0) { wVol += pt.v * w; volCount++ }
               })
 
               // Only include bars where at least 2 symbols have data
-              if (closes.length < 2) continue
+              if (wSum < normWeights[0] * 2) continue
 
-              const avg = (arr: number[]) => arr.reduce((s, v) => s + v, 0) / arr.length
+              // Re-scale to the actual weight coverage (handles missing symbols at a timestamp)
+              const scale = 1 / wSum
               basketData.push({
                 timestamp: ts,
-                open: avg(opens),
-                high: avg(highs),
-                low: avg(lows),
-                close: avg(closes),
-                volume: volumes.length > 0 ? avg(volumes) : 0,
+                open: wOpen * scale,
+                high: wHigh * scale,
+                low: wLow * scale,
+                close: wClose * scale,
+                volume: volCount > 0 ? wVol * scale : 0,
                 date: new Date(ts).toISOString().split('T')[0],
                 time: new Date(ts).toLocaleTimeString('en-US', {
                   hour: '2-digit',
@@ -16117,21 +16322,22 @@ export default function TradingViewChart({
     ctx.clearRect(0, 0, width, height)
 
     // Draw crosshair if enabled and mouse is over chart
-    if (config.crosshair && crosshairPosition.x > 0 && crosshairPosition.y > 0) {
+    const _crosshair = crosshairPositionRef.current
+    if (config.crosshair && _crosshair.x > 0 && _crosshair.y > 0) {
       ctx.strokeStyle = config.theme === 'dark' ? '#555555' : '#cccccc'
       ctx.lineWidth = 1
       ctx.setLineDash([2, 2])
 
       // Vertical crosshair line
       ctx.beginPath()
-      ctx.moveTo(crosshairPosition.x, 0)
-      ctx.lineTo(crosshairPosition.x, height)
+      ctx.moveTo(_crosshair.x, 0)
+      ctx.lineTo(_crosshair.x, height)
       ctx.stroke()
 
       // Horizontal crosshair line
       ctx.beginPath()
-      ctx.moveTo(0, crosshairPosition.y)
-      ctx.lineTo(width, crosshairPosition.y)
+      ctx.moveTo(0, _crosshair.y)
+      ctx.lineTo(width, _crosshair.y)
       ctx.stroke()
 
       ctx.setLineDash([])
@@ -16150,7 +16356,7 @@ export default function TradingViewChart({
         // Y-AXIS PRICE LABEL (right side)
         const priceText = _ci.price
         const priceTextWidth = ctx.measureText(priceText).width + 16
-        const priceY = crosshairPosition.y
+        const priceY = _crosshair.y
 
         // Price label background (right side of chart)
         ctx.fillStyle = '#0a0a0a'
@@ -16176,7 +16382,7 @@ export default function TradingViewChart({
         const isIntradayTimeframe = ['1m', '5m', '15m', '30m', '1h', '60m', '4h'].includes(config.timeframe)
         const dateText = isIntradayTimeframe ? `${_ci.time}` : _ci.date
         const dateTextWidth = ctx.measureText(dateText).width + 16
-        const dateX = crosshairPosition.x
+        const dateX = _crosshair.x
 
         // Match drawTimeAxis: axisTop = height - 35, labelY = axisTop + 25
         const timeAxisHeight = 35
@@ -16355,8 +16561,6 @@ export default function TradingViewChart({
     dimensions,
     config.crosshair,
     config.theme,
-    crosshairPosition,
-    crosshairInfo,
     isBoxZooming,
     boxZoomStart,
     boxZoomEnd,
@@ -16371,6 +16575,8 @@ export default function TradingViewChart({
   useEffect(() => {
     renderOverlay()
   }, [renderOverlay])
+  // Keep renderOverlayRef current so RAF callbacks can call the latest closure
+  useEffect(() => { renderOverlayRef.current = renderOverlay }, [renderOverlay])
 
   // Debug: Monitor drawings state changes
   useEffect(() => { }, [drawings])
@@ -17115,7 +17321,7 @@ export default function TradingViewChart({
     // Last price — orange background box + crispy label on Y-axis
     const lastDataCandle = data[data.length - 1]
     if (lastDataCandle) {
-      const lp = lastDataCandle.close
+      const lp = currentPrice > 0 ? currentPrice : lastDataCandle.close
       // Use SAME coordinate system as drawPriceScale
       const lpTopPadding = 20
       const lpBottomPadding = 100
@@ -18371,7 +18577,8 @@ export default function TradingViewChart({
     }
 
     // ── DARK POOL PRINT OVERLAY ──────────────────────────────────────────────
-    if (showDarkPoolIndicator && Object.keys(darkPoolData).length > 0) {
+    if (showDarkPoolIndicatorRef.current && Object.keys(darkPoolDataRef.current).length > 0) {
+      const darkPoolData = darkPoolDataRef.current
       ctx.save()
 
       // ── VolumeLeaders-style bubbles ──────────────────────────────────────
@@ -18531,7 +18738,8 @@ export default function TradingViewChart({
     }
 
     // ── CONTRACTION DIAMOND OVERLAY ──────────────────────────────────────────
-    if (showDarkPoolIndicator && contractionEvents.length > 0) {
+    if (showDarkPoolIndicatorRef.current && contractionEventsRef.current.length > 0) {
+      const contractionEvents = contractionEventsRef.current
       ctx.save()
       // Map each visible candle date → its index
       const dateToIdx = new Map<string, number>()
@@ -21594,7 +21802,7 @@ export default function TradingViewChart({
   // Re-render when Dark Pool data arrives or is toggled
   useEffect(() => {
     if (chartLayout === '1x1') {
-      renderChart()
+      renderChartRef.current()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [darkPoolData, contractionEvents, showDarkPoolIndicator, chartLayout])
@@ -22423,8 +22631,15 @@ export default function TradingViewChart({
       const x = e.clientX - rect.left
       const y = e.clientY - rect.top
 
-      // ALWAYS update crosshair position first
-      setCrosshairPosition({ x, y })
+      // ALWAYS update crosshair position first — write to ref, NOT state (avoids re-render at 60fps)
+      crosshairPositionRef.current = { x, y }
+      // Schedule overlay redraw at most once per frame — no React setState, no re-render
+      if (!crosshairRAFRef.current) {
+        crosshairRAFRef.current = requestAnimationFrame(() => {
+          crosshairRAFRef.current = null
+          renderOverlayRef.current?.()
+        })
+      }
 
       // Handle Y-axis drag to zoom (drag UP = compress, drag DOWN = expand)
       if (isDraggingYAxisZoom && yAxisZoomDragStart) {
@@ -22674,7 +22889,7 @@ export default function TradingViewChart({
 
         // Update ref synchronously so renderOverlay always reads current values
         crosshairInfoRef.current = nextCrosshairInfo
-        setCrosshairInfo(nextCrosshairInfo)
+        // setCrosshairInfo removed — renderOverlay reads crosshairInfoRef.current directly
       }
 
       // Handle box zoom dragging
@@ -22950,9 +23165,10 @@ export default function TradingViewChart({
   }, [drawings])
 
   const handleMouseLeave = useCallback(() => {
-    // Hide crosshair info when mouse leaves chart area
+    // Hide crosshair info when mouse leaves chart area — reset ref then redraw canvas imperatively
     crosshairInfoRef.current = { ...crosshairInfoRef.current, visible: false }
-    setCrosshairInfo((prev) => ({ ...prev, visible: false }))
+    crosshairPositionRef.current = { x: 0, y: 0 }
+    renderOverlayRef.current?.()
   }, [])
 
   const handleDoubleClick = useCallback(
@@ -23596,7 +23812,13 @@ export default function TradingViewChart({
     const y = e.clientY - rect.top
 
     // Update crosshair position - these coordinates should match exactly with drawing coordinates
-    setCrosshairPosition({ x, y })
+    crosshairPositionRef.current = { x, y }
+    if (!crosshairRAFRef.current) {
+      crosshairRAFRef.current = requestAnimationFrame(() => {
+        crosshairRAFRef.current = null
+        renderOverlayRef.current?.()
+      })
+    }
 
     // Set cursor for horizontal ray mode to precise crosshair for better alignment
     canvas.style.cursor = 'default'
@@ -23841,7 +24063,7 @@ export default function TradingViewChart({
 
   // Handle sidebar button clicks
   const handleSidebarClick = (id: string) => {
-    const patTabs = ['alerts', 'plan', 'insight', 'screeners']
+    const patTabs = ['alerts', 'plan', 'screeners']
     if (patTabs.includes(id)) {
       // Toggle PAT panel or switch tab
       if (showPATPanel && patPanelActiveTab === id) {
@@ -30589,12 +30811,10 @@ export default function TradingViewChart({
                       ))}
 
                       {/* More Timeframes Dropdown Button */}
-                      <div className="relative inline-block"
-                        onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsTimeframeDropdownOpen(true) }}
-                        onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsTimeframeDropdownOpen(false), 150) }}>
+                      <div className="relative inline-block" data-toolbar-btn>
                         <button
                           ref={timeframeButtonRef}
-                          onClick={() => setIsTimeframeDropdownOpen(!isTimeframeDropdownOpen)}
+                          onClick={() => { const wasOpen = isTimeframeDropdownOpen; closeAllToolbarDropdowns(); if (!wasOpen) setIsTimeframeDropdownOpen(true); }}
                           className={`btn-3d-carved relative group ${['1m', '30m', '4h', '1w', '1mo', '1y'].includes(config.timeframe) || customTimeframeLabel ? 'active' : ''}`}
                           style={{
                             padding: '12px 12px',
@@ -30640,8 +30860,7 @@ export default function TradingViewChart({
                           createPortal(
                             <div
                               data-timeframe-dropdown
-                              onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
-                              onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsTimeframeDropdownOpen(false), 150) }}
+                              onClick={(e) => e.stopPropagation()}
                               style={{
                                 position: 'fixed',
                                 top: timeframeButtonRef.current
@@ -31788,12 +32007,10 @@ export default function TradingViewChart({
                 )}
 
                 {/* Expected Range Button - Standalone */}
-                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}
-                  onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsExpectedRangeDropdownOpen(true); if (pctChanceAvailExpiries.size === 0) fetchOptionExpiries(symbol).then(setPctChanceAvailExpiries) }}
-                  onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsExpectedRangeDropdownOpen(false), 150) }}>
+                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }} data-toolbar-btn>
                   <button
                     ref={expectedRangeButtonRef}
-                    onClick={() => setIsExpectedRangeDropdownOpen(!isExpectedRangeDropdownOpen)}
+                    onClick={() => { const wasOpen = isExpectedRangeDropdownOpen; closeAllToolbarDropdowns(); if (!wasOpen) { setIsExpectedRangeDropdownOpen(true); if (pctChanceAvailExpiries.size === 0) fetchOptionExpiries(symbol).then(setPctChanceAvailExpiries) } }}
                     className={`btn-3d-carved btn-expected-range relative group flex items-center space-x-2 ${isExpectedRangeActive || isFutureExpiriesActive || isATRRangeActive || isStdDevRangeActive || isPctChanceActive ? 'active' : ''}`}
                     style={{
                       padding: isMobile ? '3px 8px' : '10px 14px',
@@ -31873,8 +32090,8 @@ export default function TradingViewChart({
                   {isExpectedRangeDropdownOpen &&
                     createPortal(
                       <div
-                        className="toolbar-dropdown" onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
-                        onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsExpectedRangeDropdownOpen(false), 150) }}
+                        className="toolbar-dropdown"
+                        onClick={(e) => e.stopPropagation()}
                         style={{
                           position: 'fixed',
                           top: expectedRangeButtonRef.current
@@ -32375,12 +32592,10 @@ export default function TradingViewChart({
                 </div>
 
                 {/* Seasonal Button */}
-                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}
-                  onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsSeasonalDropdownOpen(true) }}
-                  onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => { setIsSeasonalDropdownOpen(false); setIsEventDropdownOpen(false) }, 150) }}>
+                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }} data-toolbar-btn>
                   <button
                     ref={seasonalButtonRef}
-                    onClick={() => setIsSeasonalDropdownOpen(!isSeasonalDropdownOpen)}
+                    onClick={() => { const wasOpen = isSeasonalDropdownOpen; closeAllToolbarDropdowns(); if (!wasOpen) setIsSeasonalDropdownOpen(true); }}
                     className={`btn-3d-carved btn-seasonal relative group flex items-center space-x-2 ${isSeasonalActive ? 'active' : ''}`}
                     style={{
                       padding: isMobile ? '3px 8px' : '10px 14px',
@@ -32449,8 +32664,8 @@ export default function TradingViewChart({
                   {isSeasonalDropdownOpen &&
                     createPortal(
                       <div
-                        className="toolbar-dropdown" onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
-                        onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => { setIsSeasonalDropdownOpen(false); setIsEventDropdownOpen(false) }, 150) }}
+                        className="toolbar-dropdown"
+                        onClick={(e) => e.stopPropagation()}
                         style={{
                           position: 'fixed',
                           top: seasonalButtonRef.current
@@ -32622,8 +32837,8 @@ export default function TradingViewChart({
                   {isEventDropdownOpen &&
                     createPortal(
                       <div
-                        className="toolbar-dropdown" onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
-                        onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => { setIsSeasonalDropdownOpen(false); setIsEventDropdownOpen(false) }, 150) }}
+                        className="toolbar-dropdown"
+                        onClick={(e) => e.stopPropagation()}
                         style={{
                           position: 'fixed',
                           top: seasonalButtonRef.current
@@ -32823,8 +33038,8 @@ export default function TradingViewChart({
                   {/* Smart Performance Sub-Dropdown */}
                   {isSmartPerformanceOpen && createPortal(
                     <div
-                      className="toolbar-dropdown" onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
-                      onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => { setIsSmartPerformanceOpen(false); setIsSeasonalDropdownOpen(false) }, 150) }}
+                      className="toolbar-dropdown"
+                      onClick={(e) => e.stopPropagation()}
                       style={{
                         position: 'fixed',
                         top: seasonalButtonRef.current ? seasonalButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
@@ -32887,8 +33102,8 @@ export default function TradingViewChart({
                   {/* Smart Events Sub-Dropdown */}
                   {isSmartEventsOpen && createPortal(
                     <div
-                      className="toolbar-dropdown" onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
-                      onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => { setIsSmartEventsOpen(false); setIsSeasonalDropdownOpen(false) }, 150) }}
+                      className="toolbar-dropdown"
+                      onClick={(e) => e.stopPropagation()}
                       style={{
                         position: 'fixed',
                         top: seasonalButtonRef.current ? seasonalButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
@@ -32946,12 +33161,10 @@ export default function TradingViewChart({
                 </div>
 
                 {/* GEX Button with Dropdown - Next to Expected Range */}
-                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}
-                  onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsGexDropdownOpen(true) }}
-                  onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsGexDropdownOpen(false), 150) }}>
+                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }} data-toolbar-btn>
                   <button
                     ref={gexButtonRef}
-                    onClick={() => setIsGexDropdownOpen(!isGexDropdownOpen)}
+                    onClick={() => { const wasOpen = isGexDropdownOpen; closeAllToolbarDropdowns(); if (!wasOpen) setIsGexDropdownOpen(true); }}
                     className={`btn-3d-carved btn-gex relative group flex items-center space-x-2 ${(isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive) ? 'active' : ''}`}
                     style={{
                       padding: isMobile ? '3px 8px' : '10px 14px',
@@ -33007,8 +33220,8 @@ export default function TradingViewChart({
                   {isGexDropdownOpen &&
                     createPortal(
                       <div
-                        className="toolbar-dropdown" onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
-                        onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsGexDropdownOpen(false), 150) }}
+                        className="toolbar-dropdown"
+                        onClick={(e) => e.stopPropagation()}
                         style={{
                           position: 'fixed',
                           top: gexButtonRef.current
@@ -33130,12 +33343,10 @@ export default function TradingViewChart({
                 </div>
 
                 {/* IV & HV Button with Dropdown */}
-                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}
-                  onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsIVHVDropdownOpen(true) }}
-                  onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsIVHVDropdownOpen(false), 150) }}>
+                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }} data-toolbar-btn>
                   <button
                     ref={ivhvButtonRef}
-                    onClick={() => setIsIVHVDropdownOpen(!isIVHVDropdownOpen)}
+                    onClick={() => { const wasOpen = isIVHVDropdownOpen; closeAllToolbarDropdowns(); if (!wasOpen) setIsIVHVDropdownOpen(true); }}
                     disabled={isIVLoading}
                     className={`btn-3d-carved btn-ivhv relative group flex items-center space-x-2 ${(isAnyIVHVActive || isAnyIV30DActive) ? 'active' : ''}`}
                     style={{
@@ -33164,8 +33375,8 @@ export default function TradingViewChart({
                   {isIVHVDropdownOpen &&
                     createPortal(
                       <div
-                        className="toolbar-dropdown" onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
-                        onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsIVHVDropdownOpen(false), 150) }}
+                        className="toolbar-dropdown"
+                        onClick={(e) => e.stopPropagation()}
                         style={{
                           position: 'fixed',
                           top: ivhvButtonRef.current ? ivhvButtonRef.current.getBoundingClientRect().bottom + 10 : 0,
@@ -33350,12 +33561,10 @@ export default function TradingViewChart({
                 </div>
 
                 {/* Technalysis Button */}
-                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}
-                  onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsTechnalysisDropdownOpen(true) }}
-                  onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsTechnalysisDropdownOpen(false), 150) }}>
+                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }} data-toolbar-btn>
                   <button
                     ref={technalysisButtonRef}
-                    onClick={() => setIsTechnalysisDropdownOpen(!isTechnalysisDropdownOpen)}
+                    onClick={() => { const wasOpen = isTechnalysisDropdownOpen; closeAllToolbarDropdowns(); if (!wasOpen) setIsTechnalysisDropdownOpen(true); }}
                     className={`btn-3d-carved relative group flex items-center space-x-2 ${technalysisActive ? 'active' : ''}`}
                     style={{
                       padding: '10px 16px',
@@ -33427,8 +33636,6 @@ export default function TradingViewChart({
                     createPortal(
                       <div
                         onClick={(e) => e.stopPropagation()}
-                        onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
-                        onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsTechnalysisDropdownOpen(false), 150) }}
                         style={{
                           position: 'fixed',
                           top: technalysisButtonRef.current
@@ -33579,12 +33786,10 @@ export default function TradingViewChart({
               </div>
 
               {/* Live FlowMoves Button with Dropdown */}
-              <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}
-                onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsFlowMovesDropdownOpen(true) }}
-                onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsFlowMovesDropdownOpen(false), 150) }}>
+              <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }} data-toolbar-btn>
                 <button
                   ref={flowMovesButtonRef}
-                  onClick={() => setIsFlowMovesDropdownOpen(!isFlowMovesDropdownOpen)}
+                  onClick={() => { const wasOpen = isFlowMovesDropdownOpen; closeAllToolbarDropdowns(); if (!wasOpen) setIsFlowMovesDropdownOpen(true); }}
                   className={`btn-3d-carved relative group flex items-center space-x-2 ${isFlowChartActive ? 'btn-drawings active' : ''}`}
                   style={{
                     padding: '10px 14px',
@@ -33654,8 +33859,8 @@ export default function TradingViewChart({
                 {isFlowMovesDropdownOpen &&
                   createPortal(
                     <div
-                      className="toolbar-dropdown" onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
-                      onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsFlowMovesDropdownOpen(false), 150) }}
+                      className="toolbar-dropdown"
+                      onClick={(e) => e.stopPropagation()}
                       style={{
                         position: 'fixed',
                         top: flowMovesButtonRef.current
@@ -33735,6 +33940,41 @@ export default function TradingViewChart({
                         >
                           1 Week
                         </button>
+
+                        <div style={{ height: '1px', background: 'rgba(255,133,0,0.2)', margin: '4px 0' }} />
+
+                        <button
+                          onClick={() => {
+                            setIsFlowMovesDropdownOpen(false)
+                            if (manualFlowLiveMode || isFlowLiveMode) {
+                              // Stop stream and clear indicator
+                              setManualFlowLiveMode(false)
+                              chartLiveTradesRef.current = []
+                              setFlowData([])
+                              setIsFlowChartActive(false)
+                              setFlowChartData([])
+                            } else {
+                              setManualFlowLiveMode(true)
+                            }
+                          }}
+                          className={`btn-3d-carved ${manualFlowLiveMode || isFlowLiveMode ? 'active' : ''}`}
+                          style={{
+                            padding: '10px 16px',
+                            fontWeight: '700',
+                            fontSize: '14px',
+                            textAlign: 'left',
+                            borderRadius: '4px',
+                            width: '100%',
+                            color: isFlowLiveConnected ? '#22c55e' : manualFlowLiveMode ? '#f59e0b' : undefined,
+                            border: (manualFlowLiveMode || isFlowLiveMode) ? '1px solid rgba(34,197,94,0.5)' : undefined,
+                          }}
+                        >
+                          {isFlowLiveConnected
+                            ? `⬤ LIVE STREAM (${flowLiveCount})`
+                            : manualFlowLiveMode
+                              ? '⬤ CONNECTING...'
+                              : '⬤ LIVE STREAM'}
+                        </button>
                       </div>
                     </div>,
                     document.body
@@ -33742,12 +33982,10 @@ export default function TradingViewChart({
               </div>
 
               {/* RRG Candle Button with Dropdown */}
-              <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}
-                onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsRrgDropdownOpen(true) }}
-                onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsRrgDropdownOpen(false), 150) }}>
+              <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }} data-toolbar-btn>
                 <button
                   ref={rrgButtonRef}
-                  onClick={() => setIsRrgDropdownOpen(!isRrgDropdownOpen)}
+                  onClick={() => { const wasOpen = isRrgDropdownOpen; closeAllToolbarDropdowns(); if (!wasOpen) setIsRrgDropdownOpen(true); }}
                   className={`btn-3d-carved btn-drawings relative group flex items-center space-x-2 ${isRRGCandleActive ? 'active' : ''}`}
                   style={{
                     padding: '10px 14px',
@@ -33827,8 +34065,7 @@ export default function TradingViewChart({
                   createPortal(
                     <div
                       data-rrg-dropdown
-                      onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
-                      onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsRrgDropdownOpen(false), 150) }}
+                      onClick={(e) => e.stopPropagation()}
                       style={{
                         position: 'fixed',
                         top: rrgButtonRef.current
@@ -34055,12 +34292,10 @@ export default function TradingViewChart({
               )}
 
               {/* P/E | PEG Dropdown — toggles canvas bottom panel */}
-              <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }}
-                onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current); closeAllToolbarDropdowns(); setIsPEDropdownOpen(true) }}
-                onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsPEDropdownOpen(false), 150) }}>
+              <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }} data-toolbar-btn>
                 <button
                   ref={peButtonRef}
-                  onClick={() => setIsPEDropdownOpen(!isPEDropdownOpen)}
+                  onClick={() => { const wasOpen = isPEDropdownOpen; closeAllToolbarDropdowns(); if (!wasOpen) setIsPEDropdownOpen(true); }}
                   disabled={peLoading || pegLoading}
                   className={`btn-3d-carved relative group flex items-center space-x-2 ${showPEPanel || showPEGPanel ? 'active' : ''}`}
                   style={{
@@ -34121,8 +34356,8 @@ export default function TradingViewChart({
                 {isPEDropdownOpen &&
                   createPortal(
                     <div
-                      className="toolbar-dropdown" onMouseEnter={() => { if (dropdownHoverTimerRef.current) clearTimeout(dropdownHoverTimerRef.current) }}
-                      onMouseLeave={() => { dropdownHoverTimerRef.current = setTimeout(() => setIsPEDropdownOpen(false), 150) }}
+                      className="toolbar-dropdown"
+                      onClick={(e) => e.stopPropagation()}
                       style={{
                         position: 'fixed',
                         top: peButtonRef.current
@@ -35756,6 +35991,7 @@ export default function TradingViewChart({
               <div className="relative z-10 flex flex-col items-center w-full gap-0" style={{ paddingTop: isMobile && activeSidebarPanel ? '16px' : '4px', paddingBottom: '4px' }}>
                 {/* Sidebar Buttons */}
                 {[
+                  { id: 'insight', icon: TbBulb, label: 'INSIGHT', accent: 'amber' },
                   { id: 'gex', icon: TbBoxMultiple, label: 'GEX', accent: 'orange' },
                   { id: 'flow', icon: TbArrowsShuffle, label: 'FLOW', accent: 'lime' },
                   { id: 'chain', icon: TbLink, label: 'CHAIN', accent: 'cyan' },
@@ -35763,6 +35999,7 @@ export default function TradingViewChart({
                   { id: 'performance', icon: TbChartInfographic, label: 'LINEVIEW', accent: 'teal' },
                   { id: 'news', icon: TbNews, label: 'NEWS', accent: 'amber' },
                   { id: 'seasonality', icon: TbCalendar, label: 'SEASONAL', accent: 'pink' },
+                  { id: 'screen', icon: TbActivity, label: 'SCREEN', accent: 'cyan' },
                 ].map((item, index) => {
                   const IconComponent = item.icon
 
@@ -35787,7 +36024,7 @@ export default function TradingViewChart({
                     slate: '#94A3B8',
                   }
 
-                  const patTabs = ['alerts', 'plan', 'insight', 'screeners']
+                  const patTabs = ['alerts', 'plan', 'screeners']
                   const isActive = patTabs.includes(item.id)
                     ? (showPATPanel && patPanelActiveTab === item.id)
                     : activeSidebarPanel === item.id
@@ -36270,7 +36507,7 @@ export default function TradingViewChart({
                     scrollOffset={scrollOffset}
                     visibleCandleCount={visibleCandleCount}
                     priceRange={priceRange}
-                    crosshair={crosshairPosition}
+                    crosshair={crosshairPositionRef.current}
                     symbol={symbol}
                     isDragging={dragRef.current.active}
                     isAutoScale={isAutoScale}
@@ -36406,8 +36643,8 @@ export default function TradingViewChart({
                           if (touchLongPressTimer.current) clearTimeout(touchLongPressTimer.current)
 
                           // Check if touch is near the crosshair (within 44px of intersection OR within 28px of either line)
-                          const crossX = crosshairPosition.x
-                          const crossY = crosshairPosition.y
+                          const crossX = crosshairPositionRef.current.x
+                          const crossY = crosshairPositionRef.current.y
                           const distToPoint = Math.sqrt((tx - crossX) ** 2 + (ty - crossY) ** 2)
                           const distToVLine = Math.abs(tx - crossX)  // distance to vertical line
                           const distToHLine = Math.abs(ty - crossY)  // distance to horizontal line
@@ -36510,8 +36747,8 @@ export default function TradingViewChart({
                           const rect = e.currentTarget.getBoundingClientRect()
                           const tx = changedTouch.clientX - rect.left
                           const ty = changedTouch.clientY - rect.top
-                          const crossX = crosshairPosition.x
-                          const crossY = crosshairPosition.y
+                          const crossX = crosshairPositionRef.current.x
+                          const crossY = crosshairPositionRef.current.y
                           const distToPoint = Math.sqrt((tx - crossX) ** 2 + (ty - crossY) ** 2)
                           const nearCrosshairOnTap = distToPoint < 50 || Math.abs(tx - crossX) < 28 || Math.abs(ty - crossY) < 28
 
@@ -37407,7 +37644,7 @@ export default function TradingViewChart({
                           <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.1)' }} />
                           {/* Close X */}
                           <button
-                            onClick={() => { setIsFlowChartActive(false); setFlowChartData([]); setFlowChartMaximized(false) }}
+                            onClick={() => { setIsFlowChartActive(false); setFlowChartData([]); setFlowChartMaximized(false); setManualFlowLiveMode(false); chartLiveTradesRef.current = []; setFlowData([]) }}
                             title="Close IntraFlow panel"
                             style={{
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -37534,11 +37771,11 @@ export default function TradingViewChart({
                 style={{
                   zIndex: (isMobile || hideDesktopSidebar) ? 99999 : 9999,
                   display: (activeSidebarPanel || showPATPanel) ? 'flex' : 'none',
-                  left: (showPATPanel && !isMobile && !hideDesktopSidebar) ? 'auto' : ((isMobile || hideDesktopSidebar) ? '0px' : '84px'),
+                  left: (isMobile || hideDesktopSidebar) ? '0px' : (showPATPanel && !isMobile && !hideDesktopSidebar) ? 'auto' : (activeSidebarPanel === 'news' && newsActiveTab === 'calendar') ? '0px' : '84px',
                   right: (showPATPanel && !isMobile && !hideDesktopSidebar) ? '40px' : (activeSidebarPanel === 'performance' && !isMobile && !hideDesktopSidebar) ? '48px' : 'auto',
                   borderLeft: (!isMobile && !hideDesktopSidebar && !showPATPanel) ? '1px solid rgba(255,255,255,0.07)' : undefined,
-                  width: (isMobile || hideDesktopSidebar) ? '100vw' : (showPATPanel ? `${patPanelWidth}px` : (activeSidebarPanel === 'performance' ? 'auto' : activeSidebarPanel === 'news' ? (newsActiveTab === 'calendar' ? '100vw' : '1200px') : '360px')),
-                  maxWidth: (isMobile || hideDesktopSidebar) ? '100vw' : (showPATPanel ? `${patPanelWidth}px` : (activeSidebarPanel === 'performance' ? 'none' : activeSidebarPanel === 'news' ? (newsActiveTab === 'calendar' ? '100vw' : '1200px') : '360px')),
+                  width: (isMobile || hideDesktopSidebar) ? '100vw' : (showPATPanel ? `${patPanelWidth}px` : (activeSidebarPanel === 'performance' ? 'auto' : (activeSidebarPanel === 'news' && newsActiveTab === 'calendar') ? '100vw' : '1200px')),
+                  maxWidth: (isMobile || hideDesktopSidebar) ? '100vw' : (showPATPanel ? `${patPanelWidth}px` : (activeSidebarPanel === 'performance' ? 'none' : (activeSidebarPanel === 'news' && newsActiveTab === 'calendar') ? '100vw' : '1200px')),
                   borderRadius: (isMobile || hideDesktopSidebar) ? '0px' : '8px',
                   transition: 'max-width 0.3s ease, width 0.3s ease',
                   top: (isMobile || hideDesktopSidebar)
@@ -37585,16 +37822,22 @@ export default function TradingViewChart({
                   `}</style>
                 )}
                 <div className={`flex-1 overflow-y-auto`} style={{ ...(activeSidebarPanel === 'chain' ? { touchAction: 'none', overflowY: 'hidden' } : {}) }}>
-                  {activeSidebarPanel === 'gex' && (
-                    <GexPanel onClose={() => setActiveSidebarPanel(null)} />
+                  {/* Lazy-mount tracker: mark this panel as ever-opened so it stays mounted after closing */}
+                  {activeSidebarPanel ? (mountedPanelsRef.current.add(activeSidebarPanel), null) : null}
+                  {mountedPanelsRef.current.has('gex') && (
+                    <div style={{ display: activeSidebarPanel === 'gex' ? 'flex' : 'none', height: '100%', flexDirection: 'column' }}>
+                      <GexPanel onClose={() => setActiveSidebarPanel(null)} />
+                    </div>
                   )}
-                  {activeSidebarPanel === 'watch' && (
-                    <WatchlistPanel
-                      activeTab={watchlistTab}
-                      setActiveTab={setWatchlistTab}
-                      savedScrollRef={watchlistSavedScrollRef}
-                      moneyScrollRef={moneySavedScrollRef}
-                    />
+                  {mountedPanelsRef.current.has('watch') && (
+                    <div style={{ display: activeSidebarPanel === 'watch' ? 'flex' : 'none', height: '100%', flexDirection: 'column' }}>
+                      <WatchlistPanel
+                        activeTab={watchlistTab}
+                        setActiveTab={setWatchlistTab}
+                        savedScrollRef={watchlistSavedScrollRef}
+                        moneyScrollRef={moneySavedScrollRef}
+                      />
+                    </div>
                   )}
                   {/* Conditionally mounted — only when Markets panel is open, to prevent background scans */}
                   <div
@@ -37676,26 +37919,28 @@ export default function TradingViewChart({
                       </React.Fragment>
                     )}
                   </div>
-                  {activeSidebarPanel === 'flow' && (
-                    <FlowPanel
-                      flowData={flowData}
-                      flowSummary={flowSummary}
-                      flowMarketInfo={flowMarketInfo}
-                      flowLoading={flowLoading}
-                      flowSelectedTicker={flowSelectedTicker}
-                      flowStreamingStatus={flowStreamingStatus}
-                      flowStreamingProgress={flowStreamingProgress}
-                      flowStreamError={flowStreamError}
-                      setFlowData={setFlowData}
-                      setFlowSummary={setFlowSummary}
-                      setFlowMarketInfo={setFlowMarketInfo}
-                      setFlowLoading={setFlowLoading}
-                      setFlowSelectedTicker={setFlowSelectedTicker}
-                      setFlowStreamingStatus={setFlowStreamingStatus}
-                      setFlowStreamingProgress={setFlowStreamingProgress}
-                      setFlowStreamError={setFlowStreamError}
-                      setActiveSidebarPanel={setActiveSidebarPanel}
-                    />
+                  {mountedPanelsRef.current.has('flow') && (
+                    <div style={{ display: activeSidebarPanel === 'flow' ? 'flex' : 'none', height: '100%', flexDirection: 'column' }}>
+                      <FlowPanel
+                        flowData={flowData}
+                        flowSummary={flowSummary}
+                        flowMarketInfo={flowMarketInfo}
+                        flowLoading={flowLoading}
+                        flowSelectedTicker={flowSelectedTicker}
+                        flowStreamingStatus={flowStreamingStatus}
+                        flowStreamingProgress={flowStreamingProgress}
+                        flowStreamError={flowStreamError}
+                        setFlowData={setFlowData}
+                        setFlowSummary={setFlowSummary}
+                        setFlowMarketInfo={setFlowMarketInfo}
+                        setFlowLoading={setFlowLoading}
+                        setFlowSelectedTicker={setFlowSelectedTicker}
+                        setFlowStreamingStatus={setFlowStreamingStatus}
+                        setFlowStreamingProgress={setFlowStreamingProgress}
+                        setFlowStreamError={setFlowStreamError}
+                        setActiveSidebarPanel={setActiveSidebarPanel}
+                      />
+                    </div>
                   )}
                   {/* Always mounted so NewsPanel auto-scans (breaking news, calendar, implied vol, movers) in background */}
                   <div
@@ -37704,7 +37949,7 @@ export default function TradingViewChart({
                       height: '100%',
                     }}
                   >
-                    <NewsPanel symbol={config.symbol} onClose={() => setActiveSidebarPanel(null)} onTabChange={(tab) => setNewsActiveTab(tab)} />
+                    <NewsPanel symbol={config.symbol} onClose={() => setActiveSidebarPanel(null)} onTabChange={(tab) => setNewsActiveTab(tab)} isVisible={activeSidebarPanel === 'news'} />
                   </div>
                   {showPATPanel && patPanelActiveTab === 'screeners' && (
                     <div className="h-full flex flex-col bg-black text-white relative">
@@ -38341,17 +38586,19 @@ export default function TradingViewChart({
                       </div>
                     </div>
                   )}
-                  {activeSidebarPanel === 'performance' && (
-                    <div className="h-full flex flex-col bg-black text-white overflow-auto">
+                  {mountedPanelsRef.current.has('performance') && (
+                    <div className="h-full flex flex-col bg-black text-white overflow-auto" style={{ display: activeSidebarPanel === 'performance' ? 'flex' : 'none' }}>
                       <PerformanceDashboard isVisible={true} />
                     </div>
                   )}
-                  {activeSidebarPanel === 'chain' && (
-                    <ChainPanel
-                      symbol={config.symbol}
-                      currentPrice={0}
-                      onClose={() => setActiveSidebarPanel(null)}
-                    />
+                  {mountedPanelsRef.current.has('chain') && (
+                    <div style={{ display: activeSidebarPanel === 'chain' ? 'flex' : 'none', height: '100%', flexDirection: 'column' }}>
+                      <ChainPanel
+                        symbol={config.symbol}
+                        currentPrice={0}
+                        onClose={() => setActiveSidebarPanel(null)}
+                      />
+                    </div>
                   )}
                   {showPATPanel && patPanelActiveTab === 'plan' && (
                     <PlanPanel
@@ -38367,8 +38614,11 @@ export default function TradingViewChart({
                       flowContent={<FlowTrackingPanel />}
                     />
                   )}
-                  {activeSidebarPanel === 'rrg' && (
-                    <div className="h-full flex flex-col bg-black text-white">
+                  {mountedPanelsRef.current.has('rrg') && (
+                    <div
+                      className="h-full flex flex-col bg-black text-white"
+                      style={{ display: activeSidebarPanel === 'rrg' ? 'flex' : 'none' }}
+                    >
                       {/* Tab row with inline GEX-style X */}
                       <div className="flex gap-0 w-full">
                         {['Price', 'IV', 'Screener'].map((tab) => (
@@ -38430,23 +38680,30 @@ export default function TradingViewChart({
                       </div>
                     </div>
                   )}
-                  {/* Cluster panel */}
-                  {activeSidebarPanel === 'cluster' && (
-                    <div className="h-full flex flex-col bg-black text-white overflow-auto">
-                      <div className="flex gap-0 w-full" style={{ flexShrink: 0 }}>
-                        <div className="flex-1 flex items-center font-black uppercase tracking-[0.15em] relative" style={{ padding: '14px 16px', fontSize: '14px', color: '#FF6600', border: '2px solid #FF6600', background: 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)', boxShadow: '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)' }}>
-                          <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />
-                          <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>DEALER CLUSTER</span>
-                        </div>
-                        <button onClick={() => setActiveSidebarPanel(null)} className="flex items-center justify-center font-bold transition-all" style={{ width: '44px', flexShrink: 0, alignSelf: 'stretch', fontSize: '16px', color: '#FF6600', border: '2px solid rgba(255,102,0,0.5)', background: 'linear-gradient(180deg,#111111 0%,#040404 100%)', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.background = '#FF6600'; e.currentTarget.style.color = '#000' }} onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'; e.currentTarget.style.color = '#FF6600' }}>&#x2715;</button>
+                  {/* Cluster panel — always mounted so scan continues when sidebar is closed */}
+                  <div
+                    style={{
+                      display: activeSidebarPanel === 'cluster' ? 'flex' : 'none',
+                      height: '100%',
+                      flexDirection: 'column',
+                      background: '#000',
+                      color: '#fff',
+                      overflow: 'auto',
+                    }}
+                  >
+                    <div className="flex gap-0 w-full" style={{ flexShrink: 0 }}>
+                      <div className="flex-1 flex items-center font-black uppercase tracking-[0.15em] relative" style={{ padding: '14px 16px', fontSize: '14px', color: '#FF6600', border: '2px solid #FF6600', background: 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)', boxShadow: '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)' }}>
+                        <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />
+                        <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>DEALER CLUSTER</span>
                       </div>
-                      <DealerClusterScreener />
+                      <button onClick={() => setActiveSidebarPanel(null)} className="flex items-center justify-center font-bold transition-all" style={{ width: '44px', flexShrink: 0, alignSelf: 'stretch', fontSize: '16px', color: '#FF6600', border: '2px solid rgba(255,102,0,0.5)', background: 'linear-gradient(180deg,#111111 0%,#040404 100%)', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.background = '#FF6600'; e.currentTarget.style.color = '#000' }} onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'; e.currentTarget.style.color = '#FF6600' }}>&#x2715;</button>
                     </div>
-                  )}
+                    <DealerClusterScreener />
+                  </div>
 
                   {/* Historical Volatility panel */}
-                  {activeSidebarPanel === 'histvol' && (
-                    <div className="h-full flex flex-col bg-black text-white overflow-auto">
+                  {mountedPanelsRef.current.has('histvol') && (
+                    <div className="h-full flex flex-col bg-black text-white overflow-auto" style={{ display: activeSidebarPanel === 'histvol' ? 'flex' : 'none' }}>
                       <div className="flex gap-0 w-full" style={{ flexShrink: 0 }}>
                         <div className="flex-1 flex items-center font-black uppercase tracking-[0.15em] relative" style={{ padding: '14px 16px', fontSize: '14px', color: '#FF6600', border: '2px solid #FF6600', background: 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)', boxShadow: '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)' }}>
                           <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />
@@ -38459,8 +38716,8 @@ export default function TradingViewChart({
                   )}
 
                   {/* Leadership panel */}
-                  {activeSidebarPanel === 'leadership' && (
-                    <div className="h-full flex flex-col bg-black text-white overflow-auto">
+                  {mountedPanelsRef.current.has('leadership') && (
+                    <div className="h-full flex flex-col bg-black text-white overflow-auto" style={{ display: activeSidebarPanel === 'leadership' ? 'flex' : 'none' }}>
                       <div className="flex gap-0 w-full" style={{ flexShrink: 0 }}>
                         <div className="flex-1 flex items-center font-black uppercase tracking-[0.15em] relative" style={{ padding: '14px 16px', fontSize: '14px', color: '#FF6600', border: '2px solid #FF6600', background: 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)', boxShadow: '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)' }}>
                           <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />
@@ -38473,8 +38730,8 @@ export default function TradingViewChart({
                   )}
 
                   {/* Attraction (RS Screener) panel */}
-                  {activeSidebarPanel === 'attraction' && (
-                    <div className="h-full flex flex-col bg-black text-white overflow-auto">
+                  {mountedPanelsRef.current.has('attraction') && (
+                    <div className="h-full flex flex-col bg-black text-white overflow-auto" style={{ display: activeSidebarPanel === 'attraction' ? 'flex' : 'none' }}>
                       <div className="flex gap-0 w-full" style={{ flexShrink: 0 }}>
                         <div className="flex-1 flex items-center font-black uppercase tracking-[0.15em] relative" style={{ padding: '14px 16px', fontSize: '14px', color: '#FF6600', border: '2px solid #FF6600', background: 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)', boxShadow: '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)' }}>
                           <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />
@@ -38486,8 +38743,8 @@ export default function TradingViewChart({
                     </div>
                   )}
 
-                  {activeSidebarPanel === 'seasonality' && (
-                    <div className="h-full flex flex-col bg-black text-white">
+                  {mountedPanelsRef.current.has('seasonality') && (
+                    <div className="h-full flex flex-col bg-black text-white" style={{ display: activeSidebarPanel === 'seasonality' ? 'flex' : 'none' }}>
                       {/* Header: desktop = CHART/SCREENER tabs + inline X; mobile = none (close is in Row 1) */}
                       {!isMobile && (
                         <div className="flex gap-0 w-full">
@@ -40676,8 +40933,29 @@ export default function TradingViewChart({
                       </div>
                     </div>
                   )}
+
+                  {/* ── SCREEN panel ── */}
+                  {mountedPanelsRef.current.has('screen') && (
+                    <div className="h-full flex flex-col" style={{ display: activeSidebarPanel === 'screen' ? 'flex' : 'none', background: '#050505' }}>
+                      <div className="flex gap-0 w-full" style={{ flexShrink: 0 }}>
+                        <div className="flex-1 flex items-center font-black uppercase tracking-[0.15em] relative" style={{ padding: '14px 16px', fontSize: '14px', color: '#06B6D4', border: '2px solid #06B6D4', background: 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)', boxShadow: '0 0 18px rgba(6,182,212,0.35), inset 0 1px 0 rgba(255,255,255,0.1)' }}>
+                          <div className="absolute inset-0 bg-gradient-to-b from-cyan-500/15 to-transparent pointer-events-none" />
+                          <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>SCREEN</span>
+                        </div>
+                        <button onClick={() => setActiveSidebarPanel(null)} className="flex items-center justify-center font-bold transition-all" style={{ width: '44px', flexShrink: 0, alignSelf: 'stretch', fontSize: '16px', color: '#FF6600', border: '2px solid rgba(255,102,0,0.5)', background: 'linear-gradient(180deg,#111111 0%,#040404 100%)', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.background = '#FF6600'; e.currentTarget.style.color = '#000' }} onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'; e.currentTarget.style.color = '#FF6600' }}>&#x2715;</button>
+                      </div>
+                      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+                        <MarketScannerPanel />
+                      </div>
+                    </div>
+                  )}
+
                   {showPATPanel && patPanelActiveTab === 'insight' && (
                     <InsightPanel onClose={() => setShowPATPanel(false)} />
+                  )}
+
+                  {activeSidebarPanel === 'insight' && (
+                    <InsightPanel onClose={() => setActiveSidebarPanel(null)} />
                   )}
 
                 </div>
