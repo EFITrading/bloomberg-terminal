@@ -199,7 +199,7 @@ async function saveToDB(allTrades, tradingDate) {
         let lastErr
         for (let attempt = 1; attempt <= 3; attempt++) {
             try {
-                await prisma.flowBatch.create({ data: payload })
+                await prisma.flowBatch.create({ data: payload, select: { id: true } })
                 console.log(`[SAVE] ✓ Saved ${allTrades.length} trades for ${tradingDate} | ${(compressed.length / 1024).toFixed(1)}KB`)
                 return
             } catch (err) {

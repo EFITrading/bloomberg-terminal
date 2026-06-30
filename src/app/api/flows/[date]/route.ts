@@ -82,7 +82,7 @@ export async function DELETE(
     try {
       const range = dayRange(decodedDate)
       flowResult = await prisma.flow.deleteMany({ where: { date: { gte: range.gte, lt: range.lt } } })
-    } catch {}
+    } catch { }
 
     const totalDeleted = batchResult.count + flowResult.count
     if (totalDeleted === 0) {

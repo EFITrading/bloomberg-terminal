@@ -956,6 +956,22 @@ export default function OptionsFlowPage() {
             })
             setData(displayTrades)
             setLastUpdate(new Date().toLocaleTimeString())
+
+            // Rebuild liveOI map from saved trades and write to localStorage
+            // so GEX panel, LiquidPanel, AlgoFlow and all other panels stay current
+            try {
+              const tradingDate = getTradingDate()
+              const byTicker: Record<string, [string, number][]> = {}
+              for (const t of result.trades as OptionsFlowData[]) {
+                const key = `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}`
+                const ticker = t.underlying_ticker
+                if (!ticker) continue
+                if (!byTicker[ticker]) byTicker[ticker] = []
+                // open_interest on saved trades IS the live OI (computed by Railway)
+                byTicker[ticker].push([key, t.open_interest ?? 0])
+              }
+              localStorage.setItem('efi_live_oi', JSON.stringify({ tradingDate, tickers: byTicker }))
+            } catch { /* non-critical */ }
           }
         } catch (err) {
           console.warn('[POLL] Could not fetch Railway data:', err)
