@@ -71,25 +71,27 @@ export async function DELETE(
 ) {
   try {
     const { date } = await params;
-    let range: { gte: Date; lt: Date }
-    try { range = dayRange(decodeURIComponent(date)) }
-    catch { return NextResponse.json({ error: 'Invalid date format' }, { status: 400 }) }
+    const decodedDate = decodeURIComponent(date)
+    const tradingDate = decodedDate.split('T')[0] // normalize to YYYY-MM-DD
 
-    console.log('[DELETE flow] date param:', date, '| range:', range.gte.toISOString(), '→', range.lt.toISOString())
+    // Delete from FlowBatch (Railway stream data)
+    const batchResult = await prisma.flowBatch.deleteMany({ where: { tradingDate } })
 
-    const result = await prisma.flow.deleteMany({
-      where: { date: { gte: range.gte, lt: range.lt } },
-    });
+    // Also delete from Flow (scan data) if it exists
+    let flowResult = { count: 0 }
+    try {
+      const range = dayRange(decodedDate)
+      flowResult = await prisma.flow.deleteMany({ where: { date: { gte: range.gte, lt: range.lt } } })
+    } catch {}
 
-    console.log('[DELETE flow] Deleted count:', result.count)
-
-    if (result.count === 0) {
-      return NextResponse.json({ error: 'Flow not found' }, { status: 404 });
+    const totalDeleted = batchResult.count + flowResult.count
+    if (totalDeleted === 0) {
+      return NextResponse.json({ error: 'Flow not found' }, { status: 404 })
     }
 
-    return NextResponse.json({ success: true, deleted: result.count });
+    return NextResponse.json({ success: true, deleted: totalDeleted })
   } catch (error) {
-    console.error('Error deleting flow:', error);
-    return NextResponse.json({ error: 'Failed to delete flow' }, { status: 500 });
+    console.error('Error deleting flow:', error)
+    return NextResponse.json({ error: 'Failed to delete flow' }, { status: 500 })
   }
 }
