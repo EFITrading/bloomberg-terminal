@@ -1,6 +1,7 @@
 import { promisify } from 'util'
 import { gunzip, gzip } from 'zlib'
 
+import { PrismaClient } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
 
 import prisma from '@/lib/prisma'
@@ -10,6 +11,13 @@ const gunzipAsync = promisify(gunzip)
 
 export const runtime = 'nodejs'
 
+// Use direct DB connection to bypass Prisma Accelerate's 5MB response limit
+const prismaDirectGlobal = globalThis as unknown as { prismaFlowBatchDirect?: PrismaClient }
+const prismaDirect: PrismaClient =
+    prismaDirectGlobal.prismaFlowBatchDirect ??
+    new PrismaClient({ datasources: { db: { url: process.env.POSTGRES_URL } } })
+if (process.env.NODE_ENV !== 'production') prismaDirectGlobal.prismaFlowBatchDirect = prismaDirect
+
 export async function GET(request: NextRequest) {
     try {
         const tradingDate = request.nextUrl.searchParams.get('date')
@@ -17,7 +25,7 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'date param required' }, { status: 400 })
         }
 
-        const batch = await prisma.flowBatch.findUnique({ where: { tradingDate } })
+        const batch = await prismaDirect.flowBatch.findUnique({ where: { tradingDate } })
         if (!batch) {
             return NextResponse.json({ trades: [], tradeCount: 0 })
         }
