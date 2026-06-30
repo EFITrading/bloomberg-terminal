@@ -976,7 +976,9 @@ function StraddleChart({
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const crosshairRef = useRef<{ cx: number; cy: number } | null>(null)
-  const viewRef = useRef({ startIdx: 0, visibleCount: Math.max(candles.length, 10) })
+  const viewRef = useRef({ startIdx: 0, visibleCount: Math.max(candles.length, 10), priceOffset: 0 })
+  const priceRangeRef = useRef<number>(1)
+  const yScaleRef = useRef({ multiplier: 1, centerPrice: 0 })
   const [width, setWidth] = useState(900)
   const [height, setHeight] = useState(forceHeight ?? 749)
   const [chartTf, setChartTf] = useState<'5m' | '1h' | '1d'>('1d')
@@ -1000,12 +1002,14 @@ function StraddleChart({
   }, [])
 
   useEffect(() => {
-    viewRef.current = { startIdx: 0, visibleCount: candles.length }
+    viewRef.current = { startIdx: 0, visibleCount: candles.length, priceOffset: 0 }
+    yScaleRef.current = { multiplier: 1, centerPrice: 0 }
   }, [candles])
 
   // Reset view when active candles change (timeframe switch)
   useEffect(() => {
-    viewRef.current = { startIdx: 0, visibleCount: activeCandles.length }
+    viewRef.current = { startIdx: 0, visibleCount: activeCandles.length, priceOffset: 0 }
+    yScaleRef.current = { multiplier: 1, centerPrice: 0 }
   }, [activeCandles])
 
   // Fetch intraday data when timeframe changes
@@ -1046,10 +1050,10 @@ function StraddleChart({
     const chartH = height - PAD.top - PAD.bottom
 
     const n = activeCandles.length
-    let { startIdx, visibleCount } = viewRef.current
+    let { startIdx, visibleCount, priceOffset } = viewRef.current
     visibleCount = Math.max(10, Math.min(n, visibleCount))
     startIdx = Math.max(0, Math.min(n - visibleCount, startIdx))
-    viewRef.current = { startIdx, visibleCount }
+    viewRef.current = { startIdx, visibleCount, priceOffset }
     const vis = activeCandles.slice(startIdx, startIdx + visibleCount)
 
     const dpr = window.devicePixelRatio || 1
@@ -1079,9 +1083,16 @@ function StraddleChart({
     const rawMin = Math.min(candleMin, ...poiPrices)
     const rawMax = Math.max(candleMax, ...poiPrices)
     const padP = (rawMax - rawMin) * 0.05   // 5% margin above and below
-    const pMin = rawMin - padP,
-      pMax = rawMax + padP,
-      pRange = pMax - pMin
+    const naturalHi = rawMax + padP
+    const naturalLo = rawMin - padP
+    const naturalRange = naturalHi - naturalLo
+    const ys = yScaleRef.current
+    const scaledRange = naturalRange / ys.multiplier
+    const center = (naturalHi + naturalLo) / 2 + priceOffset
+    const pMin = center - scaledRange / 2
+    const pMax = center + scaledRange / 2
+    const pRange = scaledRange
+    priceRangeRef.current = pRange
     const pyFn = (p: number) => PAD.top + ((pMax - p) / pRange) * chartH
 
     // Candle layout
@@ -1520,39 +1531,80 @@ function StraddleChart({
       let newVC = Math.round(visibleCount * factor)
       newVC = Math.max(5, Math.min(n, newVC))
       const maxStart = Math.max(0, n - newVC)
-      viewRef.current = { startIdx: maxStart, visibleCount: newVC }
+      viewRef.current = { ...viewRef.current, startIdx: maxStart, visibleCount: newVC }
       draw()
     }
 
-    let isDragging = false
+    let dragMode: 'none' | 'pan' | 'yscale' = 'none'
     let dragStartX = 0
+    let dragStartY = 0
     let dragStartIdx = 0
+    let dragStartPriceOffset = 0
+    let dragStartMultiplier = 1
+
+    const isOverYAxis = (e: PointerEvent) => {
+      const rect = el.getBoundingClientRect()
+      return (e.clientX - rect.left) > el.offsetWidth - PAD_R
+    }
 
     const handlePointerDown = (e: PointerEvent) => {
-      // Don't capture if the user clicked a button or other interactive element
       if ((e.target as HTMLElement).closest('button, a, input, select')) return
       el.setPointerCapture(e.pointerId)
-      isDragging = true
       dragStartX = e.clientX
-      dragStartIdx = viewRef.current.startIdx
-      el.style.cursor = 'grabbing'
+      dragStartY = e.clientY
+      if (isOverYAxis(e)) {
+        dragMode = 'yscale'
+        dragStartMultiplier = yScaleRef.current.multiplier
+        // set center price from current visible range if not already set
+        if (yScaleRef.current.centerPrice === 0) {
+          const { startIdx, visibleCount } = viewRef.current
+          const vis = activeCandles.slice(startIdx, startIdx + visibleCount)
+          if (vis.length > 0) {
+            const hi = Math.max(...vis.map(c => c.high))
+            const lo = Math.min(...vis.map(c => c.low))
+            yScaleRef.current.centerPrice = (hi + lo) / 2
+          }
+        }
+        el.style.cursor = 'ns-resize'
+      } else {
+        dragMode = 'pan'
+        dragStartIdx = viewRef.current.startIdx
+        dragStartPriceOffset = viewRef.current.priceOffset
+        el.style.cursor = 'grabbing'
+      }
     }
 
     const handlePointerMove = (e: PointerEvent) => {
       const rect = el.getBoundingClientRect()
-      crosshairRef.current = { cx: e.clientX - rect.left, cy: e.clientY - rect.top }
-      if (isDragging) {
+      const offsetX = e.clientX - rect.left
+      if (dragMode === 'none') {
+        crosshairRef.current = { cx: offsetX, cy: e.clientY - rect.top }
+        el.style.cursor = offsetX > el.offsetWidth - PAD_R ? 'ns-resize' : 'grab'
+        draw()
+        return
+      }
+      crosshairRef.current = { cx: offsetX, cy: e.clientY - rect.top }
+      if (dragMode === 'yscale') {
+        const dy = dragStartY - e.clientY
+        yScaleRef.current.multiplier = Math.max(0.05, Math.min(50, dragStartMultiplier * Math.pow(1.006, dy)))
+      } else {
+        // pan: X scrolls candles, Y shifts price
         const { visibleCount } = viewRef.current
         const chartW = el.offsetWidth - PAD_L - PAD_R
         const delta = Math.round((dragStartX - e.clientX) * (visibleCount / chartW))
         const maxStart = Math.max(0, activeCandles.length - visibleCount)
         const newStart = Math.max(0, Math.min(maxStart, dragStartIdx + delta))
-        viewRef.current = { ...viewRef.current, startIdx: newStart }
+        const chartHpx = el.offsetHeight - (height < 300 ? 44 : 60)
+        const priceDelta = (e.clientY - dragStartY) * (priceRangeRef.current / chartHpx)
+        viewRef.current = { ...viewRef.current, startIdx: newStart, priceOffset: dragStartPriceOffset + priceDelta }
       }
       draw()
     }
 
-    const handlePointerUp = () => { isDragging = false; el.style.cursor = 'grab' }
+    const handlePointerUp = () => {
+      dragMode = 'none'
+      el.style.cursor = 'grab'
+    }
     const handlePointerLeave = () => { crosshairRef.current = null; draw() }
 
     el.style.cursor = 'grab'
@@ -1757,8 +1809,8 @@ function TradeCard({
                     <path d="M5.5 1.5 A4 4 0 0 1 9.5 5.5" stroke="#FF9A00" strokeWidth="1.5" strokeLinecap="round" />
                   </svg>
                 )}
-                <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, fontWeight: 900, color: '#FF9A00', letterSpacing: '1px', textAlign: 'center', lineHeight: 1.2, opacity: 0.75 }}>
-                  ADJUST<br />EXPIRY
+                <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, fontWeight: 900, color: '#FF9A00', letterSpacing: '1px', textAlign: 'center', lineHeight: 1.2 }}>
+                  ADJUST EXPIRY
                 </span>
               </div>
               <select
@@ -1766,12 +1818,12 @@ function TradeCard({
                 onChange={e => { e.stopPropagation(); onExpiryChange(e.target.value) }}
                 onClick={e => e.stopPropagation()}
                 style={{
-                  fontFamily: 'JetBrains Mono, monospace', fontSize: 12, fontWeight: 800, letterSpacing: '0.5px',
+                  fontFamily: 'JetBrains Mono, monospace', fontSize: 15, fontWeight: 800, letterSpacing: '0.5px',
                   color: '#FF9A00',
                   background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
                   border: '1px solid rgba(255,154,0,0.5)',
                   borderRadius: 5,
-                  padding: '5px 8px',
+                  padding: '6px 10px',
                   cursor: 'pointer', outline: 'none',
                   boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.7)',
                 }}
@@ -1793,15 +1845,14 @@ function TradeCard({
 
       {/* ── Column headers ─────────────────────────────────── */}
       <div style={{
-        display: 'grid',
-        gridTemplateColumns: '48px 1fr 1fr',
+        display: 'flex',
+        justifyContent: 'space-between',
         padding: '6px 14px',
         background: 'rgba(0,0,0,0.50)',
         borderBottom: '1px solid rgba(255,255,255,0.08)',
-        gap: 6,
       }}>
-        {['', 'STOCK', 'PREM'].map(h => (
-          <div key={h} style={{ ...mono, fontSize: 13, fontWeight: 800, color: '#FF9A00', letterSpacing: '1px' }}>
+        {['STOCK TARGET', 'PREMIUM'].map(h => (
+          <div key={h} style={{ ...mono, fontSize: 13, fontWeight: 800, color: '#FF9A00', letterSpacing: '1px', whiteSpace: 'nowrap' }}>
             {h}
           </div>
         ))}
@@ -2055,6 +2106,24 @@ function ResultsTable({
                         </span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {/* ADD TO PORTFOLIO — shown when trade setup is active */}
+                        {r.setupActive && effectiveTrade && (
+                          <button
+                            onClick={e => { e.stopPropagation(); if (addedSymbols.has(r.symbol)) return; onAddToPortfolio(r); setAddedSymbols(prev => new Set([...prev, r.symbol])) }}
+                            style={{
+                              ...mono,
+                              fontSize: 11, fontWeight: 900, letterSpacing: '1px',
+                              padding: '5px 11px', cursor: addedSymbols.has(r.symbol) ? 'default' : 'pointer',
+                              borderRadius: 5,
+                              border: addedSymbols.has(r.symbol) ? '1px solid rgba(0,255,136,0.4)' : '1px solid rgba(255,154,0,0.35)',
+                              background: addedSymbols.has(r.symbol) ? 'rgba(0,255,136,0.08)' : 'rgba(255,154,0,0.08)',
+                              color: addedSymbols.has(r.symbol) ? '#00FF88' : '#FF9A00',
+                              outline: 'none', transition: 'all 0.12s', whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {addedSymbols.has(r.symbol) ? '✓ IN PORTFOLIO' : '+ ADD TO PORTFOLIO'}
+                          </button>
+                        )}
                         {/* SCAN POI button — always visible when no POI yet */}
                         {!r.hasPOI && (
                           <button
@@ -2239,26 +2308,6 @@ function ResultsTable({
                             expiryLoading={expiryLoadingSet.has(r.symbol)}
                           />
                           <TradeCard trade={effectiveTrade} symbol={r.symbol} side="put" />
-                          <button
-                            onClick={() => {
-                              if (addedSymbols.has(r.symbol)) return
-                              onAddToPortfolio(r)
-                              setAddedSymbols(prev => new Set([...prev, r.symbol]))
-                            }}
-                            style={{
-                              fontFamily: 'JetBrains Mono, monospace', fontSize: 11, fontWeight: 900,
-                              letterSpacing: '1px', padding: '7px 0', cursor: addedSymbols.has(r.symbol) ? 'default' : 'pointer',
-                              borderRadius: 5,
-                              border: addedSymbols.has(r.symbol) ? '1px solid rgba(0,255,136,0.4)' : '1px solid rgba(255,154,0,0.35)',
-                              background: addedSymbols.has(r.symbol) ? 'rgba(0,255,136,0.08)' : 'rgba(255,154,0,0.08)',
-                              color: addedSymbols.has(r.symbol) ? '#00FF88' : '#FF9A00',
-                              outline: 'none', width: '100%', transition: 'all 0.12s',
-                            }}
-                            onMouseEnter={e => { if (!addedSymbols.has(r.symbol)) { e.currentTarget.style.background = 'rgba(255,154,0,0.18)'; e.currentTarget.style.borderColor = 'rgba(255,154,0,0.6)' } }}
-                            onMouseLeave={e => { if (!addedSymbols.has(r.symbol)) { e.currentTarget.style.background = 'rgba(255,154,0,0.08)'; e.currentTarget.style.borderColor = 'rgba(255,154,0,0.35)' } }}
-                          >
-                            {addedSymbols.has(r.symbol) ? '✓ IN PORTFOLIO' : '+ ADD TO PORTFOLIO'}
-                          </button>
                         </div>
                       )}
                     </div>

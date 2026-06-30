@@ -190,12 +190,25 @@ async function saveToDB(allTrades, tradingDate) {
         const json = JSON.stringify(allTrades)
         const compressed = await gzipAsync(json)
         const base64 = compressed.toString('base64')
-        // delete + create avoids Prisma Accelerate's 5MB response limit on upsert reads
+        const payload = { tradingDate, batchTime: new Date(), data: base64, tradeCount: allTrades.length }
+
+        // delete first (write-only, no response size issue)
         await prisma.flowBatch.deleteMany({ where: { tradingDate } })
-        await prisma.flowBatch.create({
-            data: { tradingDate, batchTime: new Date(), data: base64, tradeCount: allTrades.length },
-        })
-        console.log(`[SAVE] ✓ Saved ${allTrades.length} trades for ${tradingDate} | ${(compressed.length / 1024).toFixed(1)}KB compressed`)
+
+        // retry create up to 3 times on transient errors (Prisma 502, etc.)
+        let lastErr
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                await prisma.flowBatch.create({ data: payload })
+                console.log(`[SAVE] ✓ Saved ${allTrades.length} trades for ${tradingDate} | ${(compressed.length / 1024).toFixed(1)}KB`)
+                return
+            } catch (err) {
+                lastErr = err
+                console.warn(`[SAVE] Attempt ${attempt}/3 failed: ${err.message}`)
+                if (attempt < 3) await new Promise(r => setTimeout(r, 2000))
+            }
+        }
+        console.error('[SAVE] All retries failed:', lastErr.message)
     } catch (err) {
         console.error('[SAVE] DB error:', err.message)
     }
