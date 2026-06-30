@@ -248,32 +248,34 @@ export function useOptionsFlowLive({ onData, onLiveCount, symbol, requireManual 
         liveTradeCountRef.current = 0
         setLiveTradeCount(0)
         onLiveCountRef.current?.(0)
-        liveTradeBufferRef.current = []
 
-        const unsub = polygonOptionsWS.addHandler(handleLiveTrades)
+        // Poll Railway DB every 30 seconds instead of opening a WebSocket
+        // (Railway holds the single Polygon WS connection)
+        const pollDB = async () => {
+            try {
+                const res = await fetch(`/api/flows/save-batch?date=${todayDS}`)
+                const result = await res.json()
+                if (!result.trades || result.trades.length === 0) return
+                const trades: FlowLiveTrade[] = result.trades
+                const filtered = symbolRef.current
+                    ? trades.filter(t => t.underlying_ticker?.toUpperCase() === symbolRef.current)
+                    : trades
+                if (!liveConnectedRef.current) {
+                    liveConnectedRef.current = true
+                    setLiveConnected(true)
+                }
+                const newCount = filtered.length
+                liveTradeCountRef.current = newCount
+                setLiveTradeCount(newCount)
+                onLiveCountRef.current?.(newCount)
+                onDataRef.current(() => filtered)
+            } catch { /* ignore network errors */ }
+        }
 
-        // cancelled flag: prevents in-flight async enrichment from writing data after stop
-        let cancelled = false
-
-        liveFlushTimerRef.current = setInterval(async () => {
-            if (cancelled) return
-            if (liveTradeBufferRef.current.length === 0) return
-            const batch = liveTradeBufferRef.current.splice(0)
-            const classified = classifyFlowLiveBatch(batch)
-            const aboveMin = classified.filter(t => t.total_premium >= 1000)
-            if (aboveMin.length === 0) return
-            const enriched = await enrichFlowTradeCombined(aboveMin)
-            if (cancelled) return
-            liveTradeCountRef.current += enriched.length
-            setLiveTradeCount(liveTradeCountRef.current)
-            onLiveCountRef.current?.(liveTradeCountRef.current)
-            onDataRef.current((prev) => [...enriched.reverse(), ...prev])
-        }, 1000)
+        pollDB()
+        liveFlushTimerRef.current = setInterval(pollDB, 30 * 1000)
 
         return () => {
-            cancelled = true
-            unsub()
-            liveTradeBufferRef.current = []
             if (liveFlushTimerRef.current !== null) {
                 clearInterval(liveFlushTimerRef.current)
                 liveFlushTimerRef.current = null

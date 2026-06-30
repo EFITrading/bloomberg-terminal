@@ -37001,346 +37001,346 @@ export default function TradingViewChart({
                             backdropFilter: 'blur(16px)',
                           }}
                         >
-                        {/* Mode buttons row */}
-                        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: isMobile ? 2 : 5 }}>
-                          {/* Net Flow */}
-                          <button
-                            onClick={() => setFlowChartViewMode('net')}
-                            title="Show 1 line: Net Flow (combines all bullish and bearish flows)"
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 4,
-                              padding: isMobile ? '4px 7px' : '8px 16px',
-                              borderRadius: '9px',
-                              border: 'none',
-                              cursor: 'pointer',
-                              fontSize: isMobile ? 11 : 14,
-                              fontWeight: 700,
-                              letterSpacing: '0.4px',
-                              transition: 'all 0.15s ease',
-                              background: '#000000',
-                              color: flowChartViewMode === 'net' ? '#FF8800' : '#ffffff',
-                            }}
-                          >
-                            {!isMobile && <svg width={16} height={16} viewBox="0 0 12 12" fill="none">
-                              <path d="M1 8 Q3 4 6 6 Q9 8 11 3" stroke={flowChartViewMode === 'net' ? '#FF8800' : '#ffffff'} strokeWidth="1.5" strokeLinecap="round" fill="none" />
-                            </svg>}
-                            {isMobile ? 'NET' : 'Net Flow'}
-                          </button>
+                          {/* Mode buttons row */}
+                          <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: isMobile ? 2 : 5 }}>
+                            {/* Net Flow */}
+                            <button
+                              onClick={() => setFlowChartViewMode('net')}
+                              title="Show 1 line: Net Flow (combines all bullish and bearish flows)"
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: isMobile ? '4px 7px' : '8px 16px',
+                                borderRadius: '9px',
+                                border: 'none',
+                                cursor: 'pointer',
+                                fontSize: isMobile ? 11 : 14,
+                                fontWeight: 700,
+                                letterSpacing: '0.4px',
+                                transition: 'all 0.15s ease',
+                                background: '#000000',
+                                color: flowChartViewMode === 'net' ? '#FF8800' : '#ffffff',
+                              }}
+                            >
+                              {!isMobile && <svg width={16} height={16} viewBox="0 0 12 12" fill="none">
+                                <path d="M1 8 Q3 4 6 6 Q9 8 11 3" stroke={flowChartViewMode === 'net' ? '#FF8800' : '#ffffff'} strokeWidth="1.5" strokeLinecap="round" fill="none" />
+                              </svg>}
+                              {isMobile ? 'NET' : 'Net Flow'}
+                            </button>
 
-                          {/* Divider */}
-                          <div style={{ width: '1px', height: '26px', background: 'rgba(255,255,255,0.1)' }} />
+                            {/* Divider */}
+                            <div style={{ width: '1px', height: '26px', background: 'rgba(255,255,255,0.1)' }} />
 
-                          {/* Bull/Bear (was Simplified) */}
-                          <button
-                            onClick={() => setFlowChartViewMode('simplified')}
-                            title="Show 2 lines: Bullish Total (positive) and Bearish Total (negative)"
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 4,
-                              padding: isMobile ? '4px 7px' : '8px 16px',
-                              borderRadius: '9px',
-                              border: 'none',
-                              cursor: 'pointer',
-                              fontSize: isMobile ? 11 : 14,
-                              fontWeight: 700,
-                              letterSpacing: '0.4px',
-                              transition: 'all 0.15s ease',
-                              background: '#000000',
-                              color: flowChartViewMode === 'simplified' ? '#FF8800' : '#ffffff',
-                            }}
-                          >
-                            {!isMobile && <svg width={16} height={16} viewBox="0 0 12 12" fill="none">
-                              <path d="M6 10 L6 2 M3 5 L6 2 L9 5" stroke={flowChartViewMode === 'simplified' ? '#FF8800' : '#ffffff'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>}
-                            {isMobile ? 'B/B' : 'Bull/Bear'}
-                          </button>
+                            {/* Bull/Bear (was Simplified) */}
+                            <button
+                              onClick={() => setFlowChartViewMode('simplified')}
+                              title="Show 2 lines: Bullish Total (positive) and Bearish Total (negative)"
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: isMobile ? '4px 7px' : '8px 16px',
+                                borderRadius: '9px',
+                                border: 'none',
+                                cursor: 'pointer',
+                                fontSize: isMobile ? 11 : 14,
+                                fontWeight: 700,
+                                letterSpacing: '0.4px',
+                                transition: 'all 0.15s ease',
+                                background: '#000000',
+                                color: flowChartViewMode === 'simplified' ? '#FF8800' : '#ffffff',
+                              }}
+                            >
+                              {!isMobile && <svg width={16} height={16} viewBox="0 0 12 12" fill="none">
+                                <path d="M6 10 L6 2 M3 5 L6 2 L9 5" stroke={flowChartViewMode === 'simplified' ? '#FF8800' : '#ffffff'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>}
+                              {isMobile ? 'B/B' : 'Bull/Bear'}
+                            </button>
 
-                          {/* Divider */}
-                          <div style={{ width: '1px', height: '26px', background: 'rgba(255,255,255,0.1)' }} />
+                            {/* Divider */}
+                            <div style={{ width: '1px', height: '26px', background: 'rgba(255,255,255,0.1)' }} />
 
-                          {/* BUY/SELL+ (was Detailed) */}
-                          <button
-                            onClick={() => setFlowChartViewMode('detailed')}
-                            title="Show all 4 lines: Bullish Calls, Bearish Calls, Bullish Puts, Bearish Puts"
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 4,
-                              padding: isMobile ? '4px 7px' : '8px 16px',
-                              borderRadius: '9px',
-                              border: 'none',
-                              cursor: 'pointer',
-                              fontSize: isMobile ? 11 : 14,
-                              fontWeight: 700,
-                              letterSpacing: '0.4px',
-                              transition: 'all 0.15s ease',
-                              background: '#000000',
-                              color: flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff',
-                            }}
-                          >
-                            {!isMobile && <svg width={16} height={16} viewBox="0 0 12 12" fill="none">
-                              <rect x="1" y="7" width="2.5" height="4" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff'} />
-                              <rect x="4.75" y="4" width="2.5" height="7" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff'} />
-                              <rect x="8.5" y="1" width="2.5" height="10" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff'} />
-                            </svg>}
-                            {isMobile ? '4L' : 'BUY/SELL+'}
-                          </button>
-                        </div>
+                            {/* BUY/SELL+ (was Detailed) */}
+                            <button
+                              onClick={() => setFlowChartViewMode('detailed')}
+                              title="Show all 4 lines: Bullish Calls, Bearish Calls, Bullish Puts, Bearish Puts"
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: isMobile ? '4px 7px' : '8px 16px',
+                                borderRadius: '9px',
+                                border: 'none',
+                                cursor: 'pointer',
+                                fontSize: isMobile ? 11 : 14,
+                                fontWeight: 700,
+                                letterSpacing: '0.4px',
+                                transition: 'all 0.15s ease',
+                                background: '#000000',
+                                color: flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff',
+                              }}
+                            >
+                              {!isMobile && <svg width={16} height={16} viewBox="0 0 12 12" fill="none">
+                                <rect x="1" y="7" width="2.5" height="4" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff'} />
+                                <rect x="4.75" y="4" width="2.5" height="7" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff'} />
+                                <rect x="8.5" y="1" width="2.5" height="10" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff'} />
+                              </svg>}
+                              {isMobile ? '4L' : 'BUY/SELL+'}
+                            </button>
+                          </div>
 
-                        {/* 4 Liquid Fill Boxes — 2×2 grid */}
-                        {(() => {
-                          const last = flowChartData.length > 0 ? flowChartData[flowChartData.length - 1] : null
-                          if (!last) return null
-                          const total = (last.callsPlus + last.callsMinus + last.putsPlus + last.putsMinus) || 1
-                          const boxes = [
-                            { lbl: 'BULL CALLS', val: last.callsPlus,  color: '#10b981' },
-                            { lbl: 'BEAR CALLS', val: last.callsMinus, color: '#4da6ff' },
-                            { lbl: 'BULL PUTS',  val: last.putsPlus,   color: '#ffcc00' },
-                            { lbl: 'BEAR PUTS',  val: last.putsMinus,  color: '#ff2222' },
-                          ]
-                          const W = isMobile ? 78 : 94, H = isMobile ? 69 : 81, amp = 2.5
-                          const speeds = [2.0, 2.6, 1.8, 2.3]
-                          return (
-                            <div style={{ display: 'flex', flexDirection: 'row', gap: isMobile ? 3 : 4 }}>
-                              <style>{`
+                          {/* 4 Liquid Fill Boxes — 2×2 grid */}
+                          {(() => {
+                            const last = flowChartData.length > 0 ? flowChartData[flowChartData.length - 1] : null
+                            if (!last) return null
+                            const total = (last.callsPlus + last.callsMinus + last.putsPlus + last.putsMinus) || 1
+                            const boxes = [
+                              { lbl: 'BULL CALLS', val: last.callsPlus, color: '#10b981' },
+                              { lbl: 'BEAR CALLS', val: last.callsMinus, color: '#4da6ff' },
+                              { lbl: 'BULL PUTS', val: last.putsPlus, color: '#ffcc00' },
+                              { lbl: 'BEAR PUTS', val: last.putsMinus, color: '#ff2222' },
+                            ]
+                            const W = isMobile ? 78 : 94, H = isMobile ? 69 : 81, amp = 2.5
+                            const speeds = [2.0, 2.6, 1.8, 2.3]
+                            return (
+                              <div style={{ display: 'flex', flexDirection: 'row', gap: isMobile ? 3 : 4 }}>
+                                <style>{`
                                 @keyframes efi-fqw0{from{transform:translateX(0)}to{transform:translateX(-${W}px)}}
                                 @keyframes efi-fqw1{from{transform:translateX(0)}to{transform:translateX(-${W}px)}}
                                 @keyframes efi-fqw2{from{transform:translateX(0)}to{transform:translateX(-${W}px)}}
                                 @keyframes efi-fqw3{from{transform:translateX(0)}to{transform:translateX(-${W}px)}}
                               `}</style>
-                              {boxes.map((box, i) => {
-                                const fill = Math.max(0, Math.min(1, box.val / total))
-                                const liquidH = fill * H
-                                const waveY = H - liquidH
-                                const wx = -W
-                                const wp = `M${wx} ${waveY} ` +
-                                  `q${W/4} ${-amp} ${W/2} 0 q${W/4} ${amp} ${W/2} 0 ` +
-                                  `q${W/4} ${-amp} ${W/2} 0 q${W/4} ${amp} ${W/2} 0 ` +
-                                  `q${W/4} ${-amp} ${W/2} 0 q${W/4} ${amp} ${W/2} 0 ` +
-                                  `V${H} H${wx} Z`
-                                const clipId = `efi-fq-${i}`
-                                return (
-                                  <svg key={box.lbl} width={W} height={H} style={{ display: 'block', overflow: 'visible' }}>
-                                    <defs><clipPath id={clipId}><rect x={0} y={0} width={W} height={H} rx="3" /></clipPath></defs>
-                                    <rect x={0} y={0} width={W} height={H} rx="3" fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.07)" strokeWidth="0.5" />
-                                    <g clipPath={`url(#${clipId})`}>
-                                      {fill > 0.005 && (
-                                        <>
-                                          <rect x={0} y={Math.max(0, waveY + amp)} width={W} height={Math.max(0, H - Math.max(0, waveY + amp))} fill={box.color} opacity={0.3} />
-                                          <g style={{ animationName: `efi-fqw${i}`, animationDuration: `${speeds[i]}s`, animationTimingFunction: 'linear', animationIterationCount: 'infinite' }}>
-                                            <path d={wp} fill={box.color} opacity={0.65} />
-                                          </g>
-                                        </>
-                                      )}
-                                    </g>
-                                    <text x={W/2} y={14} textAnchor="middle" fill="#ffffff" fontSize={isMobile ? 10 : 12} fontFamily="JetBrains Mono,monospace" fontWeight="700" letterSpacing="0.3">{box.lbl}</text>
-                                    <text x={W/2} y={H - 6} textAnchor="middle" fill="#ffffff" fontSize={isMobile ? 14 : 17} fontFamily="JetBrains Mono,monospace" fontWeight="800">{(fill * 100).toFixed(0)}%</text>
-                                  </svg>
-                                )
-                              })}
-                            </div>
-                          )
-                        })()}
-
-                        {/* Flow Sentiment Gauge */}
-                        {(() => {
-                          const last = flowChartData.length > 0 ? flowChartData[flowChartData.length - 1] : null
-                          if (!last) return null
-                          const total = (last.callsPlus + last.callsMinus + last.putsPlus + last.putsMinus) || 1
-                          const bc = last.callsPlus / total, rc = last.callsMinus / total
-                          const bp = last.putsPlus / total, rp = last.putsMinus / total
-                          const score = Math.max(-1, Math.min(1, (bc * 0.8 + bp * 0.6 - rc * 0.6 - rp * 0.8) / 0.8))
-                          const gaugePercent = (score + 1) / 2
-
-                          const zones = [
-                            { start: 0,   end: 0.2, color: '#ef4444', label: 'Bear Trend' },
-                            { start: 0.2, end: 0.4, color: '#f97316', label: 'Bear Chop'  },
-                            { start: 0.4, end: 0.6, color: '#eab308', label: 'Neutral'    },
-                            { start: 0.6, end: 0.8, color: '#84cc16', label: 'Bull Chop'  },
-                            { start: 0.8, end: 1.0, color: '#22c55e', label: 'Bull Trend' },
-                          ]
-                          const zone = zones.find(z => gaugePercent >= z.start && gaugePercent <= z.end) ?? zones[4]
-
-                          const W2 = isMobile ? 78 : 94
-                          const gaugeW = 4 * W2 + 3 * (isMobile ? 3 : 4)
-                          const tk = isMobile ? 20 : 28
-                          const radius = (gaugeW - tk) / 2
-                          const C = Math.PI * radius
-
-                          // Full-size viewBox coords, rendered 30% shorter via preserveAspectRatio=none
-                          const vbW = gaugeW
-                          const vbH = Math.round(gaugeW / 2) + 20
-                          const svgW = gaugeW
-                          const svgH = Math.round(vbH * 0.70)   // 30% shorter
-                          const arcCY = Math.round(gaugeW / 2)
-                          const arcCX = gaugeW / 2
-
-                          const x0 = tk / 2, x1 = vbW - tk / 2
-                          const arcPath = `M ${x0} ${arcCY} A ${radius} ${radius} 0 0 1 ${x1} ${arcCY}`
-
-                          // Needle angle: gaugePercent=0→points left(π), 1→points right(0)
-                          const needleAngle = (1 - gaugePercent) * Math.PI
-                          const needleLen = radius * 0.76
-                          const nx = arcCX + needleLen * Math.cos(needleAngle)
-                          const ny = arcCY - needleLen * Math.sin(needleAngle)
-
-                          const pctStr = `${score >= 0 ? '+' : ''}${(score * 100).toFixed(0)}%`
-                          const lfs = isMobile ? 9 : 11   // label font size
-
-                          return (
-                            <div style={{ paddingTop: isMobile ? 4 : 6 }}>
-                              <svg
-                                width={svgW} height={svgH}
-                                viewBox={`0 0 ${vbW} ${vbH}`}
-                                preserveAspectRatio="none"
-                                style={{ display: 'block', overflow: 'visible' }}
-                              >
-                                <defs>
-                                  {/* Glossy sheen gradient — top-bright, bottom-dark */}
-                                  <linearGradient id="efi-g-sheen" x1="0%" y1="0%" x2="0%" y2="100%">
-                                    <stop offset="0%"   stopColor="rgba(255,255,255,0.22)" />
-                                    <stop offset="55%"  stopColor="rgba(255,255,255,0.04)" />
-                                    <stop offset="100%" stopColor="rgba(0,0,0,0.25)" />
-                                  </linearGradient>
-                                  {/* Per-zone active gradient */}
-                                  <linearGradient id="efi-g-act" x1="0%" y1="0%" x2="0%" y2="100%">
-                                    <stop offset="0%"   stopColor="rgba(255,255,255,0.30)" />
-                                    <stop offset="100%" stopColor="rgba(0,0,0,0.20)" />
-                                  </linearGradient>
-                                  <filter id="efi-glow" x="-20%" y="-20%" width="140%" height="140%">
-                                    <feGaussianBlur stdDeviation="4" result="b"/>
-                                    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-                                  </filter>
-                                  <filter id="efi-glow-sm" x="-15%" y="-15%" width="130%" height="130%">
-                                    <feGaussianBlur stdDeviation="2" result="b"/>
-                                    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-                                  </filter>
-                                </defs>
-
-                                {/* === TRACK === */}
-                                {/* Outer rim shadow */}
-                                <path d={arcPath} fill="none" stroke="rgba(0,0,0,0.6)" strokeWidth={tk + 6} strokeLinecap="round" />
-                                {/* Dark background track */}
-                                <path d={arcPath} fill="none" stroke="#0d1117" strokeWidth={tk} strokeLinecap="round" />
-                                {/* Inner bevel highlight */}
-                                <path d={arcPath} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={tk - 4} strokeLinecap="round" />
-
-                                {/* === ZONE BANDS (dim) === */}
-                                {zones.map(z => (
-                                  <path key={z.start} d={arcPath} fill="none"
-                                    stroke={z.color} strokeWidth={tk - 4} strokeLinecap="butt"
-                                    strokeDasharray={`${(z.end - z.start) * C} ${C * 10}`}
-                                    strokeDashoffset={z.start * C}
-                                    opacity={0.22}
-                                  />
-                                ))}
-
-                                {/* === SEPARATORS === */}
-                                {[0.2, 0.4, 0.6, 0.8].map(f => {
-                                  const a = (1 - f) * Math.PI
-                                  const r1 = radius - tk / 2 - 2, r2 = radius + tk / 2 + 2
+                                {boxes.map((box, i) => {
+                                  const fill = Math.max(0, Math.min(1, box.val / total))
+                                  const liquidH = fill * H
+                                  const waveY = H - liquidH
+                                  const wx = -W
+                                  const wp = `M${wx} ${waveY} ` +
+                                    `q${W / 4} ${-amp} ${W / 2} 0 q${W / 4} ${amp} ${W / 2} 0 ` +
+                                    `q${W / 4} ${-amp} ${W / 2} 0 q${W / 4} ${amp} ${W / 2} 0 ` +
+                                    `q${W / 4} ${-amp} ${W / 2} 0 q${W / 4} ${amp} ${W / 2} 0 ` +
+                                    `V${H} H${wx} Z`
+                                  const clipId = `efi-fq-${i}`
                                   return (
-                                    <line key={f}
-                                      x1={arcCX + r1 * Math.cos(a)} y1={arcCY - r1 * Math.sin(a)}
-                                      x2={arcCX + r2 * Math.cos(a)} y2={arcCY - r2 * Math.sin(a)}
-                                      stroke="rgba(0,0,0,0.8)" strokeWidth={isMobile ? 3 : 4}
-                                    />
+                                    <svg key={box.lbl} width={W} height={H} style={{ display: 'block', overflow: 'visible' }}>
+                                      <defs><clipPath id={clipId}><rect x={0} y={0} width={W} height={H} rx="3" /></clipPath></defs>
+                                      <rect x={0} y={0} width={W} height={H} rx="3" fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.07)" strokeWidth="0.5" />
+                                      <g clipPath={`url(#${clipId})`}>
+                                        {fill > 0.005 && (
+                                          <>
+                                            <rect x={0} y={Math.max(0, waveY + amp)} width={W} height={Math.max(0, H - Math.max(0, waveY + amp))} fill={box.color} opacity={0.3} />
+                                            <g style={{ animationName: `efi-fqw${i}`, animationDuration: `${speeds[i]}s`, animationTimingFunction: 'linear', animationIterationCount: 'infinite' }}>
+                                              <path d={wp} fill={box.color} opacity={0.65} />
+                                            </g>
+                                          </>
+                                        )}
+                                      </g>
+                                      <text x={W / 2} y={14} textAnchor="middle" fill="#ffffff" fontSize={isMobile ? 10 : 12} fontFamily="JetBrains Mono,monospace" fontWeight="700" letterSpacing="0.3">{box.lbl}</text>
+                                      <text x={W / 2} y={H - 6} textAnchor="middle" fill="#ffffff" fontSize={isMobile ? 14 : 17} fontFamily="JetBrains Mono,monospace" fontWeight="800">{(fill * 100).toFixed(0)}%</text>
+                                    </svg>
                                   )
                                 })}
-
-                                {/* === ACTIVE FILL === */}
-                                {/* Base colored fill */}
-                                <path d={arcPath} fill="none"
-                                  stroke={zone.color} strokeWidth={tk - 2} strokeLinecap="round"
-                                  strokeDasharray={`${Math.max(0.1, gaugePercent * C)} ${C * 10}`}
-                                  strokeDashoffset={0}
-                                  opacity={0.95}
-                                  filter="url(#efi-glow)"
-                                />
-                                {/* Glossy sheen overlay on active fill — top-half brighter */}
-                                <path d={arcPath} fill="none"
-                                  stroke="url(#efi-g-act)" strokeWidth={Math.round((tk - 2) * 0.55)} strokeLinecap="round"
-                                  strokeDasharray={`${Math.max(0.1, gaugePercent * C)} ${C * 10}`}
-                                  strokeDashoffset={0}
-                                  opacity={0.7}
-                                />
-
-                                {/* === TRACK GLOSS (outer rim highlight over whole track) === */}
-                                <path d={arcPath} fill="none"
-                                  stroke="url(#efi-g-sheen)" strokeWidth={tk - 2} strokeLinecap="round"
-                                  opacity={0.55}
-                                />
-                                {/* Outer edge bright rim */}
-                                <path d={arcPath} fill="none"
-                                  stroke="rgba(255,255,255,0.12)" strokeWidth={3} strokeLinecap="round"
-                                  style={{ transform: `translate(0, -${tk / 2 - 2}px)` }}
-                                  opacity={0.8}
-                                />
-
-                                {/* === ZONE LABELS (solid color, on top of arc) === */}
-                                {zones.map(z => {
-                                  const f = (z.start + z.end) / 2
-                                  const a = (1 - f) * Math.PI
-                                  const lx = arcCX + radius * Math.cos(a)
-                                  const ly = arcCY - radius * Math.sin(a)
-                                  const parts = z.label.split(' ')
-                                  const lh = lfs + 2
-                                  return parts.map((word, wi) => {
-                                    const yo = parts.length > 1 ? (wi - (parts.length - 1) / 2) * lh : 0
-                                    return (
-                                      <text key={`${z.start}-${wi}`}
-                                        x={lx} y={ly + yo}
-                                        textAnchor="middle" dominantBaseline="middle"
-                                        fill={z.color} fontSize={lfs}
-                                        fontFamily="JetBrains Mono,monospace" fontWeight="900"
-                                        style={{ textShadow: `0 1px 3px rgba(0,0,0,0.9)` }}
-                                      >{word}</text>
-                                    )
-                                  })
-                                })}
-
-                                {/* === NEEDLE === */}
-                                {/* Needle shadow */}
-                                <line x1={arcCX + 1} y1={arcCY + 1} x2={nx + 1} y2={ny + 1}
-                                  stroke="rgba(0,0,0,0.5)" strokeWidth={isMobile ? 3 : 4} strokeLinecap="round"
-                                />
-                                {/* Needle body */}
-                                <line x1={arcCX} y1={arcCY} x2={nx} y2={ny}
-                                  stroke={zone.color} strokeWidth={isMobile ? 2.5 : 3.5} strokeLinecap="round"
-                                  filter="url(#efi-glow-sm)"
-                                />
-                                {/* Needle tip highlight */}
-                                <line x1={arcCX} y1={arcCY} x2={nx} y2={ny}
-                                  stroke="rgba(255,255,255,0.35)" strokeWidth={isMobile ? 1 : 1.5} strokeLinecap="round"
-                                />
-
-                                {/* === PIVOT === */}
-                                <circle cx={arcCX} cy={arcCY} r={isMobile ? 11 : 13} fill="rgba(0,0,0,0.95)" stroke="rgba(255,255,255,0.15)" strokeWidth="1.5" />
-                                <circle cx={arcCX} cy={arcCY} r={isMobile ? 7 : 8.5} fill={zone.color} filter="url(#efi-glow-sm)" />
-                                {/* Pivot gloss dot */}
-                                <circle cx={arcCX - (isMobile ? 2 : 2.5)} cy={arcCY - (isMobile ? 2 : 2.5)} r={isMobile ? 2.5 : 3} fill="rgba(255,255,255,0.5)" />
-
-                                {/* === BEAR / BULL CORNER LABELS === */}
-                                <text x={x0 + 4} y={arcCY + 17} fill="#ef4444" fontSize={isMobile ? 9 : 10} fontFamily="JetBrains Mono,monospace" fontWeight="900">BEAR</text>
-                                <text x={x1 - 4} y={arcCY + 17} textAnchor="end" fill="#22c55e" fontSize={isMobile ? 9 : 10} fontFamily="JetBrains Mono,monospace" fontWeight="900">BULL</text>
-
-                                {/* === SCORE === */}
-                                <text x={arcCX} y={arcCY + 17} textAnchor="middle"
-                                  fill="#ffffff" fontSize={isMobile ? 12 : 14}
-                                  fontFamily="JetBrains Mono,monospace" fontWeight="900"
-                                >{pctStr}</text>
-                              </svg>
-
-                              {/* Zone state caption */}
-                              <div style={{ textAlign: 'center', fontSize: isMobile ? 9 : 11, fontFamily: 'JetBrains Mono,monospace', fontWeight: 900, color: zone.color, letterSpacing: '0.12em', paddingBottom: isMobile ? 2 : 3, textShadow: `0 0 8px ${zone.color}55` }}>
-                                {zone.label.toUpperCase()}
                               </div>
-                            </div>
-                          )
-                        })()}
+                            )
+                          })()}
+
+                          {/* Flow Sentiment Gauge */}
+                          {(() => {
+                            const last = flowChartData.length > 0 ? flowChartData[flowChartData.length - 1] : null
+                            if (!last) return null
+                            const total = (last.callsPlus + last.callsMinus + last.putsPlus + last.putsMinus) || 1
+                            const bc = last.callsPlus / total, rc = last.callsMinus / total
+                            const bp = last.putsPlus / total, rp = last.putsMinus / total
+                            const score = Math.max(-1, Math.min(1, (bc * 0.8 + bp * 0.6 - rc * 0.6 - rp * 0.8) / 0.8))
+                            const gaugePercent = (score + 1) / 2
+
+                            const zones = [
+                              { start: 0, end: 0.2, color: '#ef4444', label: 'Bear Trend' },
+                              { start: 0.2, end: 0.4, color: '#f97316', label: 'Bear Chop' },
+                              { start: 0.4, end: 0.6, color: '#eab308', label: 'Neutral' },
+                              { start: 0.6, end: 0.8, color: '#84cc16', label: 'Bull Chop' },
+                              { start: 0.8, end: 1.0, color: '#22c55e', label: 'Bull Trend' },
+                            ]
+                            const zone = zones.find(z => gaugePercent >= z.start && gaugePercent <= z.end) ?? zones[4]
+
+                            const W2 = isMobile ? 78 : 94
+                            const gaugeW = 4 * W2 + 3 * (isMobile ? 3 : 4)
+                            const tk = isMobile ? 20 : 28
+                            const radius = (gaugeW - tk) / 2
+                            const C = Math.PI * radius
+
+                            // Full-size viewBox coords, rendered 30% shorter via preserveAspectRatio=none
+                            const vbW = gaugeW
+                            const vbH = Math.round(gaugeW / 2) + 20
+                            const svgW = gaugeW
+                            const svgH = Math.round(vbH * 0.70)   // 30% shorter
+                            const arcCY = Math.round(gaugeW / 2)
+                            const arcCX = gaugeW / 2
+
+                            const x0 = tk / 2, x1 = vbW - tk / 2
+                            const arcPath = `M ${x0} ${arcCY} A ${radius} ${radius} 0 0 1 ${x1} ${arcCY}`
+
+                            // Needle angle: gaugePercent=0→points left(π), 1→points right(0)
+                            const needleAngle = (1 - gaugePercent) * Math.PI
+                            const needleLen = radius * 0.76
+                            const nx = arcCX + needleLen * Math.cos(needleAngle)
+                            const ny = arcCY - needleLen * Math.sin(needleAngle)
+
+                            const pctStr = `${score >= 0 ? '+' : ''}${(score * 100).toFixed(0)}%`
+                            const lfs = isMobile ? 9 : 11   // label font size
+
+                            return (
+                              <div style={{ paddingTop: isMobile ? 4 : 6 }}>
+                                <svg
+                                  width={svgW} height={svgH}
+                                  viewBox={`0 0 ${vbW} ${vbH}`}
+                                  preserveAspectRatio="none"
+                                  style={{ display: 'block', overflow: 'visible' }}
+                                >
+                                  <defs>
+                                    {/* Glossy sheen gradient — top-bright, bottom-dark */}
+                                    <linearGradient id="efi-g-sheen" x1="0%" y1="0%" x2="0%" y2="100%">
+                                      <stop offset="0%" stopColor="rgba(255,255,255,0.22)" />
+                                      <stop offset="55%" stopColor="rgba(255,255,255,0.04)" />
+                                      <stop offset="100%" stopColor="rgba(0,0,0,0.25)" />
+                                    </linearGradient>
+                                    {/* Per-zone active gradient */}
+                                    <linearGradient id="efi-g-act" x1="0%" y1="0%" x2="0%" y2="100%">
+                                      <stop offset="0%" stopColor="rgba(255,255,255,0.30)" />
+                                      <stop offset="100%" stopColor="rgba(0,0,0,0.20)" />
+                                    </linearGradient>
+                                    <filter id="efi-glow" x="-20%" y="-20%" width="140%" height="140%">
+                                      <feGaussianBlur stdDeviation="4" result="b" />
+                                      <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+                                    </filter>
+                                    <filter id="efi-glow-sm" x="-15%" y="-15%" width="130%" height="130%">
+                                      <feGaussianBlur stdDeviation="2" result="b" />
+                                      <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+                                    </filter>
+                                  </defs>
+
+                                  {/* === TRACK === */}
+                                  {/* Outer rim shadow */}
+                                  <path d={arcPath} fill="none" stroke="rgba(0,0,0,0.6)" strokeWidth={tk + 6} strokeLinecap="round" />
+                                  {/* Dark background track */}
+                                  <path d={arcPath} fill="none" stroke="#0d1117" strokeWidth={tk} strokeLinecap="round" />
+                                  {/* Inner bevel highlight */}
+                                  <path d={arcPath} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={tk - 4} strokeLinecap="round" />
+
+                                  {/* === ZONE BANDS (dim) === */}
+                                  {zones.map(z => (
+                                    <path key={z.start} d={arcPath} fill="none"
+                                      stroke={z.color} strokeWidth={tk - 4} strokeLinecap="butt"
+                                      strokeDasharray={`${(z.end - z.start) * C} ${C * 10}`}
+                                      strokeDashoffset={z.start * C}
+                                      opacity={0.22}
+                                    />
+                                  ))}
+
+                                  {/* === SEPARATORS === */}
+                                  {[0.2, 0.4, 0.6, 0.8].map(f => {
+                                    const a = (1 - f) * Math.PI
+                                    const r1 = radius - tk / 2 - 2, r2 = radius + tk / 2 + 2
+                                    return (
+                                      <line key={f}
+                                        x1={arcCX + r1 * Math.cos(a)} y1={arcCY - r1 * Math.sin(a)}
+                                        x2={arcCX + r2 * Math.cos(a)} y2={arcCY - r2 * Math.sin(a)}
+                                        stroke="rgba(0,0,0,0.8)" strokeWidth={isMobile ? 3 : 4}
+                                      />
+                                    )
+                                  })}
+
+                                  {/* === ACTIVE FILL === */}
+                                  {/* Base colored fill */}
+                                  <path d={arcPath} fill="none"
+                                    stroke={zone.color} strokeWidth={tk - 2} strokeLinecap="round"
+                                    strokeDasharray={`${Math.max(0.1, gaugePercent * C)} ${C * 10}`}
+                                    strokeDashoffset={0}
+                                    opacity={0.95}
+                                    filter="url(#efi-glow)"
+                                  />
+                                  {/* Glossy sheen overlay on active fill — top-half brighter */}
+                                  <path d={arcPath} fill="none"
+                                    stroke="url(#efi-g-act)" strokeWidth={Math.round((tk - 2) * 0.55)} strokeLinecap="round"
+                                    strokeDasharray={`${Math.max(0.1, gaugePercent * C)} ${C * 10}`}
+                                    strokeDashoffset={0}
+                                    opacity={0.7}
+                                  />
+
+                                  {/* === TRACK GLOSS (outer rim highlight over whole track) === */}
+                                  <path d={arcPath} fill="none"
+                                    stroke="url(#efi-g-sheen)" strokeWidth={tk - 2} strokeLinecap="round"
+                                    opacity={0.55}
+                                  />
+                                  {/* Outer edge bright rim */}
+                                  <path d={arcPath} fill="none"
+                                    stroke="rgba(255,255,255,0.12)" strokeWidth={3} strokeLinecap="round"
+                                    style={{ transform: `translate(0, -${tk / 2 - 2}px)` }}
+                                    opacity={0.8}
+                                  />
+
+                                  {/* === ZONE LABELS (solid color, on top of arc) === */}
+                                  {zones.map(z => {
+                                    const f = (z.start + z.end) / 2
+                                    const a = (1 - f) * Math.PI
+                                    const lx = arcCX + radius * Math.cos(a)
+                                    const ly = arcCY - radius * Math.sin(a)
+                                    const parts = z.label.split(' ')
+                                    const lh = lfs + 2
+                                    return parts.map((word, wi) => {
+                                      const yo = parts.length > 1 ? (wi - (parts.length - 1) / 2) * lh : 0
+                                      return (
+                                        <text key={`${z.start}-${wi}`}
+                                          x={lx} y={ly + yo}
+                                          textAnchor="middle" dominantBaseline="middle"
+                                          fill={z.color} fontSize={lfs}
+                                          fontFamily="JetBrains Mono,monospace" fontWeight="900"
+                                          style={{ textShadow: `0 1px 3px rgba(0,0,0,0.9)` }}
+                                        >{word}</text>
+                                      )
+                                    })
+                                  })}
+
+                                  {/* === NEEDLE === */}
+                                  {/* Needle shadow */}
+                                  <line x1={arcCX + 1} y1={arcCY + 1} x2={nx + 1} y2={ny + 1}
+                                    stroke="rgba(0,0,0,0.5)" strokeWidth={isMobile ? 3 : 4} strokeLinecap="round"
+                                  />
+                                  {/* Needle body */}
+                                  <line x1={arcCX} y1={arcCY} x2={nx} y2={ny}
+                                    stroke={zone.color} strokeWidth={isMobile ? 2.5 : 3.5} strokeLinecap="round"
+                                    filter="url(#efi-glow-sm)"
+                                  />
+                                  {/* Needle tip highlight */}
+                                  <line x1={arcCX} y1={arcCY} x2={nx} y2={ny}
+                                    stroke="rgba(255,255,255,0.35)" strokeWidth={isMobile ? 1 : 1.5} strokeLinecap="round"
+                                  />
+
+                                  {/* === PIVOT === */}
+                                  <circle cx={arcCX} cy={arcCY} r={isMobile ? 11 : 13} fill="rgba(0,0,0,0.95)" stroke="rgba(255,255,255,0.15)" strokeWidth="1.5" />
+                                  <circle cx={arcCX} cy={arcCY} r={isMobile ? 7 : 8.5} fill={zone.color} filter="url(#efi-glow-sm)" />
+                                  {/* Pivot gloss dot */}
+                                  <circle cx={arcCX - (isMobile ? 2 : 2.5)} cy={arcCY - (isMobile ? 2 : 2.5)} r={isMobile ? 2.5 : 3} fill="rgba(255,255,255,0.5)" />
+
+                                  {/* === BEAR / BULL CORNER LABELS === */}
+                                  <text x={x0 + 4} y={arcCY + 17} fill="#ef4444" fontSize={isMobile ? 9 : 10} fontFamily="JetBrains Mono,monospace" fontWeight="900">BEAR</text>
+                                  <text x={x1 - 4} y={arcCY + 17} textAnchor="end" fill="#22c55e" fontSize={isMobile ? 9 : 10} fontFamily="JetBrains Mono,monospace" fontWeight="900">BULL</text>
+
+                                  {/* === SCORE === */}
+                                  <text x={arcCX} y={arcCY + 17} textAnchor="middle"
+                                    fill="#ffffff" fontSize={isMobile ? 12 : 14}
+                                    fontFamily="JetBrains Mono,monospace" fontWeight="900"
+                                  >{pctStr}</text>
+                                </svg>
+
+                                {/* Zone state caption */}
+                                <div style={{ textAlign: 'center', fontSize: isMobile ? 9 : 11, fontFamily: 'JetBrains Mono,monospace', fontWeight: 900, color: zone.color, letterSpacing: '0.12em', paddingBottom: isMobile ? 2 : 3, textShadow: `0 0 8px ${zone.color}55` }}>
+                                  {zone.label.toUpperCase()}
+                                </div>
+                              </div>
+                            )
+                          })()}
                         </div>
                       </div>
                     )}

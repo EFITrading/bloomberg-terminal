@@ -1837,36 +1837,34 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
     setAnalysis(null)
     setStreamStatus(`LIVE ${targetTicker === 'ALL' ? '· ALL TICKERS' : `· ${targetTicker}`}`)
 
-    // Subscribe to the shared Polygon WS
-    const unsub = polygonOptionsWS.addHandler((msgs: PolygonOptionsTradeMsg[]) => {
-      if (!algoLiveConnectedRef.current) {
-        algoLiveConnectedRef.current = true
-        setAlgoLiveConnected(true)
-      }
-      for (const msg of msgs) {
-        const trade = convertAlgoTrade(msg)
-        if (!trade) continue
-        // Filter by ticker if not streaming ALL
-        if (targetTicker !== 'ALL' && trade.underlying_ticker !== targetTicker) continue
-        algoLiveBufferRef.current.push(trade)
-      }
-    })
-    algoLiveUnsubRef.current = unsub
+    // Subscribe via Railway DB poll instead of WebSocket
+    // (Railway holds the single Polygon WS connection — browser polls every 30s)
+    const getTodayDS = () => {
+      const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    }
 
-    // 1-second flush: drain buffer → classify → add to flowData
-    algoLiveFlushTimerRef.current = setInterval(() => {
-      if (algoLiveBufferRef.current.length === 0) return
-      const batch = algoLiveBufferRef.current.splice(0)
-      const filtered = batch.filter(t => t.total_premium >= 1000)
-      if (filtered.length === 0) return
-      const classified: OptionsFlowData[] = filtered.map(t => ({
-        ...t,
-        trade_type: (t.trade_size >= 250 ? 'BLOCK' : 'MINI') as 'BLOCK' | 'MINI' | 'SWEEP',
-      }))
-      accumulatedTradesRef.current = [...classified, ...accumulatedTradesRef.current]
-      setFlowData(prev => [...classified, ...prev])
-      setAlgoLiveTradeCount(prev => prev + classified.length)
-    }, 1000)
+    const pollAlgoDB = async () => {
+      try {
+        const res = await fetch(`/api/flows/save-batch?date=${getTodayDS()}`)
+        const result = await res.json()
+        if (!result.trades || result.trades.length === 0) return
+        if (!algoLiveConnectedRef.current) {
+          algoLiveConnectedRef.current = true
+          setAlgoLiveConnected(true)
+        }
+        const filtered: OptionsFlowData[] = (result.trades as OptionsFlowData[]).filter(t =>
+          targetTicker === 'ALL' || t.underlying_ticker === targetTicker
+        )
+        accumulatedTradesRef.current = filtered
+        setFlowData(filtered)
+        setAlgoLiveTradeCount(filtered.length)
+        setStreamStatus(`LIVE ${targetTicker === 'ALL' ? '· ALL TICKERS' : `· ${targetTicker}`} · ${filtered.length} trades`)
+      } catch { /* ignore */ }
+    }
+
+    pollAlgoDB()
+    algoLiveFlushTimerRef.current = setInterval(pollAlgoDB, 30 * 1000)
 
     // 10-second analysis refresh: recompute chart from accumulated trades
     algoLiveAnalysisIntervalRef.current = setInterval(() => {
