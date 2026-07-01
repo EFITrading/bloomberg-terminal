@@ -8,12 +8,12 @@
  */
 
 import WebSocket from 'ws'
-import { createGzip } from 'zlib'
+import { gzip, gunzip } from 'zlib'
 import { promisify } from 'util'
-import { gzip } from 'zlib'
 import { PrismaClient } from '@prisma/client'
 
 const gzipAsync = promisify(gzip)
+const gunzipAsync = promisify(gunzip)
 
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY
 if (!POLYGON_API_KEY) { console.error('[FATAL] POLYGON_API_KEY not set'); process.exit(1) }
@@ -190,33 +190,48 @@ function applyLiveOI(trades) {
 }
 
 
-async function saveToDB(allTrades, tradingDate) {
-    if (allTrades.length === 0) return
-    try {
-        const json = JSON.stringify(allTrades)
-        const compressed = await gzipAsync(json)
-        const base64 = compressed.toString('base64')
-        const payload = { tradingDate, batchTime: new Date(), data: base64, tradeCount: allTrades.length }
+// Incremental save — only pendingTrades (last 30s) is held in memory.
+// On each save: load existing day blob from DB, decompress, append new trades, recompress, upsert.
+// This keeps the in-process array tiny (~50-100 items) regardless of how many trades accumulate.
+async function saveToDB(tradingDate) {
+    if (pendingTrades.length === 0) return
+    const newTrades = [...pendingTrades]   // snapshot — don't clear until save succeeds
 
-        // retry delete+create up to 3 times — deleteMany inside loop so each attempt starts clean
-        // (Prisma 502 means the op succeeded server-side but response failed, so retry must re-delete first)
-        let lastErr
-        for (let attempt = 1; attempt <= 3; attempt++) {
-            try {
-                await prisma.flowBatch.deleteMany({ where: { tradingDate } })
-                await prisma.flowBatch.create({ data: payload, select: { id: true } })
-                console.log(`[SAVE] ✓ Saved ${allTrades.length} trades for ${tradingDate} | ${(compressed.length / 1024).toFixed(1)}KB`)
-                return
-            } catch (err) {
-                lastErr = err
-                console.warn(`[SAVE] Attempt ${attempt}/3 failed: ${err.message}`)
-                if (attempt < 3) await new Promise(r => setTimeout(r, 2000))
+    let lastErr
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+            // Load existing day's trades from DB (may be large — only in memory during merge)
+            let existingTrades = []
+            const existing = await prisma.flowBatch.findUnique({ where: { tradingDate }, select: { data: true } })
+            if (existing) {
+                const buf = Buffer.from(existing.data, 'base64')
+                const decompressed = await gunzipAsync(buf)
+                existingTrades = JSON.parse(decompressed.toString())
             }
+
+            const combined = existingTrades.concat(newTrades)
+            const compressed = await gzipAsync(JSON.stringify(combined))
+            const base64 = compressed.toString('base64')
+            const payload = { tradingDate, batchTime: new Date(), data: base64, tradeCount: combined.length }
+
+            await prisma.flowBatch.upsert({
+                where: { tradingDate },
+                create: payload,
+                update: payload,
+                select: { id: true },
+            })
+
+            // Clear only after confirmed success
+            pendingTrades.splice(0, newTrades.length)
+            console.log(`[SAVE] ✓ ${combined.length} trades for ${tradingDate} (+${newTrades.length} new) | ${(compressed.length / 1024).toFixed(1)}KB`)
+            return
+        } catch (err) {
+            lastErr = err
+            console.warn(`[SAVE] Attempt ${attempt}/3 failed: ${err.message}`)
+            if (attempt < 3) await new Promise(r => setTimeout(r, 2000))
         }
-        console.error('[SAVE] All retries failed:', lastErr.message)
-    } catch (err) {
-        console.error('[SAVE] DB error:', err.message)
     }
+    console.error('[SAVE] All retries failed — trades kept in pendingTrades for next cycle:', lastErr.message)
 }
 
 // ── Main stream ───────────────────────────────────────────────────────────────
@@ -224,8 +239,8 @@ let ws = null
 let reconnectTimer = null
 let flushTimer = null
 let saveTimer = null
-let rawBuffer = []        // incoming WS messages, flushed every 1s
-const allTrades = []      // cumulative enriched trades for the day
+let rawBuffer = []          // incoming WS messages, flushed every 1s
+let pendingTrades = []      // enriched trades since last DB save — cleared after each successful save
 
 function startStream() {
     if (ws) { ws.terminate(); ws = null }
@@ -294,7 +309,7 @@ function stopStream() {
 
     // Final save
     const tradingDate = getTradingDate()
-    saveToDB(allTrades, tradingDate).then(() => {
+    saveToDB(tradingDate).then(() => {
         console.log('[STREAM] Final save complete. Waiting for next market open ...')
         scheduleNextOpen()
     })
@@ -302,7 +317,7 @@ function stopStream() {
 
 function startCollecting() {
     // Reset daily state
-    allTrades.length = 0
+    pendingTrades = []
     rawBuffer = []
     liveOIMap.clear()
 
@@ -315,17 +330,17 @@ function startCollecting() {
         try {
             const enriched = await enrichBatch(batch)
             const withOI = applyLiveOI(enriched)
-            allTrades.push(...withOI)
-            console.log(`[FLUSH] +${withOI.length} enriched | total: ${allTrades.length}`)
+            pendingTrades.push(...withOI)
+            console.log(`[FLUSH] +${withOI.length} enriched | pending: ${pendingTrades.length}`)
         } catch (err) {
             console.error('[FLUSH] Enrich error:', err.message)
-            allTrades.push(...batch)
+            pendingTrades.push(...batch)
         }
     }, 1000)
 
     // Save every 30 seconds so browser polls stay fresh
     saveTimer = setInterval(() => {
-        saveToDB(allTrades, getTradingDate())
+        saveToDB(getTradingDate())
     }, 30 * 1000)
 
     // Auto-stop at market close
