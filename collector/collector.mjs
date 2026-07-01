@@ -241,6 +241,8 @@ let flushTimer = null
 let saveTimer = null
 let rawBuffer = []          // incoming WS messages, flushed every 1s
 let pendingTrades = []      // enriched trades since last DB save — cleared after each successful save
+let intentionalStop = false // set before ws.terminate() so close handler doesn't reconnect
+let collecting = false      // true while a trading session is active — prevents duplicate startCollecting calls
 
 function startStream() {
     if (ws) { ws.terminate(); ws = null }
@@ -292,8 +294,12 @@ function startStream() {
     })
 
     ws.on('close', () => {
-        console.log('[WS] Disconnected — reconnecting in 5s ...')
         ws = null
+        if (intentionalStop) {
+            intentionalStop = false
+            return  // stopped on purpose — don't reconnect
+        }
+        console.log('[WS] Disconnected — reconnecting in 5s ...')
         if (isMarketOpen()) {
             reconnectTimer = setTimeout(startStream, 5000)
         }
@@ -301,7 +307,10 @@ function startStream() {
 }
 
 function stopStream() {
+    if (!collecting) return  // already stopped — ignore duplicate calls
+    collecting = false
     console.log('[STREAM] Market closed — stopping')
+    intentionalStop = true
     if (ws) { ws.terminate(); ws = null }
     if (flushTimer) { clearInterval(flushTimer); flushTimer = null }
     if (saveTimer) { clearInterval(saveTimer); saveTimer = null }
@@ -316,6 +325,8 @@ function stopStream() {
 }
 
 function startCollecting() {
+    if (collecting) return  // already running — ignore duplicate scheduler calls
+    collecting = true
     // Reset daily state
     pendingTrades = []
     rawBuffer = []
@@ -363,7 +374,12 @@ function scheduleNextOpen() {
 
     const wait = msUntilMarketOpen()
     if (wait <= 0) {
-        // Market is open now
+        if (!isMarketOpen()) {
+            // Past close already — schedule for tomorrow
+            console.log('[SCHEDULER] Market already closed — checking again in 1 hour')
+            setTimeout(scheduleNextOpen, 60 * 60 * 1000)
+            return
+        }
         console.log('[SCHEDULER] Market is open — starting now')
         startCollecting()
     } else {

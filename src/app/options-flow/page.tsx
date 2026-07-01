@@ -800,6 +800,13 @@ const applyLiveOIIncremental = (
 
 export default function OptionsFlowPage() {
   const [data, setData] = useState<OptionsFlowData[]>([])
+  const [debugLines, setDebugLines] = useState<string[]>([])
+  const [showDebug, setShowDebug] = useState(false)
+  const dbgLog = (msg: string) => {
+    const ts = new Date().toLocaleTimeString()
+    setDebugLines(prev => [`${ts} ${msg}`, ...prev].slice(0, 40))
+    console.log(`[DBG] ${msg}`)
+  }
   // Buffer SSE trades to avoid per-message setState (main thread violation fix)
   const pendingTradesRef = useRef<OptionsFlowData[]>([])
   const seenTradeIdsRef = useRef<Set<string>>(new Set())
@@ -920,6 +927,8 @@ export default function OptionsFlowPage() {
     })()
     const isHoliday = US_MARKET_HOLIDAYS_SET.has(todayDS)
 
+    dbgLog(`marketOpen=${marketOpen} isHoliday=${isHoliday} manual=${manualLiveMode} stopped=${manuallyStopped} date=${todayDS}`)
+
     if (((marketOpen && !isHoliday) || manualLiveMode) && !manuallyStopped) {
       setIsLiveMode(true)
       setLiveConnected(false)
@@ -937,9 +946,18 @@ export default function OptionsFlowPage() {
 
       // Poll Railway's DB save every 30 seconds for fresh data
       const pollDB = async () => {
+        const dateStr = getTradingDate()
+        dbgLog(`pollDB → date=${dateStr}`)
         try {
-          const res = await fetch(`/api/flows/save-batch?date=${getTradingDate()}`)
+          const res = await fetch(`/api/flows/save-batch?date=${dateStr}`)
+          dbgLog(`response status=${res.status} ok=${res.ok} len=${res.headers.get('content-length') ?? '?'}`)
+          if (!res.ok) {
+            const errText = await res.text()
+            dbgLog(`ERROR body: ${errText.slice(0, 120)}`)
+            return
+          }
           const result = await res.json()
+          dbgLog(`parsed trades=${result.trades?.length ?? 0} err=${result.error ?? 'none'}`)
           if (result.trades && result.trades.length > 0) {
             allTradesRef.current = result.trades
             liveTradeCountRef.current = result.trades.length
@@ -954,6 +972,7 @@ export default function OptionsFlowPage() {
               if (liveTickerFilterRef.current && t.underlying_ticker?.toUpperCase() !== liveTickerFilterRef.current) return false
               return true
             })
+            dbgLog(`displayed=${displayTrades.length} showAll=${liveShowAllRef.current} ticker="${liveTickerFilterRef.current}"`)
             setData(displayTrades)
             setLastUpdate(new Date().toLocaleTimeString())
 
@@ -972,9 +991,11 @@ export default function OptionsFlowPage() {
               }
               localStorage.setItem('efi_live_oi', JSON.stringify({ tradingDate, tickers: byTicker }))
             } catch { /* non-critical */ }
+          } else {
+            dbgLog(`no trades returned (length=${result.trades?.length ?? 'undef'})`)
           }
         } catch (err) {
-          console.warn('[POLL] Could not fetch Railway data:', err)
+          dbgLog(`THREW: ${err instanceof Error ? err.message : String(err)}`)
         }
       }
 
@@ -1790,6 +1811,16 @@ export default function OptionsFlowPage() {
 
   return (
     <div className="bg-black text-white">
+      {/* Mobile debug overlay — tap button bottom-right to toggle */}
+      <button
+        onClick={() => setShowDebug(p => !p)}
+        style={{ position: 'fixed', bottom: 70, right: 12, zIndex: 99999, background: '#ff4400', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 10px', fontSize: 11, fontFamily: 'monospace', opacity: 0.85 }}
+      >DBG</button>
+      {showDebug && (
+        <div style={{ position: 'fixed', bottom: 110, right: 0, left: 0, zIndex: 99998, background: 'rgba(0,0,0,0.92)', color: '#00ff88', fontSize: 10, fontFamily: 'monospace', padding: '8px 10px', maxHeight: '50vh', overflowY: 'auto', borderTop: '1px solid #333' }}>
+          {debugLines.length === 0 ? <div>No debug logs yet</div> : debugLines.map((l, i) => <div key={i}>{l}</div>)}
+        </div>
+      )}
       {/* Main Content */}
       <div className="p-0">
         <style jsx>{`
