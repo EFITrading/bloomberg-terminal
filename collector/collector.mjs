@@ -18,6 +18,12 @@ const gzipAsync = promisify(gzip)
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY
 if (!POLYGON_API_KEY) { console.error('[FATAL] POLYGON_API_KEY not set'); process.exit(1) }
 
+// Use direct Postgres connection — bypass Prisma Accelerate proxy which has frequent 502s
+// Railway is a persistent process and doesn't need connection pooling
+const directUrl = process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_DATABASE_URL
+if (!directUrl) { console.error('[FATAL] No Postgres URL set (POSTGRES_URL or POSTGRES_PRISMA_DATABASE_URL)'); process.exit(1) }
+process.env.POSTGRES_PRISMA_DATABASE_URL = directUrl
+
 const prisma = new PrismaClient()
 
 // ── Market hours ──────────────────────────────────────────────────────────────
@@ -192,13 +198,12 @@ async function saveToDB(allTrades, tradingDate) {
         const base64 = compressed.toString('base64')
         const payload = { tradingDate, batchTime: new Date(), data: base64, tradeCount: allTrades.length }
 
-        // delete first (write-only, no response size issue)
-        await prisma.flowBatch.deleteMany({ where: { tradingDate } })
-
-        // retry create up to 3 times on transient errors (Prisma 502, etc.)
+        // retry delete+create up to 3 times — deleteMany inside loop so each attempt starts clean
+        // (Prisma 502 means the op succeeded server-side but response failed, so retry must re-delete first)
         let lastErr
         for (let attempt = 1; attempt <= 3; attempt++) {
             try {
+                await prisma.flowBatch.deleteMany({ where: { tradingDate } })
                 await prisma.flowBatch.create({ data: payload, select: { id: true } })
                 console.log(`[SAVE] ✓ Saved ${allTrades.length} trades for ${tradingDate} | ${(compressed.length / 1024).toFixed(1)}KB`)
                 return

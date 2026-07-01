@@ -1841,7 +1841,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
     // (Railway holds the single Polygon WS connection — browser polls every 30s)
     const getTodayDS = () => {
       const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     }
 
     const pollAlgoDB = async () => {
