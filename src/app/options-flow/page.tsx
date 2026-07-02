@@ -953,7 +953,10 @@ export default function OptionsFlowPage() {
           dbgLog(`response status=${res.status} ok=${res.ok} len=${res.headers.get('content-length') ?? '?'}`)
           if (!res.ok) {
             const errText = await res.text()
-            dbgLog(`ERROR body: ${errText.slice(0, 120)}`)
+            // Try to parse as JSON for structured error detail
+            let detail = errText.slice(0, 200)
+            try { const j = JSON.parse(errText); detail = j.detail || j.error || detail } catch {}
+            dbgLog(`ERROR ${res.status}: ${detail}`)
             return
           }
           const result = await res.json()

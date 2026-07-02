@@ -25,21 +25,32 @@ export async function GET(
     const { date } = await params;
     const decodedDate = decodeURIComponent(date)
 
-    // Try FlowBatch first (Railway stream data — append-only chunks)
-    const tradingDate = decodedDate.split('T')[0] // normalize to YYYY-MM-DD
-    const batches = await prisma.flowBatch.findMany({
-      where: { tradingDate },
-      orderBy: { batchTime: 'asc' },
-      select: { data: true, tradeCount: true, batchTime: true },
-    })
-    if (batches.length > 0) {
-      const allTrades: unknown[] = []
-      for (const b of batches) {
+    // Try FlowBatch first — paginated to stay under Prisma Accelerate 5MB limit
+    const tradingDate = decodedDate.split('T')[0]
+    const allTrades: unknown[] = []
+    let cursor: string | undefined
+    let latestBatchTime: Date | undefined
+
+    while (true) {
+      const page = await prisma.flowBatch.findMany({
+        where: { tradingDate },
+        orderBy: { batchTime: 'asc' },
+        take: 20,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        select: { id: true, data: true, batchTime: true },
+      })
+      if (page.length === 0) break
+      for (const b of page) {
         const decompressed = await gunzipAsync(Buffer.from(b.data, 'base64'))
         allTrades.push(...JSON.parse(decompressed.toString('utf8')))
       }
-      const latest = batches[batches.length - 1]
-      return NextResponse.json({ date: latest.batchTime.toISOString(), data: allTrades, size: allTrades.length, createdAt: latest.batchTime, source: 'stream' })
+      cursor = page[page.length - 1].id
+      latestBatchTime = page[page.length - 1].batchTime
+      if (page.length < 20) break
+    }
+
+    if (allTrades.length > 0) {
+      return NextResponse.json({ date: latestBatchTime!.toISOString(), data: allTrades, size: allTrades.length, createdAt: latestBatchTime, source: 'stream' })
     }
 
     // Fall back to Flow table (scan saves)

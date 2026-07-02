@@ -1,7 +1,6 @@
 import { promisify } from 'util'
 import { gunzip, gzip } from 'zlib'
 
-import { PrismaClient } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
 
 import prisma from '@/lib/prisma'
@@ -11,13 +10,6 @@ const gunzipAsync = promisify(gunzip)
 
 export const runtime = 'nodejs'
 
-// Use direct DB connection to bypass Prisma Accelerate's 5MB response limit
-const prismaDirectGlobal = globalThis as unknown as { prismaFlowBatchDirect?: PrismaClient }
-const prismaDirect: PrismaClient =
-    prismaDirectGlobal.prismaFlowBatchDirect ??
-    new PrismaClient({ datasources: { db: { url: process.env.POSTGRES_URL } } })
-if (process.env.NODE_ENV !== 'production') prismaDirectGlobal.prismaFlowBatchDirect = prismaDirect
-
 export async function GET(request: NextRequest) {
     try {
         const tradingDate = request.nextUrl.searchParams.get('date')
@@ -25,33 +17,42 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'date param required' }, { status: 400 })
         }
 
-        // Fetch all batch chunks for this trading date (append-only model)
-        const batches = await prismaDirect.flowBatch.findMany({
-            where: { tradingDate },
-            orderBy: { batchTime: 'asc' },
-            select: { data: true, tradeCount: true, batchTime: true },
-        })
+        // Fetch all chunks in pages of 20 — each page ~1MB, well under Prisma Accelerate 5MB limit
+        const allTrades: unknown[] = []
+        let cursor: string | undefined
+        let latestBatchTime: Date | undefined
 
-        if (batches.length === 0) {
-            return NextResponse.json({ trades: [], tradeCount: 0 })
+        while (true) {
+            const page = await prisma.flowBatch.findMany({
+                where: { tradingDate },
+                orderBy: { batchTime: 'asc' },
+                take: 20,
+                ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+                select: { id: true, data: true, batchTime: true },
+            })
+            if (page.length === 0) break
+            for (const batch of page) {
+                const decompressed = await gunzipAsync(Buffer.from(batch.data, 'base64'))
+                allTrades.push(...JSON.parse(decompressed.toString('utf8')))
+            }
+            cursor = page[page.length - 1].id
+            latestBatchTime = page[page.length - 1].batchTime
+            if (page.length < 20) break
         }
 
-        // Merge all chunks
-        const allTrades: unknown[] = []
-        for (const batch of batches) {
-            const decompressed = await gunzipAsync(Buffer.from(batch.data, 'base64'))
-            const chunk = JSON.parse(decompressed.toString('utf8'))
-            allTrades.push(...chunk)
+        if (allTrades.length === 0) {
+            return NextResponse.json({ trades: [], tradeCount: 0 })
         }
 
         return NextResponse.json({
             trades: allTrades,
             tradeCount: allTrades.length,
-            batchTime: batches[batches.length - 1].batchTime,
+            batchTime: latestBatchTime,
         })
     } catch (error) {
-        console.error('[FlowBatch] Error fetching batch:', error)
-        return NextResponse.json({ error: 'Failed to fetch flow batch' }, { status: 500 })
+        const msg = error instanceof Error ? error.message : String(error)
+        console.error('[FlowBatch GET] Error:', msg)
+        return NextResponse.json({ error: 'Failed to fetch flow batch', detail: msg }, { status: 500 })
     }
 }
 
@@ -64,33 +65,19 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'tradingDate and trades array are required' }, { status: 400 })
         }
 
-        const dataString = JSON.stringify(trades)
-        const originalSize = Buffer.byteLength(dataString, 'utf8')
-        const compressed = await gzipAsync(dataString)
+        const compressed = await gzipAsync(JSON.stringify(trades))
         const compressedBase64 = compressed.toString('base64')
 
-        console.log(
-            `[FlowBatch] Saving ${trades.length} trades for ${tradingDate} | ` +
-            `${(originalSize / 1024).toFixed(1)}KB → ${(compressed.length / 1024).toFixed(1)}KB compressed`
-        )
-
-        // delete + create avoids Prisma Accelerate's 5MB response limit on upsert reads
-        await prisma.flowBatch.deleteMany({ where: { tradingDate } })
+        // Append-only — each call creates a new small chunk record
         const batch = await prisma.flowBatch.create({
-            data: {
-                tradingDate,
-                batchTime: new Date(),
-                data: compressedBase64,
-                tradeCount: trades.length,
-            },
+            data: { tradingDate, batchTime: new Date(), data: compressedBase64, tradeCount: trades.length },
             select: { id: true, tradingDate: true, batchTime: true, tradeCount: true },
         })
 
-        console.log(`[FlowBatch] Saved batch ${batch.id} | ${batch.tradeCount} trades @ ${batch.batchTime.toISOString()}`)
-
         return NextResponse.json({ success: true, batch })
     } catch (error) {
-        console.error('[FlowBatch] Error saving batch:', error)
-        return NextResponse.json({ error: 'Failed to save flow batch' }, { status: 500 })
+        const msg = error instanceof Error ? error.message : String(error)
+        console.error('[FlowBatch POST] Error:', msg)
+        return NextResponse.json({ error: 'Failed to save flow batch', detail: msg }, { status: 500 })
     }
 }
