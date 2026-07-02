@@ -149,7 +149,7 @@ async function enrichBatch(trades) {
             else if (fill === c.bid) fill_type = 'B'
             else fill_type = fill >= mid ? 'A' : 'B'
         }
-        return { ...t, volume: c.volume, open_interest: c.open_interest, iv: c.iv, spot_price: c.spot_price, fill_type }
+        return { ...t, volume: c.volume, open_interest: c.open_interest, iv: c.iv, spot_price: c.spot_price, fill_style: fill_type }
     })
 }
 
@@ -168,7 +168,7 @@ function applyLiveOI(trades) {
         const baseOI = trade.open_interest ?? 0
         const currentOI = liveOIMap.has(key) ? liveOIMap.get(key) : baseOI
         let liveOI = currentOI
-        switch (trade.fill_type) {
+        switch (trade.fill_style) {
             case 'A': case 'AA': case 'BB':
                 liveOI += contracts
                 break
