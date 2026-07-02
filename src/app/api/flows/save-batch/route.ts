@@ -25,16 +25,30 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'date param required' }, { status: 400 })
         }
 
-        const batch = await prismaDirect.flowBatch.findUnique({ where: { tradingDate } })
-        if (!batch) {
+        // Fetch all batch chunks for this trading date (append-only model)
+        const batches = await prismaDirect.flowBatch.findMany({
+            where: { tradingDate },
+            orderBy: { batchTime: 'asc' },
+            select: { data: true, tradeCount: true, batchTime: true },
+        })
+
+        if (batches.length === 0) {
             return NextResponse.json({ trades: [], tradeCount: 0 })
         }
 
-        const compressed = Buffer.from(batch.data, 'base64')
-        const decompressed = await gunzipAsync(compressed)
-        const trades = JSON.parse(decompressed.toString('utf8'))
+        // Merge all chunks
+        const allTrades: unknown[] = []
+        for (const batch of batches) {
+            const decompressed = await gunzipAsync(Buffer.from(batch.data, 'base64'))
+            const chunk = JSON.parse(decompressed.toString('utf8'))
+            allTrades.push(...chunk)
+        }
 
-        return NextResponse.json({ trades, tradeCount: batch.tradeCount, batchTime: batch.batchTime })
+        return NextResponse.json({
+            trades: allTrades,
+            tradeCount: allTrades.length,
+            batchTime: batches[batches.length - 1].batchTime,
+        })
     } catch (error) {
         console.error('[FlowBatch] Error fetching batch:', error)
         return NextResponse.json({ error: 'Failed to fetch flow batch' }, { status: 500 })

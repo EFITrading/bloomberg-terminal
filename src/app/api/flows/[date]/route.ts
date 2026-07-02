@@ -25,14 +25,21 @@ export async function GET(
     const { date } = await params;
     const decodedDate = decodeURIComponent(date)
 
-    // Try FlowBatch first (Railway stream data — more complete)
+    // Try FlowBatch first (Railway stream data — append-only chunks)
     const tradingDate = decodedDate.split('T')[0] // normalize to YYYY-MM-DD
-    const batch = await prisma.flowBatch.findUnique({ where: { tradingDate } })
-    if (batch) {
-      const compressed = Buffer.from(batch.data, 'base64')
-      const decompressed = await gunzipAsync(compressed)
-      const data = JSON.parse(decompressed.toString('utf8'))
-      return NextResponse.json({ date: batch.batchTime.toISOString(), data, size: batch.tradeCount, createdAt: batch.batchTime, source: 'stream' })
+    const batches = await prisma.flowBatch.findMany({
+      where: { tradingDate },
+      orderBy: { batchTime: 'asc' },
+      select: { data: true, tradeCount: true, batchTime: true },
+    })
+    if (batches.length > 0) {
+      const allTrades: unknown[] = []
+      for (const b of batches) {
+        const decompressed = await gunzipAsync(Buffer.from(b.data, 'base64'))
+        allTrades.push(...JSON.parse(decompressed.toString('utf8')))
+      }
+      const latest = batches[batches.length - 1]
+      return NextResponse.json({ date: latest.batchTime.toISOString(), data: allTrades, size: allTrades.length, createdAt: latest.batchTime, source: 'stream' })
     }
 
     // Fall back to Flow table (scan saves)

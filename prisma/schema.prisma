@@ -70,11 +70,12 @@ model EtfFlowHistory {
 
 model FlowBatch {
   id          String   @id @default(cuid())
-  tradingDate String   @unique // 'YYYY-MM-DD' PST trading date — one record per day
-  batchTime   DateTime // last time this record was updated
-  data        String   // gzip base64 encoded JSON array of all trades for the day so far
-  tradeCount  Int      // total trades stored
+  tradingDate String   // NOT unique — one small record per 30s save window
+  batchTime   DateTime
+  data        String   // gzip base64 of trades for this window only
+  tradeCount  Int
   createdAt   DateTime @default(now())
 
   @@index([tradingDate])
+  @@index([batchTime])
 }

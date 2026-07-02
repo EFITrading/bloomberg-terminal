@@ -190,40 +190,22 @@ function applyLiveOI(trades) {
 }
 
 
-// Incremental save — only pendingTrades (last 30s) is held in memory.
-// On each save: load existing day blob from DB, decompress, append new trades, recompress, upsert.
-// This keeps the in-process array tiny (~50-100 items) regardless of how many trades accumulate.
+// Append-only saves — each 30s window is a small separate record.
+// No read-before-write, so no string length issues regardless of daily volume.
 async function saveToDB(tradingDate) {
     if (pendingTrades.length === 0) return
-    const newTrades = [...pendingTrades]   // snapshot — don't clear until save succeeds
-
+    const newTrades = [...pendingTrades]
     let lastErr
     for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-            // Load existing day's trades from DB (may be large — only in memory during merge)
-            let existingTrades = []
-            const existing = await prisma.flowBatch.findUnique({ where: { tradingDate }, select: { data: true } })
-            if (existing) {
-                const buf = Buffer.from(existing.data, 'base64')
-                const decompressed = await gunzipAsync(buf)
-                existingTrades = JSON.parse(decompressed.toString())
-            }
-
-            const combined = existingTrades.concat(newTrades)
-            const compressed = await gzipAsync(JSON.stringify(combined))
+            const compressed = await gzipAsync(JSON.stringify(newTrades))
             const base64 = compressed.toString('base64')
-            const payload = { tradingDate, batchTime: new Date(), data: base64, tradeCount: combined.length }
-
-            await prisma.flowBatch.upsert({
-                where: { tradingDate },
-                create: payload,
-                update: payload,
+            await prisma.flowBatch.create({
+                data: { tradingDate, batchTime: new Date(), data: base64, tradeCount: newTrades.length },
                 select: { id: true },
             })
-
-            // Clear only after confirmed success
             pendingTrades.splice(0, newTrades.length)
-            console.log(`[SAVE] ✓ ${combined.length} trades for ${tradingDate} (+${newTrades.length} new) | ${(compressed.length / 1024).toFixed(1)}KB`)
+            console.log(`[SAVE] ✓ +${newTrades.length} trades for ${tradingDate} | ${(compressed.length / 1024).toFixed(1)}KB`)
             return
         } catch (err) {
             lastErr = err
@@ -325,12 +307,17 @@ function stopStream() {
 }
 
 function startCollecting() {
-    if (collecting) return  // already running — ignore duplicate scheduler calls
+    if (collecting) return
     collecting = true
-    // Reset daily state
     pendingTrades = []
     rawBuffer = []
     liveOIMap.clear()
+
+    // Delete any stale/corrupt records from today before starting fresh
+    const tradingDate = getTradingDate()
+    prisma.flowBatch.deleteMany({ where: { tradingDate } })
+        .then(r => r.count > 0 && console.log(`[INIT] Cleared ${r.count} stale records for ${tradingDate}`))
+        .catch(err => console.warn('[INIT] Could not clear stale records:', err.message))
 
     startStream()
 
