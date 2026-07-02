@@ -336,10 +336,10 @@ function startCollecting() {
         }
     }, 1000)
 
-    // Save every 30 seconds so browser polls stay fresh
+    // Save every 5 seconds — smaller chunks (~665 trades, ~44KB) stay under Prisma Accelerate 5MB limit
     saveTimer = setInterval(() => {
         saveToDB(getTradingDate())
-    }, 30 * 1000)
+    }, 5 * 1000)
 
     // Auto-stop at market close
     const msToClose = msUntilMarketClose()

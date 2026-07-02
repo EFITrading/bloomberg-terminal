@@ -16,39 +16,57 @@ export async function GET(request: NextRequest) {
         if (!tradingDate) {
             return NextResponse.json({ error: 'date param required' }, { status: 400 })
         }
+        const since = request.nextUrl.searchParams.get('since') // ISO timestamp for incremental polls
 
-        // Fetch all chunks in pages of 20 — each page ~1MB, well under Prisma Accelerate 5MB limit
-        const allTrades: unknown[] = []
-        let cursor: string | undefined
-        let latestBatchTime: Date | undefined
-
-        while (true) {
-            const page = await prisma.flowBatch.findMany({
-                where: { tradingDate },
+        // Incremental poll — only fetch chunks newer than `since` (tiny, ~6 chunks per 30s poll)
+        if (since) {
+            const newChunks = await prisma.flowBatch.findMany({
+                where: { tradingDate, batchTime: { gt: new Date(since) } },
                 orderBy: { batchTime: 'asc' },
-                take: 20,
-                ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
                 select: { id: true, data: true, batchTime: true },
             })
-            if (page.length === 0) break
-            for (const batch of page) {
-                const decompressed = await gunzipAsync(Buffer.from(batch.data, 'base64'))
-                allTrades.push(...JSON.parse(decompressed.toString('utf8')))
+            const trades: unknown[] = []
+            for (const chunk of newChunks) {
+                const decompressed = await gunzipAsync(Buffer.from(chunk.data, 'base64'))
+                trades.push(...JSON.parse(decompressed.toString('utf8')))
             }
-            cursor = page[page.length - 1].id
-            latestBatchTime = page[page.length - 1].batchTime
-            if (page.length < 20) break
+            const latestTime = newChunks.length > 0 ? newChunks[newChunks.length - 1].batchTime : new Date(since)
+            return NextResponse.json({ trades, tradeCount: trades.length, batchTime: latestTime, incremental: true })
         }
 
-        if (allTrades.length === 0) {
-            return NextResponse.json({ trades: [], tradeCount: 0 })
+        // Initial full-day load — parallel pages of 100 chunks (100 × 44KB = 4.4MB < 5MB Accelerate limit)
+        const PAGE_SIZE = 100
+        const total = await prisma.flowBatch.count({ where: { tradingDate } })
+        if (total === 0) return NextResponse.json({ trades: [], tradeCount: 0 })
+
+        const pageCount = Math.ceil(total / PAGE_SIZE)
+        const allTrades: unknown[] = new Array(total * 50) // pre-alloc rough estimate
+        allTrades.length = 0
+        let latestBatchTime: Date | undefined
+
+        // Fetch 10 pages in parallel, loop until done
+        for (let i = 0; i < pageCount; i += 10) {
+            const batch = await Promise.all(
+                Array.from({ length: Math.min(10, pageCount - i) }, (_, j) =>
+                    prisma.flowBatch.findMany({
+                        where: { tradingDate },
+                        orderBy: { batchTime: 'asc' },
+                        skip: (i + j) * PAGE_SIZE,
+                        take: PAGE_SIZE,
+                        select: { data: true, batchTime: true },
+                    })
+                )
+            )
+            for (const page of batch) {
+                for (const chunk of page) {
+                    const decompressed = await gunzipAsync(Buffer.from(chunk.data, 'base64'))
+                    allTrades.push(...JSON.parse(decompressed.toString('utf8')))
+                    latestBatchTime = chunk.batchTime
+                }
+            }
         }
 
-        return NextResponse.json({
-            trades: allTrades,
-            tradeCount: allTrades.length,
-            batchTime: latestBatchTime,
-        })
+        return NextResponse.json({ trades: allTrades, tradeCount: allTrades.length, batchTime: latestBatchTime })
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error)
         console.error('[FlowBatch GET] Error:', msg)

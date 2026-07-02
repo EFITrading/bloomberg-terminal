@@ -868,6 +868,8 @@ export default function OptionsFlowPage() {
   // Full trade archive — all trades received today, no cap.
   // React state holds a reference to this same array for rendering.
   const allTradesRef = useRef<OptionsFlowData[]>([])
+  // Track last received chunk timestamp for incremental polls
+  const lastBatchTimeRef = useRef<string | null>(null)
   // Live ticker filter — when set, display only trades for this ticker from the archive
   const liveTickerFilterRef = useRef<string>('')
   // Batch save: accumulates delta trades between 5-min saves
@@ -937,6 +939,7 @@ export default function OptionsFlowPage() {
       setLiveTradeCount(0)
       allTradesRef.current = []
       liveTickerFilterRef.current = ''
+      lastBatchTimeRef.current = null
       setData([])
 
       const getTradingDate = () => {
@@ -944,59 +947,63 @@ export default function OptionsFlowPage() {
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
       }
 
-      // Poll Railway's DB save every 30 seconds for fresh data
+      // Poll Railway DB — full load first call, incremental (since) on subsequent calls
       const pollDB = async () => {
         const dateStr = getTradingDate()
-        dbgLog(`pollDB → date=${dateStr}`)
+        const since = lastBatchTimeRef.current
+        const url = since
+          ? `/api/flows/save-batch?date=${dateStr}&since=${encodeURIComponent(since)}`
+          : `/api/flows/save-batch?date=${dateStr}`
+        dbgLog(`pollDB → ${since ? 'incremental since=' + since.slice(11, 19) : 'full load'}`)
         try {
-          const res = await fetch(`/api/flows/save-batch?date=${dateStr}`)
-          dbgLog(`response status=${res.status} ok=${res.ok} len=${res.headers.get('content-length') ?? '?'}`)
+          const res = await fetch(url)
           if (!res.ok) {
             const errText = await res.text()
-            // Try to parse as JSON for structured error detail
             let detail = errText.slice(0, 200)
             try { const j = JSON.parse(errText); detail = j.detail || j.error || detail } catch {}
             dbgLog(`ERROR ${res.status}: ${detail}`)
             return
           }
           const result = await res.json()
-          dbgLog(`parsed trades=${result.trades?.length ?? 0} err=${result.error ?? 'none'}`)
-          if (result.trades && result.trades.length > 0) {
-            allTradesRef.current = result.trades
-            liveTradeCountRef.current = result.trades.length
-            setLiveTradeCount(result.trades.length)
-            if (!liveConnectedRef.current) {
-              liveConnectedRef.current = true
-              setLiveConnected(true)
-              console.log(`%c[LIVE] Railway stream connected — ${result.trades.length} trades loaded`, 'color:#00ff88;font-weight:bold')
-            }
-            const displayTrades = result.trades.filter((t: OptionsFlowData) => {
-              if (!liveShowAllRef.current && (t.total_premium || 0) < 50000) return false
-              if (liveTickerFilterRef.current && t.underlying_ticker?.toUpperCase() !== liveTickerFilterRef.current) return false
-              return true
-            })
-            dbgLog(`displayed=${displayTrades.length} showAll=${liveShowAllRef.current} ticker="${liveTickerFilterRef.current}"`)
-            setData(displayTrades)
-            setLastUpdate(new Date().toLocaleTimeString())
+          const newTrades: OptionsFlowData[] = result.trades ?? []
+          dbgLog(`got ${newTrades.length} ${result.incremental ? 'new' : 'total'} trades`)
 
-            // Rebuild liveOI map from saved trades and write to localStorage
-            // so GEX panel, LiquidPanel, AlgoFlow and all other panels stay current
-            try {
-              const tradingDate = getTradingDate()
-              const byTicker: Record<string, [string, number][]> = {}
-              for (const t of result.trades as OptionsFlowData[]) {
-                const key = `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}`
-                const ticker = t.underlying_ticker
-                if (!ticker) continue
-                if (!byTicker[ticker]) byTicker[ticker] = []
-                // open_interest on saved trades IS the live OI (computed by Railway)
-                byTicker[ticker].push([key, t.open_interest ?? 0])
-              }
-              localStorage.setItem('efi_live_oi', JSON.stringify({ tradingDate, tickers: byTicker }))
-            } catch { /* non-critical */ }
-          } else {
-            dbgLog(`no trades returned (length=${result.trades?.length ?? 'undef'})`)
+          if (result.batchTime) lastBatchTimeRef.current = new Date(result.batchTime).toISOString()
+          if (newTrades.length === 0) return
+
+          allTradesRef.current = result.incremental
+            ? [...newTrades, ...allTradesRef.current]
+            : newTrades
+
+          liveTradeCountRef.current = allTradesRef.current.length
+          setLiveTradeCount(allTradesRef.current.length)
+
+          if (!liveConnectedRef.current) {
+            liveConnectedRef.current = true
+            setLiveConnected(true)
           }
+
+          const displayTrades = allTradesRef.current.filter((t: OptionsFlowData) => {
+            if (!liveShowAllRef.current && (t.total_premium || 0) < 50000) return false
+            if (liveTickerFilterRef.current && t.underlying_ticker?.toUpperCase() !== liveTickerFilterRef.current) return false
+            return true
+          })
+          dbgLog(`displayed=${displayTrades.length} showAll=${liveShowAllRef.current}`)
+          setData(displayTrades)
+          setLastUpdate(new Date().toLocaleTimeString())
+
+          try {
+            const tradingDate = getTradingDate()
+            const byTicker: Record<string, [string, number][]> = {}
+            for (const t of allTradesRef.current as OptionsFlowData[]) {
+              const key = `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}`
+              const ticker = t.underlying_ticker
+              if (!ticker) continue
+              if (!byTicker[ticker]) byTicker[ticker] = []
+              byTicker[ticker].push([key, t.open_interest ?? 0])
+            }
+            localStorage.setItem('efi_live_oi', JSON.stringify({ tradingDate, tickers: byTicker }))
+          } catch { /* non-critical */ }
         } catch (err) {
           dbgLog(`THREW: ${err instanceof Error ? err.message : String(err)}`)
         }
