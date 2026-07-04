@@ -26,16 +26,14 @@ export async function GET() {
       dateMap.set(day, { date: f.date.toISOString(), createdAt: f.createdAt, tradeCount: f.size < 100000 ? f.size : null, source: 'scan' })
     }
 
-    // FlowBatch is now append-only (multiple chunks per day) — group by tradingDate
+    // FlowBatch is now append-only (multiple chunks per day) — group by tradingDate and sum all counts
     const batchGroups = new Map<string, { batchTime: Date; tradeCount: number }>()
     for (const b of batches) {
       const existing = batchGroups.get(b.tradingDate)
-      if (!existing || b.batchTime > existing.batchTime) {
-        batchGroups.set(b.tradingDate, {
-          batchTime: b.batchTime,
-          tradeCount: (existing?.tradeCount ?? 0) + b.tradeCount,
-        })
-      }
+      batchGroups.set(b.tradingDate, {
+        batchTime: existing && existing.batchTime > b.batchTime ? existing.batchTime : b.batchTime,
+        tradeCount: (existing?.tradeCount ?? 0) + b.tradeCount,
+      })
     }
 
     // FlowBatch overrides Flow for same day (stream data is more complete)

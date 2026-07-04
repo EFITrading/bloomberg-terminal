@@ -1,6 +1,6 @@
 ﻿'use client'
 
-import React, { useEffect, useState, useRef, useCallback } from 'react'
+import React, { useEffect, useState, useRef, useCallback, startTransition } from 'react'
 
 import { OptionsFlowTable } from '@/components/OptionsFlowTable'
 import { Button } from '@/components/ui/button'
@@ -592,21 +592,45 @@ const isMarketCurrentlyOpen = (): boolean => {
 const tryLoadFromSavedFiltered = async (tickerSet: Set<string> | null): Promise<OptionsFlowData[] | null> => {
   try {
     // Markets are open right now — data from any prior save is incomplete, always scan fresh
-    if (isMarketCurrentlyOpen()) return null
+    if (isMarketCurrentlyOpen()) {
+      console.log('[DB-DEBUG] tryLoadFromSavedFiltered: market is OPEN → skipping DB, scanning fresh')
+      return null
+    }
     const datesResp = await fetch('/api/flows/dates')
-    if (!datesResp.ok) return null
+    if (!datesResp.ok) {
+      console.warn('[DB-DEBUG] tryLoadFromSavedFiltered: /api/flows/dates failed', datesResp.status)
+      return null
+    }
     const dates: { date: string }[] = await datesResp.json()
-    if (dates.length === 0) return null
+    console.log('[DB-DEBUG] tryLoadFromSavedFiltered: dates from DB:', dates)
+    if (dates.length === 0) {
+      console.log('[DB-DEBUG] tryLoadFromSavedFiltered: no saved dates found')
+      return null
+    }
     // Use PST-aware trading date: before 6:30 AM PST rolls back to previous trading day
     // so post-close saved data is reused until next market open
     const flowTradingDate = getFlowTradingDate()
     const latestDateRaw = dates[0].date
     const latestDateDay = new Date(latestDateRaw).toISOString().split('T')[0]
-    if (latestDateDay !== flowTradingDate) return null
+    console.log(`[DB-DEBUG] tryLoadFromSavedFiltered: flowTradingDate=${flowTradingDate}, latestDateDay=${latestDateDay}, latestDateRaw=${latestDateRaw}`)
+    if (latestDateDay !== flowTradingDate) {
+      console.log(`[DB-DEBUG] tryLoadFromSavedFiltered: DATE MISMATCH — DB has ${latestDateDay} but expected ${flowTradingDate} → returning null`)
+      return null
+    }
     const flowResp = await fetch(`/api/flows/${encodeURIComponent(latestDateRaw)}`)
-    if (!flowResp.ok) return null
+    if (!flowResp.ok) {
+      console.warn('[DB-DEBUG] tryLoadFromSavedFiltered: /api/flows fetch failed', flowResp.status)
+      return null
+    }
     const flowData = await flowResp.json()
     const allTrades: OptionsFlowData[] = Array.isArray(flowData.data) ? flowData.data : []
+    console.log(`[DB-DEBUG] tryLoadFromSavedFiltered: raw trades from DB = ${allTrades.length} (DB reports size=${flowData.size}, source=${flowData.source})`)
+    // Sample the first 3 trade timestamps to verify timezone handling
+    const sampleTimestamps = allTrades.slice(0, 3).map((t) => ({
+      raw: t.trade_timestamp,
+      pst: t.trade_timestamp ? new Date(new Date(t.trade_timestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).toISOString() : null,
+    }))
+    console.log('[DB-DEBUG] tryLoadFromSavedFiltered: sample timestamps:', sampleTimestamps)
     // Verify the actual trade timestamps match the expected trading date.
     // Old DB records were saved with wall-clock date — e.g. a 12:07 AM May 28 save contains
     // May 27 trades but is stored as May 28. Reject if trades don't belong to flowTradingDate.
@@ -617,11 +641,28 @@ const tryLoadFromSavedFiltered = async (tickerSet: Set<string> | null): Promise<
       return ds === flowTradingDate
     })
     if (!tradesMatchDate) {
+      console.log(`[DB-DEBUG] tryLoadFromSavedFiltered: TIMESTAMP MISMATCH — no trades match flowTradingDate=${flowTradingDate} → returning null`)
+      console.log('[DB-DEBUG] tryLoadFromSavedFiltered: unique PST dates in DB data:', [
+        ...new Set(allTrades.slice(0, 200).map((t) => {
+          if (!t.trade_timestamp) return 'null'
+          const d = new Date(new Date(t.trade_timestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        }))
+      ])
       return null
     }
+    console.log(`[DB-DEBUG] tryLoadFromSavedFiltered: timestamps match flowTradingDate=${flowTradingDate} ✓`)
     const filtered = tickerSet
       ? allTrades.filter((t) => tickerSet.has(t.underlying_ticker?.toUpperCase() ?? ''))
       : allTrades
+    console.log(`[DB-DEBUG] tryLoadFromSavedFiltered: after tickerSet filter → ${filtered.length} trades (tickerSet size=${tickerSet?.size ?? 'null/ALL'})`)
+    // Check for duplicates by ticker+timestamp+strike
+    const dedupKeys = new Set(filtered.map((t) => `${t.underlying_ticker}-${t.trade_timestamp}-${t.strike}`))
+    if (dedupKeys.size !== filtered.length) {
+      console.warn(`[DB-DEBUG] tryLoadFromSavedFiltered: ⚠️ DUPLICATES DETECTED — ${filtered.length} raw vs ${dedupKeys.size} unique by ticker+ts+strike`)
+    } else {
+      console.log(`[DB-DEBUG] tryLoadFromSavedFiltered: no duplicates detected (${dedupKeys.size} unique keys)`)
+    }
     return filtered.length > 0 ? filtered : null
   } catch (err) {
     console.warn('[tryLoadFromSavedFiltered] error:', err)
@@ -960,7 +1001,7 @@ export default function OptionsFlowPage() {
           if (!res.ok) {
             const errText = await res.text()
             let detail = errText.slice(0, 200)
-            try { const j = JSON.parse(errText); detail = j.detail || j.error || detail } catch {}
+            try { const j = JSON.parse(errText); detail = j.detail || j.error || detail } catch { }
             dbgLog(`ERROR ${res.status}: ${detail}`)
             return
           }
@@ -971,9 +1012,12 @@ export default function OptionsFlowPage() {
           if (result.batchTime) lastBatchTimeRef.current = new Date(result.batchTime).toISOString()
           if (newTrades.length === 0) return
 
-          allTradesRef.current = result.incremental
-            ? [...newTrades, ...allTradesRef.current]
-            : newTrades
+          if (result.incremental) {
+            // Push new trades onto the existing array — no 601k spread
+            for (const t of newTrades) allTradesRef.current.push(t)
+          } else {
+            allTradesRef.current = newTrades
+          }
 
           liveTradeCountRef.current = allTradesRef.current.length
           setLiveTradeCount(allTradesRef.current.length)
@@ -983,27 +1027,40 @@ export default function OptionsFlowPage() {
             setLiveConnected(true)
           }
 
-          const displayTrades = allTradesRef.current.filter((t: OptionsFlowData) => {
-            if (!liveShowAllRef.current && (t.total_premium || 0) < 50000) return false
-            if (liveTickerFilterRef.current && t.underlying_ticker?.toUpperCase() !== liveTickerFilterRef.current) return false
-            return true
+          // Use startTransition so filter + setData don't block the main thread
+          startTransition(() => {
+            let displayTrades = allTradesRef.current.filter((t: OptionsFlowData) => {
+              if (!liveShowAllRef.current && (t.total_premium || 0) < 50000) return false
+              if (liveTickerFilterRef.current && t.underlying_ticker?.toUpperCase() !== liveTickerFilterRef.current) return false
+              return true
+            })
+            // Cap display at 25k most recent trades — parsing + rendering 600k+ items blocks the main thread
+            // $50k+ filter (default) stays untouched; "show all" shows latest 25k
+            const DISPLAY_CAP = 25000
+            if (displayTrades.length > DISPLAY_CAP) displayTrades = displayTrades.slice(0, DISPLAY_CAP)
+            dbgLog(`displayed=${displayTrades.length} showAll=${liveShowAllRef.current}`)
+            setData(displayTrades)
+            setLastUpdate(new Date().toLocaleTimeString())
           })
-          dbgLog(`displayed=${displayTrades.length} showAll=${liveShowAllRef.current}`)
-          setData(displayTrades)
-          setLastUpdate(new Date().toLocaleTimeString())
 
-          try {
-            const tradingDate = getTradingDate()
-            const byTicker: Record<string, [string, number][]> = {}
-            for (const t of allTradesRef.current as OptionsFlowData[]) {
-              const key = `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}`
-              const ticker = t.underlying_ticker
-              if (!ticker) continue
-              if (!byTicker[ticker]) byTicker[ticker] = []
-              byTicker[ticker].push([key, t.open_interest ?? 0])
-            }
-            localStorage.setItem('efi_live_oi', JSON.stringify({ tradingDate, tickers: byTicker }))
-          } catch { /* non-critical */ }
+          // Defer localStorage write — don't block the poll tick
+          setTimeout(() => {
+            try {
+              const tradingDate = getTradingDate()
+              const contractOI = new Map<string, [string, number]>()
+              for (const t of allTradesRef.current as OptionsFlowData[]) {
+                if (!t.underlying_ticker) continue
+                const key = `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}`
+                contractOI.set(key, [t.underlying_ticker, t.open_interest ?? 0])
+              }
+              const byTicker: Record<string, [string, number][]> = {}
+              for (const [key, [ticker, oi]] of contractOI) {
+                if (!byTicker[ticker]) byTicker[ticker] = []
+                byTicker[ticker].push([key, oi])
+              }
+              localStorage.setItem('efi_live_oi', JSON.stringify({ tradingDate, tickers: byTicker }))
+            } catch { /* non-critical */ }
+          }, 0)
         } catch (err) {
           dbgLog(`THREW: ${err instanceof Error ? err.message : String(err)}`)
         }

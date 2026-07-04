@@ -42,7 +42,8 @@ export async function GET(
       if (page.length === 0) break
       for (const b of page) {
         const decompressed = await gunzipAsync(Buffer.from(b.data, 'base64'))
-        allTrades.push(...JSON.parse(decompressed.toString('utf8')))
+        const batch: unknown[] = JSON.parse(decompressed.toString('utf8'))
+        for (let i = 0; i < batch.length; i++) allTrades.push(batch[i])
       }
       cursor = page[page.length - 1].id
       latestBatchTime = page[page.length - 1].batchTime

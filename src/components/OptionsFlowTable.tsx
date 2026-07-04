@@ -323,6 +323,8 @@ interface OptionsFlowTableProps {
 
 const ALL_UNIQUE_FILTERS = ['ITM', 'OTM', 'SWEEP_ONLY', 'BLOCK_ONLY', 'MULTI_LEG_ONLY', 'MINI_ONLY']
 
+const INDEX_TICKERS = new Set(['SPX', 'SPXW', 'NDX', 'NDXP', 'VIX', 'VIXW', 'RUT', 'RUTW', 'DJX'])
+
 export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   data,
 
@@ -3717,7 +3719,7 @@ Stock Reaction: ${scores.stockReaction}/15`
               return etfSet.has(trade.underlying_ticker)
 
             case 'STOCK_ONLY':
-              return !etfSet.has(trade.underlying_ticker)
+              return !etfSet.has(trade.underlying_ticker) && !INDEX_TICKERS.has(trade.underlying_ticker.toUpperCase())
 
             case 'MAG7_ONLY':
               return mag7Stocks.includes(trade.underlying_ticker)
@@ -8443,24 +8445,26 @@ Stock Reaction: ${scores.stockReaction}/15`
                             <div className="md:hidden flex flex-col items-center space-y-1">
                               <div className="flex items-center justify-center gap-2">
                                 {/* Quick Grade Pen Icon (Mobile) */}
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleQuickGrade(trade, e) }}
-                                  title={`Quick Grade (${trade.days_to_expiry <= 35 ? 'EFI' : 'LEAP'} logic)`}
-                                  className="quick-grade-pen"
-                                  style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    padding: '2px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    animation: quickGradePopup?.id === generateFlowId(trade) ? 'none' : 'penPulse 2.4s ease-in-out infinite',
-                                    color: quickGradePopup?.id === generateFlowId(trade) ? '#ffffff' : '#a78bfa',
-                                    transform: quickGradePopup?.id === generateFlowId(trade) ? 'rotate(-8deg) scale(1.15)' : undefined,
-                                  }}
-                                >
-                                  <TbPencil style={{ width: '12px', height: '12px' }} />
-                                </button>
+                                {!INDEX_TICKERS.has(trade.underlying_ticker) && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleQuickGrade(trade, e) }}
+                                    title={`Quick Grade (${trade.days_to_expiry <= 35 ? 'EFI' : 'LEAP'} logic)`}
+                                    className="quick-grade-pen"
+                                    style={{
+                                      background: 'none',
+                                      border: 'none',
+                                      cursor: 'pointer',
+                                      padding: '2px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      animation: quickGradePopup?.id === generateFlowId(trade) ? 'none' : 'penPulse 2.4s ease-in-out infinite',
+                                      color: quickGradePopup?.id === generateFlowId(trade) ? '#ffffff' : '#a78bfa',
+                                      transform: quickGradePopup?.id === generateFlowId(trade) ? 'rotate(-8deg) scale(1.15)' : undefined,
+                                    }}
+                                  >
+                                    <TbPencil style={{ width: '12px', height: '12px' }} />
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => handleTickerClick(trade.underlying_ticker)}
                                   className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 py-1 rounded-lg cursor-pointer border-none shadow-sm text-xs ${selectedTickerFilter === trade.underlying_ticker
@@ -8540,24 +8544,26 @@ Stock Reaction: ${scores.stockReaction}/15`
                             })()}
                             <div className="flex items-center justify-center gap-2">
                               {/* Quick Grade Pen Icon (Desktop) */}
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleQuickGrade(trade, e) }}
-                                title={`Quick Grade (${trade.days_to_expiry <= 35 ? 'EFI' : 'LEAP'} logic)`}
-                                className="quick-grade-pen"
-                                style={{
-                                  background: 'none',
-                                  border: 'none',
-                                  cursor: 'pointer',
-                                  padding: '2px',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  animation: quickGradePopup?.id === generateFlowId(trade) ? 'none' : 'penPulse 2.4s ease-in-out infinite',
-                                  color: quickGradePopup?.id === generateFlowId(trade) ? '#ffffff' : '#a78bfa',
-                                  transform: quickGradePopup?.id === generateFlowId(trade) ? 'rotate(-8deg) scale(1.15)' : undefined,
-                                }}
-                              >
-                                <TbPencil style={{ width: '14px', height: '14px' }} />
-                              </button>
+                              {!INDEX_TICKERS.has(trade.underlying_ticker) && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleQuickGrade(trade, e) }}
+                                  title={`Quick Grade (${trade.days_to_expiry <= 35 ? 'EFI' : 'LEAP'} logic)`}
+                                  className="quick-grade-pen"
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    padding: '2px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    animation: quickGradePopup?.id === generateFlowId(trade) ? 'none' : 'penPulse 2.4s ease-in-out infinite',
+                                    color: quickGradePopup?.id === generateFlowId(trade) ? '#ffffff' : '#a78bfa',
+                                    transform: quickGradePopup?.id === generateFlowId(trade) ? 'rotate(-8deg) scale(1.15)' : undefined,
+                                  }}
+                                >
+                                  <TbPencil style={{ width: '14px', height: '14px' }} />
+                                </button>
+                              )}
                               <button
                                 onClick={() => handleTickerClick(trade.underlying_ticker)}
                                 className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 md:px-3 py-1 md:py-2 rounded-lg cursor-pointer border-none shadow-sm text-xs md:text-lg ${selectedTickerFilter === trade.underlying_ticker

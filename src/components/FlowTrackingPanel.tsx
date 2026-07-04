@@ -9,6 +9,7 @@ import { calculateFlowGrade, calculateLeapGradeShared } from '@/lib/flowGrading'
 import { useFlowTrackingPanelMobile } from './useFlowTrackingPanelMobile'
 
 const EFIChart = dynamic(() => import('@/components/trading/EFICharting'), { ssr: false })
+const AlgoFlowScreener = dynamic(() => import('@/components/AlgoFlowScreener'), { ssr: false })
 
 // ─── Flow Portfolio Types ─────────────────────────────────────────────────────
 const FP_STORAGE_KEY = 'flow_portfolio_v1'
@@ -204,6 +205,8 @@ export default function FlowTrackingPanel({
   leapRsData,
   leap52wkData,
   leapSeasonalData,
+  algoFlowTrades,
+  algoFlowTicker,
 }: {
   onClose?: () => void
   relativeStrengthData?: Map<string, number>
@@ -224,6 +227,8 @@ export default function FlowTrackingPanel({
   leapRsData?: Map<string, { rs5d: number; rs13d: number; rs21d: number }>
   leap52wkData?: Map<string, { high52: number; low52: number }>
   leapSeasonalData?: Map<string, { inSweetSpot: boolean; inPainPoint: boolean }>
+  algoFlowTrades?: OptionsFlowData[]
+  algoFlowTicker?: string
 } = {}) {
   const [isMounted, setIsMounted] = useState(false)
   const [chartSymbol, setChartSymbol] = useState('SPY')
@@ -2252,6 +2257,7 @@ export default function FlowTrackingPanel({
           </div>
         </div>
       )}
+
     </div>
   )
 }

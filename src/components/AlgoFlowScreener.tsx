@@ -78,15 +78,10 @@ const fetchVolumeAndOpenInterest = async (
             priceData.results?.p
           if (price && price > 0) {
             currentSpotPrice = price
-            console.debug(`%c[ALGO] ${underlying} spot price%c $${price} (via ${spotTicker})`, 'color:#22c55e;font-weight:bold', 'color:#86efac')
-          } else {
-            console.warn(`[ALGO] ${underlying} spot price fetch returned no price — HTTP ${priceResponse.status} spotTicker=${spotTicker}`, priceData)
           }
-        } else {
-          console.warn(`[ALGO] ${underlying} spot price fetch failed — HTTP ${priceResponse.status} url=${spotPriceUrl}`)
         }
       } catch (error) {
-        console.warn(`⚠️ Failed to fetch ${underlying} spot price fallback:`, error)
+        // spot price fetch failed — continue
       }
 
       // Get unique expiration dates for this underlying to fetch specific expirations
@@ -104,9 +99,6 @@ const fetchVolumeAndOpenInterest = async (
           RUTW: 'I:RUT', RUT: 'I:RUT', BRKB: 'BRK.B', BRKA: 'BRK.A',
         }
         const apiUnderlying = INDEX_UNDERLYING_MAP[underlying] ?? underlying
-        if (INDEX_UNDERLYING_MAP[underlying]) {
-          console.debug(`%c[ALGO] ${underlying} → using snapshot underlying: ${apiUnderlying}`, 'color:#a78bfa')
-        }
 
         // FULL PAGINATION LOGIC - Get ALL contracts for this expiration
         let nextUrl: string | null =
@@ -143,9 +135,6 @@ const fetchVolumeAndOpenInterest = async (
               break
             }
           } else {
-            console.warn(
-              `  ⚠️ Failed to fetch ${underlying} for ${expiryParam}: ${response.status}`
-            )
             break
           }
 
@@ -156,7 +145,6 @@ const fetchVolumeAndOpenInterest = async (
 
       // Skip if no contracts found for any expiration
       if (allContracts.size === 0) {
-        console.warn(`[ALGO] ❌ No contracts found for ${underlying} — check underlying mapping and Polygon plan`)
         updatedTrades.push(
           ...underlyingTrades.map((trade) => ({
             ...trade,
@@ -169,7 +157,6 @@ const fetchVolumeAndOpenInterest = async (
       }
 
       // Use the aggregated contracts for lookup
-      console.debug(`%c[ALGO] ${underlying}%c ${allContracts.size} contracts loaded | spot=$${currentSpotPrice ?? '--'}`, 'color:#f59e0b;font-weight:bold', 'color:#fcd34d')
       const contractLookup = allContracts
 
       // Match trades to contracts and update with vol/OI data
@@ -219,8 +206,7 @@ const fetchVolumeAndOpenInterest = async (
         }
       }
     } catch (error) {
-      console.error(`❌ Error fetching vol/OI for ${underlying}:`, error)
-      // Add trades without vol/OI data on error, but with current spot price if available
+      // Add trades without vol/OI data on error
       updatedTrades.push(
         ...underlyingTrades.map((trade) => ({
           ...trade,
@@ -878,7 +864,7 @@ function getAlgoTradingDays(timeframe: string): string[] {
   return days.reverse()
 }
 
-export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {}) {
+export default function AlgoFlowScreener({ onBack, embeddedMode = false, embeddedTrades, embeddedTicker }: { onBack?: () => void; embeddedMode?: boolean; embeddedTrades?: any[]; embeddedTicker?: string } = {}) {
   const [ticker, setTicker] = useState('')
   const [searchTicker, setSearchTicker] = useState('')
   const [loading, setLoading] = useState(false)
@@ -951,6 +937,17 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
     setAlgoLiveConnected(false)
   }, [])
 
+  // Embedded mode: auto-analyze when trades or ticker changes (no polling, no search bar)
+  const embeddedTradesRef = useRef<any[]>([])
+  useEffect(() => {
+    if (!embeddedMode || !embeddedTrades || embeddedTrades.length === 0) return
+    if (embeddedTrades === embeddedTradesRef.current) return
+    embeddedTradesRef.current = embeddedTrades
+    const label = embeddedTicker || undefined
+    performAnalysis(embeddedTrades, label)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embeddedMode, embeddedTrades, embeddedTicker])
+
   const [streamStatus, setStreamStatus] = useState('')
   const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false)
   const [overlayActive, setOverlayActive] = useState(false)
@@ -996,633 +993,111 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
   // Expiry range filter: 'all' | '45d' | 'weekly' | '0dte'
   const [expiryFilter, setExpiryFilter] = useState<'all' | '45d' | 'weekly' | '0dte'>('all')
 
+  // Gamma line toggle (single-ticker only)
+  const [showGammaLine, setShowGammaLine] = useState(false)
+  // Bull/Bear Ratio sub-panel toggle
+  const [showBullBear, setShowBullBear] = useState(true)
+
+  // Gamma: real greeks from Polygon per contract
+  const [gammaMap, setGammaMap] = useState<Map<string, number>>(new Map())
+  const [gammaLoading, setGammaLoading] = useState(false)
+
   // Ticker exclusion filters
   const [excludeMag7, setExcludeMag7] = useState(false)
   const [excludeEtf, setExcludeEtf] = useState(false)
 
   const ETF_SET = new Set(['SPY', 'QQQ', 'IWM', 'DIA', 'SMH', 'VXX', 'UVXY', 'EFA', 'EEM', 'VTI', 'IEFA', 'AGG', 'LQD', 'HYG', 'XLF', 'XLE', 'XLK', 'XLV', 'XLI', 'XLU', 'XLP', 'XLY', 'XLB', 'XLRE', 'XLC', 'GLD', 'SLV', 'TLT', 'IEF', 'SHY', 'VTEB', 'VXUS', 'BND', 'BNDX', 'SQQQ', 'TQQQ', 'SPXL', 'SPXS', 'SPYG', 'SPYV', 'IVV', 'VOO', 'VEA', 'VWO', 'ARKK', 'ARKG', 'ARKW', 'ARKF', 'ARKQ', 'RSP', 'MDY', 'IJH', 'IJR', 'IWF', 'IWD', 'IWB', 'IWO', 'IWN', 'XBI', 'IBB', 'SOXX', 'HACK', 'BOTZ', 'ROBO', 'SKYY', 'CLOU', 'GDX', 'GDXJ', 'SIL', 'SILJ', 'IAU', 'SGOL', 'USO', 'UNG', 'PDBC', 'DBO', 'DBB', 'DBC', 'TBT', 'TMF', 'TMV', 'TLH', 'IEI', 'GOVT', 'FXI', 'KWEB', 'MCHI', 'ASHR', 'VGK', 'EWJ', 'EWZ', 'EWC', 'EWG', 'EWU', 'EURL', 'HEDJ', 'DBJP', 'DBEF'])
 
-  // Calculate algo flow analysis using YOUR REAL tier system and SWEEP/BLOCK detection
-  const calculateAlgoFlowAnalysis = async (
-    trades: OptionsFlowData[],
-    displayLabel?: string
-  ): Promise<AlgoFlowAnalysis | null> => {
+  // Fast analysis built directly from already-classified saved trades — no re-processing
+  const buildFastAnalysisFromSaved = (trades: OptionsFlowData[], displayLabel?: string): AlgoFlowAnalysis | null => {
     if (!trades.length) return null
-
     const ticker = displayLabel ?? trades[0].underlying_ticker
-    const currentPrice = displayLabel ? 0 : trades[0].spot_price
+    const currentPrice = displayLabel ? 0 : (trades[0].spot_price ?? 0)
 
-    // Convert to ProcessedTrade format - PRESERVE fill_style if it exists
-    const processedTrades = trades.map((trade) => ({
-      ticker:
-        (trade as any).ticker || // PRESERVE the correct OCC ticker from Polygon (e.g. O:SPXW260325C...)
-        trade.underlying_ticker + trade.strike + trade.expiry + (trade.type === 'call' ? 'C' : 'P'),
-      underlying_ticker: trade.underlying_ticker,
-      strike: trade.strike,
-      expiry: trade.expiry,
-      type: trade.type,
-      trade_size: trade.trade_size,
-      premium_per_contract: trade.premium_per_contract,
-      total_premium: trade.total_premium,
-      spot_price: trade.spot_price,
-      exchange: 0, // Not used for API-classified trades
-      exchange_name: trade.exchange_name || 'UNKNOWN',
-      sip_timestamp: Date.now() * 1000000,
-      conditions: [],
-      trade_timestamp: new Date(trade.trade_timestamp),
-      trade_type: trade.trade_type, // PRESERVE from API
-      moneyness: trade.moneyness,
-      days_to_expiry: trade.days_to_expiry,
-      fill_style: (trade as any).fill_style, // PRESERVE fill_style from API
-      volume: (trade as any).volume, // PRESERVE volume
-      open_interest: (trade as any).open_interest, // PRESERVE open_interest
-    }))
+    // Compute PST/PDT offset once — avoids 601k Intl calls in the loop
+    const sampleTs = new Date(trades[0].trade_timestamp)
+    const pstOffsetMs = sampleTs.getTime() - new Date(sampleTs.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTime()
+    const FIVE_MIN = 5 * 60 * 1000
 
-    // YOUR REAL 8-TIER INSTITUTIONAL SYSTEM
-    const premiumTiers = [
-      {
-        name: 'TIER_1',
-        minPrice: 8.0,
-        minSize: 80,
-        minTotal: 0,
-        description: 'Premium Institutional',
-      },
-      {
-        name: 'TIER_2',
-        minPrice: 7.0,
-        minSize: 100,
-        minTotal: 0,
-        description: 'High-Value Large Volume',
-      },
-      { name: 'TIER_3', minPrice: 5.0, minSize: 150, minTotal: 0, description: 'Mid-Premium Bulk' },
-      {
-        name: 'TIER_4',
-        minPrice: 3.5,
-        minSize: 200,
-        minTotal: 0,
-        description: 'Moderate Premium Large',
-      },
-      {
-        name: 'TIER_5',
-        minPrice: 2.5,
-        minSize: 200,
-        minTotal: 0,
-        description: 'Lower Premium Large',
-      },
-      {
-        name: 'TIER_6',
-        minPrice: 1.0,
-        minSize: 800,
-        minTotal: 0,
-        description: 'Small Premium Massive',
-      },
-      {
-        name: 'TIER_7',
-        minPrice: 0.5,
-        minSize: 2000,
-        minTotal: 0,
-        description: 'Penny Options Massive',
-      },
-      {
-        name: 'TIER_8',
-        minPrice: 0,
-        minSize: 20,
-        minTotal: 50000,
-        description: 'Total Premium Bypass',
-      },
-    ]
-
-    // Classify trades by YOUR REAL TIER SYSTEM
-    const tieredTrades = processedTrades.map((trade) => {
-      let tier = 'TIER_8' // Default to lowest tier
-
-      // Check each tier from highest to lowest
-      for (let i = 0; i < premiumTiers.length; i++) {
-        const tierDef = premiumTiers[i]
-
-        // Special logic for TIER_8 (Total Premium Bypass)
-        if (tierDef.name === 'TIER_8') {
-          if (trade.trade_size >= tierDef.minSize && trade.total_premium >= tierDef.minTotal) {
-            tier = tierDef.name
-            break
-          }
-        } else {
-          // Standard tier logic: premium per contract + size
-          if (
-            trade.premium_per_contract >= tierDef.minPrice &&
-            trade.trade_size >= tierDef.minSize
-          ) {
-            tier = tierDef.name
-            break
-          }
-        }
-      }
-
-      return { ...trade, tier }
-    })
-
-    // SKIP CLIENT-SIDE CLASSIFICATION - API already classified as SWEEP/BLOCK/MINI
-    // Use API's classification directly instead of reclassifying
-    const classifiedTrades = tieredTrades
-
-    // BID/ASK EXECUTION ANALYSIS - Only analyze trades WITHOUT fill_style
-    const tradesNeedingAnalysis = classifiedTrades.filter(
-      (t) => !t.fill_style || t.fill_style === 'N/A'
-    )
-    const tradesWithExistingFillStyle = classifiedTrades.filter(
-      (t) => t.fill_style && t.fill_style !== 'N/A'
-    )
-
-    let analyzedTrades = []
-    if (tradesNeedingAnalysis.length > 0) {
-      analyzedTrades = await analyzeBidAskExecutionLightning(tradesNeedingAnalysis)
-    }
-
-    // Combine trades: those with existing fill_style + newly analyzed trades
-    const tradesWithExecution = [...tradesWithExistingFillStyle, ...analyzedTrades]
-
-    // Single pass replaces ~17 separate filter/reduce operations — critical for large ALL scans
     let totalCallPremium = 0, totalPutPremium = 0
-    let callCount = 0, putCount = 0
     let sweepCount = 0, blockCount = 0, miniCount = 0
-    let tier1Count = 0, tier2Count = 0, tier3Count = 0, tier4Count = 0
-    let tier5Count = 0, tier6Count = 0, tier7Count = 0, tier8Count = 0
     let aggressiveCalls = 0, aggressivePuts = 0
-    let aggressiveCallPremium = 0, aggressivePutPremium = 0
-    let nonAggressiveCallPremium = 0, nonAggressivePutPremium = 0
-    let sweepBlockCalls = 0, sweepBlockPuts = 0
     let bullCallPremium = 0, bearCallPremium = 0, bullPutPremium = 0, bearPutPremium = 0
-    for (const t of tradesWithExecution) {
-      const isCall = (t as any).type === 'call'
-      const premium = (t as any).total_premium
-      if (isCall) { totalCallPremium += premium; callCount++ } else { totalPutPremium += premium; putCount++ }
-      switch ((t as any).trade_type) {
-        case 'SWEEP': sweepCount++; if (isCall) sweepBlockCalls++; else sweepBlockPuts++; break
-        case 'BLOCK': blockCount++; if (isCall) sweepBlockCalls++; else sweepBlockPuts++; break
-        default: miniCount++
-      }
-      switch ((t as any).tier) {
-        case 'TIER_1': tier1Count++; break; case 'TIER_2': tier2Count++; break
-        case 'TIER_3': tier3Count++; break; case 'TIER_4': tier4Count++; break
-        case 'TIER_5': tier5Count++; break; case 'TIER_6': tier6Count++; break
-        case 'TIER_7': tier7Count++; break; default: tier8Count++
-      }
-      if (premium >= 50_000) {
-        if (isCall) { aggressiveCalls++; aggressiveCallPremium += premium }
-        else { aggressivePuts++; aggressivePutPremium += premium }
+
+    // time → {callsPlus, callsMinus, putsPlus, putsMinus}
+    const buckets = new Map<number, { callsPlus: number; callsMinus: number; putsPlus: number; putsMinus: number }>()
+
+    for (let i = 0; i < trades.length; i++) {
+      const t = trades[i]
+      const premium = t.total_premium || 0
+      const isCall = t.type?.toLowerCase() === 'call'
+      const fs = (t as any).fill_style as string | undefined
+      // No fill_style = default to A (Buy): calls → bullish, puts → bearish
+      const isBullish = !fs || fs === 'N/A' || fs === 'A' || fs === 'AA'
+      const isBearish = fs === 'B' || fs === 'BB'
+
+      if (isCall) {
+        totalCallPremium += premium
+        if (isBullish) { aggressiveCalls++; bullCallPremium += premium }
+        else if (isBearish) { bearCallPremium += premium }
       } else {
-        if (isCall) nonAggressiveCallPremium += premium; else nonAggressivePutPremium += premium
+        totalPutPremium += premium
+        if (isBullish) { aggressivePuts++; bullPutPremium += premium }
+        else if (isBearish) { bearPutPremium += premium }
       }
-      // Fill-style quadrant tracking (A/AA = bullish, B/BB = bearish)
-      const fs = (t as any).fill_style
-      const isBull = fs === 'A' || fs === 'AA'
-      const isBear = fs === 'B' || fs === 'BB'
-      if (isCall) { if (isBull) bullCallPremium += premium; else if (isBear) bearCallPremium += premium }
-      else { if (isBull) bullPutPremium += premium; else if (isBear) bearPutPremium += premium }
+
+      const tt = t.trade_type
+      if (tt === 'SWEEP') sweepCount++
+      else if (tt === 'BLOCK') blockCount++
+      else if (tt === 'MINI') miniCount++
+
+      // Bucket by 5-min using pure math — no Intl calls per trade
+      if (t.trade_timestamp) {
+        const tsUtc = new Date(t.trade_timestamp).getTime()
+        const tsPst = tsUtc - pstOffsetMs
+        const bucket = Math.floor(tsPst / FIVE_MIN) * FIVE_MIN + pstOffsetMs
+        const b = buckets.get(bucket) ?? { callsPlus: 0, callsMinus: 0, putsPlus: 0, putsMinus: 0 }
+        if (isCall) { if (isBullish) b.callsPlus += premium; else b.callsMinus += premium }
+        else { if (isBullish) b.putsPlus += premium; else b.putsMinus += premium }
+        buckets.set(bucket, b)
+      }
     }
+
     const netFlow = totalCallPremium - totalPutPremium
-    const callPutRatio = putCount > 0 ? callCount / putCount : callCount
-    const totalPremium = totalCallPremium + totalPutPremium
-    const premiumRatio = totalPremium > 0 ? netFlow / totalPremium : 0
-    const volumeRatio = tradesWithExecution.length > 0 ? (callCount - putCount) / tradesWithExecution.length : 0
-    const aggressiveTotalPremium = aggressiveCallPremium + aggressivePutPremium
-    const aggressiveRatio = aggressiveTotalPremium > 0 ? (aggressiveCallPremium - aggressivePutPremium) / aggressiveTotalPremium : 0
-    const nonAggressiveTotalPremium = nonAggressiveCallPremium + nonAggressivePutPremium
-    const nonAggressiveRatio = nonAggressiveTotalPremium > 0 ? (nonAggressiveCallPremium - nonAggressivePutPremium) / nonAggressiveTotalPremium : 0
-    const pcRatioScore = callPutRatio > 0 ? Math.tanh((callPutRatio - 1) * 0.5) : -1
-    const sweepBlockCount = sweepCount + blockCount
-    const sweepBlockRatio = tradesWithExecution.length > 0 ? sweepBlockCount / tradesWithExecution.length : 0
-    const sweepBlockScore = sweepBlockCount > 0 ? (sweepBlockCalls - sweepBlockPuts) / sweepBlockCount : 0
+    const bullTotal = bullCallPremium + bullPutPremium
+    const bearTotal = bearCallPremium + bearPutPremium
+    const callPutRatio = bearTotal > 0 ? bullTotal / bearTotal : bullTotal > 0 ? 99 : 1
+    const total = aggressiveCalls + aggressivePuts || 1
+    const algoFlowScore = (aggressiveCalls - aggressivePuts) / total
+    const flowTrend: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = algoFlowScore > 0.25 ? 'BULLISH' : algoFlowScore < -0.25 ? 'BEARISH' : 'NEUTRAL'
 
-    // Enhanced AlgoFlow Score with weighted components
-    const algoFlowScore =
-      aggressiveRatio * 0.3 + // 30% - Aggressive trades (institutional conviction)
-      premiumRatio * 0.25 + // 25% - Overall premium flow
-      sweepBlockScore * 0.2 + // 20% - Sweep/Block institutional activity
-      pcRatioScore * 0.15 + // 15% - Put/Call ratio sentiment
-      nonAggressiveRatio * 0.1 // 10% - Non-aggressive trades (retail sentiment)
-
-    // Determine flow trend with enhanced thresholds
-    let flowTrend: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL'
-    if (algoFlowScore > 0.25) flowTrend = 'BULLISH'
-    else if (algoFlowScore < -0.25) flowTrend = 'BEARISH'
-
-    // Create time-based chart data (group by selected interval in PST, market hours only)
-    const intervalData: Record<
-      string,
-      { callsPlus: number; callsMinus: number; putsPlus: number; putsMinus: number }
-    > = {}
-
-    // US Market Holidays (2025-2026)
-    const US_MARKET_HOLIDAYS = [
-      '2025-01-01', // New Year's Day
-      '2025-01-20', // MLK Day
-      '2025-02-17', // Presidents Day
-      '2025-04-18', // Good Friday
-      '2025-05-26', // Memorial Day
-      '2025-07-04', // Independence Day
-      '2025-09-01', // Labor Day
-      '2025-11-27', // Thanksgiving
-      '2025-12-25', // Christmas
-      '2026-01-01', // New Year's Day
-      '2026-01-19', // MLK Day
-      '2026-02-16', // Presidents Day
-      '2026-04-03', // Good Friday
-      '2026-05-25', // Memorial Day
-      '2026-06-19', // Juneteenth
-      '2026-07-03', // Independence Day (observed)
-      '2026-09-07', // Labor Day
-      '2026-11-26', // Thanksgiving
-      '2026-12-25', // Christmas
-    ]
-
-    // Get trading days based on chart display timeframe
-    const getTradingDays = (timeframe: string): string[] => {
-      const days: string[] = []
-      const now = new Date()
-      const pstNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-
-      const daysNeeded = timeframe === '1D' ? 1 : timeframe === '3D' ? 3 : timeframe === '1W' ? 5 : (parseInt(timeframe) || 1)
-      const currentDate = new Date(pstNow)
-      // Start from TODAY (not yesterday)
-
-      while (days.length < daysNeeded) {
-        const dayOfWeek = currentDate.getDay()
-        const year = currentDate.getFullYear()
-        const month = String(currentDate.getMonth() + 1).padStart(2, '0')
-        const day = String(currentDate.getDate()).padStart(2, '0')
-        const dateString = `${year}-${month}-${day}`
-
-        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
-        const isHoliday = US_MARKET_HOLIDAYS.includes(dateString)
-
-        // Skip weekends AND holidays
-        if (!isWeekend && !isHoliday) {
-          days.push(dateString)
-        }
-        currentDate.setDate(currentDate.getDate() - 1)
-      }
-
-      return days.reverse()
-    }
-
-    const tradingDays = getTradingDays(scanTimeframe)
-
-    // Initialize time slots based on selected interval and timeframe
-    const getTimeSlots = (interval: string, timeframe: string) => {
-      const slots: string[] = []
-      let intervalMinutes: number
-
-      // Convert interval to minutes
-      switch (interval) {
-        case '1min':
-          intervalMinutes = 1
-          break
-        case '5min':
-          intervalMinutes = 5
-          break
-        case '15min':
-          intervalMinutes = 15
-          break
-        case '30min':
-          intervalMinutes = 30
-          break
-        case '1hour':
-          intervalMinutes = 60
-          break
-        default:
-          intervalMinutes = 60
-      }
-
-      // Market hours: 6:30 AM to 1:00 PM PST
-      const marketOpenMinutes = 6 * 60 + 30 // 390 minutes = 6:30 AM PST
-      const marketCloseMinutes = 13 * 60 // 780 minutes = 1:00 PM PST
-
-      if (timeframe === '1D') {
-        // Single day: Generate time slots from market open through market close
-        for (
-          let totalMinutes = marketOpenMinutes;
-          totalMinutes < marketCloseMinutes;
-          totalMinutes += intervalMinutes
-        ) {
-          const hour = Math.floor(totalMinutes / 60)
-          const minute = totalMinutes % 60
-          const timeKey = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
-          slots.push(timeKey)
-        }
-        // Always add the final market close slot (1:00 PM PST = market close)
-        slots.push('13:00')
-      } else {
-        // Multi-day: For each trading day, add key time points
-        // Use 9:30AM, 12PM, 4PM for each day
-        tradingDays.forEach((date) => {
-          slots.push(`${date}_09:30`)
-          slots.push(`${date}_12:00`)
-          slots.push(`${date}_16:00`)
-        })
-      }
-
-      return slots
-    }
-
-    // Derive effective interval from scanTimeframe so chart resolution adapts automatically
-    const scanDaysForInterval = getScanDays(scanTimeframe)
-    const effectiveInterval: '1min' | '5min' | '15min' | '30min' | '1hour' =
-      scanDaysForInterval <= 2 ? '1min'
-        : scanDaysForInterval <= 5 ? '30min'
-          : '1hour'
-
-    const timeSlots = getTimeSlots(effectiveInterval, scanTimeframe)
-    timeSlots.forEach((slot) => {
-      intervalData[slot] = { callsPlus: 0, callsMinus: 0, putsPlus: 0, putsMinus: 0 }
-    })
-
-    tradesWithExecution.forEach((trade: any) => {
-      // Convert to PST time
-      const tradeDate = new Date(trade.trade_timestamp)
-      const etTime = new Date(
-        tradeDate.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
-      )
-      const hour = etTime.getHours()
-      const minute = etTime.getMinutes()
-      const year = etTime.getFullYear()
-      const month = String(etTime.getMonth() + 1).padStart(2, '0')
-      const day = String(etTime.getDate()).padStart(2, '0')
-      const dateKey = `${year}-${month}-${day}`
-
-      // Only include trades during market hours (6:30 AM - 1:00 PM PST)
-      if (hour < 6 || hour > 13 || (hour === 6 && minute < 30)) return
-
-      // Find the appropriate time slot based on interval and timeframe
-      let timeKey: string
-
-      if (scanTimeframe === '1D') {
-        // Single day: Use time-only key
-        const getTimeSlot = (h: number, m: number, interval: string) => {
-          const totalMinutes = (h - 9) * 60 + (m - 30) // Minutes since 9:30 AM
-
-          let slotMinutes: number
-          switch (interval) {
-            case '1min':
-              slotMinutes = Math.floor(totalMinutes / 1) * 1
-              break
-            case '5min':
-              slotMinutes = Math.floor(totalMinutes / 5) * 5
-              break
-            case '15min':
-              slotMinutes = Math.floor(totalMinutes / 15) * 15
-              break
-            case '30min':
-              slotMinutes = Math.floor(totalMinutes / 30) * 30
-              break
-            case '1hour':
-              slotMinutes = Math.floor(totalMinutes / 60) * 60
-              break
-            default:
-              slotMinutes = Math.floor(totalMinutes / 60) * 60
-          }
-
-          const slotHour = Math.floor((slotMinutes + 570) / 60) // 570 = 9:30 in minutes
-          const slotMin = (slotMinutes + 570) % 60
-
-          return `${slotHour.toString().padStart(2, '0')}:${slotMin.toString().padStart(2, '0')}`
-        }
-        timeKey = getTimeSlot(hour, minute, effectiveInterval)
-      } else {
-        // Multi-day: Match to closest key time point (9:30AM, 12PM, 4PM)
-        if (hour < 12) {
-          timeKey = `${dateKey}_09:30`
-        } else if (hour < 16) {
-          timeKey = `${dateKey}_12:00`
-        } else {
-          timeKey = `${dateKey}_16:00`
-        }
-      }
-
-      if (intervalData[timeKey]) {
-        // Determine bullish/bearish based on fill_style ONLY
-        let isBullish = false
-
-        if (trade.fill_style === 'A' || trade.fill_style === 'AA') {
-          isBullish = true
-        } else if (trade.fill_style === 'B' || trade.fill_style === 'BB') {
-          isBullish = false
-        } else {
-          // For trades without fill_style, default to false (bearish)
-          isBullish = false
-        }
-
-        if (trade.type === 'call') {
-          if (isBullish) {
-            intervalData[timeKey].callsPlus += trade.total_premium // Calls+ = Bullish call buying
-          } else {
-            intervalData[timeKey].callsMinus += trade.total_premium // Calls- = Bearish call selling
-          }
-        } else {
-          if (isBullish) {
-            intervalData[timeKey].putsPlus += trade.total_premium // Puts+ = Bullish put buying
-          } else {
-            intervalData[timeKey].putsMinus += trade.total_premium // Puts- = Bearish put selling
-          }
-        }
+    // Build cumulative chart data (running total, so last point equals full-day totals)
+    const sortedBuckets = Array.from(buckets.entries()).sort((a, b) => a[0] - b[0])
+    let cumCallsPlus = 0, cumCallsMinus = 0, cumPutsPlus = 0, cumPutsMinus = 0
+    const chartData = sortedBuckets.map(([time, b]) => {
+      cumCallsPlus += b.callsPlus
+      cumCallsMinus += b.callsMinus
+      cumPutsPlus += b.putsPlus
+      cumPutsMinus += b.putsMinus
+      const d = new Date(time)
+      const timeLabel = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Los_Angeles' })
+      const bullish = cumCallsPlus + cumPutsMinus
+      const bearish = cumCallsMinus + cumPutsPlus
+      return {
+        time,
+        timeLabel,
+        callsPlus: cumCallsPlus,
+        callsMinus: cumCallsMinus,
+        putsPlus: cumPutsPlus,
+        putsMinus: cumPutsMinus,
+        netFlow: cumCallsPlus - cumCallsMinus + (cumPutsPlus - cumPutsMinus),
+        bullishTotal: bullish,
+        bearishTotal: bearish,
+        pcRatio: bullish > 0 ? bearish / bullish : 1,
       }
     })
 
-    const chartData = Object.entries(intervalData)
-      // Cumulative sum logic
-      .sort(([aTime], [bTime]) => {
-        // Handle both single-day "HH:MM" and multi-day "YYYY-MM-DD_HH:MM" formats
-        const aHasDate = aTime.includes('_')
-        const bHasDate = bTime.includes('_')
-
-        if (aHasDate && bHasDate) {
-          // Multi-day: Sort by date first, then time
-          const [aDate, aTimeStr] = aTime.split('_')
-          const [bDate, bTimeStr] = bTime.split('_')
-          if (aDate !== bDate) {
-            return aDate.localeCompare(bDate)
-          }
-          const [aHours, aMinutes] = aTimeStr.split(':').map(Number)
-          const [bHours, bMinutes] = bTimeStr.split(':').map(Number)
-          return aHours * 60 + aMinutes - (bHours * 60 + bMinutes)
-        } else {
-          // Single-day: Sort by time only
-          const [aHours, aMinutes] = aTime.split(':').map(Number)
-          const [bHours, bMinutes] = bTime.split(':').map(Number)
-          return aHours * 60 + aMinutes - (bHours * 60 + bMinutes)
-        }
-      })
-      .reduce<
-        Array<{
-          time: number
-          timeLabel: string
-          callsPlus: number
-          callsMinus: number
-          putsPlus: number
-          putsMinus: number
-          netFlow: number
-          bullishTotal: number
-          bearishTotal: number
-        }>
-      >((acc, [time, data], idx) => {
-        // Convert time string to proper Date object for chart
-        let timeDate: Date
-        let timeLabel: string
-
-        if (time.includes('_')) {
-          // Multi-day format: "YYYY-MM-DD_HH:MM"
-          const [dateStr, timeStr] = time.split('_')
-          const [year, month, day] = dateStr.split('-').map(Number)
-          const [hours, minutes] = timeStr.split(':').map(Number)
-          timeDate = new Date(year, month - 1, day, hours, minutes)
-
-          // Format as "MM/DD/YYYY HH:MM AM/PM"
-          const hour12 = hours % 12 === 0 ? 12 : hours % 12
-          const ampm = hours < 12 ? 'AM' : 'PM'
-          timeLabel = `${month}/${day}/${year} ${hour12}:${minutes.toString().padStart(2, '0')} ${ampm}`
-        } else {
-          // Single-day format: "HH:MM"
-          const [hours, minutes] = time.split(':').map(Number)
-          const today = new Date()
-          timeDate = new Date(
-            today.getFullYear(),
-            today.getMonth(),
-            today.getDate(),
-            hours,
-            minutes
-          )
-
-          // Format as "HH:MM AM/PM"
-          const hour12 = hours % 12 === 0 ? 12 : hours % 12
-          const ampm = hours < 12 ? 'AM' : 'PM'
-          timeLabel = `${hour12}:${minutes.toString().padStart(2, '0')} ${ampm}`
-        }
-
-        // Get previous cumulative values
-        const prev =
-          acc.length > 0
-            ? acc[acc.length - 1]
-            : {
-              callsPlus: 0,
-              callsMinus: 0,
-              putsPlus: 0,
-              putsMinus: 0,
-              netFlow: 0,
-              bullishTotal: 0,
-              bearishTotal: 0,
-            }
-
-        // Add current to previous for cumulative sum
-        const cumulative = {
-          time: timeDate.getTime(),
-          timeLabel,
-          callsPlus: prev.callsPlus + data.callsPlus,
-          callsMinus: prev.callsMinus + data.callsMinus,
-          putsPlus: prev.putsPlus + data.putsPlus,
-          putsMinus: prev.putsMinus + data.putsMinus,
-          netFlow: 0,
-          bullishTotal: 0,
-          bearishTotal: 0,
-          pcRatio: 0,
-        }
-        cumulative.netFlow =
-          cumulative.callsPlus -
-          cumulative.callsMinus +
-          (cumulative.putsPlus - cumulative.putsMinus)
-        cumulative.bullishTotal = cumulative.callsPlus + cumulative.putsPlus
-        cumulative.bearishTotal = -(cumulative.callsMinus + cumulative.putsMinus)
-        // P/C: Bearish (bear calls + bear puts) ÷ Bullish (bull calls + bull puts)
-        const cumBullish = cumulative.callsPlus + cumulative.putsPlus
-        const cumBearish = cumulative.callsMinus + cumulative.putsMinus
-        cumulative.pcRatio = cumBullish > 0 ? cumBearish / cumBullish : 1
-        acc.push(cumulative)
-        return acc
-      }, [])
-
-    // 🚨 FETCH REAL PRICE DATA FROM POLYGON API — skipped for multi-ticker scans
-    let finalPriceData: Array<{
-      time: number
-      open: number
-      high: number
-      low: number
-      close: number
-    }> = []
-
-    if (!displayLabel) {
-      try {
-        // Determine interval: day bars for multi-week, hour bars for multi-day, minute for 1D
-        const scanDays = getScanDays(scanTimeframe)
-        const tradingDays = getTradingDays(scanTimeframe)
-        const startDate = tradingDays[0]
-        const endDate = tradingDays[tradingDays.length - 1]
-
-        let priceMultiplier = 5
-        let priceTimespan = 'minute'
-        if (scanDays > 10) {
-          priceMultiplier = 1
-          priceTimespan = 'day'
-        } else if (scanDays > 5) {
-          priceMultiplier = 60
-          priceTimespan = 'minute' // 1-hour bars
-        } else if (scanDays > 2) {
-          priceMultiplier = 30
-          priceTimespan = 'minute' // 30-min bars
-        } // else: 1-2 days → 5-min bars (default)
-
-        // Map index option underlyings and dot-tickers to correct Polygon aggs ticker
-        const AGGS_TICKER_MAP: Record<string, string> = {
-          SPXW: 'I:SPX', SPX: 'I:SPX', NDXP: 'I:NDX', NDX: 'I:NDX',
-          RUTW: 'I:RUT', RUT: 'I:RUT', BRKB: 'BRK.B', BRKA: 'BRK.A',
-        }
-        const aggsTicker = AGGS_TICKER_MAP[ticker] ?? ticker
-
-        // Fetch REAL aggregated bars from Polygon covering full scan range
-        const polygonUrl = `https://api.polygon.io/v2/aggs/ticker/${aggsTicker}/range/${priceMultiplier}/${priceTimespan}/${startDate}/${endDate}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
-        const response = await fetch(polygonUrl)
-        const data = await response.json()
-
-        if (data.results && data.results.length > 0) {
-
-
-          // Convert Polygon results to our chart format
-          finalPriceData = data.results.map((bar: any) => ({
-            time: bar.t, // Polygon timestamp in milliseconds
-            open: bar.o,
-            high: bar.h,
-            low: bar.l,
-            close: bar.c,
-          }))
-
-        } else {
-          console.warn(
-            `⚠️ NO REAL DATA from Polygon for ${ticker} from ${startDate} to ${endDate} - chart will be empty`
-          )
-          finalPriceData = []
-        }
-      } catch (error) {
-        console.error(`❌ FAILED TO FETCH REAL PRICE DATA for ${ticker}:`, error)
-        finalPriceData = []
-      }
-    }
-
-    // Merge stock price into each chartData point by nearest timestamp
-    const mergedChartData = finalPriceData.length > 0
-      ? chartData.map((point: any) => {
-        const closest = finalPriceData.reduce((prev, curr) =>
-          Math.abs(curr.time - point.time) < Math.abs(prev.time - point.time) ? curr : prev
-        )
-        const withinWindow = Math.abs(closest.time - point.time) < 25 * 60 * 60 * 1000
-        return {
-          ...point,
-          stockOpen: withinWindow ? closest.open : undefined,
-          stockHigh: withinWindow ? closest.high : undefined,
-          stockLow: withinWindow ? closest.low : undefined,
-          stockClose: withinWindow ? closest.close : undefined,
-        }
-      })
-      : chartData
-
-    return {
+    const result = {
       ticker,
       currentPrice,
       algoFlowScore,
@@ -1632,33 +1107,29 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
       sweepCount,
       blockCount,
       miniCount,
-
       callPutRatio,
       aggressiveCalls,
       aggressivePuts,
       flowTrend,
-      chartData: mergedChartData,
-      priceData: finalPriceData,
-      // YOUR REAL TIER SYSTEM counts
-      tier1Count,
-      tier2Count,
-      tier3Count,
-      tier4Count,
-      tier5Count,
-      tier6Count,
-      tier7Count,
-      tier8Count,
-      // Return trades with fill_style
-      trades: tradesWithExecution,
-      // Fill-style quadrant premiums for the gauge
+      chartData,
+      priceData: [],
+      tier1Count: 0, tier2Count: 0, tier3Count: 0, tier4Count: 0,
+      tier5Count: 0, tier6Count: 0, tier7Count: 0, tier8Count: 0,
+      trades,
       bullCallPremium,
       bearCallPremium,
       bullPutPremium,
       bearPutPremium,
     }
+
+    return result
   }
 
-  // Analysis state to handle async bid/ask analysis
+
+
+
+
+  // Analysis state
   type ChartDataPoint = {
     time: number
     timeLabel: string
@@ -1753,60 +1224,13 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
   const allScanCacheRef = useRef<{ flowData: OptionsFlowData[]; analysis: AlgoFlowAnalysis } | null>(null)
   const [drilledTicker, setDrilledTicker] = useState<string | null>(null)
 
-  // Effect to handle async analysis calculation
-  // Function to perform analysis - will be called manually after volume/OI enrichment
-  const performAnalysis = async (tradesData: any[], displayLabel?: string) => {
-    if (tradesData.length > 0) {
-      setIsAnalyzing(true)
-      try {
-        const result = await calculateAlgoFlowAnalysis(tradesData, displayLabel)
-
-        // Merge volume/OI data into analysis trades
-        if (result && result.trades) {
-          result.trades = result.trades.map((analyzedTrade: any) => {
-            // Find matching trade - try exact ticker first, then by contract details
-            let enrichedTrade = tradesData.find((t) => t.ticker === analyzedTrade.ticker)
-
-            if (!enrichedTrade) {
-              enrichedTrade = tradesData.find(
-                (t) =>
-                  t.underlying_ticker === analyzedTrade.underlying_ticker &&
-                  t.strike === analyzedTrade.strike &&
-                  t.expiry === analyzedTrade.expiry &&
-                  t.type === analyzedTrade.type
-              )
-            }
-
-            if (
-              enrichedTrade &&
-              (enrichedTrade.volume !== undefined || enrichedTrade.open_interest !== undefined)
-            ) {
-              return {
-                ...analyzedTrade,
-                volume: enrichedTrade.volume,
-                open_interest: enrichedTrade.open_interest,
-              }
-            }
-            return analyzedTrade
-          })
-        }
-
-        setAnalysis(result)
-        // Cache ALL scan results so the user can drill down and return
-        if (result && result.ticker === 'ALL') {
-          allScanCacheRef.current = { flowData: tradesData, analysis: result }
-        }
-      } catch (error) {
-        console.error('Error in analysis:', error)
-        setAnalysis(null)
-      } finally {
-        setIsAnalyzing(false)
-        setOverlayActive(false)
-      }
-    } else {
-      setAnalysis(null)
-      setOverlayActive(false)
-    }
+  // Build analysis directly from already-classified trades — no re-processing
+  const performAnalysis = (tradesData: any[], displayLabel?: string) => {
+    const result = buildFastAnalysisFromSaved(tradesData, displayLabel)
+    setAnalysis(result)
+    if (result?.ticker === 'ALL') allScanCacheRef.current = { flowData: tradesData, analysis: result }
+    setIsAnalyzing(false)
+    setOverlayActive(false)
   }
 
   // Clear analysis when flowData changes (but don't auto-run analysis)
@@ -1871,7 +1295,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
       const trades = accumulatedTradesRef.current
       if (trades.length === 0) return
       const label = algoLiveTickerRef.current === 'ALL' ? 'ALL' : algoLiveTickerRef.current
-      performAnalysis(trades, label === 'ALL' ? undefined : label).catch(() => { })
+      performAnalysis(trades, label === 'ALL' ? undefined : label)
     }, 10000)
   }, [convertAlgoTrade, performAnalysis])
 
@@ -2119,6 +1543,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
     setError('')
     setIsStreamComplete(false)
     setDrilledTicker(null)
+    setGammaMap(new Map())
     // Clear ALL cache when starting a fresh scan (new scan may be a different ticker)
     if (upper !== 'ALL') allScanCacheRef.current = null
     multiScanLabelRef.current = displayLabel
@@ -2157,7 +1582,11 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
               )
               const combinedTrades: OptionsFlowData[] = []
               for (const payload of dayPayloads) {
-                if (Array.isArray(payload?.data)) combinedTrades.push(...payload.data)
+                // Use a loop instead of push(...) — spread on 600k+ items overflows the JS call stack
+                if (Array.isArray(payload?.data)) {
+                  const incoming = payload.data as OptionsFlowData[]
+                  for (let i = 0; i < incoming.length; i++) combinedTrades.push(incoming[i])
+                }
               }
 
               // Determine which required trading days are actually present in the
@@ -2190,7 +1619,13 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                 setIsStreamComplete(true)
                 setStreamStatus(`Loaded from saved — ${saved.length} trades`)
                 setLoading(false)
-                performAnalysis(saved, displayLabel).catch(() => { })
+                // Trades are already classified — build analysis directly from saved fields, skip re-processing
+                const fastAnalysis = buildFastAnalysisFromSaved(saved, displayLabel)
+                if (fastAnalysis) {
+                  setAnalysis(fastAnalysis)
+                  if (fastAnalysis.ticker === 'ALL') allScanCacheRef.current = { flowData: saved, analysis: fastAnalysis }
+                }
+                setOverlayActive(false)
                 return
               } else if (saved.length > 0 && coveredDays.length > 0) {
                 // Partial coverage but have some ticker data — show missing days dialog
@@ -2204,7 +1639,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
             }
           }
         }
-      } catch (err) { console.warn('[AlgoFlow] saved check error:', err) }
+      } catch (err) { /* saved check failed */ }
     }
 
     setStreamStatus('Connecting...')
@@ -2287,14 +1722,14 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                     setIsStreamComplete(true)
                     setStreamStatus(`Complete — ${tradesWithVolOI.length} trades loaded`)
                     setLoading(false)
-                    performAnalysis(tradesWithVolOI, displayLabel).catch(() => { })
+                    performAnalysis(tradesWithVolOI, displayLabel)
                   })
                   .catch(() => {
                     setFlowData(completeTrades)
                     liveOICache.clear()
                     setStreamStatus('Complete (volume/OI unavailable)')
                     setLoading(false)
-                    performAnalysis(completeTrades, displayLabel).catch(() => { })
+                    performAnalysis(completeTrades, displayLabel)
                   })
               } else {
                 setError(`No options flow data found for ${actualTickers}`)
@@ -2313,14 +1748,14 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
               break
           }
         } catch (parseError) {
-          console.error('Error parsing stream data:', parseError)
+          // parse error — skip
         }
       }
 
       eventSource.onerror = (error) => {
         // Only log errors if stream hasn't completed successfully
         if (!isStreamComplete) {
-          console.warn('⚠️ EventSource connection issue')
+
           setError('Stream connection unavailable')
           setLoading(false)
           setOverlayActive(false)
@@ -2336,6 +1771,88 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
       setOverlayActive(false)
     }
   }
+
+  // Fetch real gamma values from Polygon for all contracts in the current flow (single-ticker only)
+  const fetchGammasForFlowTrades = useCallback(async (trades: OptionsFlowData[], underlyingTicker: string) => {
+    if (!trades.length || !underlyingTicker) return
+    setGammaLoading(true)
+    try {
+      // Single call — options-chain without expiration returns all contracts up to 3 months
+      const res = await fetch(`/api/options-chain?ticker=${underlyingTicker}`)
+      const json = await res.json()
+      if (!json.success || !json.data) return
+      const map = new Map<string, number>()
+      // data shape: { [expiryDate]: { calls: { [strike]: { greeks: { gamma } } }, puts: { ... } } }
+      for (const [expiry, expData] of Object.entries(json.data as Record<string, any>)) {
+        const normExpiry = expiry.includes('T') ? expiry.split('T')[0] : expiry
+        for (const [strike, cd] of Object.entries((expData as any).calls || {})) {
+          const gamma = (cd as any)?.greeks?.gamma
+          if (gamma != null) map.set(`${strike}_C_${normExpiry}`, gamma)
+        }
+        for (const [strike, cd] of Object.entries((expData as any).puts || {})) {
+          const gamma = (cd as any)?.greeks?.gamma
+          if (gamma != null) map.set(`${strike}_P_${normExpiry}`, gamma)
+        }
+      }
+      setGammaMap(map)
+    } catch (e) {
+      // gamma fetch failed
+    } finally {
+      setGammaLoading(false)
+    }
+  }, [])
+
+  // Trigger gamma fetch when a single-ticker analysis completes
+  useEffect(() => {
+    if (!analysis || isAllScan) return
+    const t = analysis.ticker
+    if (!t || t === 'ALL' || t === 'MAG7' || t.includes(',')) return
+    fetchGammasForFlowTrades(flowData, t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysis?.ticker])
+
+  // Build cumulative gamma line from real Polygon greeks — per trade, chronological
+  const gammaLineData = useMemo(() => {
+    if (!gammaMap.size || !flowData.length) return [] as Array<{ time: number; timeLabel: string; cumGamma: number }>
+    const sorted = [...flowData].sort(
+      (a, b) => new Date(a.trade_timestamp).getTime() - new Date(b.trade_timestamp).getTime()
+    )
+    const sampleTs = new Date(sorted[0].trade_timestamp)
+    const pstOffsetMs =
+      sampleTs.getTime() -
+      new Date(sampleTs.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTime()
+    const FIVE_MIN = 5 * 60 * 1000
+    const buckets = new Map<number, number>()
+    for (const t of sorted) {
+      const expiry = (t.expiry || '').includes('T') ? t.expiry.split('T')[0] : (t.expiry || '')
+      const typeChar = t.type === 'call' ? 'C' : 'P'
+      const key = `${t.strike}_${typeChar}_${expiry}`
+      const gamma = gammaMap.get(key) ?? 0
+      if (!gamma) continue
+      const fs = (t as any).fill_style as string | undefined
+      const isBullish = !fs || fs === 'N/A' || fs === 'A' || fs === 'AA'
+      const isBearish = fs === 'B' || fs === 'BB'
+      if (!isBullish && !isBearish) continue
+      const signedGamma = isBullish ? gamma : -gamma
+      const tsUtc = new Date(t.trade_timestamp).getTime()
+      const tsPst = tsUtc - pstOffsetMs
+      const bucket = Math.floor(tsPst / FIVE_MIN) * FIVE_MIN + pstOffsetMs
+      buckets.set(bucket, (buckets.get(bucket) ?? 0) + signedGamma)
+    }
+    let cum = 0
+    return Array.from(buckets.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([time, delta]) => {
+        cum += delta
+        const d = new Date(time)
+        const timeLabel = d.toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          timeZone: 'America/Los_Angeles',
+        })
+        return { time, timeLabel, cumGamma: cum }
+      })
+  }, [gammaMap, flowData])
 
   const handleSearch = () => {
     if (ticker.trim()) {
@@ -2666,7 +2183,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
       liveOICache.clear()
       setIsStreamComplete(true)
       setStreamStatus(`Loaded from saved — ${savedTrades.length} trades`)
-      performAnalysis(savedTrades, displayLabel).catch(() => { })
+      performAnalysis(savedTrades, displayLabel)
     } else {
       setError('No saved data available for this selection.')
     }
@@ -2759,8 +2276,8 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
           </div>
         </div>
       )}
-      {/* HEADER BAR */}
-      {isMobile ? (
+      {/* HEADER BAR — hidden in embedded mode */}
+      {!embeddedMode && (isMobile ? (
         /* ── MOBILE HEADER ─────────────────────────────────────── */
         <div style={{ background: 'linear-gradient(180deg, #0d0d0d 0%, #060606 100%)', borderBottom: '1px solid rgba(255,255,255,0.1)', flexShrink: 0 }}>
           {/* Row 1: Back + Title + Search */}
@@ -2847,6 +2364,35 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
               disabled={loading}
               style={{ flexShrink: 0, height: 28, padding: '0 11px', background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.2) 100%)', border: '1px solid #666', borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#d4d4d4', cursor: loading ? 'not-allowed' : 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: 'JetBrains Mono, monospace' }}
             >ALL</button>
+            {/* Gamma Line + Bull/Bear pills — single ticker only */}
+            {analysis && !isAllScan && (
+              <>
+                <button
+                  onClick={() => setShowGammaLine(v => !v)}
+                  style={{
+                    flexShrink: 0, height: 28, padding: '0 11px',
+                    background: showGammaLine ? 'linear-gradient(180deg,rgba(0,0,0,0.7) 0%,rgba(0,0,0,0.9) 100%)' : 'linear-gradient(180deg,rgba(20,20,20,0.9) 0%,rgba(0,0,0,1) 100%)',
+                    border: showGammaLine ? '1px solid #ff8500' : '1px solid rgba(255,133,0,0.4)',
+                    borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#ff8500',
+                    cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap',
+                    fontFamily: 'JetBrains Mono, monospace',
+                    boxShadow: showGammaLine ? '0 0 8px rgba(255,133,0,0.3),inset 0 0 6px rgba(0,0,0,0.6)' : undefined,
+                  }}
+                >GAMMA LINE</button>
+                <button
+                  onClick={() => setShowBullBear(v => !v)}
+                  style={{
+                    flexShrink: 0, height: 28, padding: '0 11px',
+                    background: showBullBear ? 'linear-gradient(180deg,rgba(0,0,0,0.7) 0%,rgba(0,0,0,0.9) 100%)' : 'linear-gradient(180deg,rgba(20,20,20,0.9) 0%,rgba(0,0,0,1) 100%)',
+                    border: showBullBear ? '1px solid #a78bfa' : '1px solid rgba(167,139,250,0.4)',
+                    borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#a78bfa',
+                    cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap',
+                    fontFamily: 'JetBrains Mono, monospace',
+                    boxShadow: showBullBear ? '0 0 8px rgba(167,139,250,0.3),inset 0 0 6px rgba(0,0,0,0.6)' : undefined,
+                  }}
+                >BULL/BEAR</button>
+              </>
+            )}
             {([
               { f: '45d', label: '45D', color: '#ffffff', borderColor: 'rgba(255,255,255,0.6)', glowColor: 'rgba(255,255,255,0.15)' },
               { f: 'weekly', label: 'WEEKLY', color: '#facc15', borderColor: '#facc15', glowColor: 'rgba(250,204,21,0.25)' },
@@ -2902,6 +2448,37 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Gamma Line + Bull/Bear buttons — single ticker only */}
+            {analysis && !isAllScan && (
+              <>
+                <button
+                  onClick={() => setShowGammaLine(v => !v)}
+                  className="toolbar-pill font-bold uppercase transition-all duration-150"
+                  title="Show cumulative gamma exposure from flow trades"
+                  style={{
+                    height: '31px', padding: '0 13px',
+                    background: showGammaLine ? 'linear-gradient(180deg,rgba(0,0,0,0.6) 0%,rgba(0,0,0,0.85) 55%,rgba(0,0,0,0.95) 100%)' : 'linear-gradient(180deg,rgba(20,20,20,0.9) 0%,rgba(8,8,8,0.95) 55%,rgba(0,0,0,1) 100%)',
+                    border: showGammaLine ? '1px solid #ff8500' : '1px solid rgba(255,133,0,0.45)',
+                    borderRadius: '20px', fontSize: '12px', letterSpacing: '1.2px', fontWeight: '700',
+                    boxShadow: showGammaLine ? 'inset 0 1px 0 rgba(255,255,255,0.12),inset 0 -1px 0 rgba(0,0,0,0.6),0 0 12px rgba(255,133,0,0.35),inset 0 0 8px rgba(0,0,0,0.5)' : 'inset 0 1px 0 rgba(255,255,255,0.06),inset 0 -1px 0 rgba(0,0,0,0.5)',
+                    outline: 'none', color: '#ff8500', cursor: 'pointer', transition: 'all 0.15s ease', whiteSpace: 'nowrap',
+                  }}
+                >GAMMA LINE</button>
+                <button
+                  onClick={() => setShowBullBear(v => !v)}
+                  className="toolbar-pill font-bold uppercase transition-all duration-150"
+                  title="Toggle Bull/Bear Ratio chart"
+                  style={{
+                    height: '31px', padding: '0 13px',
+                    background: showBullBear ? 'linear-gradient(180deg,rgba(0,0,0,0.6) 0%,rgba(0,0,0,0.85) 55%,rgba(0,0,0,0.95) 100%)' : 'linear-gradient(180deg,rgba(20,20,20,0.9) 0%,rgba(8,8,8,0.95) 55%,rgba(0,0,0,1) 100%)',
+                    border: showBullBear ? '1px solid #a78bfa' : '1px solid rgba(167,139,250,0.45)',
+                    borderRadius: '20px', fontSize: '12px', letterSpacing: '1.2px', fontWeight: '700',
+                    boxShadow: showBullBear ? 'inset 0 1px 0 rgba(255,255,255,0.12),inset 0 -1px 0 rgba(0,0,0,0.6),0 0 12px rgba(167,139,250,0.25),inset 0 0 8px rgba(0,0,0,0.5)' : 'inset 0 1px 0 rgba(255,255,255,0.06),inset 0 -1px 0 rgba(0,0,0,0.5)',
+                    outline: 'none', color: '#a78bfa', cursor: 'pointer', transition: 'all 0.15s ease', whiteSpace: 'nowrap',
+                  }}
+                >BULL/BEAR</button>
+              </>
+            )}
             {/* Expiry filter buttons */}
             {([
               { f: '45d', label: '45D FILTER', color: '#ffffff', borderColor: 'rgba(255,255,255,0.6)', glowColor: 'rgba(255,255,255,0.15)', title: 'Show contracts expiring within 45 days' },
@@ -3107,7 +2684,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
             )}
           </div>
         </div>
-      )} {/* end desktop header */}
+      ))} {/* end header — hidden in embedded mode */}
 
       {/* SCROLLABLE CONTENT */}
       <div className="flex-1 overflow-y-auto min-h-0" style={{ padding: isMobile ? '8px 10px 80px' : '12px 20px 20px' }}>
@@ -3169,7 +2746,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                 {isMobile ? (
                   <div style={{ gridColumn: '1 / -1', borderBottom: '1px solid rgba(255,255,255,0.08)', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 0, flexWrap: 'nowrap', overflow: 'hidden', background: 'rgba(0,0,0,0.3)' }}>
                     {([
-                      { label: 'PC', value: analysis.callPutRatio.toFixed(2), color: analysis.callPutRatio > 1.2 ? '#ef4444' : analysis.callPutRatio < 0.8 ? '#10b981' : '#fff' },
+                      { label: 'B/B', value: analysis.callPutRatio.toFixed(2), color: analysis.callPutRatio > 1.2 ? '#10b981' : analysis.callPutRatio < 0.8 ? '#ef4444' : '#fff' },
                       { label: 'Calls', value: fmtCompact(displayAnalysis?.totalCallPremium ?? 0), color: '#10b981' },
                       { label: 'Puts', value: fmtCompact(displayAnalysis?.totalPutPremium ?? 0), color: '#ef4444' },
                       { label: 'Sweeps', value: analysis.sweepCount.toLocaleString(), color: '#eab308' },
@@ -3191,7 +2768,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                       background: 'linear-gradient(180deg, rgba(255,255,255,0.018) 0%, transparent 100%)',
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
-                        <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#ffffff', letterSpacing: '0.22em', fontWeight: 700 }}>P/C RATIO</div>
+                        <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#ffffff', letterSpacing: '0.22em', fontWeight: 700 }}>BULL/BEAR RATIO</div>
                         <div style={{
                           fontFamily: 'JetBrains Mono,monospace',
                           fontSize: 20,
@@ -3277,7 +2854,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                 {!isMobile && [{ label: 'CALLS PREM', value: formatCurrency(displayAnalysis?.totalCallPremium ?? 0), color: '#10b981', glow: 'rgba(16,185,129,0.35)', bg: 'rgba(16,185,129,0.04)' },
                 { label: 'PUTS PREM', value: formatCurrency(displayAnalysis?.totalPutPremium ?? 0), color: '#ef4444', glow: 'rgba(239,68,68,0.35)', bg: 'rgba(239,68,68,0.04)' },
                 { label: 'NET FLOW', value: formatCurrency(analysis.netFlow), color: analysis.netFlow >= 0 ? '#10b981' : '#ef4444', glow: analysis.netFlow >= 0 ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)', bg: analysis.netFlow >= 0 ? 'rgba(16,185,129,0.04)' : 'rgba(239,68,68,0.04)' },
-                { label: 'P/C RATIO', value: analysis.callPutRatio.toFixed(2), color: '#e2e8f0', glow: 'rgba(255,255,255,0.15)', bg: 'transparent' },
+                { label: 'BULL/BEAR', value: analysis.callPutRatio.toFixed(2), color: '#e2e8f0', glow: 'rgba(255,255,255,0.15)', bg: 'transparent' },
                 ].map(({ label, value, color, glow, bg }) => (
                   <div key={label} style={{
                     padding: '7px 14px',
@@ -3324,46 +2901,45 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                     )}
                   </div>
                   {/* CENTER: legend (absolutely centered, hidden on mobile) */}
-                  <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', display: isMobile ? 'none' : 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', display: isMobile ? 'none' : 'flex', alignItems: 'center', gap: 6 }}>
                     {chartViewMode === 'detailed' && [
-                      { color: '#00ff7f', label: 'BULL CALLS', key: 'callsPlus' },
-                      { color: '#4da6ff', label: 'BEAR CALLS', key: 'callsMinus' },
-                      { color: '#ffcc00', label: 'BULL PUTS', key: 'putsPlus' },
-                      { color: '#ff2222', label: 'BEAR PUTS', key: 'putsMinus' },
+                      { color: '#00ff7f', label: 'CALLS', key: 'callsPlus' },
+                      { color: '#4da6ff', label: 'BEAR C', key: 'callsMinus' },
+                      { color: '#ffcc00', label: 'BULL P', key: 'putsPlus' },
+                      { color: '#ff2222', label: 'BEAR P', key: 'putsMinus' },
                     ].map(({ color, label, key }) => (
-                      <span key={key} onClick={() => toggleLine(key)} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', opacity: hiddenLines.has(key) ? 0.3 : 1, transition: 'opacity 0.15s' }}>
-                        <svg width="20" height="4"><line x1="0" y1="2" x2="20" y2="2" stroke={color} strokeWidth="2.5" /></svg>
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 16, color, fontWeight: 700, letterSpacing: '0.05em' }}>{label}</span>
+                      <span key={key} onClick={() => toggleLine(key)} style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer', opacity: hiddenLines.has(key) ? 0.3 : 1, transition: 'opacity 0.15s' }}>
+                        <svg width="16" height="4"><line x1="0" y1="2" x2="16" y2="2" stroke={color} strokeWidth="2.5" /></svg>
+                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color, fontWeight: 700, letterSpacing: '0.03em' }}>{label}</span>
                       </span>
                     ))}
                     {chartViewMode === 'simplified' && [
                       { color: '#00ff7f', label: 'BULLISH', key: 'bullishTotal' },
                       { color: '#ff2222', label: 'BEARISH', key: 'bearishTotal' },
                     ].map(({ color, label, key }) => (
-                      <span key={key} onClick={() => toggleLine(key)} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', opacity: hiddenLines.has(key) ? 0.3 : 1, transition: 'opacity 0.15s' }}>
-                        <svg width="20" height="4"><line x1="0" y1="2" x2="20" y2="2" stroke={color} strokeWidth="2.5" /></svg>
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 16, color, fontWeight: 700, letterSpacing: '0.05em' }}>{label}</span>
+                      <span key={key} onClick={() => toggleLine(key)} style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer', opacity: hiddenLines.has(key) ? 0.3 : 1, transition: 'opacity 0.15s' }}>
+                        <svg width="16" height="4"><line x1="0" y1="2" x2="16" y2="2" stroke={color} strokeWidth="2.5" /></svg>
+                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color, fontWeight: 700, letterSpacing: '0.03em' }}>{label}</span>
                       </span>
                     ))}
                     {chartViewMode === 'net' && (
-                      <span onClick={() => toggleLine('netFlow')} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', opacity: hiddenLines.has('netFlow') ? 0.3 : 1, transition: 'opacity 0.15s' }}>
-                        <svg width="30" height="4"><line x1="0" y1="2" x2="14" y2="2" stroke="#00ff7f" strokeWidth="2.5" /><line x1="16" y1="2" x2="30" y2="2" stroke="#ff2222" strokeWidth="2.5" /></svg>
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 16, color: '#fff', fontWeight: 700, letterSpacing: '0.05em' }}>NET FLOW</span>
+                      <span onClick={() => toggleLine('netFlow')} style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer', opacity: hiddenLines.has('netFlow') ? 0.3 : 1, transition: 'opacity 0.15s' }}>
+                        <svg width="24" height="4"><line x1="0" y1="2" x2="11" y2="2" stroke="#00ff7f" strokeWidth="2.5" /><line x1="13" y1="2" x2="24" y2="2" stroke="#ff2222" strokeWidth="2.5" /></svg>
+                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: '#fff', fontWeight: 700, letterSpacing: '0.03em' }}>NET FLOW</span>
                       </span>
                     )}
                   </div>
                   {/* RIGHT: mode buttons */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 3 : 6, marginLeft: 'auto', flexShrink: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 3 : 4, marginLeft: 'auto', flexShrink: 0 }}>
                     {([['detailed', 'ALL'], ['simplified', 'BULL/BEAR'], ['net', 'NET']] as const).map(([mode, label]) => (
-                      <button key={mode} onClick={() => setChartViewMode(mode)} style={{ padding: isMobile ? '2px 6px' : '2px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: isMobile ? 11 : 16, fontWeight: 800, letterSpacing: '0.1em', border: '1px solid rgba(34,211,238,0.5)', background: chartViewMode === mode ? '#22d3ee' : 'transparent', color: chartViewMode === mode ? '#000' : '#22d3ee', cursor: 'pointer', whiteSpace: 'nowrap' }}>{label}</button>
+                      <button key={mode} onClick={() => setChartViewMode(mode)} style={{ padding: isMobile ? '2px 6px' : '3px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: isMobile ? 11 : 13, fontWeight: 800, letterSpacing: '0.08em', border: '1px solid rgba(255,255,255,0.15)', background: chartViewMode === mode ? 'linear-gradient(180deg,#1a0f00 0%,#0d0800 100%)' : '#0a0a0a', color: chartViewMode === mode ? '#ff8500' : '#ffffff', cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: chartViewMode === mode ? 'inset 0 1px 0 rgba(255,133,0,0.25), 0 0 8px rgba(255,133,0,0.2)' : 'none', borderColor: chartViewMode === mode ? 'rgba(255,133,0,0.5)' : 'rgba(255,255,255,0.15)' }}>{label}</button>
                     ))}
                   </div>
                 </div>
-                {/* Chart body */}
+                {/* Chart body — height auto-sizes to content: main chart + visible sub-panels */}
                 <div ref={chartDivRef} style={{
                   padding: 0,
                   background: 'linear-gradient(180deg, #0e0e0e 0%, #070707 4%, #000 100%)',
-                  height: isMobile ? 527 : 572,
                   minWidth: 0,
                   position: 'relative',
                   overflow: 'hidden',
@@ -3423,7 +2999,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                   )}
                   {/* Glossy top-edge sheen */}
                   <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 32, background: 'linear-gradient(180deg, rgba(255,255,255,0.035) 0%, transparent 100%)', pointerEvents: 'none', zIndex: 2 }} />
-                  <div ref={mainChartWrapRef} style={{ height: isMobile ? 400 : 445, flexShrink: 0, overflow: 'hidden', borderBottom: '2px solid rgba(167,139,250,0.55)' }}>
+                  <div ref={mainChartWrapRef} style={{ height: isMobile ? (showBullBear ? 400 : 494) : (embeddedMode ? 440 : (showBullBear ? 445 : 569)), flexShrink: 0, overflow: 'hidden', borderBottom: showBullBear ? '2px solid rgba(167,139,250,0.55)' : 'none' }}>
                     <ResponsiveContainer width="100%" height="100%" debounce={50}>
                       <LineChart data={chartMemo.visibleData} margin={{ top: 10, right: 0, bottom: -5, left: 30 }}>
                         <XAxis dataKey="timeLabel" hide />
@@ -3469,49 +3045,155 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                     </ResponsiveContainer>
                   </div>
 
-                  {/* P/C Ratio sub-panel */}
-                  <div ref={pcPanelRef} style={{ borderTop: '2px solid rgba(167,139,250,0.55)', background: '#06040f', flexShrink: 0, overflow: 'hidden' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 82px 0 30px' }}>
-                      <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, color: '#a78bfa', letterSpacing: '0.18em' }}>P/C RATIO</span>
-                      {chartMemo.visibleData.length > 0 && (() => {
-                        const last = chartMemo.visibleData[chartMemo.visibleData.length - 1]
-                        const val = last?.pcRatio ?? 1
-                        const col = val > 1.1 ? '#ef4444' : val < 0.9 ? '#10b981' : '#eab308'
-                        return <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 800, color: col }}>{val.toFixed(2)}</span>
-                      })()}
-                    </div>
-                    <ResponsiveContainer width="100%" height={isMobile ? 70 : 100} debounce={50}>
-                      <LineChart data={chartMemo.visibleData} margin={{ top: 6, right: 0, bottom: 0, left: 30 }}>
-                        <XAxis dataKey="timeLabel" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#ffffff', fontSize: isMobile ? 9 : 16, fontWeight: 'bold' }} height={isMobile ? 22 : 36} interval={isMobile ? Math.max(0, Math.floor(chartMemo.visibleData.length / 5) - 1) : chartMemo.xInterval} padding={{ left: 10, right: 10 }}
-                          tickFormatter={(label: string) => {
-                            if (chartDisplayDays <= 1) return label.includes('/') ? label.replace(/^\d+\/\d+\/\d+ /, '') : label
-                            else if (chartDisplayDays <= 5) return label.replace(/\/\d{4} /, ' ')
-                            else return label.replace(/\/(\d{4}) .*/, (_, yr) => `/${yr.slice(-2)}`)
-                          }}
-                        />
-                        <YAxis orientation="right" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#ffffff', fontSize: 13, fontWeight: 700 }} width={82}
-                          domain={[
-                            (dataMin: number) => Math.max(0, parseFloat((dataMin * 0.9).toFixed(2))),
-                            (dataMax: number) => parseFloat((dataMax * 1.1).toFixed(2)),
-                          ]}
-                          tickFormatter={(v) => v.toFixed(2)}
-                        />
-                        <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.2)', fontSize: 12 }} labelStyle={{ color: '#fff' }}
-                          formatter={(v: any) => [Number(v).toFixed(3), 'P/C']}
-                        />
-                        <ReferenceLine y={1} stroke="rgba(167,139,250,0.35)" strokeDasharray="4 4" />
-                        <Line type="monotone" dataKey="pcRatio" stroke="#a78bfa" strokeWidth={2} dot={false} name="P/C"
-                          activeDot={{ r: 4, fill: '#a78bfa', stroke: '#fff', strokeWidth: 1 }}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>{/* end P/C sub-panel */}
+                  {/* P/C Ratio sub-panel — toggleable */}
+                  {showBullBear && (() => {
+                    const pcData = chartMemo.visibleData
+                    const pcVals = pcData.map((d: any) => d.pcRatio ?? 1)
+                    const pcMin = pcVals.length ? Math.min(...pcVals) : 0
+                    const pcMax = pcVals.length ? Math.max(...pcVals) : 2
+                    const pcPad = (pcMax - pcMin) * 0.1 || 0.1
+                    const lastPc = pcVals.length ? pcVals[pcVals.length - 1] : 1
+                    const pcCol = lastPc > 1.1 ? '#ef4444' : lastPc < 0.9 ? '#10b981' : '#eab308'
+                    return (
+                      <div ref={pcPanelRef} style={{ borderTop: '2px solid rgba(167,139,250,0.55)', background: '#06040f', flexShrink: 0, overflow: 'hidden' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 82px 0 30px' }}>
+                          <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, color: '#a78bfa', letterSpacing: '0.18em' }}>BULL/BEAR RATIO</span>
+                        </div>
+                        <ResponsiveContainer width="100%" height={isMobile ? 70 : 100} debounce={50}>
+                          <LineChart data={pcData} margin={{ top: 6, right: 0, bottom: 0, left: 30 }}>
+                            <XAxis dataKey="timeLabel" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#ffffff', fontSize: isMobile ? 11 : 14, fontWeight: 700 }} height={isMobile ? 24 : 30} interval={Math.max(0, Math.floor(pcData.length / 6) - 1)} padding={{ left: 10, right: 10 }}
+                              tickFormatter={(label: string) => {
+                                if (chartDisplayDays <= 1) return label.includes('/') ? label.replace(/^\d+\/\d+\/\d+ /, '') : label
+                                else if (chartDisplayDays <= 5) return label.replace(/\/\d{4} /, ' ')
+                                else return label.replace(/\/(\d{4}) .*/, (_, yr) => `/${yr.slice(-2)}`)
+                              }}
+                            />
+                            <YAxis orientation="right" stroke="#ffffff" tick={{ fill: '#ffffff', fontSize: 12, fontWeight: 700 }} width={82}
+                              domain={[Math.max(0, parseFloat((pcMin - pcPad).toFixed(3))), parseFloat((pcMax + pcPad).toFixed(3))]}
+                              tickFormatter={(v) => v.toFixed(2)}
+                            />
+                            <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.2)', fontSize: 12 }} labelStyle={{ color: '#fff' }}
+                              formatter={(v: any) => [Number(v).toFixed(3), 'BULL/BEAR']}
+                            />
+                            <ReferenceLine y={1} stroke="rgba(167,139,250,0.35)" strokeDasharray="4 4" />
+                            <ReferenceLine y={lastPc} stroke="transparent"
+                              label={(props: any) => {
+                                const vb = props.viewBox
+                                if (!vb) return null
+                                const txt = lastPc.toFixed(2)
+                                return (
+                                  <g>
+                                    <rect x={vb.x + vb.width} y={vb.y - 10} width={82} height={20} fill="#000" />
+                                    <text x={vb.x + vb.width + 6} y={vb.y + 5} textAnchor="start" fill={pcCol} fontSize={14} fontWeight={800} fontFamily="JetBrains Mono, monospace">{txt}</text>
+                                  </g>
+                                )
+                              }}
+                            />
+                            <Line type="monotone" dataKey="pcRatio" stroke="#a78bfa" strokeWidth={2} dot={false} name="BULL/BEAR"
+                              activeDot={{ r: 4, fill: '#a78bfa', stroke: '#fff', strokeWidth: 1 }}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )
+                  })()}{/* end P/C sub-panel */}
+
                 </div>{/* end chart body */}
+
+                {/* Gamma Line panel — outside fixed-height chart body so it's never clipped */}
+                {showGammaLine && !isAllScan && (() => {
+                  const lastGamma = gammaLineData.length ? gammaLineData[gammaLineData.length - 1].cumGamma : 0
+                  const gammaColor = lastGamma > 0 ? '#10b981' : lastGamma < 0 ? '#ef4444' : '#888'
+                  const fmtGamma = (v: number) => {
+                    const abs = Math.abs(v), sign = v < 0 ? '-' : v > 0 ? '+' : ''
+                    if (abs >= 1000) return `${sign}${(abs / 1000).toFixed(3)}K`
+                    if (abs >= 1) return `${sign}${abs.toFixed(4)}`
+                    return `${sign}${abs.toFixed(6)}`
+                  }
+                  // Tight Y domain: 10% padding above/below actual data range
+                  const gammaVals = gammaLineData.map(d => d.cumGamma)
+                  const gMin = gammaVals.length ? Math.min(...gammaVals) : 0
+                  const gMax = gammaVals.length ? Math.max(...gammaVals) : 0
+                  const gRange = gMax - gMin || Math.abs(gMax) * 0.2 || 1
+                  const gDomMin = gMin - gRange * 0.1
+                  const gDomMax = gMax + gRange * 0.1
+                  // Gradient: green above 0, red below 0 — hard stop at zero fraction
+                  const totalRange = gDomMax - gDomMin
+                  const zeroFrac = totalRange > 0 ? ((gDomMax - 0) / totalRange) * 100 : 50
+                  const zeroStop = `${Math.max(0, Math.min(100, zeroFrac)).toFixed(1)}%`
+                  return (
+                    <div style={{ borderTop: '2px solid rgba(16,185,129,0.4)', background: 'linear-gradient(180deg, rgba(16,185,129,0.012) 0%, transparent 100%)', flexShrink: 0, overflow: 'hidden' }}>
+                      {/* Header — title + spinner only, value lives on the Y axis */}
+                      <div style={{ padding: '6px 14px 4px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#ff8500', letterSpacing: '0.22em', fontWeight: 700 }}>GAMMA EXPOSURE</div>
+                          {gammaLoading && <div style={{ width: 8, height: 8, borderRadius: '50%', border: '2px solid #ff8500', borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite' }} />}
+                        </div>
+                      </div>
+                      {/* Chart */}
+                      {!gammaLoading && gammaLineData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height={isMobile ? 80 : 120} debounce={50}>
+                          <LineChart data={gammaLineData} margin={{ top: 4, right: 0, bottom: 0, left: 30 }}>
+                            <defs>
+                              <linearGradient id="gammaStroke" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset={zeroStop} stopColor="#10b981" />
+                                <stop offset={zeroStop} stopColor="#ef4444" />
+                              </linearGradient>
+                            </defs>
+                            <XAxis dataKey="timeLabel" stroke="rgba(255,255,255,0.25)" tick={{ fill: '#ffffff', fontSize: isMobile ? 11 : 13, fontWeight: 700 }} height={isMobile ? 22 : 28} interval={Math.max(0, Math.floor(gammaLineData.length / 6) - 1)} padding={{ left: 10, right: 10 }}
+                              tickFormatter={(label: string) => {
+                                if (chartDisplayDays <= 1) return label.includes('/') ? label.replace(/^\d+\/\d+\/\d+ /, '') : label
+                                else if (chartDisplayDays <= 5) return label.replace(/\/\d{4} /, ' ')
+                                else return label.replace(/\/(\d{4}) .*/, (_: string, yr: string) => `/${yr.slice(-2)}`)
+                              }}
+                            />
+                            <YAxis orientation="right" stroke="#ffffff" tick={{ fill: '#ffffff', fontSize: 12, fontWeight: 700 }} width={82}
+                              domain={[gDomMin, gDomMax]}
+                              tickFormatter={(v: number) => {
+                                const abs = Math.abs(v), sign = v < 0 ? '-' : ''
+                                if (abs >= 1000) return `${sign}${(abs / 1000).toFixed(2)}K`
+                                return `${sign}${abs.toFixed(3)}`
+                              }}
+                            />
+                            <Tooltip
+                              contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,133,0,0.5)', fontSize: 12 }}
+                              labelStyle={{ color: '#ff8500', fontWeight: 700 }}
+                              formatter={(v: any) => [fmtGamma(Number(v)), 'CUM GAMMA']}
+                            />
+                            <ReferenceLine y={0} stroke="rgba(255,255,255,0.2)" strokeDasharray="4 4" />
+                            {/* Last-value label — sits on Y axis, aligned with ticks */}
+                            <ReferenceLine y={lastGamma} stroke="transparent"
+                              label={(props: any) => {
+                                const vb = props.viewBox
+                                if (!vb) return null
+                                return (
+                                  <g>
+                                    <rect x={vb.x + vb.width} y={vb.y - 10} width={82} height={20} fill="#000" />
+                                    <text x={vb.x + vb.width + 6} y={vb.y + 5} textAnchor="start" fill="#ff8500" fontSize={14} fontWeight={800} fontFamily="JetBrains Mono, monospace">{fmtGamma(lastGamma)}</text>
+                                  </g>
+                                )
+                              }}
+                            />
+                            <Line
+                              type="monotone" dataKey="cumGamma"
+                              stroke="url(#gammaStroke)"
+                              strokeWidth={2.5} dot={false} name="GAMMA"
+                              activeDot={{ r: 4, fill: '#ff8500', stroke: '#fff', strokeWidth: 1 }}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      ) : !gammaLoading ? (
+                        <div style={{ height: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: 'rgba(255,133,0,0.5)', letterSpacing: '0.1em' }}>NO GAMMA DATA — CONTRACT NOT IN SNAPSHOT</div>
+                      ) : null}
+                    </div>
+                  )
+                })()}
+
               </div>{/* end chart column */}
             </div>{/* end ROW 2 */}
 
-            {/* ── ROW 3: TRADES TABLE + EFI CHART ── */}
-            <div style={{ borderTop: '1px solid rgba(255,255,255,0.15)', display: 'flex', marginTop: isMobile ? -20 : 0 }}>
+            {/* ── ROW 3: TRADES TABLE + EFI CHART — hidden in embedded mode ── */}
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.15)', display: embeddedMode ? 'none' : 'flex', marginTop: isMobile ? -20 : 0 }}>
 
               {/* Left: Trades table */}
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -3679,7 +3361,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                                         setDrilledTicker(t); setSearchTicker(t)
                                         const filtered = allScanCacheRef.current.flowData.filter(x => x.underlying_ticker === t)
                                         setFlowData(filtered); setIsAnalyzing(true)
-                                        setTimeout(() => performAnalysis(filtered, t).catch(() => { }), 0)
+                                        setTimeout(() => performAnalysis(filtered, t), 0)
                                       }}
                                     >{trade.underlying_ticker}</span>
                                     <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: 'rgba(255,255,255,0.5)' }}>{timeStr}</span>
@@ -3742,7 +3424,7 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                                   setDrilledTicker(t); setSearchTicker(t)
                                   const filtered = allScanCacheRef.current.flowData.filter(x => x.underlying_ticker === t)
                                   setFlowData(filtered); setIsAnalyzing(true)
-                                  setTimeout(() => performAnalysis(filtered, t).catch(() => { }), 0)
+                                  setTimeout(() => performAnalysis(filtered, t), 0)
                                 }}
                               >{trade.underlying_ticker}</td>
                               <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, fontWeight: 800, color: trade.type === 'call' ? '#00cc00' : '#ff0000' }}>{trade.type.toUpperCase()}</td>
@@ -3844,7 +3526,9 @@ export default function AlgoFlowScreener({ onBack }: { onBack?: () => void } = {
                 </div>
               )}
 
-            </div>{/* end ROW 3 */}
+              {/* end ROW 3 */}
+            </div>
+
           </div>
         )}
 
