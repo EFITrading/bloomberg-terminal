@@ -179,7 +179,27 @@ export async function GET(request: NextRequest) {
         let isLastChunk = true
         let totalSymbolsForChunk = 0
 
-        if (timeframe === '1D') {
+        if (datesParam) {
+          // Specific-dates mode: client determined which days are missing from cache — check FIRST
+          // so a missing/default timeframe param cannot shadow this branch
+          const specificDays = datesParam.split(',').map((d: string) => d.trim()).filter(Boolean)
+          sendData({ type: 'status', message: `[SERVER] Specific-dates scan: ${specificDays.join(', ')}` })
+          finalTrades = await optionsFlowService.fetchSpecificDaysFlow(
+            ticker || undefined,
+            specificDays,
+            streamingCallback
+          )
+          console.log(`[OK] Specific-Dates Scan Complete: ${finalTrades.length} trades`)
+          const sdByTicker = new Map<string, any[]>()
+          for (const trade of finalTrades) {
+            const t = (trade as any).underlying_ticker || (trade as any).ticker
+            if (!sdByTicker.has(t)) sdByTicker.set(t, [])
+            sdByTicker.get(t)!.push(trade)
+          }
+          for (const [t, trades] of sdByTicker) {
+            sendData({ type: 'ticker_complete', ticker: t, trades, count: trades.length, timestamp: new Date().toISOString() })
+          }
+        } else if (timeframe === '1D') {
           // Sequential per-ticker: scan → enrich → stream immediately for each ticker
           // eslint-disable-next-line @typescript-eslint/no-require-imports
           const { getSmartDateRange } = require('../../../lib/optionsFlowService')
@@ -268,26 +288,6 @@ export async function GET(request: NextRequest) {
 
               finalTrades.push(...tickerTrades)
             }
-          }
-        } else if (datesParam) {
-          // Specific-dates mode: client determined which days are missing from cache
-          const specificDays = datesParam.split(',').map((d: string) => d.trim()).filter(Boolean)
-          sendData({ type: 'status', message: `[SERVER] Specific-dates scan: ${specificDays.join(', ')}` })
-          finalTrades = await optionsFlowService.fetchSpecificDaysFlow(
-            ticker || undefined,
-            specificDays,
-            streamingCallback
-          )
-          console.log(`[OK] Specific-Dates Scan Complete: ${finalTrades.length} trades`)
-          // Stream per ticker (same pattern as multi-day path)
-          const sdByTicker = new Map<string, any[]>()
-          for (const trade of finalTrades) {
-            const t = (trade as any).underlying_ticker || (trade as any).ticker
-            if (!sdByTicker.has(t)) sdByTicker.set(t, [])
-            sdByTicker.get(t)!.push(trade)
-          }
-          for (const [t, trades] of sdByTicker) {
-            sendData({ type: 'ticker_complete', ticker: t, trades, count: trades.length, timestamp: new Date().toISOString() })
           }
         } else {
           // Multi-day: Use new multi-day flow method (already enriched)

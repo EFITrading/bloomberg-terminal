@@ -3132,7 +3132,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
       classification: gradeResult.grade,
 
-      frozenComboScore: gradeResult.scores.combo,
+      frozenComboScore: ('combo' in gradeResult.scores ? gradeResult.scores.combo : 0),
 
       frozenRsScore: gradeResult.scores.relativeStrength,
     }
@@ -3177,52 +3177,50 @@ Stock Reaction: ${scores.stockReaction}/15`
       setSaveErrorMsg('')
 
       const _now = new Date()
-      // Always save the RAW unfiltered data so all tickers (ETFs, MAG7, etc.) are stored
-      // regardless of what UI filters the user currently has active.
       const rawTrades = data ?? []
-
-      // Derive the trading date from the actual trade timestamps (PST), not the wall clock save time.
-      // This ensures a historical scan saved on May 28 that contains May 26 trades is stored as May 26,
-      // not May 28. Falls back to wall clock date if no trades have timestamps.
-      let tradeDate: string
       const tradesWithTs = rawTrades.filter((t: any) => t.trade_timestamp)
-      if (tradesWithTs.length > 0) {
-        const latestTs = tradesWithTs.reduce((max: number, t: any) => {
-          const ts = new Date(t.trade_timestamp).getTime()
-          return ts > max ? ts : max
-        }, 0)
-        const d = new Date(new Date(latestTs).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-        tradeDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-      } else {
-        tradeDate = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`
+      if (tradesWithTs.length === 0) throw new Error('No trades with timestamps to save')
+
+      // Group trades by their actual PST trading date
+      const pstSample = new Date(tradesWithTs[0].trade_timestamp)
+      const pstOffsetMs = pstSample.getTime() - new Date(pstSample.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTime()
+      const byDay = new Map<string, any[]>()
+      for (const t of rawTrades) {
+        let dayKey: string
+        if (t.trade_timestamp) {
+          const pstMs = new Date(t.trade_timestamp).getTime() - pstOffsetMs
+          const d = new Date(pstMs)
+          dayKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+        } else {
+          dayKey = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`
+        }
+        const group = byDay.get(dayKey) ?? []
+        group.push(t)
+        byDay.set(dayKey, group)
       }
 
-
-      // Compress payload client-side to avoid 413 Payload Too Large
-      const dataString = JSON.stringify({ date: tradeDate, data: rawTrades })
-      const encoded = new TextEncoder().encode(dataString)
-
-      const cs = new CompressionStream('gzip')
-      const writer = cs.writable.getWriter()
-      writer.write(encoded)
-      writer.close()
-      const compressedBuffer = await new Response(cs.readable).arrayBuffer()
-
-
-      const response = await fetch('/api/flows/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream' },
-        body: compressedBuffer,
-      })
-
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}))
-        console.error('[SaveFlow] Error response body:', errData)
-        throw new Error(errData.error || `HTTP ${response.status}`)
+      // Save each day separately under its own date
+      for (const [tradeDate, dayTrades] of Array.from(byDay.entries())) {
+        const rawJson = JSON.stringify({ date: tradeDate, data: dayTrades })
+        const rawSizeKB = (new TextEncoder().encode(rawJson).byteLength / 1024).toFixed(1)
+        const encoded = new TextEncoder().encode(rawJson)
+        const cs = new CompressionStream('gzip')
+        const writer = cs.writable.getWriter()
+        writer.write(encoded)
+        writer.close()
+        const compressedBuffer = await new Response(cs.readable).arrayBuffer()
+        const compressedKB = (compressedBuffer.byteLength / 1024).toFixed(1)
+        console.log(`[SaveFlow] ${tradeDate}: ${dayTrades.length} trades | raw=${rawSizeKB}KB → compressed=${compressedKB}KB (${((compressedBuffer.byteLength / new TextEncoder().encode(rawJson).byteLength) * 100).toFixed(1)}%)`)
+        const response = await fetch('/api/flows/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: compressedBuffer,
+        })
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}))
+          throw new Error(`${tradeDate}: ${errData.error || `HTTP ${response.status}`}`)
+        }
       }
-
-      const result = await response.json()
 
       setSaveStatus('success')
       setTimeout(() => setSaveStatus('idle'), 3000)
@@ -6858,18 +6856,14 @@ Stock Reaction: ${scores.stockReaction}/15`
                     <option value="2" style={{ background: '#000', color: '#ccc' }}>2 DAYS</option>
                     <option value="3" style={{ background: '#000', color: '#ccc' }}>3 DAYS</option>
                     <option value="4" style={{ background: '#000', color: '#ccc' }}>4 DAYS</option>
-                    <option value="5" style={{ background: '#000', color: '#ccc' }}>5 DAYS</option>
-                    <option value="7" style={{ background: '#000', color: '#ccc' }}>7 DAYS</option>
-                    <option value="10" style={{ background: '#000', color: '#ccc' }}>10 DAYS</option>
-                    <option value="14" style={{ background: '#000', color: '#ccc' }}>14 DAYS</option>
-                    <option value="20" style={{ background: '#000', color: '#ccc' }}>20 DAYS</option>
-                    <option value="30" style={{ background: '#000', color: '#ccc' }}>30 DAYS</option>
-                    <option value="45" style={{ background: '#000', color: '#ccc' }}>45 DAYS</option>
-                    <option value="60" style={{ background: '#000', color: '#ccc' }}>60 DAYS</option>
-                    <option value="90" style={{ background: '#000', color: '#ccc' }}>90 DAYS</option>
-                    <option value="126" style={{ background: '#000', color: '#ccc' }}>126 DAYS</option>
-                    <option value="189" style={{ background: '#000', color: '#ccc' }}>189 DAYS</option>
-                    <option value="252" style={{ background: '#000', color: '#ccc' }}>252 DAYS</option>
+                    <option value="5" style={{ background: '#000', color: '#ccc' }}>1W</option>
+                    <option value="10" style={{ background: '#000', color: '#ccc' }}>2W</option>
+                    <option value="21" style={{ background: '#000', color: '#ccc' }}>1M</option>
+                    <option value="42" style={{ background: '#000', color: '#ccc' }}>2M</option>
+                    <option value="63" style={{ background: '#000', color: '#ccc' }}>3M</option>
+                    <option value="126" style={{ background: '#000', color: '#ccc' }}>6M</option>
+                    <option value="189" style={{ background: '#000', color: '#ccc' }}>9M</option>
+                    <option value="252" style={{ background: '#000', color: '#ccc' }}>1Y</option>
                   </select>
                 )}
 

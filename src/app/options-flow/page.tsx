@@ -12,11 +12,11 @@ import type { PolygonOptionsTradeMsg } from '@/lib/polygonOptionsWS'
 // Polygon API key
 const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
 
-// ── Live OI cache helpers ─────────────────────────────────────────────────────
+// -- Live OI cache helpers -----------------------------------------------------
 // Returns the relevant trading date (YYYY-MM-DD, PST-aware).
-// Before 6:30 AM PST → roll back to the previous trading day so a post-close
+// Before 6:30 AM PST ? roll back to the previous trading day so a post-close
 // scan from the previous session is still considered "fresh".
-// US market holidays — extend this list each year
+// US market holidays - extend this list each year
 const US_MARKET_HOLIDAYS_SET = new Set([
   '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18', '2025-05-26',
   '2025-07-04', '2025-09-01', '2025-11-27', '2025-12-25',
@@ -32,7 +32,7 @@ const getFlowTradingDate = (): string => {
   const hour = nowPST.getHours()
   const minute = nowPST.getMinutes()
   const target = new Date(nowPST)
-  // Before market open (6:30 AM PST) → step back one day to previous session
+  // Before market open (6:30 AM PST) ? step back one day to previous session
   if (hour < 6 || (hour === 6 && minute < 30)) {
     target.setDate(target.getDate() - 1)
   }
@@ -45,7 +45,7 @@ const getFlowTradingDate = (): string => {
 }
 
 // Persist the liveOIMap to localStorage so LiquidPanel and other panels
-// can read it instantly across tabs — no database operations needed.
+// can read it instantly across tabs - no database operations needed.
 const persistLiveOIByTicker = (liveOIMap: Map<string, number>) => {
   if (typeof window === 'undefined') return
   const tradingDate = getFlowTradingDate()
@@ -58,12 +58,12 @@ const persistLiveOIByTicker = (liveOIMap: Map<string, number>) => {
   try {
     localStorage.setItem('efi_live_oi', JSON.stringify({ tradingDate, tickers: byTicker }))
   } catch {
-    // Non-critical — ignore storage errors
+    // Non-critical - ignore storage errors
   }
 }
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
-// Concurrency limiter — prevents ERR_INSUFFICIENT_RESOURCES from too many parallel fetches
+// Concurrency limiter - prevents ERR_INSUFFICIENT_RESOURCES from too many parallel fetches
 async function runWithConcurrency<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
   const results: T[] = new Array(tasks.length)
   let index = 0
@@ -112,9 +112,9 @@ const enrichTradeDataCombined = async (
 
   // Step 2: Fetch unique contracts and cache results
   // Index options require the I: prefixed underlying for Polygon's snapshot API.
-  // e.g. SPXW options → I:SPX, NDXP options → I:NDX, RUTW options → I:RUT
+  // e.g. SPXW options ? I:SPX, NDXP options ? I:NDX, RUTW options ? I:RUT
   // Some tickers have dots stripped for OCC format but need them restored for snapshot.
-  // e.g. BRKB (from OCC) → BRK.B for Polygon snapshot
+  // e.g. BRKB (from OCC) ? BRK.B for Polygon snapshot
   const INDEX_UNDERLYING_MAP: Record<string, string> = {
     SPXW: 'I:SPX',
     SPX: 'I:SPX',
@@ -167,8 +167,8 @@ const enrichTradeDataCombined = async (
     )
   }
 
-  // Build deduplicated batch payload — unique by contract+second bucket
-  // Use trade.ticker directly — it's the correct OCC ticker from Polygon (e.g. O:SPXW260325C...)
+  // Build deduplicated batch payload - unique by contract+second bucket
+  // Use trade.ticker directly - it's the correct OCC ticker from Polygon (e.g. O:SPXW260325C...)
   // getOptionTicker() produces wrong format for SPX (missing W in SPXW), so never use it for quote lookups
   type QuoteKey = string // `${contract}:${secondBucket}`
   const uniqueQuotes = new Map<QuoteKey, { contract: string; timestamp_ns: number }>()
@@ -179,7 +179,7 @@ const enrichTradeDataCombined = async (
     if (!uniqueQuotes.has(key)) uniqueQuotes.set(key, { contract, timestamp_ns: timestampNs })
   }
 
-  // Single POST — server fans out all Polygon calls simultaneously
+  // Single POST - server fans out all Polygon calls simultaneously
   const batchPayload = Array.from(uniqueQuotes.entries()).map(([id, v]) => ({ id, ...v }))
   const quoteResultMap = new Map<QuoteKey, { bid: number; ask: number } | null>()
   try {
@@ -226,8 +226,8 @@ const enrichTradeDataCombined = async (
 }
 
 // [LIVE OI] Compute intraday live OI per contract from fill styles after enrichment
-// A / AA / BB fills = opening new position → add contracts to OI
-// B fill = closing position → subtract (unless size > baseOI, then treat as opening)
+// A / AA / BB fills = opening new position ? add contracts to OI
+// B fill = closing position ? subtract (unless size > baseOI, then treat as opening)
 const applyLiveOI = (trades: OptionsFlowData[]): OptionsFlowData[] => {
   if (trades.length === 0) return trades
 
@@ -261,12 +261,12 @@ const applyLiveOI = (trades: OptionsFlowData[]): OptionsFlowData[] => {
           break
         case 'B':
           if (contracts > baseOI) {
-            liveOI += contracts // size exceeds prior OI — must be new opening
+            liveOI += contracts // size exceeds prior OI - must be new opening
           } else {
             liveOI -= contracts
           }
           break
-        // N/A — no change
+        // N/A - no change
       }
     }
     liveOIMap.set(key, Math.max(0, liveOI))
@@ -386,7 +386,7 @@ const fetchVolumeAndOpenInterest = async (
         }
       }
     } catch (error) {
-      console.error(`Error fetching data for ${underlying}:`, error)
+
       updatedTrades.push(
         ...underlyingTrades.map((trade) => ({
           ...trade,
@@ -405,7 +405,7 @@ const analyzeBidAskExecution = async (trades: OptionsFlowData[]): Promise<Option
   if (trades.length === 0) return trades
 
   // Deduplicate by contract+second bucket, then single POST to batch endpoint
-  // Use trade.ticker directly — correct OCC ticker from Polygon (e.g. O:SPXW260325C...)
+  // Use trade.ticker directly - correct OCC ticker from Polygon (e.g. O:SPXW260325C...)
   // Reconstructing from underlying_ticker produces wrong format for SPX (missing W in SPXW)
   type QuoteKey = string
   const uniqueQuotes = new Map<QuoteKey, { contract: string; timestamp_ns: number }>()
@@ -536,14 +536,12 @@ const tryLoadHistoricalFromSaved = async (
     const datesResp = await fetch('/api/flows/dates')
     if (!datesResp.ok) return { cachedTrades: [], missingDays: tradingDays }
     const savedDates: { date: string }[] = await datesResp.json()
-    // Build a set of saved day strings (YYYY-MM-DD)
     const savedDaySet = new Set(
       savedDates.map((d) => new Date(d.date).toISOString().split('T')[0])
     )
 
     const cachedTrades: OptionsFlowData[] = []
     const missingDays: string[] = []
-
     await Promise.all(
       tradingDays.map(async (day) => {
         if (!savedDaySet.has(day)) {
@@ -551,7 +549,13 @@ const tryLoadHistoricalFromSaved = async (
           return
         }
         try {
-          const flowResp = await fetch(`/api/flows/${encodeURIComponent(day)}`)
+          // Pass ticker filter so server returns only matching trades â€” avoids downloading 601k trades for a single ticker
+          const tickerQS = tickerSet
+            ? `?tickers=${Array.from(tickerSet).join(',')}`
+            : ticker
+              ? `?tickers=${encodeURIComponent(ticker.toUpperCase())}`
+              : ''
+          const flowResp = await fetch(`/api/flows/${encodeURIComponent(day)}${tickerQS}`)
           if (!flowResp.ok) { missingDays.push(day); return }
           const flowData = await flowResp.json()
           const allTrades: OptionsFlowData[] = Array.isArray(flowData.data) ? flowData.data : []
@@ -560,6 +564,12 @@ const tryLoadHistoricalFromSaved = async (
             : ticker
               ? allTrades.filter((t) => t.underlying_ticker?.toUpperCase() === ticker.toUpperCase())
               : allTrades
+          // If this save has too few total trades to be a full-day scan AND the ticker
+          // returned nothing, the day was saved from a different (smaller) scan â€” treat as missing
+          if (filtered.length === 0 && allTrades.length < 10000 && ticker) {
+            missingDays.push(day)
+            return
+          }
           filtered.forEach((t: any) => { if (!t.trading_date) t.trading_date = day })
           cachedTrades.push(...filtered)
         } catch {
@@ -571,12 +581,12 @@ const tryLoadHistoricalFromSaved = async (
     missingDays.sort() // chronological
     return { cachedTrades, missingDays }
   } catch (err) {
-    console.warn('[tryLoadHistoricalFromSaved] error:', err)
+
     return { cachedTrades: [], missingDays: tradingDays }
   }
 }
 
-// Returns true if US equity markets are currently open (6:30 AM – 1:00 PM PST, weekday)
+// Returns true if US equity markets are currently open (6:30 AM - 1:00 PM PST, weekday)
 const isMarketCurrentlyOpen = (): boolean => {
   const nowPST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
   const dow = nowPST.getDay()
@@ -588,23 +598,23 @@ const isMarketCurrentlyOpen = (): boolean => {
   return isWeekday && afterOpen && beforeClose
 }
 
-// Load today's saved flow filtered by a set of tickers (pass null to load all) — returns filtered trades or null
+// Load today's saved flow filtered by a set of tickers (pass null to load all) - returns filtered trades or null
 const tryLoadFromSavedFiltered = async (tickerSet: Set<string> | null): Promise<OptionsFlowData[] | null> => {
   try {
-    // Markets are open right now — data from any prior save is incomplete, always scan fresh
+    // Markets are open right now - data from any prior save is incomplete, always scan fresh
     if (isMarketCurrentlyOpen()) {
-      console.log('[DB-DEBUG] tryLoadFromSavedFiltered: market is OPEN → skipping DB, scanning fresh')
+
       return null
     }
     const datesResp = await fetch('/api/flows/dates')
     if (!datesResp.ok) {
-      console.warn('[DB-DEBUG] tryLoadFromSavedFiltered: /api/flows/dates failed', datesResp.status)
+
       return null
     }
     const dates: { date: string }[] = await datesResp.json()
-    console.log('[DB-DEBUG] tryLoadFromSavedFiltered: dates from DB:', dates)
+
     if (dates.length === 0) {
-      console.log('[DB-DEBUG] tryLoadFromSavedFiltered: no saved dates found')
+
       return null
     }
     // Use PST-aware trading date: before 6:30 AM PST rolls back to previous trading day
@@ -612,27 +622,27 @@ const tryLoadFromSavedFiltered = async (tickerSet: Set<string> | null): Promise<
     const flowTradingDate = getFlowTradingDate()
     const latestDateRaw = dates[0].date
     const latestDateDay = new Date(latestDateRaw).toISOString().split('T')[0]
-    console.log(`[DB-DEBUG] tryLoadFromSavedFiltered: flowTradingDate=${flowTradingDate}, latestDateDay=${latestDateDay}, latestDateRaw=${latestDateRaw}`)
+
     if (latestDateDay !== flowTradingDate) {
-      console.log(`[DB-DEBUG] tryLoadFromSavedFiltered: DATE MISMATCH — DB has ${latestDateDay} but expected ${flowTradingDate} → returning null`)
+
       return null
     }
     const flowResp = await fetch(`/api/flows/${encodeURIComponent(latestDateRaw)}`)
     if (!flowResp.ok) {
-      console.warn('[DB-DEBUG] tryLoadFromSavedFiltered: /api/flows fetch failed', flowResp.status)
+
       return null
     }
     const flowData = await flowResp.json()
     const allTrades: OptionsFlowData[] = Array.isArray(flowData.data) ? flowData.data : []
-    console.log(`[DB-DEBUG] tryLoadFromSavedFiltered: raw trades from DB = ${allTrades.length} (DB reports size=${flowData.size}, source=${flowData.source})`)
+
     // Sample the first 3 trade timestamps to verify timezone handling
     const sampleTimestamps = allTrades.slice(0, 3).map((t) => ({
       raw: t.trade_timestamp,
       pst: t.trade_timestamp ? new Date(new Date(t.trade_timestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).toISOString() : null,
     }))
-    console.log('[DB-DEBUG] tryLoadFromSavedFiltered: sample timestamps:', sampleTimestamps)
+
     // Verify the actual trade timestamps match the expected trading date.
-    // Old DB records were saved with wall-clock date — e.g. a 12:07 AM May 28 save contains
+    // Old DB records were saved with wall-clock date - e.g. a 12:07 AM May 28 save contains
     // May 27 trades but is stored as May 28. Reject if trades don't belong to flowTradingDate.
     const tradesMatchDate = allTrades.some((t) => {
       if (!t.trade_timestamp) return false
@@ -641,39 +651,31 @@ const tryLoadFromSavedFiltered = async (tickerSet: Set<string> | null): Promise<
       return ds === flowTradingDate
     })
     if (!tradesMatchDate) {
-      console.log(`[DB-DEBUG] tryLoadFromSavedFiltered: TIMESTAMP MISMATCH — no trades match flowTradingDate=${flowTradingDate} → returning null`)
-      console.log('[DB-DEBUG] tryLoadFromSavedFiltered: unique PST dates in DB data:', [
-        ...new Set(allTrades.slice(0, 200).map((t) => {
-          if (!t.trade_timestamp) return 'null'
-          const d = new Date(new Date(t.trade_timestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-        }))
-      ])
       return null
     }
-    console.log(`[DB-DEBUG] tryLoadFromSavedFiltered: timestamps match flowTradingDate=${flowTradingDate} ✓`)
+
     const filtered = tickerSet
       ? allTrades.filter((t) => tickerSet.has(t.underlying_ticker?.toUpperCase() ?? ''))
       : allTrades
-    console.log(`[DB-DEBUG] tryLoadFromSavedFiltered: after tickerSet filter → ${filtered.length} trades (tickerSet size=${tickerSet?.size ?? 'null/ALL'})`)
+
     // Check for duplicates by ticker+timestamp+strike
     const dedupKeys = new Set(filtered.map((t) => `${t.underlying_ticker}-${t.trade_timestamp}-${t.strike}`))
     if (dedupKeys.size !== filtered.length) {
-      console.warn(`[DB-DEBUG] tryLoadFromSavedFiltered: ⚠️ DUPLICATES DETECTED — ${filtered.length} raw vs ${dedupKeys.size} unique by ticker+ts+strike`)
+
     } else {
-      console.log(`[DB-DEBUG] tryLoadFromSavedFiltered: no duplicates detected (${dedupKeys.size} unique keys)`)
+
     }
     return filtered.length > 0 ? filtered : null
   } catch (err) {
-    console.warn('[tryLoadFromSavedFiltered] error:', err)
+
     return null
   }
 }
 
-// Load today's saved flow for a single ticker — returns filtered trades or null
+// Load today's saved flow for a single ticker - returns filtered trades or null
 const tryLoadFromSaved = async (ticker: string): Promise<OptionsFlowData[] | null> => {
   try {
-    // Markets are open right now — data from any prior save is incomplete, always scan fresh
+    // Markets are open right now - data from any prior save is incomplete, always scan fresh
     if (isMarketCurrentlyOpen()) return null
     // Get stored dates so we use the actual saved date key (avoids UTC/local mismatch)
     const datesResp = await fetch('/api/flows/dates')
@@ -694,7 +696,7 @@ const tryLoadFromSaved = async (ticker: string): Promise<OptionsFlowData[] | nul
     const flowData = await flowResp.json()
     const allTrades: OptionsFlowData[] = Array.isArray(flowData.data) ? flowData.data : []
     // Verify the actual trade timestamps match the expected trading date.
-    // Old DB records were saved with wall-clock date — e.g. a 12:07 AM May 28 save contains
+    // Old DB records were saved with wall-clock date - e.g. a 12:07 AM May 28 save contains
     // May 27 trades but is stored as May 28. Reject if trades don't belong to flowTradingDate.
     const tradesMatchDate = allTrades.some((t) => {
       if (!t.trade_timestamp) return false
@@ -710,20 +712,20 @@ const tryLoadFromSaved = async (ticker: string): Promise<OptionsFlowData[] | nul
     )
     return filtered.length > 0 ? filtered : null
   } catch (err) {
-    console.warn('[tryLoadFromSaved] error:', err)
+
     return null
   }
 }
 
-// ── Live batch classification ────────────────────────────────────────────────
+// -- Live batch classification ------------------------------------------------
 // Runs on each 1-second buffer flush before enrichment.
-// Priority: MULTI-LEG → SWEEP (multi-exchange bundle) → BLOCK → MINI
+// Priority: MULTI-LEG ? SWEEP (multi-exchange bundle) ? BLOCK ? MINI
 // MINI = anything that is not a sweep, block, or multi-leg (user spec).
 function classifyLiveBatch(trades: OptionsFlowData[]): OptionsFlowData[] {
   if (trades.length === 0) return trades
 
-  // Step 1 — Multi-leg: same underlying within 100ms, different strikes/types/expiries,
-  //           all legs ≥100 contracts, combined premium ≥$25k, 2-4 legs.
+  // Step 1 - Multi-leg: same underlying within 100ms, different strikes/types/expiries,
+  //           all legs =100 contracts, combined premium =$25k, 2-4 legs.
   const mlGroups = new Map<string, OptionsFlowData[]>()
   for (const t of trades) {
     const ts = new Date(t.trade_timestamp).getTime()
@@ -746,7 +748,7 @@ function classifyLiveBatch(trades: OptionsFlowData[]): OptionsFlowData[] {
     }
   }
 
-  // Step 2 — Sweep: same contract within a 3-second window across 2+ different exchanges.
+  // Step 2 - Sweep: same contract within a 3-second window across 2+ different exchanges.
   //           Bundle matching fills into one aggregated row.
   const sweepGroups = new Map<string, OptionsFlowData[]>()
   for (const t of trades) {
@@ -761,7 +763,7 @@ function classifyLiveBatch(trades: OptionsFlowData[]): OptionsFlowData[] {
   const swept: OptionsFlowData[] = []
   for (const [, group] of sweepGroups) {
     const exchanges = new Set(group.map(t => t.exchange_name))
-    if (exchanges.size < 2) continue // single exchange — not a sweep
+    if (exchanges.size < 2) continue // single exchange - not a sweep
     for (const t of group) consumedIds.add(`${t.ticker}_${t.trade_timestamp}`)
     const totalSize = group.reduce((s, t) => s + t.trade_size, 0)
     const totalPrem = group.reduce((s, t) => s + t.total_premium, 0)
@@ -776,7 +778,7 @@ function classifyLiveBatch(trades: OptionsFlowData[]): OptionsFlowData[] {
     })
   }
 
-  // Step 3 — Remaining: BLOCK (≥250 contracts, single exchange) or MINI (everything else)
+  // Step 3 - Remaining: BLOCK (=250 contracts, single exchange) or MINI (everything else)
   const result: OptionsFlowData[] = [...swept]
   for (const t of trades) {
     const id = `${t.ticker}_${t.trade_timestamp}`
@@ -791,7 +793,7 @@ function classifyLiveBatch(trades: OptionsFlowData[]): OptionsFlowData[] {
   }
   return result
 }
-// ────────────────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------------------
 
 // Incremental live OI: updates the persistent oiMap with only the new batch of trades
 // (O(batch_size) per flush instead of O(all_accumulated_trades)).
@@ -821,10 +823,10 @@ const applyLiveOIIncremental = (
         break
       case 'B':
         liveOI = contracts > baseOI
-          ? liveOI + contracts  // size exceeds prior OI — must be new opening
+          ? liveOI + contracts  // size exceeds prior OI - must be new opening
           : Math.max(0, liveOI - contracts)
         break
-      // N/A — no change
+      // N/A - no change
     }
     liveOI = Math.max(0, liveOI)
     oiMap.set(key, liveOI)
@@ -846,7 +848,7 @@ export default function OptionsFlowPage() {
   const dbgLog = (msg: string) => {
     const ts = new Date().toLocaleTimeString()
     setDebugLines(prev => [`${ts} ${msg}`, ...prev].slice(0, 40))
-    console.log(`[DBG] ${msg}`)
+
   }
   // Buffer SSE trades to avoid per-message setState (main thread violation fix)
   const pendingTradesRef = useRef<OptionsFlowData[]>([])
@@ -884,11 +886,11 @@ export default function OptionsFlowPage() {
   } | null>(null)
   const [streamError, setStreamError] = useState<string>('')
   const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false)
-  // Historical scan: '1D' = today only, '2'–'20' = N trading days back
+  // Historical scan: '1D' = today only, '2'-'20' = N trading days back
   const [historicalDays, setHistoricalDays] = useState<string>('1D')
   const [showAlgoFlow, setShowAlgoFlow] = useState<boolean>(false)
 
-  // ── Live WebSocket streaming state ──────────────────────────────────────────
+  // -- Live WebSocket streaming state ------------------------------------------
   const [isLiveMode, setIsLiveMode] = useState<boolean>(false)
   const [manualLiveMode, setManualLiveMode] = useState<boolean>(false)
   // When true, overrides auto-start even during market hours (user explicitly stopped)
@@ -903,15 +905,15 @@ export default function OptionsFlowPage() {
   // Buffer for live trades to avoid per-message setState
   const liveTradeBufferRef = useRef<OptionsFlowData[]>([])
   const liveFlushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  // Persistent running OI map — holds accumulated OI for every contract seen today.
+  // Persistent running OI map - holds accumulated OI for every contract seen today.
   // Never stored in React state so it never triggers re-renders.
   const liveOIMapRef = useRef<Map<string, number>>(new Map())
-  // Full trade archive — all trades received today, no cap.
+  // Full trade archive - all trades received today, no cap.
   // React state holds a reference to this same array for rendering.
   const allTradesRef = useRef<OptionsFlowData[]>([])
   // Track last received chunk timestamp for incremental polls
   const lastBatchTimeRef = useRef<string | null>(null)
-  // Live ticker filter — when set, display only trades for this ticker from the archive
+  // Live ticker filter - when set, display only trades for this ticker from the archive
   const liveTickerFilterRef = useRef<string>('')
   // Batch save: accumulates delta trades between 5-min saves
   const batchBufferRef = useRef<OptionsFlowData[]>([])
@@ -938,7 +940,7 @@ export default function OptionsFlowPage() {
       spot_price: 0,
       exchange_name: exchangeName,
       exchange_id: msg.x,
-      trade_type: 'MINI', // placeholder — classifyLiveBatch overrides this every flush
+      trade_type: 'MINI', // placeholder - classifyLiveBatch overrides this every flush
       trade_timestamp: new Date(msg.t).toISOString(),
       moneyness: 'OTM',
       days_to_expiry: daysToExpiry,
@@ -946,7 +948,7 @@ export default function OptionsFlowPage() {
   }, [])
 
   // Handle incoming batch of live trade messages from WebSocket
-  // Only buffers trades — the 1-second flush interval handles setState
+  // Only buffers trades - the 1-second flush interval handles setState
   const handleLiveTrades = useCallback((msgs: PolygonOptionsTradeMsg[]) => {
     // Mark connected once via ref to avoid calling setState on every message
     if (!liveConnectedRef.current) {
@@ -960,7 +962,7 @@ export default function OptionsFlowPage() {
   }, [convertLiveTrade])
 
   // Start/stop live streaming based on market hours or manual toggle
-  // Railway collector handles the WebSocket stream — browser polls DB every 30s
+  // Railway collector handles the WebSocket stream - browser polls DB every 30s
   useEffect(() => {
     const marketOpen = isMarketCurrentlyOpen()
 
@@ -988,14 +990,14 @@ export default function OptionsFlowPage() {
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
       }
 
-      // Poll Railway DB — full load first call, incremental (since) on subsequent calls
+      // Poll Railway DB - full load first call, incremental (since) on subsequent calls
       const pollDB = async () => {
         const dateStr = getTradingDate()
         const since = lastBatchTimeRef.current
         const url = since
           ? `/api/flows/save-batch?date=${dateStr}&since=${encodeURIComponent(since)}`
           : `/api/flows/save-batch?date=${dateStr}`
-        dbgLog(`pollDB → ${since ? 'incremental since=' + since.slice(11, 19) : 'full load'}`)
+        dbgLog(`pollDB ? ${since ? 'incremental since=' + since.slice(11, 19) : 'full load'}`)
         try {
           const res = await fetch(url)
           if (!res.ok) {
@@ -1013,7 +1015,7 @@ export default function OptionsFlowPage() {
           if (newTrades.length === 0) return
 
           if (result.incremental) {
-            // Push new trades onto the existing array — no 601k spread
+            // Push new trades onto the existing array - no 601k spread
             for (const t of newTrades) allTradesRef.current.push(t)
           } else {
             allTradesRef.current = newTrades
@@ -1034,7 +1036,7 @@ export default function OptionsFlowPage() {
               if (liveTickerFilterRef.current && t.underlying_ticker?.toUpperCase() !== liveTickerFilterRef.current) return false
               return true
             })
-            // Cap display at 25k most recent trades — parsing + rendering 600k+ items blocks the main thread
+            // Cap display at 25k most recent trades - parsing + rendering 600k+ items blocks the main thread
             // $50k+ filter (default) stays untouched; "show all" shows latest 25k
             const DISPLAY_CAP = 25000
             if (displayTrades.length > DISPLAY_CAP) displayTrades = displayTrades.slice(0, DISPLAY_CAP)
@@ -1043,7 +1045,7 @@ export default function OptionsFlowPage() {
             setLastUpdate(new Date().toLocaleTimeString())
           })
 
-          // Defer localStorage write — don't block the poll tick
+          // Defer localStorage write - don't block the poll tick
           setTimeout(() => {
             try {
               const tradingDate = getTradingDate()
@@ -1084,7 +1086,7 @@ export default function OptionsFlowPage() {
     }
   }, [handleLiveTrades, manualLiveMode, manuallyStopped])
 
-  // ────────────────────────────────────────────────────────────────────────────
+  // ----------------------------------------------------------------------------
 
   // Lock body scroll when AlgoFlow is active so the page cannot scroll behind it
   useEffect(() => {
@@ -1118,7 +1120,7 @@ export default function OptionsFlowPage() {
     try {
       // Keep existing trades and add new ones as they stream in
     } catch (dbError) {
-      console.warn('Error checking database, proceeding with streaming:', dbError)
+
       // Keep existing data on error
     }
 
@@ -1128,6 +1130,7 @@ export default function OptionsFlowPage() {
       const isAllScan = tickerParam === 'ALL'
       const isSingleTicker =
         !isAllScan && tickerParam !== 'MAG7' && tickerParam !== 'ETF' && !tickerParam.includes(',')
+
 
       // Single-ticker, today-only: load from saved flow before scanning
       if (isSingleTicker && historicalDays === '1D') {
@@ -1161,17 +1164,16 @@ export default function OptionsFlowPage() {
         setStreamingStatus('')
       }
 
-      // Multi-day scan: check storage first, only scan missing days via API
-      if (historicalDays !== '1D' && !isAllScan) {
+      // Multi-day scan: check storage first, only scan missing days
+      if (historicalDays !== '1D') {
         const numDays = historicalDays === '3D' ? 3 : historicalDays === '1W' ? 5 : Math.max(1, Math.min(parseInt(historicalDays) || 3, 252))
         const tradingDays = getLastNTradingDays(numDays)
         setStreamingStatus('Checking saved flow history...')
-        // Expand MAG7/ETF to a tickerSet so the cache filter matches underlying_ticker values
         const MAG7_SET_HIST = new Set(['AAPL', 'NVDA', 'MSFT', 'TSLA', 'AMZN', 'META', 'GOOGL', 'GOOG'])
         const ETF_SET_HIST = new Set(['SPY', 'QQQ', 'DIA', 'IWM', 'XLK', 'SMH', 'XLE', 'XLF', 'XLV', 'XLI', 'XLP', 'XLU', 'XLY', 'XLB', 'XLRE', 'XLC', 'GLD', 'SLV', 'TLT', 'HYG', 'LQD', 'EEM', 'EFA', 'VXX', 'UVXY'])
         const multiTickerSet = tickerParam === 'MAG7' ? MAG7_SET_HIST : tickerParam === 'ETF' ? ETF_SET_HIST : undefined
-        const { cachedTrades, missingDays } = await tryLoadHistoricalFromSaved(tickerParam, tradingDays, multiTickerSet)
-
+        const cacheTickerParam = isAllScan ? '' : tickerParam
+        const { cachedTrades, missingDays } = await tryLoadHistoricalFromSaved(cacheTickerParam, tradingDays, multiTickerSet)
         if (cachedTrades.length > 0) {
           // Show cached data immediately
           setData(cachedTrades)
@@ -1183,7 +1185,7 @@ export default function OptionsFlowPage() {
         }
 
         if (missingDays.length === 0) {
-          // All days found in storage — done
+          // All days found in storage - done
           const computedSummary: OptionsFlowSummary = {
             total_trades: cachedTrades.length,
             total_premium: cachedTrades.reduce((s, t) => s + (t.total_premium || 0), 0),
@@ -1208,9 +1210,111 @@ export default function OptionsFlowPage() {
           return
         }
 
-        // Some days missing — stream only those days via &dates= param then merge
+        // Some days missing - handle based on scan type
+        if (isAllScan) {
+
+          const accumulated: OptionsFlowData[] = [...cachedTrades]
+          console.log(`[ALL-SCAN] Starting with ${cachedTrades.length} cached trades. Missing days to scan: ${missingDays.length}`, missingDays)
+          for (let di = 0; di < missingDays.length; di++) {
+            if (cancelRef.current) break
+            const day = missingDays[di]
+
+            setStreamingStatus(`Scanning ALL - day ${di + 1} of ${missingDays.length}: ${day}`)
+            const t0 = performance.now()
+            const dayTrades = await new Promise<OptionsFlowData[]>((resolve) => {
+              const bucket: OptionsFlowData[] = []
+              const url = `/api/stream-options-flow?ticker=ALL&timeframe=HISTORICAL&dates=${day}`
+
+              const es = new EventSource(url)
+              let tickerCompleteCount = 0
+              const t = setTimeout(() => { console.warn(`[ALL-SCAN] Day ${day} TIMED OUT after 5min`); es.close(); resolve(bucket) }, 5 * 60 * 1000)
+              es.onmessage = (e) => {
+                try {
+                  const d = JSON.parse(e.data)
+                  if (d.type === 'ticker_complete' && d.trades?.length > 0) {
+                    tickerCompleteCount++
+                    const sample = d.trades[0]
+                    if (tickerCompleteCount <= 3) {
+                      console.log(`[SSE] Day ${day} ticker_complete #${tickerCompleteCount} ticker=${d.ticker} trades=${d.trades.length}`)
+                      console.log(`  sample trade fields: ${Object.keys(sample).join(', ')}`)
+                      console.log(`  sample trade_timestamp: ${sample.trade_timestamp}`)
+                      console.log(`  sample fill_style: ${sample.fill_style} | oi: ${sample.open_interest} | volume: ${sample.volume}`)
+                    }
+                    bucket.push(...d.trades)
+                  }
+                  if (d.type === 'complete') {
+                    console.log(`[SSE] Day ${day} COMPLETE event — total ticker_complete events: ${tickerCompleteCount}, bucket size: ${bucket.length}`)
+                    clearTimeout(t); es.close(); resolve(bucket)
+                  }
+                  if (d.type === 'error') { console.warn(`[ALL-SCAN] Day ${day} server error:`, d.error); clearTimeout(t); es.close(); resolve(bucket) }
+                } catch { /* ignore */ }
+              }
+              es.onerror = () => { console.warn(`[ALL-SCAN] Day ${day} SSE connection error`); clearTimeout(t); es.close(); resolve(bucket) }
+            })
+            const elapsed = (performance.now() - t0 / 1000).toFixed(1)
+            const sizeMB = (JSON.stringify(dayTrades).length / 1024 / 1024).toFixed(2)
+            // Detailed timestamp breakdown per day
+            const tsMap: Record<string, number> = {}
+            for (const t of dayTrades) { const d = (t as any).trade_timestamp?.slice(0,10) || 'none'; tsMap[d] = (tsMap[d]||0)+1 }
+            const first3ts = dayTrades.slice(0,3).map((t:any) => t.trade_timestamp)
+            const last3ts = dayTrades.slice(-3).map((t:any) => t.trade_timestamp)
+            const sampleFields = dayTrades[0] ? Object.keys(dayTrades[0] as any).join(', ') : 'none'
+            const hasFillStyle = dayTrades.some((t:any) => t.fill_style != null)
+            const hasOI = dayTrades.some((t:any) => t.open_interest != null)
+            const hasVolume = dayTrades.some((t:any) => t.volume != null)
+            console.log(`[ALL-SCAN] Day ${day}: ${dayTrades.length} trades | ${sizeMB}MB | accumulated: ${accumulated.length + dayTrades.length}`)
+            console.log(`  Timestamp distribution:`, tsMap)
+            console.log(`  First 3 timestamps:`, first3ts)
+            console.log(`  Last 3 timestamps:`, last3ts)
+            console.log(`  Fields on trade[0]:`, sampleFields)
+            console.log(`  fill_style present: ${hasFillStyle} | open_interest: ${hasOI} | volume: ${hasVolume}`)
+            accumulated.push(...dayTrades)
+            setData(accumulated.slice())
+            // Brief pause between days so Polygon rate limits don't throttle the next scan
+            if (di < missingDays.length - 1 && !cancelRef.current) {
+              setStreamingStatus(`Day ${di + 1} done (${dayTrades.length} trades). Waiting before next day...`)
+              await new Promise(r => setTimeout(r, 3000))
+            }
+          }
+          const final = accumulated
+          console.log(`[ALL-SCAN] COMPLETE — total displayed trades: ${final.length}`, final.slice(0,3).map((t:any) => t.trade_timestamp?.slice(0,10)))
+          setStreamingStatus('Enriching vol/OI & fill style...')
+          console.log(`[ENRICH] Starting enrichment on ${final.length} trades...`)
+          enrichTradeDataCombined(final).then((enriched) => {
+            const withOI = applyLiveOI(enriched)
+            const sampleEnriched = enriched[0]
+            console.log(`[ENRICH] Done — ${enriched.length} trades. Sample: fill_style=${(sampleEnriched as any)?.fill_style} oi=${(sampleEnriched as any)?.open_interest} volume=${(sampleEnriched as any)?.volume}`)
+            setData(withOI)
+            setSummary({
+              total_trades: withOI.length,
+              total_premium: withOI.reduce((s, t) => s + (t.total_premium || 0), 0),
+              unique_symbols: new Set(withOI.map((t) => t.underlying_ticker)).size,
+              trade_types: {
+                BLOCK: withOI.filter((t) => t.trade_type === 'BLOCK').length,
+                SWEEP: withOI.filter((t) => t.trade_type === 'SWEEP').length,
+                MINI: withOI.filter((t) => t.trade_type === 'MINI').length,
+                'MULTI-LEG': withOI.filter((t) => t.trade_type === 'MULTI-LEG').length,
+              },
+              call_put_ratio: {
+                calls: withOI.filter((t) => t.type?.toLowerCase() === 'call').length,
+                puts: withOI.filter((t) => t.type?.toLowerCase() === 'put').length,
+              },
+              processing_time_ms: 0,
+            })
+            setStreamingStatus('')
+          })
+          setLastUpdate(new Date().toLocaleString())
+          setIsStreamComplete(true)
+          setLoading(false)
+          setStreamingStatus('')
+          console.log('[ALL-SCAN] RETURNING — multi-day done, nothing below should run')
+          return
+        }
+
+        // Non-ALL: stream all missing days in one request
         const datesParam = `&dates=${missingDays.join(',')}`
-        const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerParam}${datesParam}`)
+        const sseUrl = `/api/stream-options-flow?ticker=${tickerParam}&timeframe=HISTORICAL${datesParam}`
+        const eventSource = new EventSource(sseUrl)
         const stallTimeout = setTimeout(() => {
           eventSource.close()
           setStreamError('Scan timed out after 5 minutes')
@@ -1247,14 +1351,19 @@ export default function OptionsFlowPage() {
               setLastUpdate(new Date().toLocaleString())
               setStreamingProgress(null)
               setStreamingStatus('Enriching vol/OI & fill style...')
+              // Cancel any pending RAF and drain pending trades synchronously so they
+              // are included in enrichment alongside cached trades
+              if (rafFlushRef.current !== null) { cancelAnimationFrame(rafFlushRef.current); rafFlushRef.current = null }
+              const pendingNow = pendingTradesRef.current.splice(0)
               setData((rawTrades) => {
-                enrichTradeDataCombined(rawTrades).then((final) => {
+                const allTrades = pendingNow.length > 0 ? [...rawTrades, ...pendingNow] : rawTrades
+                enrichTradeDataCombined(allTrades).then((final) => {
                   setStreamingStatus('Computing live OI...')
                   setData(applyLiveOI(final))
                   setLoading(false)
                   setStreamingStatus('')
                 })
-                return rawTrades
+                return allTrades
               })
             }
             if (d.type === 'error') {
@@ -1263,7 +1372,7 @@ export default function OptionsFlowPage() {
               setLoading(false)
               eventSource.close()
             }
-          } catch { /* ignore */ }
+          } catch { /* ignore parse errors */ }
         }
         eventSource.onerror = () => {
           clearTimeout(stallTimeout)
@@ -1316,8 +1425,8 @@ export default function OptionsFlowPage() {
           'SPY,QQQ,DIA,IWM,XLK,SMH,XLE,XLF,XLV,XLI,XLP,XLU,XLY,XLB,XLRE,XLC,GLD,SLV,TLT,HYG,LQD,EEM,EFA,VXX,UVXY'
       }
       // ALL scan: check saved data first, then fire SSEs if nothing found
-      // ALL scan: fire all SSEs simultaneously in one shot — no while loop
-      // 70 SSEs × 10 tickers = covers up to 700 symbols; extras beyond totalSymbols resolve instantly
+      // ALL scan: fire all SSEs simultaneously in one shot - no while loop
+      // 70 SSEs - 10 tickers = covers up to 700 symbols; extras beyond totalSymbols resolve instantly
       if (isAllScan) {
         // ALL 1D: check saved data first
         if (historicalDays === '1D') {
@@ -1352,7 +1461,7 @@ export default function OptionsFlowPage() {
         }
 
         const BATCH = 10
-        const MAX_SSE = 75 // 75 × 10 = 750 — covers the full symbol list including ETFs + MAG7
+        const MAX_SSE = 75 // 75 - 10 = 750 - covers the full symbol list including ETFs + MAG7
         let totalSymbols = 0
         let scannedCount = 0
 
@@ -1370,7 +1479,7 @@ export default function OptionsFlowPage() {
             let summary: any = null
             let market_info: any = null
 
-            // Phase 1 excludes ETFs and MAG7 — server skips them entirely
+            // Phase 1 excludes ETFs and MAG7 - server skips them entirely
             const sseUrl = `/api/stream-options-flow?ticker=ALL_TICKERS&offset=${offset}&limit=${BATCH}&exclude=${encodeURIComponent(ETF_COMMA + ',' + MAG7_COMMA)}`
 
             const _chunkStart = Date.now()
@@ -1390,7 +1499,7 @@ export default function OptionsFlowPage() {
             activeSSEsRef.current.add(entry)
             const timeout = setTimeout(
               () => {
-                console.warn(`[SCAN] Chunk offset=${offset} TIMED OUT after 5min — ${trades.length} trades from ${completedTickers.length} tickers. Completed: ${completedTickers.join(', ') || 'none'}`)
+
                 doResolve({ trades, total, summary, market_info })
               },
               5 * 60 * 1000
@@ -1414,7 +1523,7 @@ export default function OptionsFlowPage() {
                     doResolve({ trades, total, summary, market_info })
                     break
                   case 'error':
-                    console.error(`[SCAN] Chunk offset=${offset} ERROR after ${((Date.now() - _chunkStart) / 1000).toFixed(1)}s:`, d.error || d)
+
                     doResolve({ trades, total, summary, market_info })
                     break
                   case 'close':
@@ -1422,17 +1531,17 @@ export default function OptionsFlowPage() {
                     break
                 }
               } catch (parseErr) {
-                console.warn(`[SCAN] Chunk offset=${offset} parse error:`, parseErr)
+
               }
             }
 
             es.onerror = (err) => {
-              console.error(`[SCAN] Chunk offset=${offset} SSE connection error after ${((Date.now() - _chunkStart) / 1000).toFixed(1)}s — ${trades.length} trades so far`, err)
+
               doResolve({ trades, total, summary, market_info })
             }
           })
 
-        // ── Ticker sets for phase separation ──────────────────────────────────
+        // -- Ticker sets for phase separation ----------------------------------
         const ETF_TICKERS = new Set(['SPY', 'QQQ', 'DIA', 'IWM', 'XLK', 'SMH', 'XLE', 'XLF', 'XLV', 'XLI', 'XLP', 'XLU', 'XLY', 'XLB', 'XLRE', 'XLC', 'GLD', 'SLV', 'TLT', 'HYG', 'LQD', 'EEM', 'EFA', 'VXX', 'UVXY'])
         const MAG7_TICKERS = new Set(['AAPL', 'NVDA', 'MSFT', 'TSLA', 'AMZN', 'META', 'GOOGL', 'GOOG', 'AVGO', 'MU'])
         const MAG7_COMMA = 'AAPL,NVDA,MSFT,TSLA,AMZN,META,GOOGL,GOOG,AVGO,MU'
@@ -1461,7 +1570,7 @@ export default function OptionsFlowPage() {
             const entry = { es, abort: () => { doResolve(trades) } }
             activeSSEsRef.current.add(entry)
             const timeout = setTimeout(() => {
-              console.warn(`[SCAN] ${label} TIMED OUT after 5min — ${trades.length} trades. Completed: ${_tickersDone.join(', ') || 'none'}`)
+
               doResolve(trades)
             }, 5 * 60 * 1000)
             es.onmessage = (event) => {
@@ -1475,21 +1584,23 @@ export default function OptionsFlowPage() {
                   doResolve(trades)
                 }
                 if (d.type === 'error') {
-                  console.error(`[SCAN] ${label} ERROR after ${((Date.now() - _start) / 1000).toFixed(1)}s — ${trades.length} trades so far`)
+
                   doResolve(trades)
                 }
                 if (d.type === 'close') { doResolve(trades) }
               } catch { /* ignore parse errors */ }
             }
             es.onerror = () => {
-              console.error(`[SCAN] ${label} SSE connection error after ${((Date.now() - _start) / 1000).toFixed(1)}s`)
+
               doResolve(trades)
             }
           })
 
         try {
-          // ── PHASE 1: ALL tickers except ETFs & MAG7 ───────────────────────
-          setStreamingStatus('Phase 1/3 — Scanning all tickers (excluding ETFs & MAG7)...')
+          // -- PHASE 1: ALL tickers except ETFs & MAG7 -----------------------
+          setStreamingStatus('Phase 1/3 - Scanning all tickers (excluding ETFs & MAG7)...')
+          console.warn('[PHASE1] setData([]) called — wiping data. historicalDays=', historicalDays)
+          console.trace('[PHASE1] call stack')
           setData([])
 
           // Discover total symbols first via a single probe chunk
@@ -1511,7 +1622,7 @@ export default function OptionsFlowPage() {
             for (let i = 0; i < MAX_CONCURRENT && offset + i * BATCH < probeTotal; i++) {
               groupOffsets.push(offset + i * BATCH)
             }
-            setStreamingStatus(`Phase 1/3 — Scanning tickers ${offset + 1}–${Math.min(offset + groupOffsets.length * BATCH, probeTotal)} of ${probeTotal}...`)
+            setStreamingStatus(`Phase 1/3 - Scanning tickers ${offset + 1}-${Math.min(offset + groupOffsets.length * BATCH, probeTotal)} of ${probeTotal}...`)
             const groupResults = await Promise.all(groupOffsets.map((off) => openSSE(off)))
             if (cancelRef.current) return
             for (const r of groupResults) {
@@ -1521,30 +1632,30 @@ export default function OptionsFlowPage() {
             offset += groupOffsets.length * BATCH
           }
 
-          // Server already excluded ETFs and MAG7 — no client-side filtering needed
+          // Server already excluded ETFs and MAG7 - no client-side filtering needed
           const phase1Trades = phase1Raw
 
 
           // Enrich phase 1 and show immediately
-          setStreamingStatus(`Phase 1/3 done — enriching ${phase1Trades.length} trades...`)
+          setStreamingStatus(`Phase 1/3 done - enriching ${phase1Trades.length} trades...`)
           const enriched1 = await enrichTradeDataCombined(phase1Trades)
           if (cancelRef.current) return
-          setStreamingStatus('Phase 1/3 — Computing live OI...')
+          setStreamingStatus('Phase 1/3 - Computing live OI...')
           const withOI1 = applyLiveOI(enriched1)
           setData(withOI1)
           setLastUpdate(new Date().toLocaleString())
 
 
-          // ── PHASE 2: ETFs ─────────────────────────────────────────────────
-          setStreamingStatus('Phase 2/3 — Scanning ETFs (SPY, QQQ, TLT, GLD, SMH...)...')
+          // -- PHASE 2: ETFs -------------------------------------------------
+          setStreamingStatus('Phase 2/3 - Scanning ETFs (SPY, QQQ, TLT, GLD, SMH...)...')
           const phase2Raw = await openCommaSSE(ETF_COMMA, 'ETF-PHASE')
           if (cancelRef.current) return
 
 
-          setStreamingStatus(`Phase 2/3 — Enriching ${phase2Raw.length} ETF trades...`)
+          setStreamingStatus(`Phase 2/3 - Enriching ${phase2Raw.length} ETF trades...`)
           const enriched2 = await enrichTradeDataCombined(phase2Raw)
           if (cancelRef.current) return
-          setStreamingStatus('Phase 2/3 — Computing live OI for ETFs...')
+          setStreamingStatus('Phase 2/3 - Computing live OI for ETFs...')
           const withOI2 = applyLiveOI(enriched2)
 
           // Merge ETF trades on top of phase 1 (most recent trades appear at top via sort in table)
@@ -1556,16 +1667,16 @@ export default function OptionsFlowPage() {
           setLastUpdate(new Date().toLocaleString())
 
 
-          // ── PHASE 3: MAG7 ─────────────────────────────────────────────────
-          setStreamingStatus('Phase 3/3 — Scanning MAG7 (AAPL, NVDA, MSFT, TSLA, AMZN, META, GOOGL)...')
+          // -- PHASE 3: MAG7 -------------------------------------------------
+          setStreamingStatus('Phase 3/3 - Scanning MAG7 (AAPL, NVDA, MSFT, TSLA, AMZN, META, GOOGL)...')
           const phase3Raw = await openCommaSSE(MAG7_COMMA, 'MAG7-PHASE')
           if (cancelRef.current) return
 
 
-          setStreamingStatus(`Phase 3/3 — Enriching ${phase3Raw.length} MAG7 trades...`)
+          setStreamingStatus(`Phase 3/3 - Enriching ${phase3Raw.length} MAG7 trades...`)
           const enriched3 = await enrichTradeDataCombined(phase3Raw)
           if (cancelRef.current) return
-          setStreamingStatus('Phase 3/3 — Computing live OI for MAG7...')
+          setStreamingStatus('Phase 3/3 - Computing live OI for MAG7...')
           const withOI3 = applyLiveOI(enriched3)
 
           // Merge MAG7 trades
@@ -1582,7 +1693,7 @@ export default function OptionsFlowPage() {
 
         } catch (allScanErr) {
           const msg = allScanErr instanceof Error ? allScanErr.message : 'ALL scan failed'
-          console.error('[ALL SCAN] Error:', msg)
+
           setStreamError(msg)
           setLoading(false)
           setStreamingStatus('')
@@ -1590,7 +1701,7 @@ export default function OptionsFlowPage() {
         return // Don't fall through to single-EventSource path
       }
 
-      // Single-ticker / MAG7 / ETF scan ─────────────────────────────────────
+      // Single-ticker / MAG7 / ETF scan -------------------------------------
       const tfParam = historicalDays !== '1D' ? `&timeframe=${historicalDays}` : ''
       const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerParam}${tfParam}`)
 
@@ -1599,7 +1710,7 @@ export default function OptionsFlowPage() {
       // Timeout: if no 'complete' or 'error' within 5 min, something stalled
       const stallTimeout = setTimeout(
         () => {
-          console.error('[STREAM] Stall detected — no completion after 5 minutes')
+
           eventSource.close()
           setStreamError('Scan timed out after 5 minutes')
           setStreamingStatus('')
@@ -1690,7 +1801,7 @@ export default function OptionsFlowPage() {
               break
 
             case 'error':
-              console.error(`[STREAM] Server error: ${streamData.error}`)
+
               clearTimeout(stallTimeout)
               setStreamError(streamData.error || 'Stream error occurred')
               setLoading(false)
@@ -1707,10 +1818,10 @@ export default function OptionsFlowPage() {
               break
 
             default:
-              console.warn(`[STREAM] Unknown message type: "${streamData.type}"`)
+
           }
         } catch (parseError) {
-          console.error('[STREAM] Failed to parse message:', parseError)
+
         }
       }
 
@@ -1729,7 +1840,7 @@ export default function OptionsFlowPage() {
           return
         }
 
-        console.error('[STREAM] onerror fired:', error)
+
 
         if (eventSource.readyState === 0) {
           eventSource.close()
@@ -1744,7 +1855,7 @@ export default function OptionsFlowPage() {
         setLoading(false)
       }
     } catch (error) {
-      console.error('Error starting stream:', error)
+
       setLoading(false)
       // Fallback to regular API
       fetchOptionsFlow()
@@ -1789,7 +1900,7 @@ export default function OptionsFlowPage() {
         }
         setLastUpdate(new Date().toLocaleString())
       } else {
-        console.error('Failed to fetch options flow:', result.error)
+
         // Set empty data on error to prevent stale data display
         setData([])
         setSummary({
@@ -1802,7 +1913,7 @@ export default function OptionsFlowPage() {
         })
       }
     } catch (error) {
-      console.error('Error fetching options flow:', error)
+
       // Set empty data on network error
       setData([])
       setSummary({
@@ -1834,6 +1945,8 @@ export default function OptionsFlowPage() {
       setData(displayTrades)
       return
     }
+    // Don't re-scan if ticker was just cleared
+    if (tickerOverride === '') return
     setStreamError('')
     setIsStreamComplete(false)
     fetchOptionsFlowStreaming(tickerOverride)
@@ -1878,7 +1991,7 @@ export default function OptionsFlowPage() {
 
   return (
     <div className="bg-black text-white">
-      {/* Mobile debug overlay — tap button bottom-right to toggle */}
+      {/* Mobile debug overlay - tap button bottom-right to toggle */}
       <button
         onClick={() => setShowDebug(p => !p)}
         style={{ position: 'fixed', bottom: 70, right: 12, zIndex: 99999, background: '#ff4400', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 10px', fontSize: 11, fontFamily: 'monospace', opacity: 0.85 }}
@@ -1920,11 +2033,11 @@ export default function OptionsFlowPage() {
           liveTradeCount={liveTradeCount}
           onToggleLive={() => {
             if (isLiveMode) {
-              // User is stopping — set override so auto-start doesn't re-trigger
+              // User is stopping - set override so auto-start doesn't re-trigger
               setManuallyStopped(true)
               setManualLiveMode(false)
             } else {
-              // User is starting — clear override and force start
+              // User is starting - clear override and force start
               setManuallyStopped(false)
               setManualLiveMode(true)
             }

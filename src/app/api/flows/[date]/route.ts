@@ -25,6 +25,14 @@ export async function GET(
     const { date } = await params;
     const decodedDate = decodeURIComponent(date)
 
+    // Optional server-side ticker filter — caller passes ?tickers=NVDA or ?tickers=NVDA,AAPL
+    // When present, trades are filtered BEFORE building the response (35x+ smaller payload for single-ticker)
+    // When absent, all trades are returned (ALL scan)
+    const tickersParam = request.nextUrl.searchParams.get('tickers')
+    const tickerSet = tickersParam
+      ? new Set(tickersParam.split(',').map(t => t.trim().toUpperCase()).filter(Boolean))
+      : null
+
     // Try FlowBatch first — paginated to stay under Prisma Accelerate 5MB limit
     const tradingDate = decodedDate.split('T')[0]
     const allTrades: unknown[] = []
@@ -43,7 +51,11 @@ export async function GET(
       for (const b of page) {
         const decompressed = await gunzipAsync(Buffer.from(b.data, 'base64'))
         const batch: unknown[] = JSON.parse(decompressed.toString('utf8'))
-        for (let i = 0; i < batch.length; i++) allTrades.push(batch[i])
+        for (let i = 0; i < batch.length; i++) {
+          if (!tickerSet || tickerSet.has((batch[i] as any)?.underlying_ticker?.toUpperCase() ?? '')) {
+            allTrades.push(batch[i])
+          }
+        }
       }
       cursor = page[page.length - 1].id
       latestBatchTime = page[page.length - 1].batchTime
@@ -70,11 +82,15 @@ export async function GET(
 
     const compressedBuffer = Buffer.from(flow.data, 'base64');
     const decompressed = await gunzipAsync(compressedBuffer);
+    const flowData: unknown[] = JSON.parse(decompressed.toString('utf8'))
+    const filteredFlowData = tickerSet
+      ? flowData.filter(t => tickerSet.has((t as any)?.underlying_ticker?.toUpperCase() ?? ''))
+      : flowData
 
     return NextResponse.json({
       date: flow.date,
-      data: JSON.parse(decompressed.toString('utf8')),
-      size: flow.size,
+      data: filteredFlowData,
+      size: filteredFlowData.length,
       createdAt: flow.createdAt,
       source: 'scan',
     });

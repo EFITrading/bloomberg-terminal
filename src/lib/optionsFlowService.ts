@@ -402,12 +402,14 @@ export class OptionsFlowService {
 
     onProgress?.([], `[SPECIFIC-DAYS] Scanning ${specificDays.length} day(s): ${specificDays.join(', ')}...`)
 
-    const mostRecentDay = specificDays[specificDays.length - 1]
     const smartRange = await getSmartDateRange()
+    // Use smartRange only for actual today's date — all historical dates get their own date range
+    const todayPST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+    const todayStr = `${todayPST.getFullYear()}-${String(todayPST.getMonth() + 1).padStart(2, '0')}-${String(todayPST.getDate()).padStart(2, '0')}`
 
     const dayResults = await Promise.all(
       specificDays.map(async (date) => {
-        const dateRange = date === mostRecentDay ? smartRange : buildDateRange(date)
+        const dateRange = date === todayStr ? smartRange : buildDateRange(date)
         onProgress?.([], `[Day ${date}] Starting scan...`)
         const trades = await this.fetchLiveOptionsFlowUltraFast(ticker, onProgress, dateRange)
         trades.forEach((t) => { (t as any).trading_date = date })

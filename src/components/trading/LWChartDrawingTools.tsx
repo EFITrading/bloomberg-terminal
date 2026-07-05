@@ -38,6 +38,8 @@ interface LWChartDrawingToolsProps {
   onMouseMove?: (e: React.MouseEvent<HTMLElement>) => void
   toolbarPosition?: 'top' | 'left'
   navyButtonTheme?: boolean
+  yAxisWidth?: number
+  xAxisHeight?: number
 }
 
 type DrawingTool =
@@ -347,6 +349,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
   onMouseMove,
   toolbarPosition = 'top',
   navyButtonTheme = false,
+  yAxisWidth = 80,
+  xAxisHeight = 35,
 }) => {
   // Navy theme helpers – used when navyButtonTheme=true (options-flow mini chart)
   const navyBtnStyle = (isToolActive: boolean, accentColor: string): React.CSSProperties => {
@@ -577,6 +581,12 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+
+    // Clip drawing region to exclude Y-axis (right) and X-axis (bottom)
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(0, 0, width - yAxisWidth, height - xAxisHeight)
+    ctx.clip()
 
     // Crisp, fully-opaque rendering defaults
     ctx.imageSmoothingEnabled = false
@@ -1560,6 +1570,9 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
 
       ctx.setLineDash([])
     }
+
+    // Restore clipping region
+    ctx.restore()
   })
 
   // Count trading bars between two Unix-ms timestamps given a timeframe string
@@ -3225,8 +3238,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
           position: 'absolute',
           top: 0,
           left: 0,
-          width: '100%',
-          height: '100%',
+          width: `calc(100% - ${yAxisWidth}px)`,
+          height: `calc(100% - ${xAxisHeight}px)`,
           pointerEvents:
             currentTool !== 'select' || isDragging || !!editingDrawing ? 'auto' : 'none',
           cursor: currentTool === 'select' ? (isDragging ? 'grabbing' : 'default') : 'crosshair',
