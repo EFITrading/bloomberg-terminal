@@ -34,8 +34,8 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ trades, tradeCount: trades.length, batchTime: latestTime, incremental: true })
         }
 
-        // Initial full-day load — parallel pages of 100 chunks (100 × 44KB = 4.4MB < 5MB Accelerate limit)
-        const PAGE_SIZE = 100
+        // Initial full-day load — parallel pages of 40 chunks (~104KB each → ~4.1MB < 5MB Accelerate limit)
+        const PAGE_SIZE = 40
         const total = await prisma.flowBatch.count({ where: { tradingDate } })
         if (total === 0) return NextResponse.json({ trades: [], tradeCount: 0 })
 
