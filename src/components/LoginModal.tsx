@@ -13,7 +13,7 @@ interface LoginModalProps {
 export default function LoginModal({
   isOpen,
   onClose,
-  redirectTo = '/market-overview',
+  redirectTo = '/options-flow',
 }: LoginModalProps) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -22,7 +22,7 @@ export default function LoginModal({
   const router = useRouter()
   // Sanitize redirect to prevent open-redirect attacks — only relative paths allowed
   const safeRedirect =
-    redirectTo.startsWith('/') && !redirectTo.startsWith('//') ? redirectTo : '/market-overview'
+    redirectTo.startsWith('/') && !redirectTo.startsWith('//') ? redirectTo : '/options-flow'
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000)

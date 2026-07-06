@@ -1692,6 +1692,7 @@ export default function FlowTrackingPanel({
                 lwNavyButtonTheme={true}
                 disableSidebarAutoScan={true}
                 hideDesktopSidebar={true}
+                compactToolbar={true}
                 onSymbolChange={(s) => setChartSymbol(s)}
               />
             </div>

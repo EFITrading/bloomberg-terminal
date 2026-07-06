@@ -177,7 +177,7 @@ export default function ToolsSection() {
                                 ))}
                             </div>
 
-                            {tool.href === '/analysis-suite' || tool.href === '/ai-suite' ? (
+                            {tool.href !== '/options-flow' && tool.href !== '/account' ? (
                                 <span className="tsv2-cta" style={{ opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' }}>
                                     <svg width="11" height="13" viewBox="0 0 12 15" fill="none" style={{ flexShrink: 0 }}>
                                         <rect x="1" y="6" width="10" height="8" rx="1.5" fill="rgba(255,133,0,0.2)" stroke="rgba(255,133,0,0.85)" strokeWidth="1.2" />

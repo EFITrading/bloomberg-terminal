@@ -4506,6 +4506,7 @@ interface TradingViewChartProps {
   showTradeModeButton?: boolean
   disableSidebarAutoScan?: boolean
   hideDesktopSidebar?: boolean
+  compactToolbar?: boolean
 }
 
 // ─── Trade Detail Popup Chart ─────────────────────────────────────────────────
@@ -6298,6 +6299,7 @@ export default function TradingViewChart({
   showTradeModeButton = false,
   disableSidebarAutoScan = false,
   hideDesktopSidebar = false,
+  compactToolbar = false,
 }: TradingViewChartProps) {
   const { setRegimes, setRegimeAnalysis: setContextRegimeAnalysis } = useMarketRegime()
 
@@ -30481,7 +30483,7 @@ export default function TradingViewChart({
 
             {/* Symbol and Price Info */}
             <div
-              className="flex items-center relative z-10"
+              className={`flex items-center relative z-10${compactToolbar ? ' efi-compact-toolbar' : ''}`}
               style={{
                 display:
                   isMobile && activeSidebarPanel
@@ -30494,7 +30496,7 @@ export default function TradingViewChart({
               {/* Left side: Symbol Search + Price + Controls */}
               <div className="flex items-center space-x-8 flex-shrink-0">
                 {/* ── HAMBURGER MENU (mobile or when desktop sidebar is hidden) ── */}
-                {(isMobile || hideDesktopSidebar) && (
+                {!compactToolbar && (isMobile || hideDesktopSidebar) && (
                   <EFIChartingMobileHamburger
                     isMobile={isMobile}
                     activeSidebarPanel={activeSidebarPanel}
@@ -30722,7 +30724,39 @@ export default function TradingViewChart({
                 )}
 
                 {/* Timeframes — hidden on mobile (shown in secondary bar) */}
-                {disableSidebarAutoScan ? (
+                {disableSidebarAutoScan && compactToolbar ? (
+                  /* Compact mode: individual buttons */
+                  <div
+                    className="flex items-center timeframe-dropdown"
+                    style={{
+                      display: isMobile ? 'none' : 'flex',
+                      background: 'linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%)',
+                      border: '2px solid rgba(255,255,255,0.4)',
+                      borderRadius: '8px',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)',
+                    }}
+                    data-keep-compact
+                  >
+                    {[
+                      { label: '1M', value: '1m' },
+                      { label: '5M', value: '5m' },
+                      { label: '30M', value: '30m' },
+                      { label: '1H', value: '1h' },
+                      { label: '4H', value: '4h' },
+                      { label: '1D', value: '1d' },
+                      { label: '1W', value: '1w' },
+                    ].map((tf) => (
+                      <button
+                        key={tf.value}
+                        onClick={() => handleTimeframeChange(tf.value)}
+                        className={`btn-3d-carved relative group ${config.timeframe === tf.value ? 'active' : ''}`}
+                        style={{ padding: '10px 14px', fontWeight: '700', fontSize: '14px', letterSpacing: '0.8px', borderRadius: '4px', color: 'white' }}
+                      >
+                        {tf.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : disableSidebarAutoScan ? (
                   /* Options flow panel: single compact dropdown */
                   <div
                     className="inline-flex items-center w-fit timeframe-dropdown"
@@ -30812,7 +30846,7 @@ export default function TradingViewChart({
                       ))}
 
                       {/* More Timeframes Dropdown Button */}
-                      <div className="relative inline-block" data-toolbar-btn>
+                      <div className="relative inline-block" data-toolbar-btn data-keep-compact>
                         <button
                           ref={timeframeButtonRef}
                           onClick={() => { const wasOpen = isTimeframeDropdownOpen; closeAllToolbarDropdowns(); if (!wasOpen) setIsTimeframeDropdownOpen(true); }}
@@ -31045,7 +31079,7 @@ export default function TradingViewChart({
                 )}
 
                 {/* Chart Type Selector - Moved to left side */}
-                <div
+                {!compactToolbar && <div
                   className="flex items-center chart-type-dropdown"
                   style={{
                     display: isMobile ? 'none' : undefined,
@@ -31167,7 +31201,7 @@ export default function TradingViewChart({
                       )}
                     </button>
                   </div>
-                </div>
+                </div>}
 
                 {isMobile && isMounted && (
                   <>
@@ -34284,12 +34318,14 @@ export default function TradingViewChart({
 
               {/* DARK POOL Button */}
               {!isMobile && (
-                <DarkPoolButton
-                  isActive={showDarkPoolIndicator}
-                  isLoading={darkPoolLoading}
-                  progress={darkPoolProgress}
-                  onClick={() => setShowDarkPoolIndicator((v) => !v)}
-                />
+                <div data-compact-hide>
+                  <DarkPoolButton
+                    isActive={showDarkPoolIndicator}
+                    isLoading={darkPoolLoading}
+                    progress={darkPoolProgress}
+                    onClick={() => setShowDarkPoolIndicator((v) => !v)}
+                  />
+                </div>
               )}
 
               {/* P/E | PEG Dropdown — toggles canvas bottom panel */}
@@ -35291,6 +35327,7 @@ export default function TradingViewChart({
 
                 {/* GUIDE AI Button - Matches toolbar button style */}
                 <button
+                  data-compact-hide
                   onClick={() => setGuideAIOpen(!isGuideAIOpen)}
                   className={`btn-3d-carved relative group ${isGuideAIOpen ? 'active' : ''}`}
                   style={{
@@ -35318,7 +35355,7 @@ export default function TradingViewChart({
                 </button>
 
                 {/* MULTICHART LAYOUT Button - Matches toolbar button style */}
-                {!isMobile && <div className="relative group" style={{ marginRight: '12px' }}>
+                {!isMobile && <div data-compact-hide className="relative group" style={{ marginRight: '12px' }}>
                   <button
                     onClick={() => {
                       const layouts: ('1x1' | '1x2' | '2x2')[] = ['1x1', '1x2', '2x2']
@@ -35366,6 +35403,58 @@ export default function TradingViewChart({
                 </div>}
 
                 {/* SETTINGS Button - Matches toolbar button style */}
+                {compactToolbar && (
+                  <div className="flex items-center" style={{ marginRight: '4px', gap: '2px' }}>
+                    {/* Undo */}
+                    <button
+                      onClick={() => {
+                        if (currentHistoryIndex > 0) {
+                          const newIndex = currentHistoryIndex - 1
+                          setHistoryIndex((prev) => ({ ...prev, [currentSymbol]: newIndex }))
+                          setLwChartDrawings((prev) => ({ ...prev, [currentSymbol]: currentHistory[newIndex] }))
+                        }
+                      }}
+                      disabled={currentHistoryIndex <= 0}
+                      className="btn-3d-carved"
+                      title="Undo"
+                      style={{ padding: '8px', borderRadius: '4px', opacity: currentHistoryIndex <= 0 ? 0.4 : 1, cursor: currentHistoryIndex <= 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14L4 9L9 4" /><path d="M4 9H16C18.2091 9 20 10.7909 20 13C20 15.2091 18.2091 17 16 17H13" /></svg>
+                    </button>
+                    {/* Redo */}
+                    <button
+                      onClick={() => {
+                        if (currentHistoryIndex < currentHistory.length - 1) {
+                          const newIndex = currentHistoryIndex + 1
+                          setHistoryIndex((prev) => ({ ...prev, [currentSymbol]: newIndex }))
+                          setLwChartDrawings((prev) => ({ ...prev, [currentSymbol]: currentHistory[newIndex] }))
+                        }
+                      }}
+                      disabled={currentHistoryIndex >= currentHistory.length - 1}
+                      className="btn-3d-carved"
+                      title="Redo"
+                      style={{ padding: '8px', borderRadius: '4px', opacity: currentHistoryIndex >= currentHistory.length - 1 ? 0.4 : 1, cursor: currentHistoryIndex >= currentHistory.length - 1 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 14L20 9L15 4" /><path d="M20 9H8C5.79086 9 4 10.7909 4 13C4 15.2091 5.79086 17 8 17H11" /></svg>
+                    </button>
+                    {/* Clear */}
+                    <button
+                      onClick={() => {
+                        const sym = currentSymbol
+                        setLwChartDrawings((prev) => ({ ...prev, [sym]: [] }))
+                        setDrawingHistory((prev) => ({ ...prev, [sym]: [[]] }))
+                        setHistoryIndex((prev) => ({ ...prev, [sym]: 0 }))
+                        setCurrentDrawingTool('select')
+                      }}
+                      className="btn-3d-carved"
+                      title="Clear All Drawings"
+                      style={{ padding: '8px 10px', borderRadius: '4px', border: '1px solid #DC143C', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center' }}
+                    >
+                      <TbX className="w-4 h-4" style={{ color: '#DC143C' }} />
+                      <span style={{ color: '#DC143C', fontSize: '13px', fontWeight: 700 }}>Clear</span>
+                    </button>
+                  </div>
+                )}
                 <button
                   onClick={() => {
                     if (!showSettings) {

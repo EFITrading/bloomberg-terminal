@@ -16,7 +16,7 @@ function LoginForm() {
   const searchParams = useSearchParams()
   const rawRedirect = searchParams.get('redirect') || ''
   const redirectTo =
-    rawRedirect.startsWith('/') && !rawRedirect.startsWith('//') ? rawRedirect : '/market-overview'
+    rawRedirect.startsWith('/') && !rawRedirect.startsWith('//') ? rawRedirect : '/options-flow'
 
   useEffect(() => {
     setMounted(true)

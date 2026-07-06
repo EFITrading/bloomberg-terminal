@@ -582,12 +582,6 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
-    // Clip drawing region to exclude Y-axis (right) and X-axis (bottom)
-    ctx.save()
-    ctx.beginPath()
-    ctx.rect(0, 0, width - yAxisWidth, height - xAxisHeight)
-    ctx.clip()
-
     // Crisp, fully-opaque rendering defaults
     ctx.imageSmoothingEnabled = false
     ctx.globalAlpha = 1.0
@@ -1570,9 +1564,6 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
 
       ctx.setLineDash([])
     }
-
-    // Restore clipping region
-    ctx.restore()
   })
 
   // Count trading bars between two Unix-ms timestamps given a timeframe string
@@ -3238,8 +3229,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
           position: 'absolute',
           top: 0,
           left: 0,
-          width: `calc(100% - ${yAxisWidth}px)`,
-          height: `calc(100% - ${xAxisHeight}px)`,
+          width: '100%',
+          height: '100%',
           pointerEvents:
             currentTool !== 'select' || isDragging || !!editingDrawing ? 'auto' : 'none',
           cursor: currentTool === 'select' ? (isDragging ? 'grabbing' : 'default') : 'crosshair',

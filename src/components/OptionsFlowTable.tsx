@@ -432,6 +432,12 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [savingFlow, setSavingFlow] = useState<boolean>(false)
 
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
+  // Date range calendar picker state
+  const [calOpen, setCalOpen] = useState(false)
+  const [calYear, setCalYear] = useState(new Date().getFullYear())
+  const [calMonth, setCalMonth] = useState(new Date().getMonth())
+  const [calHover, setCalHover] = useState<string | null>(null)
+  const [calPickStart, setCalPickStart] = useState<string | null>(null) // first click pending end
 
   const [saveErrorMsg, setSaveErrorMsg] = useState<string>('')
 
@@ -661,7 +667,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   // Cycle art panel every 8s — only when snapshot hasn't locked a scene yet
   const [snapDriven, setSnapDriven] = React.useState(false)
   const [mktSnap, setMktSnap] = React.useState<Record<string, number> | null>(null)
-  const [mktCtx, setMktCtx] = React.useState<{ sectors: Record<string, number>; movers: Array<{ ticker: string; pct: number; price: number }>; headlines: Array<{ title: string; urgency: number; time_ago: string; tickers: string[] }> } | null>(null)
+  const [mktCtx, setMktCtx] = React.useState<{ sectors: Record<string, number>; movers: Array<{ ticker: string; pct: number; price: number }> } | null>(null)
 
   React.useEffect(() => {
     if (!loading || snapDriven) return
@@ -670,15 +676,11 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   }, [loading, snapDriven])
 
   // Fetch live SPY + sector data on mount (pre-load before any scan) and lock scene
-  // Headlines use /api/news — same endpoint + filtering as the news panel
   React.useEffect(() => {
     let cancelled = false
     const doFetch = async () => {
       try {
-        const [snapRes, newsRes] = await Promise.all([
-          fetch('/api/market-snapshot'),
-          fetch('/api/news?category=breaking&limit=6'),
-        ])
+        const snapRes = await fetch('/api/market-snapshot')
         if (cancelled) return
         if (!snapRes.ok) return
         const d: Record<string, any> = await snapRes.json()
@@ -687,20 +689,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
         const spy = sectors['SPY'] ?? NaN
         if (isNaN(spy)) return // markets closed / no data — keep cycling
         setMktSnap(sectors)
-        // Use /api/news headlines (same quality filters as news panel) — fall back to market-snapshot headlines
-        let headlines: Array<{ title: string; urgency: number; time_ago: string; tickers: string[] }> = d.headlines ?? []
-        if (newsRes.ok) {
-          const newsData = await newsRes.json()
-          if (newsData.success && Array.isArray(newsData.articles) && newsData.articles.length > 0) {
-            headlines = newsData.articles.slice(0, 6).map((a: any) => ({
-              title: String(a.title ?? ''),
-              urgency: typeof a.urgency === 'number' ? a.urgency : 0.5,
-              time_ago: String(a.time_ago ?? ''),
-              tickers: Array.isArray(a.tickers) ? a.tickers : [],
-            }))
-          }
-        }
-        setMktCtx({ sectors, movers: Array.isArray(d.movers) ? d.movers : [], headlines })
+        setMktCtx({ sectors, movers: Array.isArray(d.movers) ? d.movers : [] })
         setSnapDriven(true)
         const bearVariants = [0, 4]  // bear.jpg, cryptocrash.jpg
         const bullVariants = [1, 5, 6]  // bull.jpg, bullwall.jpg, cryptorally.jpg
@@ -726,17 +715,13 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       : null
     const spyVal = mktSnap ? mktSnap['SPY'] : null
 
-    // Live movers + headlines from enriched snapshot
+    // Live movers from enriched snapshot
     const movers = mktCtx?.movers ?? []
-    const headlines = mktCtx?.headlines ?? []
     const bigLosers: [string, string][] = movers.filter(m => m.pct < 0).slice(0, 2).map(m => [m.ticker, fmtChg(m.pct)])
     const bigGainers: [string, string][] = movers.filter(m => m.pct > 0).slice(0, 2).map(m => [m.ticker, fmtChg(m.pct)])
-    const findH = (re: RegExp) => headlines.find(h => re.test(h.title)) ?? headlines[0] ?? null
-    const truncate = (s: string, n = 85) => s.length > n ? s.slice(0, n - 1) + '…' : s
 
     if (sceneIdx === 0) {
-      // MARKETS IN FREEFALL — bear photo full bg, biggest losers + bearish headline
-      const headline = findH(/crash|plunge|selloff|sell.off|tariff|rout|recession|halt|circuit/i)
+      // MARKETS IN FREEFALL — bear photo full bg, biggest losers
       const rows: [string, string][] = bigLosers.length > 0
         ? [['S&P 500', fmtChg(spyVal ?? -2.1)], ...bigLosers.slice(0, 2)]
         : spyVal != null && allSectors
@@ -764,12 +749,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
                   </div>
                 ))}
               </div>
-              {headline && <>
-                <div style={{ width: '100%', height: '2px', background: '#aa1111', margin: '5% 0 3%' }} />
-                <div style={{ color: '#ff4422', fontFamily: 'monospace', fontWeight: 900, fontSize: 'clamp(18px,2.05vw,23px)', letterSpacing: '0.18em', marginBottom: 4, background: '#000', padding: '2px 10px' }}>● BREAKING</div>
-                <div style={{ color: '#ffffff', fontFamily: 'monospace', fontSize: 'clamp(14px,1.5vw,19px)', fontWeight: 600, lineHeight: 1.4, textAlign: 'right', overflowWrap: 'break-word', wordBreak: 'break-word', background: '#000', padding: '2px 10px' }}>{truncate(headline.title)}</div>
-                <div style={{ color: '#ff9988', fontFamily: 'monospace', fontSize: 'clamp(13px,1.38vw,16px)', marginTop: 3, background: '#000', padding: '2px 10px' }}>{headline.time_ago}{headline.tickers.length > 0 ? ` · ${headline.tickers.slice(0, 3).map(tk => { const mv = movers.find(x => x.ticker === tk); return mv ? `${tk} ${fmtChg(mv.pct)}` : tk }).join('  ')}` : ''}</div>
-              </>}
+
             </div>
           </div>
           <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(210,30,30,0.92)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>▼ CIRCUIT BREAKER TRIGGERED</div>
@@ -778,8 +758,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       )
     }
     if (sceneIdx === 1) {
-      // BULL MARKET STILL ALIVE — bull statue full bg, biggest gainers + bullish headline
-      const headline = findH(/beat|earnings beat|surge|rally|bullish|upgrade|record high|raises guidance|soar/i)
+      // BULL MARKET STILL ALIVE — bull statue full bg, biggest gainers
       const rows: [string, string][] = bigGainers.length > 0
         ? [['S&P 500', fmtChg(spyVal ?? 1.8)], ...bigGainers.slice(0, 2)]
         : spyVal != null && allSectors
@@ -807,12 +786,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
                   </div>
                 ))}
               </div>
-              {headline && <>
-                <div style={{ width: '100%', height: '2px', background: '#007733', margin: '5% 0 3%' }} />
-                <div style={{ color: '#00e040', fontFamily: 'monospace', fontWeight: 900, fontSize: 'clamp(18px,2.05vw,23px)', letterSpacing: '0.18em', marginBottom: 4, background: '#000', padding: '2px 10px' }}>● BREAKING</div>
-                <div style={{ color: '#ffffff', fontFamily: 'monospace', fontSize: 'clamp(14px,1.5vw,19px)', fontWeight: 600, lineHeight: 1.4, textAlign: 'right', overflowWrap: 'break-word', wordBreak: 'break-word', background: '#000', padding: '2px 10px' }}>{truncate(headline.title)}</div>
-                <div style={{ color: '#88ffaa', fontFamily: 'monospace', fontSize: 'clamp(13px,1.38vw,16px)', marginTop: 3, background: '#000', padding: '2px 10px' }}>{headline.time_ago}{headline.tickers.length > 0 ? ` · ${headline.tickers.slice(0, 3).map(tk => { const mv = movers.find(x => x.ticker === tk); return mv ? `${tk} ${fmtChg(mv.pct)}` : tk }).join('  ')}` : ''}</div>
-              </>}
+
             </div>
           </div>
           <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(0,200,60,0.92)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>▲ RISK ON — BULLS IN CONTROL</div>
@@ -821,11 +795,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       )
     }
     if (sceneIdx === 2) {
-      // UNUSUAL ACTIVITY — trader photo full bg, most volatile movers + related headline
+      // UNUSUAL ACTIVITY — trader photo full bg, most volatile movers
       const volatileMvs: [string, string][] = [...movers].sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).slice(0, 2).map(m => [m.ticker, fmtChg(m.pct)])
-      const topMoverTicker = movers[0]?.ticker ?? ''
-      const headline = headlines.find(h => topMoverTicker !== '' && h.tickers.includes(topMoverTicker))
-        ?? findH(/options|flow|unusual|sweep|block|volatile|implied|puts|calls/i)
       const rows: [string, string][] = volatileMvs.length > 0
         ? [['S&P 500', fmtChg(spyVal ?? -0.4)], ...volatileMvs.slice(0, 2)]
         : spyVal != null && allSectors
@@ -855,12 +826,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
                   </div>
                 ))}
               </div>
-              {headline && <>
-                <div style={{ width: '100%', height: '2px', background: '#0066bb', margin: '5% 0 3%' }} />
-                <div style={{ color: '#00ccff', fontFamily: 'monospace', fontWeight: 900, fontSize: 'clamp(18px,2.05vw,23px)', letterSpacing: '0.18em', marginBottom: 4, background: '#000', padding: '2px 10px' }}>● BREAKING</div>
-                <div style={{ color: '#ffffff', fontFamily: 'monospace', fontSize: 'clamp(14px,1.5vw,19px)', fontWeight: 600, lineHeight: 1.4, textAlign: 'right', overflowWrap: 'break-word', wordBreak: 'break-word', background: '#000', padding: '2px 10px' }}>{truncate(headline.title)}</div>
-                <div style={{ color: '#88ddff', fontFamily: 'monospace', fontSize: 'clamp(13px,1.38vw,16px)', marginTop: 3, background: '#000', padding: '2px 10px' }}>{headline.time_ago}{headline.tickers.length > 0 ? ` · ${headline.tickers.slice(0, 3).map(tk => { const mv = movers.find(x => x.ticker === tk); return mv ? `${tk} ${fmtChg(mv.pct)}` : tk }).join('  ')}` : ''}</div>
-              </>}
+
             </div>
           </div>
           <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(0,200,255,0.9)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>● SCANNING FLOW...</div>
@@ -870,7 +836,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     }
     // sceneIdx === 4: CRYPTO CRASH — alternate bear scene (cryptocrash.jpg)
     if (sceneIdx === 4) {
-      const headline = findH(/crash|plunge|collapse|selloff|bitcoin|crypto|halt|suspend|circuit/i)
       const rows: [string, string][] = bigLosers.length > 0
         ? [['S&P 500', fmtChg(spyVal ?? -2)], ...bigLosers.slice(0, 2)]
         : spyVal != null && allSectors
@@ -896,12 +861,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
                   </div>
                 ))}
               </div>
-              {headline && <>
-                <div style={{ width: '100%', height: '2px', background: '#880000', margin: '5% 0 3%' }} />
-                <div style={{ color: '#ff2200', fontFamily: 'monospace', fontWeight: 900, fontSize: 'clamp(18px,2.05vw,23px)', letterSpacing: '0.18em', marginBottom: 4, background: '#000', padding: '2px 10px' }}>● BREAKING</div>
-                <div style={{ color: '#ffffff', fontFamily: 'monospace', fontSize: 'clamp(14px,1.5vw,19px)', fontWeight: 600, lineHeight: 1.4, textAlign: 'right', overflowWrap: 'break-word', wordBreak: 'break-word', background: '#000', padding: '2px 10px' }}>{truncate(headline.title)}</div>
-                <div style={{ color: '#ff7766', fontFamily: 'monospace', fontSize: 'clamp(13px,1.38vw,16px)', marginTop: 3, background: '#000', padding: '2px 10px' }}>{headline.time_ago}{headline.tickers.length > 0 ? ` · ${headline.tickers.slice(0, 3).map(tk => { const mv = movers.find(x => x.ticker === tk); return mv ? `${tk} ${fmtChg(mv.pct)}` : tk }).join('  ')}` : ''}</div>
-              </>}
+
             </div>
           </div>
           <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(210,30,30,0.92)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>▼ CRYPTO MARKET SELLOFF</div>
@@ -911,7 +871,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     }
     // sceneIdx === 5: WALL ST BULL RUN — golden bull scene (bullwall.jpg)
     if (sceneIdx === 5) {
-      const headline = findH(/beat|earnings beat|surge|rally|bullish|upgrade|record high|raises guidance|soar|ath/i)
       const rows: [string, string][] = bigGainers.length > 0
         ? [['S&P 500', fmtChg(spyVal ?? 1.8)], ...bigGainers.slice(0, 2)]
         : spyVal != null && allSectors
@@ -937,12 +896,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
                   </div>
                 ))}
               </div>
-              {headline && <>
-                <div style={{ width: '100%', height: '2px', background: '#997700', margin: '5% 0 3%' }} />
-                <div style={{ color: '#ffd700', fontFamily: 'monospace', fontWeight: 900, fontSize: 'clamp(18px,2.05vw,23px)', letterSpacing: '0.18em', marginBottom: 4, background: '#000', padding: '2px 10px' }}>● BREAKING</div>
-                <div style={{ color: '#ffffff', fontFamily: 'monospace', fontSize: 'clamp(14px,1.5vw,19px)', fontWeight: 600, lineHeight: 1.4, textAlign: 'right', overflowWrap: 'break-word', wordBreak: 'break-word', background: '#000', padding: '2px 10px' }}>{truncate(headline.title)}</div>
-                <div style={{ color: '#ffdd88', fontFamily: 'monospace', fontSize: 'clamp(13px,1.38vw,16px)', marginTop: 3, background: '#000', padding: '2px 10px' }}>{headline.time_ago}{headline.tickers.length > 0 ? ` · ${headline.tickers.slice(0, 3).map(tk => { const mv = movers.find(x => x.ticker === tk); return mv ? `${tk} ${fmtChg(mv.pct)}` : tk }).join('  ')}` : ''}</div>
-              </>}
+
             </div>
           </div>
           <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(255,200,0,0.9)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>▲ WALL ST RALLYING</div>
@@ -952,7 +906,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     }
     // sceneIdx === 6: MARKET SURGING — crypto rally neon green scene (cryptorally.jpg)
     if (sceneIdx === 6) {
-      const headline = findH(/surge|rally|record|soar|bitcoin|crypto|btc|eth|ath|all.time/i)
       const rows: [string, string][] = bigGainers.length > 0
         ? [['S&P 500', fmtChg(spyVal ?? 2)], ...bigGainers.slice(0, 2)]
         : spyVal != null && allSectors
@@ -978,12 +931,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
                   </div>
                 ))}
               </div>
-              {headline && <>
-                <div style={{ width: '100%', height: '2px', background: '#007744', margin: '5% 0 3%' }} />
-                <div style={{ color: '#00ff88', fontFamily: 'monospace', fontWeight: 900, fontSize: 'clamp(18px,2.05vw,23px)', letterSpacing: '0.18em', marginBottom: 4, background: '#000', padding: '2px 10px' }}>● BREAKING</div>
-                <div style={{ color: '#ffffff', fontFamily: 'monospace', fontSize: 'clamp(14px,1.5vw,19px)', fontWeight: 600, lineHeight: 1.4, textAlign: 'right', overflowWrap: 'break-word', wordBreak: 'break-word', background: '#000', padding: '2px 10px' }}>{truncate(headline.title)}</div>
-                <div style={{ color: '#88ffcc', fontFamily: 'monospace', fontSize: 'clamp(13px,1.38vw,16px)', marginTop: 3, background: '#000', padding: '2px 10px' }}>{headline.time_ago}{headline.tickers.length > 0 ? ` · ${headline.tickers.slice(0, 3).map(tk => { const mv = movers.find(x => x.ticker === tk); return mv ? `${tk} ${fmtChg(mv.pct)}` : tk }).join('  ')}` : ''}</div>
-              </>}
+
             </div>
           </div>
           <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(0,255,100,0.9)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>▲ RISK ASSETS SURGING</div>
@@ -991,8 +939,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
         </div>
       )
     }
-    // sceneIdx === 3: TRADING THE FLOOR — NYSE photo full bg, top gainer + loser + headline
-    const headline3 = headlines[0] ?? null
+    // sceneIdx === 3: TRADING THE FLOOR — NYSE photo full bg, top gainer + loser
     const rows3: [string, string][] = (() => {
       const spyR: [string, string] = ['S&P 500', fmtChg(spyVal ?? 0.3)]
       if (bigGainers.length > 0 || bigLosers.length > 0) {
@@ -1031,12 +978,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
                 </div>
               ))}
             </div>
-            {headline3 && <>
-              <div style={{ width: '100%', height: '2px', background: '#aa7700', margin: '5% 0 3%' }} />
-              <div style={{ color: '#ffaa00', fontFamily: 'monospace', fontWeight: 900, fontSize: 'clamp(18px,2.05vw,23px)', letterSpacing: '0.18em', marginBottom: 4, background: '#000', padding: '2px 10px' }}>● BREAKING</div>
-              <div style={{ color: '#ffffff', fontFamily: 'monospace', fontSize: 'clamp(14px,1.5vw,19px)', fontWeight: 600, lineHeight: 1.4, textAlign: 'right', overflowWrap: 'break-word', wordBreak: 'break-word', background: '#000', padding: '2px 10px' }}>{truncate(headline3.title)}</div>
-              <div style={{ color: '#ffcc66', fontFamily: 'monospace', fontSize: 'clamp(13px,1.38vw,16px)', marginTop: 3, background: '#000', padding: '2px 10px' }}>{headline3.time_ago}{headline3.tickers.length > 0 ? ` · ${headline3.tickers.slice(0, 3).map(tk => { const mv = movers.find(x => x.ticker === tk); return mv ? `${tk} ${fmtChg(mv.pct)}` : tk }).join('  ')}` : ''}</div>
-            </>}
+
           </div>
         </div>
         <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(255,160,30,0.9)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>NYSE · MARKET OPEN</div>
@@ -3095,13 +3037,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     const normalizedTk = normalizeTickerForOptions(trade.underlying_ticker)
     const optionTicker = `O:${normalizedTk}${expiry}${optionType}${strikeFormatted}`
 
-    console.log('[QuickGrade] ticker:', trade.underlying_ticker, '| key:', optionTicker)
-    console.log('[QuickGrade] price loaded:', !!currentOptionPrices[optionTicker], '| value:', currentOptionPrices[optionTicker])
-    console.log('[QuickGrade] total prices cached:', Object.keys(currentOptionPrices).length)
-    console.log('[QuickGrade] efiActive:', efiHighlightsActive, '| leapActive:', leapActive, '| fetching:', optionPricesFetching)
-
     if (!currentOptionPrices[optionTicker] && !optionPricesFetching) {
-      console.log('[QuickGrade] triggering single-trade price fetch')
       fetchCurrentOptionPrices([trade])
     }
 
@@ -3143,7 +3079,6 @@ Stock Reaction: ${scores.stockReaction}/15`
 
     localStorage.setItem('flowTrackingWatchlist', JSON.stringify(newTrackedFlows))
     window.dispatchEvent(new CustomEvent('flowWatchlistUpdated', { detail: { flows: newTrackedFlows } }))
-    console.log('[FlowTracking] addToFlowTracking ? saved', newTrackedFlows.length, 'flows to localStorage')
 
     // Generate flow ID for chart data
 
@@ -3165,7 +3100,6 @@ Stock Reaction: ${scores.stockReaction}/15`
 
     localStorage.setItem('flowTrackingWatchlist', JSON.stringify(newTrackedFlows))
     window.dispatchEvent(new CustomEvent('flowWatchlistUpdated', { detail: { flows: newTrackedFlows } }))
-    console.log('[FlowTracking] removeFromFlowTracking ? saved', newTrackedFlows.length, 'flows to localStorage')
   }
 
   // Save current flow data to database
@@ -3209,8 +3143,6 @@ Stock Reaction: ${scores.stockReaction}/15`
         writer.write(encoded)
         writer.close()
         const compressedBuffer = await new Response(cs.readable).arrayBuffer()
-        const compressedKB = (compressedBuffer.byteLength / 1024).toFixed(1)
-        console.log(`[SaveFlow] ${tradeDate}: ${dayTrades.length} trades | raw=${rawSizeKB}KB → compressed=${compressedKB}KB (${((compressedBuffer.byteLength / new TextEncoder().encode(rawJson).byteLength) * 100).toFixed(1)}%)`)
         const response = await fetch('/api/flows/save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/octet-stream' },
@@ -3225,7 +3157,6 @@ Stock Reaction: ${scores.stockReaction}/15`
       setSaveStatus('success')
       setTimeout(() => setSaveStatus('idle'), 3000)
     } catch (error) {
-      console.error('[SaveFlow] Caught error:', error)
       setSaveErrorMsg(error instanceof Error ? error.message : 'Unknown error')
       setSaveStatus('error')
       setTimeout(() => setSaveStatus('idle'), 4000)
@@ -3239,11 +3170,8 @@ Stock Reaction: ${scores.stockReaction}/15`
   const loadFlowHistory = async () => {
     try {
       setLoadingHistory(true)
-      console.log('[History] Fetching /api/flows/dates...')
 
       const response = await fetch('/api/flows/dates')
-      console.log('[History] /api/flows/dates status:', response.status, response.statusText)
-
       if (!response.ok) {
         const errText = await response.text().catch(() => '(no body)')
         console.error('[History] Error body:', errText)
@@ -4511,7 +4439,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       if (activeFlows.length !== trackedFlows.length) {
         localStorage.setItem('flowTrackingWatchlist', JSON.stringify(activeFlows))
         window.dispatchEvent(new CustomEvent('flowWatchlistUpdated', { detail: { flows: activeFlows } }))
-        console.log('[FlowTracking] expired flows removed ? saved', activeFlows.length, 'flows to localStorage')
+        console.log('[FlowTracking] expired flows removed - saved', activeFlows.length, 'flows to localStorage')
 
         setTrackedFlows(activeFlows)
 
@@ -6825,47 +6753,123 @@ Stock Reaction: ${scores.stockReaction}/15`
                   )}
                 </div>
 
-                {/* Historical Days Dropdown — hidden in live mode */}
-                {!isLiveMode && onHistoricalDaysChange && (
-                  <select
-                    value={historicalDays}
-                    onChange={(e) => onHistoricalDaysChange(e.target.value)}
-                    style={{
-                      height: 31,
-                      padding: '0 22px 0 9px',
-                      background: historicalDays !== '1D' ? '#000' : '#000',
-                      border: `1px solid ${historicalDays !== '1D' ? 'rgba(255,133,0,0.65)' : '#2a2a2a'}`,
-                      color: historicalDays !== '1D' ? '#ff8500' : '#888',
-                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.5), 0 2px 4px rgba(0,0,0,0.4)',
-                      fontSize: 12,
-                      fontWeight: 700,
-                      letterSpacing: '0.1em',
-                      cursor: 'pointer',
-                      borderRadius: 5,
-                      outline: 'none',
-                      minWidth: 80,
-                      transition: 'border-color 0.15s ease',
-                      appearance: 'none' as any,
-                      WebkitAppearance: 'none' as any,
-                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%23666' stroke-width='1.2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")`,
-                      backgroundRepeat: 'no-repeat',
-                      backgroundPosition: 'right 7px center',
-                    }}
-                  >
-                    <option value="1D" style={{ background: '#000', color: '#ccc' }}>TODAY</option>
-                    <option value="2" style={{ background: '#000', color: '#ccc' }}>2 DAYS</option>
-                    <option value="3" style={{ background: '#000', color: '#ccc' }}>3 DAYS</option>
-                    <option value="4" style={{ background: '#000', color: '#ccc' }}>4 DAYS</option>
-                    <option value="5" style={{ background: '#000', color: '#ccc' }}>1W</option>
-                    <option value="10" style={{ background: '#000', color: '#ccc' }}>2W</option>
-                    <option value="21" style={{ background: '#000', color: '#ccc' }}>1M</option>
-                    <option value="42" style={{ background: '#000', color: '#ccc' }}>2M</option>
-                    <option value="63" style={{ background: '#000', color: '#ccc' }}>3M</option>
-                    <option value="126" style={{ background: '#000', color: '#ccc' }}>6M</option>
-                    <option value="189" style={{ background: '#000', color: '#ccc' }}>9M</option>
-                    <option value="252" style={{ background: '#000', color: '#ccc' }}>1Y</option>
-                  </select>
-                )}
+                {/* Date range calendar picker */}
+                {!isLiveMode && onHistoricalDaysChange && (() => {
+                  const today = new Date().toISOString().split('T')[0]
+                  const isRange = historicalDays?.startsWith('range:')
+                  const parts = isRange ? historicalDays.slice(6).split(':') : []
+                  const rangeStart = parts[0] || ''
+                  const rangeEnd = parts[1] || ''
+                  const displayLabel = isRange && rangeStart && rangeEnd
+                    ? rangeStart === rangeEnd ? rangeStart : `${rangeStart} → ${rangeEnd}`
+                    : calPickStart ? `${calPickStart} → ?` : 'SELECT DATES'
+
+                  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate()
+                  const firstDow = new Date(calYear, calMonth, 1).getDay()
+                  const pad = (n: number) => String(n).padStart(2, '0')
+                  const toDs = (y: number, m: number, d: number) => `${y}-${pad(m + 1)}-${pad(d)}`
+                  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+                  // Highlight helpers — use calPickStart during selection, rangeStart/End when committed
+                  const effStart = calPickStart || rangeStart
+                  const effEnd = calPickStart ? (calHover || calPickStart) : rangeEnd
+                  const isInRange = (ds: string) => { if (!effStart || !effEnd) return false; const s = effStart < effEnd ? effStart : effEnd; const e = effStart < effEnd ? effEnd : effStart; return ds >= s && ds <= e }
+                  const isEdge = (ds: string) => ds === effStart || ds === effEnd
+
+                  const handleDayClick = (ds: string) => {
+                    if (!calPickStart) {
+                      // First click — set start, wait for end
+                      setCalPickStart(ds)
+                      setCalHover(ds)
+                    } else {
+                      // Second click — commit range
+                      const s = ds < calPickStart ? ds : calPickStart
+                      const e = ds < calPickStart ? calPickStart : ds
+                      onHistoricalDaysChange(`range:${s}:${e}`)
+                      setCalPickStart(null)
+                      setCalHover(null)
+                      setCalOpen(false)
+                    }
+                  }
+
+                  return (
+                    <div style={{ position: 'relative' }}>
+                      <button
+                        onClick={() => setCalOpen(v => !v)}
+                        style={{
+                          height: 31, padding: '0 10px',
+                          background: isRange ? '#0a0500' : '#000',
+                          border: `1px solid ${isRange || calPickStart ? 'rgba(255,133,0,0.65)' : '#2a2a2a'}`,
+                          color: isRange || calPickStart ? '#ff8500' : '#555',
+                          fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
+                          borderRadius: 5, outline: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
+                          fontFamily: 'JetBrains Mono, monospace',
+                        }}
+                      >{displayLabel} ▾</button>
+
+                      {calOpen && (
+                        <div
+                          style={{
+                            position: 'absolute', top: 36, right: 0, zIndex: 9999,
+                            background: '#0a0a0a', border: '1px solid rgba(255,133,0,0.45)',
+                            borderRadius: 10, padding: 16, width: 292,
+                            boxShadow: '0 12px 48px rgba(0,0,0,0.9)',
+                          }}
+                          onMouseLeave={() => calPickStart && setCalHover(calPickStart)}
+                        >
+                          {/* Month nav */}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                            <button onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(y => y - 1) } else setCalMonth(m => m - 1) }}
+                              style={{ background: 'none', border: 'none', color: '#ff8500', cursor: 'pointer', fontSize: 18, padding: '0 6px', lineHeight: 1 }}>‹</button>
+                            <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, fontWeight: 800, color: '#fff', letterSpacing: '0.1em' }}>{monthNames[calMonth]} {calYear}</span>
+                            <button onClick={() => { if (calMonth === 11) { setCalMonth(0); setCalYear(y => y + 1) } else setCalMonth(m => m + 1) }}
+                              style={{ background: 'none', border: 'none', color: '#ff8500', cursor: 'pointer', fontSize: 18, padding: '0 6px', lineHeight: 1 }}>›</button>
+                          </div>
+                          {/* Day headers */}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2, marginBottom: 4 }}>
+                            {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d, i) => (
+                              <div key={i} style={{ textAlign: 'center', fontSize: 10, color: '#444', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>{d}</div>
+                            ))}
+                          </div>
+                          {/* Days grid */}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2 }}>
+                            {Array.from({ length: firstDow }).map((_, i) => <div key={`e${i}`} />)}
+                            {Array.from({ length: daysInMonth }).map((_, i) => {
+                              const ds = toDs(calYear, calMonth, i + 1)
+                              const isFuture = ds > today
+                              const isWkend = [0, 6].includes(new Date(calYear, calMonth, i + 1).getDay())
+                              const edge = isEdge(ds)
+                              const highlighted = !edge && isInRange(ds)
+                              return (
+                                <div key={ds}
+                                  onMouseEnter={() => calPickStart && setCalHover(ds)}
+                                  onClick={() => !isFuture && handleDayClick(ds)}
+                                  style={{
+                                    textAlign: 'center', fontSize: 12, fontWeight: edge ? 900 : 600,
+                                    fontFamily: 'JetBrains Mono, monospace', padding: '4px 0', borderRadius: 4,
+                                    cursor: isFuture ? 'default' : 'pointer',
+                                    color: isFuture ? '#222' : edge ? '#000' : isWkend ? '#333' : '#ccc',
+                                    background: edge ? '#ff8500' : highlighted ? 'rgba(255,133,0,0.22)' : 'transparent',
+                                    userSelect: 'none',
+                                    transition: 'background 0.08s',
+                                  }}
+                                >{i + 1}</div>
+                              )
+                            })}
+                          </div>
+                          {/* Footer */}
+                          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
+                            <span style={{ fontSize: 10, color: '#555', fontFamily: 'JetBrains Mono, monospace' }}>
+                              {calPickStart ? `start: ${calPickStart} — click end` : rangeStart && rangeEnd ? `${rangeStart} → ${rangeEnd}` : 'click start date'}
+                            </span>
+                            <button onClick={() => { onHistoricalDaysChange('1D'); setCalPickStart(null); setCalHover(null); setCalOpen(false) }}
+                              style={{ fontSize: 10, background: 'none', border: 'none', color: '#444', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace' }}>CLEAR</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
 
                 {/* Live Mode Indicator — shown instead of scan shortcuts when markets are open */}
                 {isLiveMode && (
@@ -6882,7 +6886,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                         </span>
                       )}
                     </div>
-                    {onToggleLive && (
+                    {false && (
                       <button
                         onClick={onToggleLive}
                         title="Stop live stream"
@@ -7156,35 +7160,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                   </button>
                 )}
 
-                {/* LIVE button — toggles live streaming on/off */}
-                {onToggleLive && (
-                  <button
-                    onClick={onToggleLive}
-                    className={`toolbar-mode${isLiveMode ? ' toolbar-mode--active' : ''} flex items-center gap-1.5 font-bold uppercase transition-all duration-150 focus:outline-none`}
-                    title={isLiveMode ? 'Stop live stream' : selectedTickerFilter ? `Start live stream for ${selectedTickerFilter}` : 'Start live stream'}
-                    style={{
-                      height: '35px',
-                      padding: '0 15px',
-                      background: isLiveMode
-                        ? 'linear-gradient(180deg, rgba(34,197,94,0.24) 0%, rgba(16,185,129,0.08) 55%, rgba(0,0,0,0.2) 100%)'
-                        : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
-                      border: isLiveMode ? '1px solid #22c55e' : '1px solid #166534',
-                      borderRadius: '7px',
-                      fontSize: '12px',
-                      letterSpacing: '1.5px',
-                      fontWeight: '700',
-                      boxShadow: isLiveMode ? 'inset 0 1px 0 rgba(255,255,255,0.2), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 14px rgba(34,197,94,0.25)' : 'inset 0 1px 0 rgba(255,255,255,0.09), inset 0 -1px 0 rgba(0,0,0,0.4)',
-                      color: isLiveMode ? '#22c55e' : '#16a34a',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                    }}
-                  >
-                    <span style={{ display: 'flex', alignItems: 'center' }}>
-                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: isLiveMode ? '#22c55e' : '#4b5563', display: 'inline-block', marginRight: 6, boxShadow: isLiveMode ? '0 0 6px #22c55e' : 'none', animation: isLiveMode ? 'pulse 1.5s ease-in-out infinite' : 'none' }} />
-                    </span>
-                    <span>{isLiveMode ? (selectedTickerFilter ? `LIVE · ${selectedTickerFilter}` : 'LIVE') : 'LIVE'}</span>
-                  </button>
-                )}
+
 
                 {/* Grading Progress — now shown in fullscreen overlay, hidden from header */}
 
@@ -8206,7 +8182,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg className="hidden md:block" width="12" height="12" viewBox="0 0 24 24" fill="none" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M7 16V4m0 0L3 8m4-4l4 4" stroke="#22c55e" /><path d="M17 8v12m0 0l4-4m-4 4l-4-4" stroke="#ef4444" /></svg>
-                        <span className="hidden md:inline">{notableFilterActive ? 'C/P' : 'CALL / PUT'}</span>
+                        <span className="hidden md:inline">C/P</span>
                         <span className="md:hidden" style={{ fontWeight: 900, fontSize: '15px' }}>C/P</span>
                         <span className="hidden md:inline-flex" style={{ alignItems: 'center', marginLeft: 1 }}>
                           {sortField === 'type' && (
@@ -8271,7 +8247,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg className="hidden md:block" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /><line x1="8" y1="14" x2="8" y2="14" strokeWidth="3" /><line x1="12" y1="14" x2="12" y2="14" strokeWidth="3" /></svg>
-                        <span className="hidden md:inline">EXPIRATION</span>
+                        <span className="hidden md:inline lg:hidden">EXPIRY</span>
+                        <span className="hidden lg:inline">EXPIRATION</span>
                         <span className="md:hidden" style={{ fontWeight: 900, fontSize: '15px' }}>EXPIRY</span>
                         <span className="hidden md:inline-flex" style={{ alignItems: 'center', marginLeft: 1 }}>
                           {sortField === 'expiry' && (
@@ -8669,7 +8646,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             <div className="hidden md:block">
                               <div className="flex flex-col space-y-0.5 md:space-y-1">
-                                <div className="flex flex-wrap items-center gap-1">
+                                <div className="flex items-center gap-1" style={{ flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
                                   <span
                                     className="text-cyan-400 font-bold size-text"
                                     style={{ fontSize: '12px' }}

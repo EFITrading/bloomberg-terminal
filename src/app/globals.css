@@ -505,6 +505,26 @@ thead.col-thead {
     border-spacing: 0 !important;
 }
 
+/* ── Compact toolbar (AlgoFlow / Options Flow embedded chart) ── */
+/* Hide everything except: symbol search, price/%, timeframe dropdown, settings button */
+.efi-compact-toolbar .chart-type-dropdown {
+    display: none !important;
+}
+
+.efi-compact-toolbar .mobile-dtd-group {
+    display: none !important;
+}
+
+/* Hide all indicator button groups (data-toolbar-btn) EXCEPT the timeframe dropdown */
+.efi-compact-toolbar [data-toolbar-btn]:not([data-keep-compact]) {
+    display: none !important;
+}
+
+/* Hide star (AI guide) and multi-chart layout buttons */
+.efi-compact-toolbar [data-compact-hide] {
+    display: none !important;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 /* Custom Animations for Trading Chart */

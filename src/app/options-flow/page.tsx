@@ -843,13 +843,7 @@ const applyLiveOIIncremental = (
 
 export default function OptionsFlowPage() {
   const [data, setData] = useState<OptionsFlowData[]>([])
-  const [debugLines, setDebugLines] = useState<string[]>([])
-  const [showDebug, setShowDebug] = useState(false)
-  const dbgLog = (msg: string) => {
-    const ts = new Date().toLocaleTimeString()
-    setDebugLines(prev => [`${ts} ${msg}`, ...prev].slice(0, 40))
-
-  }
+  const dbgLog = (msg: string) => { console.log('[OptionsFlow]', msg) }
   // Buffer SSE trades to avoid per-message setState (main thread violation fix)
   const pendingTradesRef = useRef<OptionsFlowData[]>([])
   const seenTradeIdsRef = useRef<Set<string>>(new Set())
@@ -1086,6 +1080,120 @@ export default function OptionsFlowPage() {
     }
   }, [handleLiveTrades, manualLiveMode, manuallyStopped])
 
+  // ── After-hours / weekend / holiday: auto-load last trading day's saved flow ──
+  // Loads 1 minute after market close, hides 1 minute before next market open.
+  useEffect(() => {
+    if (isLiveMode) return // market is open — live stream handles data
+
+    // Helper: get PST date-string
+    const nowPST = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+
+    // Helper: compute ms until next market open (6:30 AM PST) on next valid trading day
+    const msUntilNextMarketOpen = (): number => {
+      const pst = nowPST()
+      const candidate = new Date(pst)
+      // If before 6:29 today, next open might still be today
+      const h = candidate.getHours(), m = candidate.getMinutes()
+      if (h > 13 || (h === 13 && m >= 1)) {
+        // After close — advance to tomorrow
+        candidate.setDate(candidate.getDate() + 1)
+      }
+      // Skip to next valid trading day
+      const toDs = (d: Date) =>
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      while (candidate.getDay() === 0 || candidate.getDay() === 6 || US_MARKET_HOLIDAYS_SET.has(toDs(candidate))) {
+        candidate.setDate(candidate.getDate() + 1)
+      }
+      // Set to 6:29 AM PST on that day (1 min before open = hide time)
+      candidate.setHours(6, 29, 0, 0)
+      // Convert candidate (PST) back to UTC ms
+      const pstOffset = new Date(candidate.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+      const utcMs = candidate.getTime() - (pstOffset.getTime() - candidate.getTime())
+      return Math.max(0, utcMs - Date.now())
+    }
+
+    let hideTimer: ReturnType<typeof setTimeout> | null = null
+    let cancelled = false
+
+    const loadLastTradingDayFlow = async () => {
+      if (cancelled) return
+      try {
+        // Fetch saved dates from DB
+        const datesResp = await fetch('/api/flows/dates')
+        if (!datesResp.ok || cancelled) return
+        const savedDates: { date: string }[] = await datesResp.json()
+        if (savedDates.length === 0 || cancelled) return
+
+        // Find the most recent saved date that is a real trading day
+        const toDs = (raw: string) => new Date(raw).toISOString().split('T')[0]
+        const isTrading = (ds: string) => {
+          const d = new Date(ds + 'T12:00:00Z')
+          const dow = d.getUTCDay()
+          return dow >= 1 && dow <= 5 && !US_MARKET_HOLIDAYS_SET.has(ds)
+        }
+        // Sort descending so .find() returns the MOST RECENT trading day
+        const sortedDates = savedDates
+          .map(d => toDs(d.date))
+          .sort((a, b) => b.localeCompare(a))
+        const lastSavedDate = sortedDates.find(isTrading)
+        if (!lastSavedDate || cancelled) return
+
+        dbgLog(`[afterHours] loading saved flow for ${lastSavedDate}`)
+
+        // Fetch that day's flow (no ticker filter — load all)
+        const flowResp = await fetch(`/api/flows/${encodeURIComponent(lastSavedDate)}`)
+        if (!flowResp.ok || cancelled) return
+        const flowData = await flowResp.json()
+        const trades: OptionsFlowData[] = Array.isArray(flowData.data) ? flowData.data : []
+        if (trades.length === 0 || cancelled) return
+
+        const computedSummary: OptionsFlowSummary = {
+          total_trades: trades.length,
+          total_premium: trades.reduce((s, t) => s + (t.total_premium || 0), 0),
+          unique_symbols: new Set(trades.map(t => t.underlying_ticker)).size,
+          trade_types: {
+            BLOCK: trades.filter(t => t.trade_type === 'BLOCK').length,
+            SWEEP: trades.filter(t => t.trade_type === 'SWEEP').length,
+            MINI: trades.filter(t => t.trade_type === 'MINI').length,
+            'MULTI-LEG': trades.filter(t => t.trade_type === 'MULTI-LEG').length,
+          },
+          call_put_ratio: {
+            calls: trades.filter(t => t.type?.toLowerCase() === 'call').length,
+            puts: trades.filter(t => t.type?.toLowerCase() === 'put').length,
+          },
+          processing_time_ms: 0,
+        }
+
+        if (cancelled) return
+        setData(trades)
+        setSummary(computedSummary)
+        setLastUpdate(`Last trading day: ${lastSavedDate}`)
+        setMarketInfo({ status: 'LAST_TRADING_DAY', is_live: false, data_date: lastSavedDate, market_open: false })
+
+        // Schedule auto-hide 1 minute before next market open
+        const msLeft = msUntilNextMarketOpen()
+        dbgLog(`[afterHours] hiding in ${Math.round(msLeft / 60000)} min`)
+        hideTimer = setTimeout(() => {
+          if (cancelled) return
+          dbgLog('[afterHours] clearing — market opening soon')
+          setData([])
+          setSummary({ total_trades: 0, total_premium: 0, unique_symbols: 0, trade_types: { BLOCK: 0, SWEEP: 0, MINI: 0, 'MULTI-LEG': 0 }, call_put_ratio: { calls: 0, puts: 0 }, processing_time_ms: 0 })
+          setLastUpdate('')
+          setMarketInfo({ status: 'LIVE', is_live: true, data_date: new Date().toISOString().split('T')[0], market_open: true })
+        }, msLeft)
+      } catch (err) {
+        dbgLog(`[afterHours] error: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
+    loadLastTradingDayFlow()
+
+    return () => {
+      cancelled = true
+      if (hideTimer !== null) clearTimeout(hideTimer)
+    }
+  }, [isLiveMode])
+
   // ----------------------------------------------------------------------------
 
   // Lock body scroll when AlgoFlow is active so the page cannot scroll behind it
@@ -1166,8 +1274,24 @@ export default function OptionsFlowPage() {
 
       // Multi-day scan: check storage first, only scan missing days
       if (historicalDays !== '1D') {
-        const numDays = historicalDays === '3D' ? 3 : historicalDays === '1W' ? 5 : Math.max(1, Math.min(parseInt(historicalDays) || 3, 252))
-        const tradingDays = getLastNTradingDays(numDays)
+        let tradingDays: string[]
+        if (historicalDays.startsWith('range:')) {
+          // Date range picker: range:2026-06-01:2026-06-30
+          const parts = historicalDays.slice(6).split(':')
+          const startStr = parts[0], endStr = parts[1]
+          tradingDays = []
+          const cur = new Date(startStr + 'T00:00:00')
+          const end = new Date(endStr + 'T00:00:00')
+          while (cur <= end) {
+            const dow = cur.getDay()
+            const ds = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`
+            if (dow !== 0 && dow !== 6 && !US_MARKET_HOLIDAYS_SET.has(ds)) tradingDays.push(ds)
+            cur.setDate(cur.getDate() + 1)
+          }
+        } else {
+          const numDays = historicalDays === '3D' ? 3 : historicalDays === '1W' ? 5 : Math.max(1, Math.min(parseInt(historicalDays) || 3, 252))
+          tradingDays = getLastNTradingDays(numDays)
+        }
         setStreamingStatus('Checking saved flow history...')
         const MAG7_SET_HIST = new Set(['AAPL', 'NVDA', 'MSFT', 'TSLA', 'AMZN', 'META', 'GOOGL', 'GOOG'])
         const ETF_SET_HIST = new Set(['SPY', 'QQQ', 'DIA', 'IWM', 'XLK', 'SMH', 'XLE', 'XLF', 'XLV', 'XLI', 'XLP', 'XLU', 'XLY', 'XLB', 'XLRE', 'XLC', 'GLD', 'SLV', 'TLT', 'HYG', 'LQD', 'EEM', 'EFA', 'VXX', 'UVXY'])
@@ -1214,7 +1338,6 @@ export default function OptionsFlowPage() {
         if (isAllScan) {
 
           const accumulated: OptionsFlowData[] = [...cachedTrades]
-          console.log(`[ALL-SCAN] Starting with ${cachedTrades.length} cached trades. Missing days to scan: ${missingDays.length}`, missingDays)
           for (let di = 0; di < missingDays.length; di++) {
             if (cancelRef.current) break
             const day = missingDays[di]
@@ -1227,48 +1350,25 @@ export default function OptionsFlowPage() {
 
               const es = new EventSource(url)
               let tickerCompleteCount = 0
-              const t = setTimeout(() => { console.warn(`[ALL-SCAN] Day ${day} TIMED OUT after 5min`); es.close(); resolve(bucket) }, 5 * 60 * 1000)
+              const t = setTimeout(() => { es.close(); resolve(bucket) }, 5 * 60 * 1000)
               es.onmessage = (e) => {
                 try {
                   const d = JSON.parse(e.data)
                   if (d.type === 'ticker_complete' && d.trades?.length > 0) {
                     tickerCompleteCount++
-                    const sample = d.trades[0]
-                    if (tickerCompleteCount <= 3) {
-                      console.log(`[SSE] Day ${day} ticker_complete #${tickerCompleteCount} ticker=${d.ticker} trades=${d.trades.length}`)
-                      console.log(`  sample trade fields: ${Object.keys(sample).join(', ')}`)
-                      console.log(`  sample trade_timestamp: ${sample.trade_timestamp}`)
-                      console.log(`  sample fill_style: ${sample.fill_style} | oi: ${sample.open_interest} | volume: ${sample.volume}`)
-                    }
                     bucket.push(...d.trades)
                   }
-                  if (d.type === 'complete') {
-                    console.log(`[SSE] Day ${day} COMPLETE event — total ticker_complete events: ${tickerCompleteCount}, bucket size: ${bucket.length}`)
-                    clearTimeout(t); es.close(); resolve(bucket)
-                  }
-                  if (d.type === 'error') { console.warn(`[ALL-SCAN] Day ${day} server error:`, d.error); clearTimeout(t); es.close(); resolve(bucket) }
+                  if (d.type === 'complete') { clearTimeout(t); es.close(); resolve(bucket) }
+                  if (d.type === 'error') { clearTimeout(t); es.close(); resolve(bucket) }
                 } catch { /* ignore */ }
               }
-              es.onerror = () => { console.warn(`[ALL-SCAN] Day ${day} SSE connection error`); clearTimeout(t); es.close(); resolve(bucket) }
+              es.onerror = () => { clearTimeout(t); es.close(); resolve(bucket) }
             })
-            const elapsed = (performance.now() - t0 / 1000).toFixed(1)
-            const sizeMB = (JSON.stringify(dayTrades).length / 1024 / 1024).toFixed(2)
-            // Detailed timestamp breakdown per day
-            const tsMap: Record<string, number> = {}
-            for (const t of dayTrades) { const d = (t as any).trade_timestamp?.slice(0,10) || 'none'; tsMap[d] = (tsMap[d]||0)+1 }
-            const first3ts = dayTrades.slice(0,3).map((t:any) => t.trade_timestamp)
-            const last3ts = dayTrades.slice(-3).map((t:any) => t.trade_timestamp)
-            const sampleFields = dayTrades[0] ? Object.keys(dayTrades[0] as any).join(', ') : 'none'
-            const hasFillStyle = dayTrades.some((t:any) => t.fill_style != null)
-            const hasOI = dayTrades.some((t:any) => t.open_interest != null)
-            const hasVolume = dayTrades.some((t:any) => t.volume != null)
-            console.log(`[ALL-SCAN] Day ${day}: ${dayTrades.length} trades | ${sizeMB}MB | accumulated: ${accumulated.length + dayTrades.length}`)
-            console.log(`  Timestamp distribution:`, tsMap)
-            console.log(`  First 3 timestamps:`, first3ts)
-            console.log(`  Last 3 timestamps:`, last3ts)
-            console.log(`  Fields on trade[0]:`, sampleFields)
-            console.log(`  fill_style present: ${hasFillStyle} | open_interest: ${hasOI} | volume: ${hasVolume}`)
-            accumulated.push(...dayTrades)
+            // Enrich this day before adding to table
+            setStreamingStatus(`Day ${di + 1} scanned (${dayTrades.length} trades) - enriching...`)
+            const dayEnriched = await enrichTradeDataCombined(dayTrades)
+            const dayWithOI = applyLiveOI(dayEnriched)
+            accumulated.push(...dayWithOI)
             setData(accumulated.slice())
             // Brief pause between days so Polygon rate limits don't throttle the next scan
             if (di < missingDays.length - 1 && !cancelRef.current) {
@@ -1277,37 +1377,26 @@ export default function OptionsFlowPage() {
             }
           }
           const final = accumulated
-          console.log(`[ALL-SCAN] COMPLETE — total displayed trades: ${final.length}`, final.slice(0,3).map((t:any) => t.trade_timestamp?.slice(0,10)))
-          setStreamingStatus('Enriching vol/OI & fill style...')
-          console.log(`[ENRICH] Starting enrichment on ${final.length} trades...`)
-          enrichTradeDataCombined(final).then((enriched) => {
-            const withOI = applyLiveOI(enriched)
-            const sampleEnriched = enriched[0]
-            console.log(`[ENRICH] Done — ${enriched.length} trades. Sample: fill_style=${(sampleEnriched as any)?.fill_style} oi=${(sampleEnriched as any)?.open_interest} volume=${(sampleEnriched as any)?.volume}`)
-            setData(withOI)
-            setSummary({
-              total_trades: withOI.length,
-              total_premium: withOI.reduce((s, t) => s + (t.total_premium || 0), 0),
-              unique_symbols: new Set(withOI.map((t) => t.underlying_ticker)).size,
-              trade_types: {
-                BLOCK: withOI.filter((t) => t.trade_type === 'BLOCK').length,
-                SWEEP: withOI.filter((t) => t.trade_type === 'SWEEP').length,
-                MINI: withOI.filter((t) => t.trade_type === 'MINI').length,
-                'MULTI-LEG': withOI.filter((t) => t.trade_type === 'MULTI-LEG').length,
-              },
-              call_put_ratio: {
-                calls: withOI.filter((t) => t.type?.toLowerCase() === 'call').length,
-                puts: withOI.filter((t) => t.type?.toLowerCase() === 'put').length,
-              },
-              processing_time_ms: 0,
-            })
-            setStreamingStatus('')
+          setSummary({
+            total_trades: final.length,
+            total_premium: final.reduce((s, t) => s + (t.total_premium || 0), 0),
+            unique_symbols: new Set(final.map((t) => t.underlying_ticker)).size,
+            trade_types: {
+              BLOCK: final.filter((t) => t.trade_type === 'BLOCK').length,
+              SWEEP: final.filter((t) => t.trade_type === 'SWEEP').length,
+              MINI: final.filter((t) => t.trade_type === 'MINI').length,
+              'MULTI-LEG': final.filter((t) => t.trade_type === 'MULTI-LEG').length,
+            },
+            call_put_ratio: {
+              calls: final.filter((t) => t.type?.toLowerCase() === 'call').length,
+              puts: final.filter((t) => t.type?.toLowerCase() === 'put').length,
+            },
+            processing_time_ms: 0,
           })
           setLastUpdate(new Date().toLocaleString())
           setIsStreamComplete(true)
           setLoading(false)
           setStreamingStatus('')
-          console.log('[ALL-SCAN] RETURNING — multi-day done, nothing below should run')
           return
         }
 
@@ -1599,8 +1688,6 @@ export default function OptionsFlowPage() {
         try {
           // -- PHASE 1: ALL tickers except ETFs & MAG7 -----------------------
           setStreamingStatus('Phase 1/3 - Scanning all tickers (excluding ETFs & MAG7)...')
-          console.warn('[PHASE1] setData([]) called — wiping data. historicalDays=', historicalDays)
-          console.trace('[PHASE1] call stack')
           setData([])
 
           // Discover total symbols first via a single probe chunk
@@ -1991,16 +2078,6 @@ export default function OptionsFlowPage() {
 
   return (
     <div className="bg-black text-white">
-      {/* Mobile debug overlay - tap button bottom-right to toggle */}
-      <button
-        onClick={() => setShowDebug(p => !p)}
-        style={{ position: 'fixed', bottom: 70, right: 12, zIndex: 99999, background: '#ff4400', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 10px', fontSize: 11, fontFamily: 'monospace', opacity: 0.85 }}
-      >DBG</button>
-      {showDebug && (
-        <div style={{ position: 'fixed', bottom: 110, right: 0, left: 0, zIndex: 99998, background: 'rgba(0,0,0,0.92)', color: '#00ff88', fontSize: 10, fontFamily: 'monospace', padding: '8px 10px', maxHeight: '50vh', overflowY: 'auto', borderTop: '1px solid #333' }}>
-          {debugLines.length === 0 ? <div>No debug logs yet</div> : debugLines.map((l, i) => <div key={i}>{l}</div>)}
-        </div>
-      )}
       {/* Main Content */}
       <div className="p-0">
         <style jsx>{`

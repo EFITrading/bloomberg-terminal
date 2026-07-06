@@ -156,7 +156,7 @@ export default function NavigationMobileMenu({
                         style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}
                     >
                         {navLinks.map((link) => {
-                            const isLocked = link.path === '/analysis-suite' || link.path === '/ai-suite'
+                            const isLocked = link.path === '/analysis-suite' || link.path === '/ai-suite' || link.path === '/market-overview' || link.path === '/data-driven' || link.path === '/analytics' || link.path === '/dealers-workbench' || link.path === '/rrg-screener' || link.path === '/ai-trades'
                             return isLocked ? (
                                 <div
                                     key={link.path}

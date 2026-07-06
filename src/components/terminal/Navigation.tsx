@@ -73,6 +73,8 @@ export default function Navigation() {
     // Check auth status when pathname changes
   }, [pathname, isClient])
 
+  const LOCKED_PATHS = new Set(['/analysis-suite', '/ai-suite', '/market-overview', '/data-driven', '/analytics', '/dealers-workbench', '/rrg-screener', '/ai-trades'])
+
   const navLinks = [
     { name: 'Market Overview', path: '/market-overview', color: '#f97316' },
     { name: 'Analysis Suite', path: '/analysis-suite', color: '#a855f7' },
@@ -80,7 +82,7 @@ export default function Navigation() {
     { name: 'Analytics', path: '/analytics', color: '#FF8500' },
     { name: 'AI Suite', path: '/ai-suite', color: '#ec4899' },
     { name: 'OptionsFlow', path: '/options-flow', color: '#06b6d4' },
-  ]
+  ].filter(link => !LOCKED_PATHS.has(link.path))
 
   const isLandingPage = pathname === '/' || pathname === '/login' || pathname === '/auth'
   const hideMobileNav = isMobile && !isLandingPage
@@ -261,7 +263,7 @@ export default function Navigation() {
                   )}
                   <Link
                     href={link.path}
-                    onClick={link.path === '/analysis-suite' || link.path === '/ai-suite' ? (e) => e.preventDefault() : undefined}
+                    onClick={LOCKED_PATHS.has(link.path) ? (e) => e.preventDefault() : undefined}
                     style={{
                       padding: '0 22px',
                       height: '48px',
@@ -321,7 +323,7 @@ export default function Navigation() {
                     }}
                   >
                     {link.name}
-                    {(link.path === '/analysis-suite' || link.path === '/ai-suite') && (
+                    {LOCKED_PATHS.has(link.path) && (
                       <svg
                         width="11" height="13" viewBox="0 0 12 15" fill="none"
                         style={{ marginLeft: '7px', flexShrink: 0, opacity: 0.75 }}

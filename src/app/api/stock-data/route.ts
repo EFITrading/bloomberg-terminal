@@ -195,67 +195,77 @@ export async function GET(request: NextRequest) {
     const prices = chartData.map((d) => d.close)
     let currentPrice = prices[prices.length - 1] // Default to last available price from chart data
 
-    // Get latest quote for real-time price (only use if markets are open)
+    // Fetch latest quote + snapshot in parallel for price + accurate daily change
     let latestQuote = null
     let useLatestQuote = false
+    let snapshotPrevDayClose: number | null = null
+    let snapshotPrevDayOpen: number | null = null
+    let snapshotTodaysChangePct: number | null = null
+    let snapshotTodaysChange: number | null = null
 
-    try {
-      const quoteUrl = `https://api.polygon.io/v2/last/trade/${symbol}?apikey=${POLYGON_API_KEY}`
-      const quoteResponse = await fetch(quoteUrl)
+    const [quoteResult, snapResult] = await Promise.allSettled([
+      fetch(`https://api.polygon.io/v2/last/trade/${symbol}?apikey=${POLYGON_API_KEY}`).then((r) => r.json()),
+      fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apikey=${POLYGON_API_KEY}`).then((r) => r.json()),
+    ])
 
-      if (quoteResponse.ok) {
-        const quoteData = await quoteResponse.json()
-        if (quoteData.results?.p) {
-          latestQuote = {
-            price: quoteData.results.p,
-            timestamp: quoteData.results.t || Date.now(),
-            volume: quoteData.results.s || 0,
-          }
-
-          // Check if the quote is recent (within last 30 minutes of trading)
-          const quoteTime = new Date(quoteData.results.t)
-          const now = new Date()
-          const timeDiff = now.getTime() - quoteTime.getTime()
-          const minutesDiff = timeDiff / (1000 * 60)
-
-          // Only use latest quote if it's recent (markets likely open)
-          if (minutesDiff < 30) {
-            currentPrice = quoteData.results.p
-            useLatestQuote = true
-            console.log(
-              ` Using LIVE quote for ${symbol}: $${currentPrice.toFixed(2)} (${minutesDiff.toFixed(1)} mins old)`
-            )
-          } else {
-            console.log(
-              ` Markets closed - using last chart price for ${symbol}: $${currentPrice.toFixed(2)} (quote ${minutesDiff.toFixed(1)} mins old)`
-            )
-          }
+    if (quoteResult.status === 'fulfilled') {
+      const quoteData = quoteResult.value
+      if (quoteData.results?.p) {
+        latestQuote = {
+          price: quoteData.results.p,
+          timestamp: quoteData.results.t || Date.now(),
+          volume: quoteData.results.s || 0,
+        }
+        const minutesDiff = (Date.now() - quoteData.results.t / 1_000_000) / (1000 * 60)
+        if (minutesDiff < 30) {
+          currentPrice = quoteData.results.p
+          useLatestQuote = true
+          console.log(` Using LIVE quote for ${symbol}: $${currentPrice.toFixed(2)} (${minutesDiff.toFixed(1)} mins old)`)
+        } else {
+          console.log(` Markets closed - using last chart price for ${symbol}: $${currentPrice.toFixed(2)}`)
         }
       }
-    } catch (error) {
-      console.warn('Failed to fetch latest quote:', error)
+    } else {
+      console.warn('Failed to fetch latest quote:', quoteResult.reason)
     }
 
-    // Simple live price calculation - no weekend/market closed fallbacks
+    if (snapResult.status === 'fulfilled') {
+      const t = snapResult.value?.ticker
+      snapshotPrevDayClose = t?.prevDay?.c ?? null
+      snapshotPrevDayOpen = t?.prevDay?.o ?? null
+      snapshotTodaysChangePct = t?.todaysChangePerc ?? null
+      snapshotTodaysChange = t?.todaysChange ?? null
+    }
+
+    // Daily change: use Polygon's snapshot data which is accurate across weekends/holidays.
+    // todaysChangePerc is frozen at the last session's value on non-trading days.
     let priceChange = 0
     let priceChangePercent = 0
 
-    // Calculate change based on last candle's close vs previous candle
-    if (chartData.length >= 2) {
+    if (snapshotTodaysChangePct != null) {
+      // Polygon computed - most accurate, handles holidays/weekends
+      priceChangePercent = snapshotTodaysChangePct
+      priceChange = snapshotTodaysChange ?? (snapshotPrevDayClose ? currentPrice - snapshotPrevDayClose : 0)
+      console.log(`» ${symbol} Daily Change (snapshot): ${priceChangePercent.toFixed(2)}%`)
+    } else if (snapshotPrevDayClose && snapshotPrevDayClose > 0) {
+      // prevDay.c available: use it as the reference
+      priceChange = currentPrice - snapshotPrevDayClose
+      priceChangePercent = (priceChange / snapshotPrevDayClose) * 100
+      // Weekend/holiday: currentPrice ≈ prevDay.c, no new session — show last day's own move
+      if (Math.abs(priceChangePercent) < 0.02 && snapshotPrevDayOpen && snapshotPrevDayOpen > 0) {
+        priceChange = snapshotPrevDayClose - snapshotPrevDayOpen
+        priceChangePercent = (priceChange / snapshotPrevDayOpen) * 100
+      }
+      console.log(`» ${symbol} Daily Change (prevDay): ${priceChangePercent.toFixed(2)}%`)
+    } else if (chartData.length >= 2) {
       const previousPrice = chartData[chartData.length - 2].close
       priceChange = currentPrice - previousPrice
       priceChangePercent = (priceChange / previousPrice) * 100
-      console.log(
-        `» ${symbol} LIVE Price: $${currentPrice.toFixed(2)}, Change: ${priceChangePercent.toFixed(2)}% vs prev candle: $${previousPrice.toFixed(2)}`
-      )
+      console.log(`» ${symbol} Daily Change (candle fallback): ${priceChangePercent.toFixed(2)}%`)
     } else if (chartData.length === 1) {
-      // Single candle - compare current price to candle's open
       const openPrice = chartData[0].open
       priceChange = currentPrice - openPrice
       priceChangePercent = (priceChange / openPrice) * 100
-      console.log(
-        ` ${symbol} LIVE Price: $${currentPrice.toFixed(2)}, Change: ${priceChangePercent.toFixed(2)}% vs open: $${openPrice.toFixed(2)}`
-      )
     }
 
     const high24h = Math.max(...chartData.slice(-24).map((d) => d.high))

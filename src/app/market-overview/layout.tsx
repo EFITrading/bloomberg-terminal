@@ -1,6 +1,5 @@
 import { redirect } from 'next/navigation'
 
-export default function AISuiteLayout() {
+export default function MarketOverviewLayout() {
     redirect('/options-flow')
 }
-

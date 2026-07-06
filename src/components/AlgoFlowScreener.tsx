@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import {
   Area,
@@ -81,7 +81,7 @@ const fetchVolumeAndOpenInterest = async (
           }
         }
       } catch (error) {
-        // spot price fetch failed — continue
+        // spot price fetch failed "” continue
       }
 
       // Get unique expiration dates for this underlying to fetch specific expirations
@@ -502,8 +502,8 @@ const computeFillStyle = (fillPrice: number, bid: number, ask: number): string =
 const analyzeBidAskExecutionLightning = async (trades: any[]): Promise<any[]> => {
   if (trades.length === 0) return trades
 
-  // Build deduplicated batch payload — unique by contract+second bucket
-  // Use trade.ticker directly — it's the correct OCC ticker from Polygon (e.g. O:SPXW260325C...)
+  // Build deduplicated batch payload "” unique by contract+second bucket
+  // Use trade.ticker directly "” it's the correct OCC ticker from Polygon (e.g. O:SPXW260325C...)
   // buildOptionTicker() produces wrong format for SPX (missing W in SPXW), so never use it for quote lookups
   type QuoteKey = string
   const uniqueQuotes = new Map<QuoteKey, { contract: string; timestamp_ns: number }>()
@@ -518,7 +518,7 @@ const analyzeBidAskExecutionLightning = async (trades: any[]): Promise<any[]> =>
     if (!uniqueQuotes.has(key)) uniqueQuotes.set(key, { contract, timestamp_ns: timestampNs })
   }
 
-  // Single POST — server fans out all Polygon calls simultaneously
+  // Single POST "” server fans out all Polygon calls simultaneously
   const batchPayload = Array.from(uniqueQuotes.entries()).map(([id, v]) => ({ id, ...v }))
   const quoteResultMap = new Map<QuoteKey, { bid: number; ask: number } | null>()
   try {
@@ -762,8 +762,8 @@ const NetFlowColoredLine = (props: any) => {
     <g>
       {points.slice(1).map((end: any, i: number) => {
         const start = points[i]
-        const isNeg = start.value < 0 || end.value < 0
-        return <line key={i} x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={isNeg ? '#ff2222' : '#00ff7f'} strokeWidth={3} />
+        const isNeg = (start.value + end.value) / 2 < 0
+        return <line key={i} x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={isNeg ? '#ff2222' : '#00ff00'} strokeWidth={3} />
       })}
     </g>
   )
@@ -809,7 +809,7 @@ const CandlestickLayer = (props: any) => {
   )
 }
 
-// Helper: convert scanTimeframe string → number of trading days
+// Helper: convert scanTimeframe string ←’ number of trading days
 const getScanDays = (tf: string): number => {
   if (tf === '1D') return 1
   if (tf === '3D') return 3
@@ -817,7 +817,7 @@ const getScanDays = (tf: string): number => {
   return Math.max(1, parseInt(tf) || 1)
 }
 
-// Chart view options (label → trading days)
+// Chart view options (label ←’ trading days)
 const CHART_VIEW_OPTIONS = [
   { label: '1D', days: 1 },
   { label: '3D', days: 3 },
@@ -845,7 +845,7 @@ const ALGO_MARKET_HOLIDAYS = [
   '2026-06-19', '2026-07-03', '2026-09-07', '2026-11-26', '2026-12-25',
 ]
 
-// Returns the last N trading days (oldest → newest) for the given timeframe string.
+// Returns the last N trading days (oldest ←’ newest) for the given timeframe string.
 function getAlgoTradingDays(timeframe: string): string[] {
   const days: string[] = []
   const pstNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
@@ -889,7 +889,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     setFlowData((prev) => [...prev, ...batch])
   }
 
-  // ── AlgoFlow Live WebSocket state ───────────────────────────────────────────
+  // â”€â”€ AlgoFlow Live WebSocket state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [isAlgoLive, setIsAlgoLive] = useState(false)
   const [algoLiveTicker, setAlgoLiveTicker] = useState<string>('')
   const [algoLiveConnected, setAlgoLiveConnected] = useState(false)
@@ -960,7 +960,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const [brushIndices, setBrushIndices] = useState<{ start: number; end: number } | null>(null)
   const chartDragRef = useRef<{ dragging: boolean; startX: number; startIndices: { start: number; end: number } }>({ dragging: false, startX: 0, startIndices: { start: 0, end: 0 } })
   const dragMoveRafRef = useRef<number | null>(null)   // RAF handle for drag throttle
-  const analysisRef = useRef<AlgoFlowAnalysis | null>(null) // sync ref — avoids setAnalysis in wheel handler
+  const analysisRef = useRef<AlgoFlowAnalysis | null>(null) // sync ref "” avoids setAnalysis in wheel handler
   const chartDivRef = useRef<HTMLDivElement>(null)
   const mainChartWrapRef = useRef<HTMLDivElement>(null)
   const pcPanelRef = useRef<HTMLDivElement>(null)
@@ -1010,13 +1010,13 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
 
   const ETF_SET = new Set(['SPY', 'QQQ', 'IWM', 'DIA', 'SMH', 'VXX', 'UVXY', 'EFA', 'EEM', 'VTI', 'IEFA', 'AGG', 'LQD', 'HYG', 'XLF', 'XLE', 'XLK', 'XLV', 'XLI', 'XLU', 'XLP', 'XLY', 'XLB', 'XLRE', 'XLC', 'GLD', 'SLV', 'TLT', 'IEF', 'SHY', 'VTEB', 'VXUS', 'BND', 'BNDX', 'SQQQ', 'TQQQ', 'SPXL', 'SPXS', 'SPYG', 'SPYV', 'IVV', 'VOO', 'VEA', 'VWO', 'ARKK', 'ARKG', 'ARKW', 'ARKF', 'ARKQ', 'RSP', 'MDY', 'IJH', 'IJR', 'IWF', 'IWD', 'IWB', 'IWO', 'IWN', 'XBI', 'IBB', 'SOXX', 'HACK', 'BOTZ', 'ROBO', 'SKYY', 'CLOU', 'GDX', 'GDXJ', 'SIL', 'SILJ', 'IAU', 'SGOL', 'USO', 'UNG', 'PDBC', 'DBO', 'DBB', 'DBC', 'TBT', 'TMF', 'TMV', 'TLH', 'IEI', 'GOVT', 'FXI', 'KWEB', 'MCHI', 'ASHR', 'VGK', 'EWJ', 'EWZ', 'EWC', 'EWG', 'EWU', 'EURL', 'HEDJ', 'DBJP', 'DBEF'])
 
-  // Fast analysis built directly from already-classified saved trades — no re-processing
+  // Fast analysis built directly from already-classified saved trades "” no re-processing
   const buildFastAnalysisFromSaved = (trades: OptionsFlowData[], displayLabel?: string): AlgoFlowAnalysis | null => {
     if (!trades.length) return null
     const ticker = displayLabel ?? trades[0].underlying_ticker
     const currentPrice = displayLabel ? 0 : (trades[0].spot_price ?? 0)
 
-    // Compute PST/PDT offset once — avoids 601k Intl calls in the loop
+    // Compute PST/PDT offset once "” avoids 601k Intl calls in the loop
     const sampleTs = new Date(trades[0].trade_timestamp)
     const pstOffsetMs = sampleTs.getTime() - new Date(sampleTs.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTime()
     const FIVE_MIN = 5 * 60 * 1000
@@ -1026,7 +1026,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     let aggressiveCalls = 0, aggressivePuts = 0
     let bullCallPremium = 0, bearCallPremium = 0, bullPutPremium = 0, bearPutPremium = 0
 
-    // time → {callsPlus, callsMinus, putsPlus, putsMinus}
+    // time ←’ {callsPlus, callsMinus, putsPlus, putsMinus}
     const buckets = new Map<number, { callsPlus: number; callsMinus: number; putsPlus: number; putsMinus: number }>()
 
     for (let i = 0; i < trades.length; i++) {
@@ -1034,7 +1034,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       const premium = t.total_premium || 0
       const isCall = t.type?.toLowerCase() === 'call'
       const fs = (t as any).fill_style as string | undefined
-      // No fill_style = default to A (Buy): calls → bullish, puts → bearish
+      // No fill_style = default to A (Buy): calls ←’ bullish, puts ←’ bearish
       const isBullish = !fs || fs === 'N/A' || fs === 'A' || fs === 'AA'
       const isBearish = fs === 'B' || fs === 'BB'
 
@@ -1053,7 +1053,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       else if (tt === 'BLOCK') blockCount++
       else if (tt === 'MINI') miniCount++
 
-      // Bucket by 5-min using pure math — no Intl calls per trade
+      // Bucket by 5-min using pure math "” no Intl calls per trade
       if (t.trade_timestamp) {
         const tsUtc = new Date(t.trade_timestamp).getTime()
         const tsPst = tsUtc - pstOffsetMs
@@ -1146,7 +1146,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0 })
 
-  // Derived analysis that respects expiryFilter — re-aggregates from filtered trades without re-running async analysis
+  // Derived analysis that respects expiryFilter "” re-aggregates from filtered trades without re-running async analysis
   const displayAnalysis = useMemo(() => {
     if (!analysis || (expiryFilter === 'all' && !excludeMag7 && !excludeEtf)) return analysis
 
@@ -1226,7 +1226,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const allScanCacheRef = useRef<{ flowData: OptionsFlowData[]; analysis: AlgoFlowAnalysis } | null>(null)
   const [drilledTicker, setDrilledTicker] = useState<string | null>(null)
 
-  // Build analysis directly from already-classified trades — no re-processing
+  // Build analysis directly from already-classified trades "” no re-processing
   const performAnalysis = (tradesData: any[], displayLabel?: string) => {
     const result = buildFastAnalysisFromSaved(tradesData, displayLabel)
     setAnalysis(result)
@@ -1242,7 +1242,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     }
   }, [flowData])
 
-  // ── AlgoFlow Live: start streaming for a ticker or all tickers ───────────────
+  // â”€â”€ AlgoFlow Live: start streaming for a ticker or all tickers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const startAlgoLive = useCallback((tickerOrAll: string) => {
     // Stop any existing live session first
     if (algoLiveUnsubRef.current) { algoLiveUnsubRef.current(); algoLiveUnsubRef.current = null }
@@ -1264,7 +1264,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     setStreamStatus(`LIVE ${targetTicker === 'ALL' ? '· ALL TICKERS' : `· ${targetTicker}`}`)
 
     // Subscribe via Railway DB poll instead of WebSocket
-    // (Railway holds the single Polygon WS connection — browser polls every 30s)
+    // (Railway holds the single Polygon WS connection "” browser polls every 30s)
     const getTodayDS = () => {
       const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -1301,15 +1301,15 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     }, 10000)
   }, [convertAlgoTrade, performAnalysis])
 
-  // Sync chart view window when scan timeframe changes (no auto re-analyze — user must click ANALYZE)
+  // Sync chart view window when scan timeframe changes (no auto re-analyze "” user must click ANALYZE)
   useEffect(() => {
     setChartDisplayDays(getScanDays(scanTimeframe))
     setBrushIndices(null)
   }, [scanTimeframe])
 
-  // Reset brush when chartDisplayDays changes — merged into button click handler, no separate effect needed
+  // Reset brush when chartDisplayDays changes "” merged into button click handler, no separate effect needed
 
-  // Memoize trades-table OI computation — prevents rerunning 36k-trade loop on every render
+  // Memoize trades-table OI computation "” prevents rerunning 36k-trade loop on every render
   const tradeOIMemo = useMemo(() => {
     const allTrades: any[] = analysis?.trades || flowData || []
     const isMultiDay = getScanDays(scanTimeframe) > 1
@@ -1385,7 +1385,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       for (const point of analysis.chartData) {
         intervalData[point.time] = { callsPlus: 0, callsMinus: 0, putsPlus: 0, putsMinus: 0 }
       }
-      // Build a fast lookup: ms-timestamp → slot (nearest slot)
+      // Build a fast lookup: ms-timestamp ←’ slot (nearest slot)
       const slotTimes = Object.keys(intervalData).map(Number).sort((a, b) => a - b)
 
       for (const trade of filteredTrades) {
@@ -1429,7 +1429,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       })
     }
 
-    // ── Resample to selected interval ───────────────────────────────────
+    // â”€â”€ Resample to selected interval â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (timeInterval === '1min' && (displayAnalysis?.trades?.length ?? 0) > 0) {
       // Rebuild at 1-min resolution from individual trades
       const trades = (displayAnalysis!.trades as any[])
@@ -1461,10 +1461,10 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
         return { time, timeLabel, callsPlus: cCp, callsMinus: cCm, putsPlus: cPp, putsMinus: cPm, netFlow, bullishTotal, bearishTotal, pcRatio: bullishTotal > 0 ? Math.abs(bearishTotal) / bullishTotal : 1 }
       })
     } else if (timeInterval === '30min') {
-      // Downsample 5-min → 30-min: take every 6th cumulative point
+      // Downsample 5-min ←’ 30-min: take every 6th cumulative point
       activeChartData = activeChartData.filter((_: any, i: number) => i % 6 === 0 || i === activeChartData.length - 1)
     } else if (timeInterval === '1hour') {
-      // Downsample 5-min → 1-hour: take every 12th cumulative point
+      // Downsample 5-min ←’ 1-hour: take every 12th cumulative point
       activeChartData = activeChartData.filter((_: any, i: number) => i % 12 === 0 || i === activeChartData.length - 1)
     } else if (timeInterval === '1day') {
       // Downsample to daily: last 5-min point of each trading day
@@ -1485,13 +1485,14 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     const bStart = brushIndices ? Math.max(0, Math.min(brushIndices.start, len - 1)) : 0
     const bEnd = brushIndices ? Math.max(bStart + 1, Math.min(brushIndices.end, len - 1)) : len - 1
     const sliced = baseData.slice(bStart, bEnd + 1)
-    // Downsample to max 400 pts — SVG renders 600×4 lines in ~50ms, 400×4 in ~10ms
+    // Downsample to max 400 pts "” SVG renders 600x4 lines in ~50ms, 400x4 in ~10ms
     const MAX_PTS = 400
-    const visibleData = sliced.length > MAX_PTS
+    const visibleData = (sliced.length > MAX_PTS
       ? sliced.filter((_: any, i: number) =>
         i === 0 || i === sliced.length - 1 || i % Math.ceil(sliced.length / MAX_PTS) === 0
       )
       : sliced
+    ).map((d: any) => ({ ...d }))
     const xInterval = Math.max(0, Math.floor(visibleData.length / 12) - 1)
     const priceLows = visibleData.map((d: any) => d.stockLow).filter((p: any) => p != null && !isNaN(p))
     const priceHighs = visibleData.map((d: any) => d.stockHigh).filter((p: any) => p != null && !isNaN(p))
@@ -1527,12 +1528,12 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
         const range = current.end - current.start
         const step = Math.max(2, Math.floor(range * 0.1))
         if (e.deltaY < 0) {
-          // zoom in — shrink window
+          // zoom in "” shrink window
           const mid = Math.round((current.start + current.end) / 2)
           const half = Math.max(4, Math.floor((range - step * 2) / 2))
           return { start: Math.max(0, mid - half), end: Math.min(len - 1, mid + half) }
         } else {
-          // zoom out — expand window
+          // zoom out "” expand window
           return { start: Math.max(0, current.start - step), end: Math.min(len - 1, current.end + step) }
         }
       })
@@ -1553,7 +1554,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     if (!tickerToSearch.trim()) return
     const tf = tfOverride ?? scanTimeframe
 
-    // Expand group keywords → comma-list of actual tickers
+    // Expand group keywords ←’ comma-list of actual tickers
     const upper = tickerToSearch.trim().toUpperCase()
     let actualTickers: string
     let displayLabel: string | undefined
@@ -1627,12 +1628,11 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             const allRequiredDays = getAlgoTradingDays(tf)
             const requiredDayCount = allRequiredDays.length
 
-            // Take the N most recent unique calendar-day rows (N = days needed for timeframe).
-            // We group by UTC date of the DB key — NOT used for trading-day matching,
-            // just to avoid loading duplicate saves from the same day.
             const seenDayKeys = new Set<string>()
             const rowsToLoad: string[] = []
-            for (const { date: rawDate } of dates) {
+            // Sort descending so we pick the MOST RECENT dates first
+            const sortedDates = [...dates].sort((a, b) => b.date.localeCompare(a.date))
+            for (const { date: rawDate } of sortedDates) {
               const dayKey = new Date(rawDate).toISOString().split('T')[0]
               if (!seenDayKeys.has(dayKey)) {
                 seenDayKeys.add(dayKey)
@@ -1640,10 +1640,9 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               }
               if (rowsToLoad.length >= requiredDayCount) break
             }
-
             if (rowsToLoad.length > 0) {
-              // Pass ticker filter to server for single/small-ticker scans — server filters before
-              // building the response so wire transfer shrinks from 601k → only matching trades
+              // Pass ticker filter to server for single/small-ticker scans "” server filters before
+              // building the response so wire transfer shrinks from 601k ←’ only matching trades
               const isMultiAll = displayLabel === 'ALL' || displayLabel === 'MAG7' || (displayLabel != null && actualTickers.includes(','))
               const tickersQS = isMultiAll ? '' : `?tickers=${encodeURIComponent(actualTickers)}`
               const dayPayloads = await Promise.all(
@@ -1655,7 +1654,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
 
               const combinedTrades: OptionsFlowData[] = []
               for (const payload of dayPayloads) {
-                // Use a loop instead of push(...) — spread on 600k+ items overflows the JS call stack
+                // Use a loop instead of push(...) "” spread on 600k+ items overflows the JS call stack
                 if (Array.isArray(payload?.data)) {
                   const incoming = payload.data as OptionsFlowData[]
                   for (let i = 0; i < incoming.length; i++) combinedTrades.push(incoming[i])
@@ -1664,7 +1663,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
 
               // Determine which required trading days are actually present.
               // FIXED: compute PST offset ONCE from a sample trade (1 Intl call), then
-              // use pure UTC math per-trade — avoids 601k Intl calls that blocked for 21s.
+              // use pure UTC math per-trade "” avoids 601k Intl calls that blocked for 21s.
               const _pstSample = combinedTrades.length > 0 ? new Date(combinedTrades[0].trade_timestamp) : new Date()
               const _pstOffsetMs = _pstSample.getTime() - new Date(_pstSample.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTime()
               const tradeDaySet = new Set<string>()
@@ -1676,7 +1675,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               const coveredDays = allRequiredDays.filter((d) => tradeDaySet.has(d))
               const missingDays = allRequiredDays.filter((d) => !tradeDaySet.has(d))
 
-              // When scanning ALL (or MAG7), skip the ticker filter — return every trade
+              // When scanning ALL (or MAG7), skip the ticker filter "” return every trade
               // in the saved data. The DB was saved from a broader scan so filtering
               // to a hardcoded 33-ticker set throws away legitimate data.
               // FIXED: hoist Set construction outside the filter callback (was creating 601k Sets)
@@ -1688,14 +1687,14 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                 )
 
               if (saved.length > 0 && missingDays.length === 0) {
-                // Full coverage and ticker data found — use saved
+                // Full coverage and ticker data found "” use saved
                 setFlowData(saved)
                 accumulatedTradesRef.current = saved
                 liveOICache.clear()
                 setIsStreamComplete(true)
-                setStreamStatus(`Loaded from saved — ${saved.length} trades`)
+                setStreamStatus(`Loaded from saved - ${saved.length} trades`)
                 setLoading(false)
-                // Trades are already classified — build analysis directly from saved fields, skip re-processing
+                // Trades are already classified "” build analysis directly from saved fields, skip re-processing
                 const fastAnalysis = buildFastAnalysisFromSaved(saved, displayLabel)
                 if (fastAnalysis) {
                   setAnalysis(fastAnalysis)
@@ -1704,14 +1703,14 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                 setOverlayActive(false)
                 return
               } else if (saved.length > 0 && coveredDays.length > 0) {
-                // Partial coverage but have some ticker data — show missing days dialog
+                // Partial coverage but have some ticker data "” show missing days dialog
                 setLoading(false)
                 setStreamStatus('')
                 setMissingDaysDialog({ missingDays, savedTrades: saved, originalSearch: tickerToSearch, tf, displayLabel })
                 setOverlayActive(false)
                 return
               }
-              // saved.length === 0 means ticker not in saved data → fall through to live scan
+              // saved.length === 0 means ticker not in saved data ←’ fall through to live scan
             }
           }
         }
@@ -1742,7 +1741,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               setStreamStatus(data.message)
               break
 
-            // ─── PRIMARY TRADE DELIVERY PATH ───────────────────────────────
+            // â”€â”€â”€ PRIMARY TRADE DELIVERY PATH â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             // Server streams trades as 'ticker_complete' events (one per ticker).
             // We must handle this OR we lose all trades before 'complete' fires.
             case 'ticker_complete':
@@ -1761,7 +1760,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               }
               break
 
-            // ─── LEGACY PROGRESSIVE PATH (kept for other callers) ──────────
+            // â”€â”€â”€ LEGACY PROGRESSIVE PATH (kept for other callers) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             case 'trades':
               if (data.trades?.length > 0 && !isStreamComplete) {
                 accumulatedTradesRef.current = [...accumulatedTradesRef.current, ...data.trades]
@@ -1796,7 +1795,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                     accumulatedTradesRef.current = tradesWithVolOI
                     liveOICache.clear()
                     setIsStreamComplete(true)
-                    setStreamStatus(`Complete — ${tradesWithVolOI.length} trades loaded`)
+                    setStreamStatus(`Complete "” ${tradesWithVolOI.length} trades loaded`)
                     setLoading(false)
                     performAnalysis(tradesWithVolOI, displayLabel)
                   })
@@ -1824,7 +1823,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               break
           }
         } catch (parseError) {
-          // parse error — skip
+          // parse error "” skip
         }
       }
 
@@ -1853,7 +1852,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     if (!trades.length || !underlyingTicker) return
     setGammaLoading(true)
     try {
-      // Single call — options-chain without expiration returns all contracts up to 3 months
+      // Single call "” options-chain without expiration returns all contracts up to 3 months
       const res = await fetch(`/api/options-chain?ticker=${underlyingTicker}`)
       const json = await res.json()
       if (!json.success || !json.data) return
@@ -1887,7 +1886,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analysis?.ticker])
 
-  // Build cumulative gamma line from real Polygon greeks — per trade, chronological
+  // Build cumulative gamma line from real Polygon greeks "” per trade, chronological
   const gammaLineData = useMemo(() => {
     if (!gammaMap.size || !flowData.length) return [] as Array<{ time: number; timeLabel: string; cumGamma: number }>
     const sorted = [...flowData].sort(
@@ -1984,7 +1983,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     }
   }
 
-  // Flow Quadrant Gauge — 4 liquid-filled quadrants (Bull/Bear Calls & Puts) + center neutral
+  // Flow Quadrant Gauge "” 4 liquid-filled quadrants (Bull/Bear Calls & Puts) + center neutral
   const FlowQuadrantGauge = ({
     bullCall, bearCall, bullPut, bearPut, score, label,
   }: {
@@ -2049,7 +2048,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               </g>
             )
           })}
-          {/* Center score circle — mobile only */}
+          {/* Center score circle "” mobile only */}
           {isMobile && (() => {
             const cx = 151, cy = 35, r = 24, rt = 32
             const fillColor = score >= 0 ? '#10b981' : '#ef4444'
@@ -2085,7 +2084,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               </>
             )
           })()}
-          {/* Center neutral circle — desktop only */}
+          {/* Center neutral circle "” desktop only */}
           {!isMobile && (
             <>
               <circle cx={80} cy={59} r={15} fill="rgba(4,4,12,0.92)" stroke="rgba(255,255,255,0.13)" strokeWidth="1" />
@@ -2102,7 +2101,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     )
   }
 
-  // Legacy gauge (unused — kept for reference)
+  // Legacy gauge (unused "” kept for reference)
   const _GaugeChart = ({
     value,
     max,
@@ -2177,7 +2176,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             return <line key={i} x1={p0.x} y1={p0.y} x2={p1.x} y2={p1.y} stroke={isMaj ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.18)'} strokeWidth={isMaj ? 1.5 : 0.8} />
           })}
 
-          {/* Single-color fill — 0° to needle, one solid color based on current zone */}
+          {/* Single-color fill "” 0Â° to needle, one solid color based on current zone */}
           {gaugeAngle > 0.5 && (
             <path d={arc(0, gaugeAngle, innerR, outerR)} fill={color} opacity={0.85} filter={`url(#${glowId})`} />
           )}
@@ -2258,7 +2257,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       accumulatedTradesRef.current = savedTrades
       liveOICache.clear()
       setIsStreamComplete(true)
-      setStreamStatus(`Loaded from saved — ${savedTrades.length} trades`)
+      setStreamStatus(`Loaded from saved - ${savedTrades.length} trades`)
       performAnalysis(savedTrades, displayLabel)
     } else {
       setError('No saved data available for this selection.')
@@ -2347,14 +2346,14 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                   fontFamily: 'JetBrains Mono,monospace', fontSize: 15, fontWeight: 700,
                   color: '#ffffff', cursor: 'pointer',
                 }}
-              >✕</button>
+              >âœ•</button>
             </div>
           </div>
         </div>
       )}
-      {/* HEADER BAR — hidden in embedded mode */}
+      {/* HEADER BAR "” hidden in embedded mode */}
       {!embeddedMode && (isMobile ? (
-        /* ── MOBILE HEADER ─────────────────────────────────────── */
+        /* â”€â”€ MOBILE HEADER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         <div style={{ background: 'linear-gradient(180deg, #0d0d0d 0%, #060606 100%)', borderBottom: '1px solid rgba(255,255,255,0.1)', flexShrink: 0 }}>
           {/* Row 1: Back + Title + Search */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px 4px' }}>
@@ -2362,7 +2361,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               <button
                 onClick={onBack}
                 style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12, fontWeight: 800, color: '#fff', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', flexShrink: 0 }}
-              >← BACK</button>
+              >← BACK</button>
             )}
             <span style={{ color: '#ff8500', fontFamily: 'JetBrains Mono, monospace', fontSize: 13, fontWeight: 800, letterSpacing: '0.15em', flexShrink: 0 }}>ALGOFLOW</span>
             <input
@@ -2388,7 +2387,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             )}
           </div>
 
-          {/* Row 2: Ticker + Timeframe + Analyze — hidden on mobile (use filter pills in Row 3) */}
+          {/* Row 2: Ticker + Timeframe + Analyze "” hidden on mobile (use filter pills in Row 3) */}
           {!isMobile && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 14px 4px' }}>
               <input
@@ -2440,7 +2439,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               disabled={loading}
               style={{ flexShrink: 0, height: 28, padding: '0 11px', background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.2) 100%)', border: '1px solid #666', borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#d4d4d4', cursor: loading ? 'not-allowed' : 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: 'JetBrains Mono, monospace' }}
             >ALL</button>
-            {/* Gamma Line + Bull/Bear pills — single ticker only */}
+            {/* Gamma Line + Bull/Bear pills "” single ticker only */}
             {analysis && !isAllScan && (
               <>
                 <button
@@ -2493,7 +2492,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
           </div>
         </div>
       ) : (
-        /* ── DESKTOP HEADER (unchanged) ────────────────────────── */
+        /* â”€â”€ DESKTOP HEADER (unchanged) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         <div style={{
           background: 'linear-gradient(180deg, #0d0d0d 0%, #060606 100%)',
           borderBottom: '1px solid rgba(255,255,255,0.1)',
@@ -2511,7 +2510,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                 style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12, fontWeight: 800, color: '#fff', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', letterSpacing: '0.08em', marginRight: 4 }}
                 onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.15)')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.08)')}
-              >← BACK</button>
+              >← BACK</button>
             )}
             <span style={{ color: '#ff8500', fontFamily: 'JetBrains Mono, monospace', fontSize: 16, fontWeight: 800, letterSpacing: '0.18em' }}>ALGOFLOW INTELLIGENCE</span>
             <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>·</span>
@@ -2524,7 +2523,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {/* Gamma Line + Bull/Bear buttons — single ticker only */}
+            {/* Gamma Line + Bull/Bear buttons "” single ticker only */}
             {analysis && !isAllScan && (
               <>
                 <button
@@ -2593,7 +2592,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             {([
               { key: 'mag7', label: 'EXCLUDE MAG7', active: excludeMag7, toggle: () => { setExcludeMag7(v => !v); setExcludeEtf(false) }, color: '#fb923c', borderColor: '#fb923c', glowColor: 'rgba(251,146,60,0.25)', title: 'Exclude MAG7 tickers (AAPL, NVDA, MSFT, TSLA, AMZN, META, GOOGL)' },
               { key: 'etf', label: 'EXCLUDE ETFs', active: excludeEtf, toggle: () => { setExcludeEtf(v => !v); setExcludeMag7(false) }, color: '#34d399', borderColor: '#34d399', glowColor: 'rgba(52,211,153,0.25)', title: 'Exclude all ETF tickers' },
-              { key: 'stocks', label: 'STOCKS ONLY', active: excludeMag7 && excludeEtf, toggle: () => { const both = excludeMag7 && excludeEtf; setExcludeMag7(!both); setExcludeEtf(!both) }, color: '#60a5fa', borderColor: '#60a5fa', glowColor: 'rgba(96,165,250,0.25)', title: 'Show stocks only — exclude ETFs and MAG7' },
+              { key: 'stocks', label: 'STOCKS ONLY', active: excludeMag7 && excludeEtf, toggle: () => { const both = excludeMag7 && excludeEtf; setExcludeMag7(!both); setExcludeEtf(!both) }, color: '#60a5fa', borderColor: '#60a5fa', glowColor: 'rgba(96,165,250,0.25)', title: 'Show stocks only "” exclude ETFs and MAG7' },
             ] as const).map(({ key, label, active, toggle, color, borderColor, glowColor, title }) => (
               <button
                 key={key}
@@ -2755,12 +2754,12 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             {/* Live connected indicator */}
             {isAlgoLive && (
               <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: algoLiveConnected ? '#22c55e' : '#facc15', letterSpacing: '0.1em', whiteSpace: 'nowrap' }}>
-                {algoLiveConnected ? '● CONNECTED' : '○ CONNECTING...'}
+                {algoLiveConnected ? 'â— CONNECTED' : 'â—‹ CONNECTING...'}
               </span>
             )}
           </div>
         </div>
-      ))} {/* end header — hidden in embedded mode */}
+      ))} {/* end header "” hidden in embedded mode */}
 
       {/* SCROLLABLE CONTENT */}
       <div className="flex-1 overflow-y-auto min-h-0" style={{ padding: isMobile ? '8px 10px 80px' : '12px 20px 20px' }}>
@@ -2781,7 +2780,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
         {analysis && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
 
-            {/* ── ROW 2: METRICS + CHART SIDE BY SIDE (stacked on mobile) ── */}
+            {/* â”€â”€ ROW 2: METRICS + CHART SIDE BY SIDE (stacked on mobile) â”€â”€ */}
             <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 0, borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
 
               {/* LEFT: Stats sidebar */}
@@ -2818,7 +2817,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                   />
                 </div>
 
-                {/* P/C + Execution — compact single row on mobile, full panels on desktop */}
+                {/* P/C + Execution "” compact single row on mobile, full panels on desktop */}
                 {isMobile ? (
                   <div style={{ gridColumn: '1 / -1', borderBottom: '1px solid rgba(255,255,255,0.08)', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 0, flexWrap: 'nowrap', overflow: 'hidden', background: 'rgba(0,0,0,0.3)' }}>
                     {([
@@ -2926,7 +2925,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                   </>
                 )}
 
-                {/* Stacked metrics — desktop only */}
+                {/* Stacked metrics "” desktop only */}
                 {!isMobile && [{ label: 'CALLS PREM', value: formatCurrency(displayAnalysis?.totalCallPremium ?? 0), color: '#10b981', glow: 'rgba(16,185,129,0.35)', bg: 'rgba(16,185,129,0.04)' },
                 { label: 'PUTS PREM', value: formatCurrency(displayAnalysis?.totalPutPremium ?? 0), color: '#ef4444', glow: 'rgba(239,68,68,0.35)', bg: 'rgba(239,68,68,0.04)' },
                 { label: 'NET FLOW', value: formatCurrency(analysis.netFlow), color: analysis.netFlow >= 0 ? '#10b981' : '#ef4444', glow: analysis.netFlow >= 0 ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)', bg: analysis.netFlow >= 0 ? 'rgba(16,185,129,0.04)' : 'rgba(239,68,68,0.04)' },
@@ -2949,7 +2948,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
 
               {/* RIGHT: Chart */}
               <div style={{ flex: 1, minWidth: 0, width: isMobile ? '100%' : undefined }}>
-                {/* Chart toolbar — desktop only; mobile controls overlaid inside chart */}
+                {/* Chart toolbar "” desktop only; mobile controls overlaid inside chart */}
                 <div className="algo-chart-toolbar" style={{ padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: isMobile ? 'none' : 'flex', alignItems: 'center', position: 'relative', minHeight: 36, gap: 0 }}>
                   {/* LEFT: ticker + FLOW + timeframe buttons */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
@@ -2963,12 +2962,12 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                           setAnalysis(allScanCacheRef.current.analysis)
                         }}
                         style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 800, letterSpacing: '0.1em', padding: '2px 10px', background: 'rgba(255,133,0,0.15)', border: '1px solid #ff8500', color: '#ff8500', cursor: 'pointer', borderRadius: 3, marginRight: 6 }}
-                      >← ALL</button>
+                      >← ALL</button>
                     )}
                     <span style={{ color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: isMobile ? 14 : 21, fontWeight: 900, letterSpacing: '0.1em', marginRight: 2 }}>{analysis.ticker}</span>
                     {analysis.currentPrice > 0 && !isMobile && <span style={{ color: '#aaa', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 700, marginRight: 4 }}>${analysis.currentPrice.toFixed(2)}</span>}
                     {!isMobile && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, letterSpacing: '0.12em', padding: '1px 6px', borderRadius: 2, marginRight: 10, background: displayAnalysis?.flowTrend === 'BULLISH' ? 'rgba(16,185,129,0.15)' : displayAnalysis?.flowTrend === 'BEARISH' ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.15)', color: displayAnalysis?.flowTrend === 'BULLISH' ? '#10b981' : displayAnalysis?.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308', border: `1px solid ${displayAnalysis?.flowTrend === 'BULLISH' ? '#10b981' : displayAnalysis?.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308'}` }}>{displayAnalysis?.flowTrend}</span>}
-                    {/* Interval buttons — context-aware based on scan days */}
+                    {/* Interval buttons "” context-aware based on scan days */}
                     {(() => {
                       const sd = getScanDays(scanTimeframe)
                       const opts = sd === 1
@@ -2978,7 +2977,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                           : [{ v: '1day' as const, label: '1D' }]
                       return opts.map(({ v, label }) => (
                         <button key={v} onClick={() => { setTimeInterval(v); setBrushIndices(null) }}
-                          style={{ padding: '2px 8px', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, letterSpacing: '0.1em', border: '1px solid rgba(255,165,0,0.6)', background: timeInterval === v ? '#ff8500' : 'transparent', color: timeInterval === v ? '#000' : '#ff8500', cursor: 'pointer' }}>{label}</button>
+                          style={{ padding: '2px 8px', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, letterSpacing: '0.1em', border: `1px solid ${timeInterval === v ? 'rgba(255,133,0,0.6)' : 'rgba(255,255,255,0.15)'}`, background: 'linear-gradient(180deg,#1a1a1a 0%,#0a0a0a 50%,#050505 100%)', boxShadow: timeInterval === v ? 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6)' : 'inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.5)', color: timeInterval === v ? '#ff8500' : '#ffffff', cursor: 'pointer' }}>{label}</button>
                       ))
                     })()}
                     {brushIndices && (
@@ -2995,7 +2994,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                     ].map(({ color, label, key }) => (
                       <span key={key} onClick={() => toggleLine(key)} style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer', opacity: hiddenLines.has(key) ? 0.3 : 1, transition: 'opacity 0.15s' }}>
                         <svg width="16" height="4"><line x1="0" y1="2" x2="16" y2="2" stroke={color} strokeWidth="2.5" /></svg>
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color, fontWeight: 700, letterSpacing: '0.03em' }}>{label}</span>
+                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, color, fontWeight: 700, letterSpacing: '0.03em' }}>{label}</span>
                       </span>
                     ))}
                     {chartViewMode === 'simplified' && [
@@ -3004,24 +3003,24 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                     ].map(({ color, label, key }) => (
                       <span key={key} onClick={() => toggleLine(key)} style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer', opacity: hiddenLines.has(key) ? 0.3 : 1, transition: 'opacity 0.15s' }}>
                         <svg width="16" height="4"><line x1="0" y1="2" x2="16" y2="2" stroke={color} strokeWidth="2.5" /></svg>
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color, fontWeight: 700, letterSpacing: '0.03em' }}>{label}</span>
+                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, color, fontWeight: 700, letterSpacing: '0.03em' }}>{label}</span>
                       </span>
                     ))}
                     {chartViewMode === 'net' && (
                       <span onClick={() => toggleLine('netFlow')} style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer', opacity: hiddenLines.has('netFlow') ? 0.3 : 1, transition: 'opacity 0.15s' }}>
                         <svg width="24" height="4"><line x1="0" y1="2" x2="11" y2="2" stroke="#00ff7f" strokeWidth="2.5" /><line x1="13" y1="2" x2="24" y2="2" stroke="#ff2222" strokeWidth="2.5" /></svg>
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: '#fff', fontWeight: 700, letterSpacing: '0.03em' }}>NET FLOW</span>
+                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, color: '#fff', fontWeight: 700, letterSpacing: '0.03em' }}>NET FLOW</span>
                       </span>
                     )}
                   </div>
                   {/* RIGHT: mode buttons */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 3 : 4, marginLeft: 'auto', flexShrink: 0 }}>
                     {([['detailed', 'ALL'], ['simplified', 'BULL/BEAR'], ['net', 'NET']] as const).map(([mode, label]) => (
-                      <button key={mode} onClick={() => setChartViewMode(mode)} style={{ padding: isMobile ? '2px 6px' : '3px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: isMobile ? 11 : 13, fontWeight: 800, letterSpacing: '0.08em', border: '1px solid rgba(255,255,255,0.15)', background: chartViewMode === mode ? 'linear-gradient(180deg,#1a0f00 0%,#0d0800 100%)' : '#0a0a0a', color: chartViewMode === mode ? '#ff8500' : '#ffffff', cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: chartViewMode === mode ? 'inset 0 1px 0 rgba(255,133,0,0.25), 0 0 8px rgba(255,133,0,0.2)' : 'none', borderColor: chartViewMode === mode ? 'rgba(255,133,0,0.5)' : 'rgba(255,255,255,0.15)' }}>{label}</button>
+                      <button key={mode} onClick={() => setChartViewMode(mode)} style={{ padding: isMobile ? '2px 6px' : '3px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: isMobile ? 11 : 13, fontWeight: 800, letterSpacing: '0.08em', border: `1px solid ${chartViewMode === mode ? 'rgba(255,133,0,0.6)' : 'rgba(255,255,255,0.15)'}`, background: 'linear-gradient(180deg,#1a1a1a 0%,#0a0a0a 50%,#050505 100%)', boxShadow: chartViewMode === mode ? 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6), 0 0 8px rgba(255,133,0,0.15)' : 'inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.5)', color: chartViewMode === mode ? '#ff8500' : '#ffffff', cursor: 'pointer', whiteSpace: 'nowrap' }}>{label}</button>
                     ))}
                   </div>
                 </div>
-                {/* Chart body — height auto-sizes to content: main chart + visible sub-panels */}
+                {/* Chart body "” height auto-sizes to content: main chart + visible sub-panels */}
                 <div ref={chartDivRef} style={{
                   padding: 0,
                   background: 'linear-gradient(180deg, #0e0e0e 0%, #070707 4%, #000 100%)',
@@ -3044,7 +3043,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                   onMouseMove={(e) => {
                     if (!chartDragRef.current.dragging) return
                     const clientX = e.clientX
-                    // RAF throttle — only compute once per frame
+                    // RAF throttle "” only compute once per frame
                     if (dragMoveRafRef.current) cancelAnimationFrame(dragMoveRafRef.current)
                     dragMoveRafRef.current = requestAnimationFrame(() => {
                       dragMoveRafRef.current = null
@@ -3065,12 +3064,12 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                   onMouseUp={() => { chartDragRef.current.dragging = false; if (dragMoveRafRef.current) { cancelAnimationFrame(dragMoveRafRef.current); dragMoveRafRef.current = null } }}
                   onMouseLeave={() => { chartDragRef.current.dragging = false; if (dragMoveRafRef.current) { cancelAnimationFrame(dragMoveRafRef.current); dragMoveRafRef.current = null } }}
                 >
-                  {/* Mobile overlay controls — ticker + timeframe + view mode */}
+                  {/* Mobile overlay controls "” ticker + timeframe + view mode */}
                   {isMobile && (
                     <div style={{ position: 'absolute', top: 6, left: 6, right: 6, zIndex: 10, display: 'flex', alignItems: 'center', gap: 3, pointerEvents: 'none' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 3, pointerEvents: 'auto' }}>
                         {drilledTicker && (
-                          <button onClick={() => { if (!allScanCacheRef.current) return; setDrilledTicker(null); setSearchTicker('ALL'); setFlowData(allScanCacheRef.current.flowData); setAnalysis(allScanCacheRef.current.analysis) }} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, padding: '2px 6px', background: 'rgba(255,133,0,0.85)', border: '1px solid #ff8500', color: '#000', cursor: 'pointer', borderRadius: 3 }}>← ALL</button>
+                          <button onClick={() => { if (!allScanCacheRef.current) return; setDrilledTicker(null); setSearchTicker('ALL'); setFlowData(allScanCacheRef.current.flowData); setAnalysis(allScanCacheRef.current.analysis) }} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, padding: '2px 6px', background: 'rgba(255,133,0,0.85)', border: '1px solid #ff8500', color: '#000', cursor: 'pointer', borderRadius: 3 }}>← ALL</button>
                         )}
                         <span style={{ color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 900, letterSpacing: '0.1em', background: 'rgba(0,0,0,0.6)', padding: '1px 5px', borderRadius: 3 }}>{analysis.ticker}</span>
                         {(() => {
@@ -3135,17 +3134,31 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                         </>) : chartViewMode === 'simplified' ? (<>
                           <Line type="linear" yAxisId="flow" dataKey="bullishTotal" stroke="#00ff7f" strokeWidth={3} name="BULLISH FLOW" dot={false} hide={hiddenLines.has('bullishTotal')} />
                           <Line type="linear" yAxisId="flow" dataKey="bearishTotal" stroke="#ff2222" strokeWidth={3} name="BEARISH FLOW" dot={false} hide={hiddenLines.has('bearishTotal')} />
-                        </>) : (<>
-                          <Line type="linear" yAxisId="flow" dataKey="netFlow" stroke="#00ff7f" strokeWidth={3} name="NET FLOW" dot={false} hide={hiddenLines.has('netFlow')} />
-                          {!hiddenLines.has('netFlow') && <Customized component={NetFlowColoredLine} visibleData={chartMemo.visibleData} isHidden={false} />}
-                        </>)}
+                        </>) : (() => {
+                          const nfVals = chartMemo.visibleData.map((d: any) => d.netFlow ?? 0)
+                          const nfMax = nfVals.length ? Math.max(...nfVals) : 1
+                          const nfMin = nfVals.length ? Math.min(...nfVals) : -1
+                          const nfRange = nfMax - nfMin || 1
+                          // hard stop fraction: where zero sits between min and max (top=0%, bottom=100%)
+                          const zeroFrac = ((nfMax - 0) / nfRange) * 100
+                          const zeroStop = `${Math.max(0, Math.min(100, zeroFrac)).toFixed(2)}%`
+                          return (<>
+                            <defs>
+                              <linearGradient id="netFlowColorGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset={zeroStop} stopColor="#00ff00" />
+                                <stop offset={zeroStop} stopColor="#ff2222" />
+                              </linearGradient>
+                            </defs>
+                            <Line type="linear" yAxisId="flow" dataKey="netFlow" stroke="url(#netFlowColorGrad)" strokeWidth={3} name="NET FLOW" dot={false} hide={hiddenLines.has('netFlow')} />
+                          </>)
+                        })()}
                         <Line type="monotone" yAxisId="price" dataKey="stockClose" stroke="transparent" strokeWidth={0} name="PRICE" dot={false} legendType="none" />
                         <Customized component={CandlestickLayer} visibleData={chartMemo.visibleData} />
                       </ComposedChart>
                     </ResponsiveContainer>
                   </div>
 
-                  {/* P/C Ratio sub-panel — toggleable */}
+                  {/* P/C Ratio sub-panel "” toggleable */}
                   {showBullBear && (() => {
                     const pcData = chartMemo.visibleData
                     const pcVals = pcData.map((d: any) => d.pcRatio ?? 1)
@@ -3205,7 +3218,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
 
                 </div>{/* end chart body */}
 
-                {/* Gamma Line panel — outside fixed-height chart body so it's never clipped */}
+                {/* Gamma Line panel "” outside fixed-height chart body so it's never clipped */}
                 {showGammaLine && !isAllScan && (() => {
                   const lastGamma = gammaLineData.length ? gammaLineData[gammaLineData.length - 1].cumGamma : 0
                   const gammaColor = lastGamma > 0 ? '#10b981' : lastGamma < 0 ? '#ef4444' : '#888'
@@ -3221,13 +3234,13 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                   const gRange = gMax - gMin || Math.abs(gMax) * 0.2 || 1
                   const gDomMin = gMin - gRange * 0.1
                   const gDomMax = gMax + gRange * 0.1
-                  // Gradient: green above 0, red below 0 — hard stop at zero fraction
+                  // Gradient: green above 0, red below 0 "” hard stop at zero fraction
                   const totalRange = gDomMax - gDomMin
                   const zeroFrac = totalRange > 0 ? ((gDomMax - 0) / totalRange) * 100 : 50
                   const zeroStop = `${Math.max(0, Math.min(100, zeroFrac)).toFixed(1)}%`
                   return (
                     <div style={{ borderTop: '2px solid rgba(16,185,129,0.4)', background: 'linear-gradient(180deg, rgba(16,185,129,0.012) 0%, transparent 100%)', flexShrink: 0, overflow: 'hidden' }}>
-                      {/* Header — title + spinner only, value lives on the Y axis */}
+                      {/* Header "” title + spinner only, value lives on the Y axis */}
                       <div style={{ padding: '6px 14px 4px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#ff8500', letterSpacing: '0.22em', fontWeight: 700 }}>GAMMA EXPOSURE</div>
@@ -3289,7 +3302,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                           </LineChart>
                         </ResponsiveContainer>
                       ) : !gammaLoading ? (
-                        <div style={{ height: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: 'rgba(255,133,0,0.5)', letterSpacing: '0.1em' }}>NO GAMMA DATA — CONTRACT NOT IN SNAPSHOT</div>
+                        <div style={{ height: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: 'rgba(255,133,0,0.5)', letterSpacing: '0.1em' }}>NO GAMMA DATA "” CONTRACT NOT IN SNAPSHOT</div>
                       ) : null}
                     </div>
                   )
@@ -3298,7 +3311,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               </div>{/* end chart column */}
             </div>{/* end ROW 2 */}
 
-            {/* ── ROW 3: TRADES TABLE + EFI CHART — hidden in embedded mode ── */}
+            {/* â”€â”€ ROW 3: TRADES TABLE + EFI CHART "” hidden in embedded mode â”€â”€ */}
             <div style={{ borderTop: '1px solid rgba(255,255,255,0.15)', display: embeddedMode ? 'none' : 'flex', marginTop: isMobile ? -20 : 0 }}>
 
               {/* Left: Trades table */}
@@ -3309,7 +3322,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       {selectedStrike !== null && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#22d3ee' }}>STRIKE: ${selectedStrike}</span>}
                       {selectedExpiry !== null && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#22d3ee' }}>EXPIRY: {selectedExpiry.split('T')[0]}</span>}
-                      <button onClick={() => { setSelectedStrike(null); setSelectedExpiry(null); }} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#fff', background: 'none', border: 'none', cursor: 'pointer' }}>✕ CLEAR</button>
+                      <button onClick={() => { setSelectedStrike(null); setSelectedExpiry(null); }} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#fff', background: 'none', border: 'none', cursor: 'pointer' }}>âœ• CLEAR</button>
                     </div>
                   )}
                 </div>
@@ -3329,7 +3342,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                               onClick={key ? () => { if (sortColumn === key) { setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc') } else { setSortColumn(key); setSortDirection('desc') } } : undefined}
                               style={{ textAlign: 'left', padding: '4px 5px', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, color: sortColumn === key ? '#fff' : '#ff8500', letterSpacing: '0.08em', fontWeight: 800, cursor: key ? 'pointer' : 'default', whiteSpace: 'nowrap' }}
                             >
-                              {label}{key && sortColumn === key ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ''}
+                              {label}{key && sortColumn === key ? (sortDirection === 'asc' ? ' ←‘' : ' ←“') : ''}
                             </th>
                           ))
                         ) : (
@@ -3350,7 +3363,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                               onClick={key ? () => { if (sortColumn === key) { setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc') } else { setSortColumn(key); setSortDirection('desc') } } : undefined}
                               style={{ textAlign: 'left', padding: '6px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 22, color: sortColumn === key ? '#fff' : '#ff8500', letterSpacing: '0.12em', fontWeight: 800, cursor: key ? 'pointer' : 'default', whiteSpace: 'nowrap' }}
                             >
-                              {label}{key && sortColumn === key ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ''}
+                              {label}{key && sortColumn === key ? (sortDirection === 'asc' ? ' ←‘' : ' ←“') : ''}
                             </th>
                           ))
                         )}
@@ -3380,8 +3393,8 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                               return expStr >= tradingDate && expStr <= cutoffStr
                             })
                           } else if (expiryFilter === 'weekly') {
-                            // Week = Mon–Fri. If today is Fri (5) or Sat (6), point to next week's Friday.
-                            const daysToFriday = dow <= 5 ? 5 - dow : 6 // 0=Sun→5, 1=Mon→4, ..., 5=Fri→0, 6=Sat→6(next Fri)
+                            // Week = Mon"“Fri. If today is Fri (5) or Sat (6), point to next week's Friday.
+                            const daysToFriday = dow <= 5 ? 5 - dow : 6 // 0=Sun←’5, 1=Mon←’4, ..., 5=Fri←’0, 6=Sat←’6(next Fri)
                             const thisFriday = new Date(todayPT)
                             thisFriday.setDate(todayPT.getDate() + daysToFriday)
                             // Week start = Monday of same week
@@ -3424,7 +3437,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                         const fillColors: Record<string, string> = { A: '#10b981', B: '#ef4444', AA: '#6ee7b7', BB: '#fca5a5', 'N/A': 'rgba(255,255,255,0.2)' }
                         const styleColors: Record<string, string> = { SWEEP: 'rgb(255,215,0)', BLOCK: 'rgb(0,153,255)', MINI: 'rgb(0,255,94)', 'MULTI-LEG': 'rgb(168,85,247)' }
 
-                        // Use memoized OI computation (tradeOIMemo) — avoids rerunning on every render
+                        // Use memoized OI computation (tradeOIMemo) "” avoids rerunning on every render
                         const { isMultiDay, liveOIMap, baseOIMap, multiDayOIChange, lastDayVolumeMap, lastDayOISnapshotMap } = tradeOIMemo
 
                         return paginatedTrades.map((trade, idx) => {
@@ -3543,7 +3556,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                               <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, color: '#00cc00', fontWeight: 700 }}>${trade.total_premium.toLocaleString()}</td>
                               <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, color: '#fff', whiteSpace: 'nowrap' }}>
                                 ${trade.spot_price != null ? Number(trade.spot_price).toFixed(2) : 'N/A'}
-                                {analysis?.currentPrice && <span style={{ color: 'rgba(255,255,255,0.4)', margin: '0 5px' }}>›</span>}
+                                {analysis?.currentPrice && <span style={{ color: 'rgba(255,255,255,0.4)', margin: '0 5px' }}>"º</span>}
                                 {analysis?.currentPrice && <span style={{ color: '#22d3ee' }}>${analysis.currentPrice.toFixed(2)}</span>}
                               </td>
                               <td style={{ padding: '5px 10px' }}>
@@ -3584,7 +3597,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                     return (
                       <div style={{ padding: '6px 14px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#fff' }}>
-                          {(currentPage - 1) * TRADES_PER_PAGE + 1}–{Math.min(currentPage * TRADES_PER_PAGE, tradesToDisplay.length)} OF {tradesToDisplay.length}
+                          {(currentPage - 1) * TRADES_PER_PAGE + 1}"“{Math.min(currentPage * TRADES_PER_PAGE, tradesToDisplay.length)} OF {tradesToDisplay.length}
                         </span>
                         <div style={{ display: 'flex', gap: 4 }}>
                           <button onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} disabled={currentPage === 1} style={{ padding: '2px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 800, background: '#fff', color: '#000', border: 'none', cursor: currentPage === 1 ? 'not-allowed' : 'pointer', opacity: currentPage === 1 ? 0.3 : 1 }}>PREV</button>
@@ -3607,7 +3620,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                 )}
               </div>{/* end left table column */}
 
-              {/* Right: EFI Chart — hidden on mobile */}
+              {/* Right: EFI Chart "” hidden on mobile */}
               {!isMobile && (
                 <div style={{ width: '38%', flexShrink: 0, borderLeft: '1px solid rgba(255,255,255,0.15)', background: '#000', overflow: 'hidden' }}>
                   <div style={{ width: '100%', height: '100%' }}>
@@ -3626,6 +3639,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       lwNavyButtonTheme={true}
                       disableSidebarAutoScan={true}
                       hideDesktopSidebar={true}
+                      compactToolbar={true}
                       onSymbolChange={(s) => setSearchTicker(s)}
                     />
                   </div>

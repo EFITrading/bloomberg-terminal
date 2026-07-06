@@ -398,7 +398,7 @@ export default function AccountPage() {
                 {hasPasswordAuth ? 'AUTHENTICATED' : 'UNAUTHENTICATED'}
               </div>
             </div>
-            <button className="acct-btn-ghost" onClick={() => router.push('/market-overview')} style={{ padding: '10px 20px', fontSize: '13px' }}>
+            <button className="acct-btn-ghost" onClick={() => router.push('/options-flow')} style={{ padding: '10px 20px', fontSize: '13px' }}>
               ← TERMINAL
             </button>
           </div>
@@ -542,7 +542,7 @@ export default function AccountPage() {
                   <button className="acct-btn-ghost" style={{ padding: '14px', fontSize: '13px' }} onClick={() => setActiveTab('MEMBERSHIP')}>◈ MANAGE PLAN</button>
                   <button className="acct-btn-ghost" style={{ padding: '14px', fontSize: '13px' }} onClick={() => setActiveTab('SOCIAL')}>◉ FRIENDS &amp; DMs</button>
                   <button className="acct-btn-ghost" style={{ padding: '14px', fontSize: '13px' }} onClick={() => setActiveTab('SETTINGS')}>⚙ SETTINGS</button>
-                  <button className="acct-btn-ghost" style={{ padding: '14px', fontSize: '13px' }} onClick={() => router.push('/market-overview')}>← TERMINAL</button>
+                  <button className="acct-btn-ghost" style={{ padding: '14px', fontSize: '13px' }} onClick={() => router.push('/options-flow')}>← TERMINAL</button>
                 </div>
               </div>
             </div>

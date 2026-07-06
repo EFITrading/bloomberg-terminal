@@ -209,7 +209,7 @@ export default function MobileBottomNav({ navLinks, pathname }: Props) {
           const isActive = pathname === link.path
           const Icon = ICONS[link.path]
           const label = SHORT_LABELS[link.path] ?? link.name
-          const isLocked = link.path === '/analysis-suite' || link.path === '/ai-suite'
+          const isLocked = link.path !== '/options-flow' && link.path !== '/account'
           return isLocked ? (
             <div
               key={link.path}

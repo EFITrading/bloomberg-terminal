@@ -595,8 +595,22 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         const t = snapJson?.ticker
         price = t?.lastTrade?.p || t?.day?.c || t?.prevDay?.c || null
         const prevClose: number | null = t?.prevDay?.c || null
-        change = price && prevClose ? price - prevClose : null
-        changePct = price && prevClose ? ((price - prevClose) / prevClose) * 100 : null
+        // Use Polygon's computed change first — accurate on weekends/holidays
+        if (t?.todaysChangePerc != null && price) {
+          changePct = t.todaysChangePerc
+          change = t.todaysChange ?? (prevClose ? price - prevClose : null)
+        } else if (price && prevClose) {
+          const rawChangePct = ((price - prevClose) / prevClose) * 100
+          if (Math.abs(rawChangePct) >= 0.02) {
+            // Active session: meaningful move vs prev close
+            change = price - prevClose
+            changePct = rawChangePct
+          } else if (t?.prevDay?.o) {
+            // Weekend/holiday: price ≈ prevClose, show last trading day's own move
+            change = prevClose - t.prevDay.o
+            changePct = (change / t.prevDay.o) * 100
+          }
+        }
       } catch { /* silent */ }
 
       // 2. Ticker details for name + market cap
