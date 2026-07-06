@@ -3066,33 +3066,10 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                 >
                   {/* Mobile overlay controls "” ticker + timeframe + view mode */}
                   {isMobile && (
-                    <div style={{ position: 'absolute', top: 6, left: 6, right: 6, zIndex: 10, display: 'flex', alignItems: 'center', gap: 3, pointerEvents: 'none' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 3, pointerEvents: 'auto' }}>
-                        {drilledTicker && (
-                          <button onClick={() => { if (!allScanCacheRef.current) return; setDrilledTicker(null); setSearchTicker('ALL'); setFlowData(allScanCacheRef.current.flowData); setAnalysis(allScanCacheRef.current.analysis) }} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, padding: '2px 6px', background: 'rgba(255,133,0,0.85)', border: '1px solid #ff8500', color: '#000', cursor: 'pointer', borderRadius: 3 }}>← ALL</button>
-                        )}
-                        <span style={{ color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 900, letterSpacing: '0.1em', background: 'rgba(0,0,0,0.6)', padding: '1px 5px', borderRadius: 3 }}>{analysis.ticker}</span>
-                        {(() => {
-                          const sd = getScanDays(scanTimeframe)
-                          const opts = sd === 1
-                            ? [{ v: '1min' as const, label: '1MIN' }, { v: '5min' as const, label: '5MIN' }]
-                            : sd <= 5
-                              ? [{ v: '30min' as const, label: '30M' }, { v: '1hour' as const, label: '1H' }]
-                              : [{ v: '1day' as const, label: '1D' }]
-                          return opts.map(({ v, label }) => (
-                            <button key={v} onClick={() => { setTimeInterval(v); setBrushIndices(null) }}
-                              style={{ padding: '2px 5px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, border: '1px solid rgba(255,165,0,0.7)', background: timeInterval === v ? '#ff8500' : 'rgba(0,0,0,0.65)', color: timeInterval === v ? '#000' : '#ff8500', cursor: 'pointer', borderRadius: 2 }}>{label}</button>
-                          ))
-                        })()}
-                        {brushIndices && (
-                          <button onClick={() => setBrushIndices(null)} style={{ padding: '2px 6px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, border: '1px solid rgba(255,255,255,0.4)', background: 'rgba(0,0,0,0.65)', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', borderRadius: 2 }}>RESET</button>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {/* Mobile overlay controls — one clean row: Ticker | Timeframe | ALL | BULL/BEAR | NET */}
-                  {isMobile && (
                     <div style={{ position: 'absolute', top: 6, left: 6, right: 6, zIndex: 10, display: 'flex', alignItems: 'center', gap: 0, background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '2px 6px', pointerEvents: 'auto' }}>
+                      {drilledTicker && (
+                        <button onClick={() => { if (!allScanCacheRef.current) return; setDrilledTicker(null); setSearchTicker('ALL'); setFlowData(allScanCacheRef.current.flowData); setAnalysis(allScanCacheRef.current.analysis) }} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, padding: '2px 6px', background: 'rgba(255,133,0,0.85)', border: '1px solid #ff8500', color: '#000', cursor: 'pointer', borderRadius: 3 }}>← ALL</button>
+                      )}
                       {drilledTicker && (
                         <button onClick={() => { if (!allScanCacheRef.current) return; setDrilledTicker(null); setSearchTicker('ALL'); setFlowData(allScanCacheRef.current.flowData); setAnalysis(allScanCacheRef.current.analysis) }} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, padding: '2px 5px 4px', background: 'none', border: 'none', color: '#ff8500', cursor: 'pointer', borderBottom: '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>← ALL</button>
                       )}
@@ -3107,15 +3084,15 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                             : [{ v: '1day' as const, label: '1D' }]
                         return opts.map(({ v, label }) => (
                           <button key={v} onClick={() => { setTimeInterval(v); setBrushIndices(null) }}
-                            style={{ padding: '2px 5px 4px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, border: 'none', background: 'none', color: timeInterval === v ? '#ff8500' : '#ffffff', cursor: 'pointer', whiteSpace: 'nowrap', borderBottom: timeInterval === v ? '2px solid #ff8500' : '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>{label}</button>
+                            style={{ padding: '3px 7px 5px', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, border: 'none', background: '#000', color: timeInterval === v ? '#ff8500' : '#ffffff', cursor: 'pointer', whiteSpace: 'nowrap', borderBottom: timeInterval === v ? '2px solid #ff8500' : '2px solid transparent', lineHeight: 1.1, outline: 'none', borderRadius: 3 }}>{label}</button>
                         ))
                       })()}
                       {brushIndices && (
-                        <button onClick={() => setBrushIndices(null)} style={{ padding: '2px 5px 4px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, border: 'none', background: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', borderBottom: '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>RESET</button>
+                        <button onClick={() => setBrushIndices(null)} style={{ padding: '3px 7px 5px', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 700, border: 'none', background: '#000', color: '#ffffff', cursor: 'pointer', borderBottom: '2px solid transparent', lineHeight: 1.1, outline: 'none', borderRadius: 3 }}>RESET</button>
                       )}
                       <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 9, fontFamily: 'JetBrains Mono,monospace', padding: '0 4px', userSelect: 'none' }}>|</span>
                       {([['detailed', 'ALL'], ['simplified', 'BULL/BEAR'], ['net', 'NET']] as const).map(([mode, lbl]) => (
-                        <button key={mode} onClick={() => setChartViewMode(mode)} style={{ padding: '2px 5px 4px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, border: 'none', background: 'none', color: chartViewMode === mode ? '#ff8500' : '#ffffff', cursor: 'pointer', whiteSpace: 'nowrap', borderBottom: chartViewMode === mode ? '2px solid #ff8500' : '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>{lbl}</button>
+                        <button key={mode} onClick={() => setChartViewMode(mode)} style={{ padding: '3px 7px 5px', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, border: 'none', background: '#000', color: chartViewMode === mode ? '#ff8500' : '#ffffff', cursor: 'pointer', whiteSpace: 'nowrap', borderBottom: chartViewMode === mode ? '2px solid #ff8500' : '2px solid transparent', lineHeight: 1.1, outline: 'none', borderRadius: 3 }}>{lbl}</button>
                       ))}
                     </div>
                   )}

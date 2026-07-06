@@ -5,9 +5,14 @@ const PUBLIC_PATHS = ['/login', '/', '/auth', '/api/auth', '/api/health', '/api/
 const COLLECTOR_SECRET = process.env.COLLECTOR_SECRET
 
 function isAuthenticated(request: NextRequest): boolean {
-  if (request.cookies.get('efi-auth')?.value === 'authenticated') return true
+  const cookie = request.cookies.get('efi-auth')?.value
+  if (cookie === 'authenticated' || cookie === 'admin') return true
   if (COLLECTOR_SECRET && request.headers.get('x-collector-secret') === COLLECTOR_SECRET) return true
   return false
+}
+
+function isAdmin(request: NextRequest): boolean {
+  return request.cookies.get('efi-auth')?.value === 'admin'
 }
 
 export function middleware(request: NextRequest) {
@@ -31,7 +36,7 @@ export function middleware(request: NextRequest) {
   }
 
   const LOCKED_PAGES = ['/analysis-suite', '/ai-suite', '/analytics', '/data-driven', '/market-overview', '/dealers-workbench', '/rrg-screener', '/ai-trades']
-  if (LOCKED_PAGES.some(p => pathname.startsWith(p))) {
+  if (!isAdmin(request) && LOCKED_PAGES.some(p => pathname.startsWith(p))) {
     const url = request.nextUrl.clone()
     url.pathname = '/options-flow'
     return NextResponse.redirect(url)
