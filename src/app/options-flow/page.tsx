@@ -10,7 +10,7 @@ import { polygonOptionsWS, parseOCCTicker } from '@/lib/polygonOptionsWS'
 import type { PolygonOptionsTradeMsg } from '@/lib/polygonOptionsWS'
 
 // Polygon API key
-const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const POLYGON_API_KEY: string = ''
 
 // -- Live OI cache helpers -----------------------------------------------------
 // Returns the relevant trading date (YYYY-MM-DD, PST-aware).
@@ -136,7 +136,7 @@ const enrichTradeDataCombined = async (
       batch.map(async ([optionTicker, { underlying }]) => {
         try {
           const snapshotUnderlying = INDEX_UNDERLYING_MAP[underlying] ?? underlying
-          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${snapshotUnderlying}/${optionTicker}?apikey=${POLYGON_API_KEY}`
+          const snapshotUrl = `/api/polygon/v3/snapshot/options/${snapshotUnderlying}/${optionTicker}?apikey=${POLYGON_API_KEY}`
           const response = await fetch(snapshotUrl, {
             signal: AbortSignal.timeout(5000),
           } as RequestInit)
@@ -322,7 +322,7 @@ const fetchVolumeAndOpenInterest = async (
         const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry
 
         const response = await fetch(
-          `https://api.polygon.io/v3/snapshot/options/${underlying}?expiration_date=${expiryParam}&limit=250&apikey=${POLYGON_API_KEY}`
+          `/api/polygon/v3/snapshot/options/${underlying}?expiration_date=${expiryParam}&limit=250&apikey=${POLYGON_API_KEY}`
         )
 
         if (response.ok) {

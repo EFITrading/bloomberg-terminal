@@ -1,4 +1,4 @@
-interface ContractionResult {
+﻿interface ContractionResult {
   symbol: string
   currentPrice: number
   change: number
@@ -36,7 +36,7 @@ interface HistoricalBar {
 }
 
 class ContractionScanner {
-  private readonly API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+  private readonly API_KEY = '' || ''
   private readonly CONCURRENT_REQUESTS = 8
   private readonly REQUEST_DELAY = 30
 
@@ -409,7 +409,7 @@ class ContractionScanner {
       const fromStr = from.toISOString().split('T')[0]
       const toStr = to.toISOString().split('T')[0]
 
-      const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timeframe}/${fromStr}/${toStr}?adjusted=true&sort=asc&apiKey=${this.API_KEY}`
+      const url = `/api/polygon/v2/aggs/ticker/${symbol}/range/${multiplier}/${timeframe}/${fromStr}/${toStr}?adjusted=true&sort=asc&apiKey=${this.API_KEY}`
 
       const response = await fetch(url)
       if (!response.ok) {

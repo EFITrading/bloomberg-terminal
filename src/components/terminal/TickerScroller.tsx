@@ -54,9 +54,9 @@ export default function TickerScroller() {
     // â”€â”€ 1. Seed prev-day closes once via REST â”€â”€
     const seedPrevCloses = async () => {
       try {
-        const apiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+        const apiKey = '' || ''
         // Single snapshot call returns current price + prev close for all tickers at once
-        const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${TICKER_SYMBOLS.join(',')}&apiKey=${apiKey}`
+        const url = `/api/polygon/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${TICKER_SYMBOLS.join(',')}&apiKey=${apiKey}`
         const result = await polygonRateLimiter.fetch(url)
         if (!result?.tickers) return
         for (const t of result.tickers) {

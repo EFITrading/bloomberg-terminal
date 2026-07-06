@@ -1,4 +1,4 @@
-/**
+﻿/**
  * IV-based Relative Rotation Graph (RRG) Service
  *
  * This service calculates RRG metrics using Implied Volatility (IV) instead of stock prices.
@@ -34,7 +34,7 @@ interface IVData {
   timestamp: number
 }
 
-const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const POLYGON_API_KEY = '' || ''
 
 class IVRRGService {
   private apiKey: string

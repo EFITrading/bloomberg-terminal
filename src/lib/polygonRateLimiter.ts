@@ -29,6 +29,16 @@ class PolygonRateLimiter {
    * Fetch data from Polygon API with rate limiting and retry logic
    */
   async fetch(url: string): Promise<any> {
+    // Rewrite any direct polygon.io URL through the server-side proxy
+    // so the API key is never exposed to the client bundle
+    if (url.includes('api.polygon.io/')) {
+      const u = new URL(url)
+      u.searchParams.delete('apiKey')
+      u.searchParams.delete('apikey')
+      const proxyPath = u.pathname.replace(/^\//, '')
+      const proxyUrl = `/api/polygon/${proxyPath}?${u.searchParams.toString()}`
+      url = proxyUrl
+    }
     // Check if we already have this request in flight
     if (this.inFlightRequests.has(url)) {
       return this.inFlightRequests.get(url);

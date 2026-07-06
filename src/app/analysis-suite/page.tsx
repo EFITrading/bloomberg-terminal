@@ -400,10 +400,10 @@ export default function AnalysisSuitePage() {
 
       const [tickerResp, spyResp] = await Promise.all([
         fetch(
-          `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apiKey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`
+          `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apiKey=${'' || ''}`
         ),
         fetch(
-          `https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apiKey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`
+          `/api/polygon/v2/aggs/ticker/SPY/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apiKey=${'' || ''}`
         ),
       ])
 
@@ -475,7 +475,7 @@ export default function AnalysisSuitePage() {
       const endDate = new Date().toISOString().split('T')[0]
       const startDate = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       const response = await fetch(
-        `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apiKey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`
+        `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apiKey=${'' || ''}`
       )
       if (!response.ok) {
         setLeadershipSignal(null)

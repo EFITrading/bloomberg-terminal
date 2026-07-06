@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 
@@ -707,8 +707,8 @@ function EnhancedRegimeDisplay({
     const fetchVix = async () => {
       try {
         const res = await fetch(
-          'https://api.polygon.io/v3/snapshot/options/I:VIX?limit=1&apikey=' +
-          (process.env.NEXT_PUBLIC_POLYGON_API_KEY || '')
+          '/api/polygon/v3/snapshot/options/I:VIX?limit=1&apikey=' +
+          ('' || '')
         )
         const data = await res.json()
         if (data.status === 'OK' && data.results?.[0]?.underlying_asset?.value) {

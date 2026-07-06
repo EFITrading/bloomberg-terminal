@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -1087,7 +1087,7 @@ function SymbolCard({ symbol, state }: { symbol: POISymbol; state: SymbolState }
 
 // ─── Main Screener ────────────────────────────────────────────────────────────
 export default function POIScreener({ externalTicker }: { externalTicker?: string } = {}) {
-  const API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY ?? ''
+  const API_KEY = '' ?? ''
 
   const activeSymbols: POISymbol[] = externalTicker
     ? [externalTicker.toUpperCase()]
@@ -1142,7 +1142,7 @@ export default function POIScreener({ externalTicker }: { externalTicker?: strin
         const startDate = startD.toISOString().split('T')[0]
 
         const ohlcvRes = await fetch(
-          `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&limit=200&apiKey=${API_KEY}`,
+          `/api/polygon/v2/aggs/ticker/${symbol}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&limit=200&apiKey=${API_KEY}`,
           { signal }
         )
         if (!ohlcvRes.ok) throw new Error(`OHLCV HTTP ${ohlcvRes.status}`)
@@ -1217,7 +1217,7 @@ export default function POIScreener({ externalTicker }: { externalTicker?: strin
           const windowUrls = Array.from({ length: WIN }, (_, i) => {
             const wStartNs = rthStartNs + i * winNs
             const wEndNs = rthStartNs + (i + 1) * winNs
-            return `https://api.polygon.io/v3/trades/${symbol}?timestamp.gte=${wStartNs}&timestamp.lte=${wEndNs}&limit=50000&order=asc&apiKey=${API_KEY_LOCAL}`
+            return `/api/polygon/v3/trades/${symbol}?timestamp.gte=${wStartNs}&timestamp.lte=${wEndNs}&limit=50000&order=asc&apiKey=${API_KEY_LOCAL}`
           })
 
           try {

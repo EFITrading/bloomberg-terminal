@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -631,7 +631,7 @@ export default function ConsolidationHistoryScreener({
   const [candles, setCandles] = useState<Bar[]>([])
   const [events4D, setevents4D] = useState<ConsolidationEvent[]>([])
 
-  const API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+  const API_KEY = '' || ''
 
   const runScan = async (sym: string) => {
     if (!sym.trim()) return
@@ -651,7 +651,7 @@ export default function ConsolidationHistoryScreener({
       const to = toDate.toISOString().split('T')[0]
 
       const url =
-        `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}` +
+        `/api/polygon/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}` +
         `?adjusted=true&sort=asc&limit=1000&apiKey=${API_KEY}`
 
       const res = await fetch(url)

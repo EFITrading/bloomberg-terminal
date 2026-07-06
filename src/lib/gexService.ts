@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Gamma Exposure (GEX) Service
  * Calculates and provides gamma exposure levels for options market analysis
  */
@@ -35,7 +35,7 @@ export interface GEXAnalysis {
 class GEXService {
   private cache = new Map<string, { data: GEXAnalysis; expires: number }>()
   private readonly CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
-  private readonly API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+  private readonly API_KEY = '' || ''
 
   /**
    * Calculate gamma exposure for a given symbol
@@ -92,7 +92,7 @@ class GEXService {
   private async getCurrentPrice(symbol: string): Promise<number> {
     try {
       const response = await fetch(
-        `https://api.polygon.io/v2/aggs/ticker/${symbol}/prev?apikey=${this.API_KEY}`
+        `/api/polygon/v2/aggs/ticker/${symbol}/prev?apikey=${this.API_KEY}`
       )
 
       if (!response.ok) {

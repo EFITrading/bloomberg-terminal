@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Consolidation Trade Calculator
  * Calculates straddle/strangle trades for stocks in consolidation (60%+ compression)
  * Buys 80% OTM calls AND puts with targets for potential breakout in either direction
@@ -44,7 +44,7 @@ interface TradeSetup {
 }
 
 export class ConsolidationTradeCalculator {
-  private readonly API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+  private readonly API_KEY = '' || ''
 
   /**
    * Calculate Black-Scholes option price
@@ -186,7 +186,7 @@ export class ConsolidationTradeCalculator {
 
       // Get options expirations
       const response = await fetch(
-        `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${symbol}&limit=1000&apiKey=${this.API_KEY}`
+        `/api/polygon/v3/reference/options/contracts?underlying_ticker=${symbol}&limit=1000&apiKey=${this.API_KEY}`
       )
 
       const data = await response.json()
@@ -227,7 +227,7 @@ export class ConsolidationTradeCalculator {
   ): Promise<{ calls: any[]; puts: any[] } | null> {
     try {
       const response = await fetch(
-        `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${symbol}&expiration_date=${expiration}&limit=500&apiKey=${this.API_KEY}`
+        `/api/polygon/v3/reference/options/contracts?underlying_ticker=${symbol}&expiration_date=${expiration}&limit=500&apiKey=${this.API_KEY}`
       )
 
       const data = await response.json()
@@ -254,7 +254,7 @@ export class ConsolidationTradeCalculator {
     try {
       // Use last quote endpoint instead of snapshot (snapshot doesn't have real-time data)
       const quoteResponse = await fetch(
-        `https://api.polygon.io/v3/quotes/${optionTicker}?limit=1&order=desc&apiKey=${this.API_KEY}`
+        `/api/polygon/v3/quotes/${optionTicker}?limit=1&order=desc&apiKey=${this.API_KEY}`
       )
 
       const quoteData = await quoteResponse.json()
@@ -270,14 +270,14 @@ export class ConsolidationTradeCalculator {
 
       // Get last trade for price fallback
       const tradeResponse = await fetch(
-        `https://api.polygon.io/v3/trades/${optionTicker}?limit=1&order=desc&apiKey=${this.API_KEY}`
+        `/api/polygon/v3/trades/${optionTicker}?limit=1&order=desc&apiKey=${this.API_KEY}`
       )
 
       const tradeData = await tradeResponse.json()
       const last = tradeData.results?.[0]?.price || (bid + ask) / 2 || 0
 
       // Get IV from snapshot (same as OptionsChain.tsx)
-      const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${underlying}/${optionTicker}?apikey=${this.API_KEY}`
+      const snapshotUrl = `/api/polygon/v3/snapshot/options/${underlying}/${optionTicker}?apikey=${this.API_KEY}`
       const snapshotResponse = await fetch(snapshotUrl)
       const snapshotData = await snapshotResponse.json()
 

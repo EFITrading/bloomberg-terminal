@@ -1,4 +1,4 @@
-import { MarketDataProcessor } from './MarketDataProcessor'
+﻿import { MarketDataProcessor } from './MarketDataProcessor'
 import { getPolygonWorker } from './PolygonAPIWorker'
 import { withCircuitBreaker } from './circuitBreaker'
 
@@ -116,7 +116,7 @@ interface WeeklyPattern {
   description: string
 }
 
-const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const POLYGON_API_KEY = '' || ''
 const BASE_URL = 'https://api.polygon.io'
 
 // Helper function to add aliases to seasonal patterns
@@ -268,7 +268,7 @@ class PolygonService {
   async getRealtimeQuote(symbol: string): Promise<any> {
     try {
       const response = await fetch(
-        `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apikey=${this.apiKey}`,
+        `/api/polygon/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apikey=${this.apiKey}`,
         {
           method: 'GET',
           headers: {
@@ -360,8 +360,8 @@ class PolygonService {
           const startDateStr = startDate.toISOString().split('T')[0]
 
           // Call Polygon API directly to avoid server-side relative URL issue
-          const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
-          const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${startDateStr}/${endDateStr}?adjusted=true&sort=desc&limit=50000&apikey=${POLYGON_API_KEY}`
+          const POLYGON_API_KEY = '' || ''
+          const url = `/api/polygon/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${startDateStr}/${endDateStr}?adjusted=true&sort=desc&limit=50000`
 
           // Add timeout and abort controller for better connection handling
           const controller = new AbortController()
@@ -606,7 +606,7 @@ class PolygonService {
             .toISOString()
             .split('T')[0]
 
-          const url = `https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apikey=${this.apiKey}`
+          const url = `/api/polygon/v2/aggs/ticker/${sym}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apikey=${this.apiKey}`
 
           const response = await fetch(url)
           if (!response.ok) continue

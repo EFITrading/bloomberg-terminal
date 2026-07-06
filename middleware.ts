@@ -17,10 +17,6 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  if (pathname.startsWith('/api/dbg') || pathname.startsWith('/api/log')) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  }
-
   if (PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))) {
     return NextResponse.next()
   }

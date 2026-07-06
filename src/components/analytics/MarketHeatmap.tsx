@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import * as d3 from 'd3'
 import * as d3Hierarchy from 'd3-hierarchy'
@@ -1590,7 +1590,7 @@ const MarketHeatmap: React.FC = () => {
 
         const marketCapPromises = batch.map(async (symbol) => {
           try {
-            const url = `https://api.polygon.io/v3/reference/tickers/${symbol}?apiKey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`
+            const url = `/api/polygon/v3/reference/tickers/${symbol}?apiKey=${'' || ''}`
             const response = await fetch(url)
             if (response.ok) {
               const data = await response.json()
@@ -1623,7 +1623,7 @@ const MarketHeatmap: React.FC = () => {
 
         const snapshotPromises = batch.map(async (symbol) => {
           try {
-            const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apiKey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`
+            const url = `/api/polygon/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apiKey=${'' || ''}`
             const response = await fetch(url)
             if (!response.ok) return null
 
@@ -2192,7 +2192,7 @@ const MarketHeatmap: React.FC = () => {
                         >
                           {stockNode.data.logoUrl && stockWidth > 50 && stockHeight > 50 && (
                             <img
-                              src={`${stockNode.data.logoUrl}?apiKey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`}
+                              src={`${stockNode.data.logoUrl}?apiKey=${'' || ''}`}
                               alt={stockNode.data.name}
                               style={{
                                 width: Math.min(stockWidth * 0.4, 32) + 'px',

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
@@ -36,7 +36,7 @@ const SECTORS_AND_ETFS = [
   { symbol: 'IWM', name: 'Russell 2000', color: '#ffa500' },
 ]
 
-const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const POLYGON_API_KEY = '' || ''
 
 const SectorPerformanceChart: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -240,7 +240,7 @@ const SectorPerformanceChart: React.FC = () => {
         sector: (typeof SECTORS_AND_ETFS)[0],
         retries = 5
       ): Promise<SectorPerformance | null> => {
-        const url = `https://api.polygon.io/v2/aggs/ticker/${sector.symbol}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
+        const url = `/api/polygon/v2/aggs/ticker/${sector.symbol}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
 
         for (let attempt = 0; attempt < retries; attempt++) {
           try {

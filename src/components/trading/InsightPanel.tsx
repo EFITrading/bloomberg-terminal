@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -798,7 +798,7 @@ const BRIEF_LAYOUT_TEMPLATES: Record<string, Omit<BriefBlock, 'id'>[]> = {
   ],
 }
 
-const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const POLYGON_KEY = '' || ''
 
 interface FlowTargets {
   t1: number | null
@@ -980,7 +980,7 @@ function FlowBlockView({ block, accent }: { block: BriefBlock; accent: string })
     const normTicker = (flow.underlying_ticker || '').replace(/\./g, '')
     const optTicker = `O:${normTicker}${expiry}${optType}${strikeFmt}`
     fetch(
-      `https://api.polygon.io/v3/snapshot/options/${flow.underlying_ticker}/${optTicker}?apikey=${POLYGON_KEY}`,
+      `/api/polygon/v3/snapshot/options/${flow.underlying_ticker}/${optTicker}?apikey=${POLYGON_KEY}`,
       { signal: AbortSignal.timeout(5000) }
     )
       .then((r) => (r.ok ? r.json() : null))
@@ -993,7 +993,7 @@ function FlowBlockView({ block, accent }: { block: BriefBlock; accent: string })
       .catch(() => { })
     // Fetch live stock price (previous close snapshot)
     fetch(
-      `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${normTicker}?apiKey=${POLYGON_KEY}`,
+      `/api/polygon/v2/snapshot/locale/us/markets/stocks/tickers/${normTicker}?apiKey=${POLYGON_KEY}`,
       { signal: AbortSignal.timeout(5000) }
     )
       .then((r) => (r.ok ? r.json() : null))
@@ -2161,7 +2161,7 @@ function FlowEditRow({
     const normTicker = (flow.underlying_ticker || '').replace(/\./g, '')
     const optTicker = `O:${normTicker}${expiry}${optType}${strikeFmt}`
     fetch(
-      `https://api.polygon.io/v3/snapshot/options/${flow.underlying_ticker}/${optTicker}?apikey=${POLYGON_KEY}`,
+      `/api/polygon/v3/snapshot/options/${flow.underlying_ticker}/${optTicker}?apikey=${POLYGON_KEY}`,
       { signal: AbortSignal.timeout(5000) }
     )
       .then((r) => (r.ok ? r.json() : null))
@@ -2173,7 +2173,7 @@ function FlowEditRow({
       })
       .catch(() => { })
     fetch(
-      `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${normTicker}?apiKey=${POLYGON_KEY}`,
+      `/api/polygon/v2/snapshot/locale/us/markets/stocks/tickers/${normTicker}?apiKey=${POLYGON_KEY}`,
       { signal: AbortSignal.timeout(5000) }
     )
       .then((r) => (r.ok ? r.json() : null))

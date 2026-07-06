@@ -155,7 +155,7 @@ async function scanDPDays(
             if (aborted) return
             const s = rthStartNs + i * winNs
             const e = rthStartNs + (i + 1) * winNs
-            const base = `https://api.polygon.io/v3/trades/${symbol}?timestamp.gte=${s}&timestamp.lte=${e}&limit=50000&apiKey=${apiKey}`
+            const base = `/api/polygon/v3/trades/${symbol}?timestamp.gte=${s}&timestamp.lte=${e}&limit=50000&apiKey=${apiKey}`
             // Fetch asc + desc so a massive block anywhere in the window isn't cut off
             const ascResult = await fetchWindow(base + '&order=asc')
             const descResult = await fetchWindow(base + '&order=desc')
@@ -199,7 +199,7 @@ export default function POIScanScreener() {
     const partialRef = useRef<POIResult[]>([])
 
     const mono: React.CSSProperties = { fontFamily: 'JetBrains Mono, monospace' }
-    const apiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+    const apiKey = '' || ''
 
     function buildDayList(): string[] {
         const days: string[] = []
@@ -221,7 +221,7 @@ export default function POIScanScreener() {
             const batch = tickers.slice(i, i + BATCH)
             try {
                 const res = await fetch(
-                    `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${batch.join(',')}&apiKey=${apiKey}`
+                    `/api/polygon/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${batch.join(',')}&apiKey=${apiKey}`
                 )
                 if (!res.ok) continue
                 const json = await res.json()

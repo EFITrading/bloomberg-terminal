@@ -29,7 +29,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 const TradingViewChart = dynamic(() => import('./trading/EFICharting'), { ssr: false })
 
 // Polygon API key for bid/ask analysis
-const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const POLYGON_API_KEY: string = ''
 
 // Function to fetch volume and open interest data for trades
 const fetchVolumeAndOpenInterest = async (
@@ -65,8 +65,8 @@ const fetchVolumeAndOpenInterest = async (
         }
         const spotTicker = SPOT_TICKER_MAP[underlying] ?? underlying
         const spotPriceUrl = spotTicker.startsWith('I:')
-          ? `https://api.polygon.io/v2/snapshot/locale/us/markets/index/tickers/${spotTicker}?apikey=${POLYGON_API_KEY}`
-          : `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${spotTicker}?apikey=${POLYGON_API_KEY}`
+          ? `/api/polygon/v2/snapshot/locale/us/markets/index/tickers/${spotTicker}?apikey=${POLYGON_API_KEY}`
+          : `/api/polygon/v2/snapshot/locale/us/markets/stocks/tickers/${spotTicker}?apikey=${POLYGON_API_KEY}`
 
         const priceResponse = await fetch(spotPriceUrl)
         if (priceResponse.ok) {
@@ -102,7 +102,7 @@ const fetchVolumeAndOpenInterest = async (
 
         // FULL PAGINATION LOGIC - Get ALL contracts for this expiration
         let nextUrl: string | null =
-          `https://api.polygon.io/v3/snapshot/options/${apiUnderlying}?expiration_date=${expiryParam}&limit=250&apikey=${POLYGON_API_KEY}`
+          `/api/polygon/v3/snapshot/options/${apiUnderlying}?expiration_date=${expiryParam}&limit=250&apikey=${POLYGON_API_KEY}`
         let totalContractsForExpiry = 0
 
         while (nextUrl && totalContractsForExpiry < 10000) {
@@ -606,7 +606,7 @@ const analyzeBidAskExecutionAdvanced = async (trades: any[]): Promise<any[]> => 
               const checkTime = new Date(tradeTime.getTime() + 1000) // 1 second AFTER trade
               const checkTimestamp = checkTime.getTime() * 1000000
 
-              const quotesUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.gte=${checkTimestamp}&limit=1&apikey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`
+              const quotesUrl = `/api/polygon/v3/quotes/${optionTicker}?timestamp.gte=${checkTimestamp}&limit=1&apikey=`
 
               const response = await fetch(quotesUrl, {
                 signal: controller.signal,
@@ -3088,22 +3088,49 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                           <button onClick={() => setBrushIndices(null)} style={{ padding: '2px 6px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, border: '1px solid rgba(255,255,255,0.4)', background: 'rgba(0,0,0,0.65)', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', borderRadius: 2 }}>RESET</button>
                         )}
                       </div>
-                      <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', pointerEvents: 'auto', background: 'rgba(0,0,0,0.45)', borderRadius: 3, padding: '1px 4px' }}>
-                        {([['detailed', 'ALL'], ['simplified', 'BULL/BEAR'], ['net', 'NET']] as const).map(([mode, lbl], idx) => (
-                          <React.Fragment key={mode}>
-                            {idx > 0 && <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 9, fontFamily: 'JetBrains Mono,monospace', padding: '0 3px', userSelect: 'none', lineHeight: 1 }}>|</span>}
-                            <button onClick={() => setChartViewMode(mode)} style={{ padding: '2px 5px 4px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, border: 'none', background: 'none', color: chartViewMode === mode ? '#ff8500' : '#ffffff', cursor: 'pointer', whiteSpace: 'nowrap', borderBottom: chartViewMode === mode ? '2px solid #ff8500' : '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>{lbl}</button>
-                          </React.Fragment>
-                        ))}
-                      </div>
+                    </div>
+                  )}
+                  {/* Mobile overlay controls — one clean row: Ticker | Timeframe | ALL | BULL/BEAR | NET */}
+                  {isMobile && (
+                    <div style={{ position: 'absolute', top: 6, left: 6, right: 6, zIndex: 10, display: 'flex', alignItems: 'center', gap: 0, background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '2px 6px', pointerEvents: 'auto' }}>
+                      {drilledTicker && (
+                        <button onClick={() => { if (!allScanCacheRef.current) return; setDrilledTicker(null); setSearchTicker('ALL'); setFlowData(allScanCacheRef.current.flowData); setAnalysis(allScanCacheRef.current.analysis) }} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, padding: '2px 5px 4px', background: 'none', border: 'none', color: '#ff8500', cursor: 'pointer', borderBottom: '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>← ALL</button>
+                      )}
+                      <span style={{ color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 900, letterSpacing: '0.1em', padding: '0 4px' }}>{analysis.ticker}</span>
+                      <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 9, fontFamily: 'JetBrains Mono,monospace', padding: '0 4px', userSelect: 'none' }}>|</span>
+                      {(() => {
+                        const sd = getScanDays(scanTimeframe)
+                        const opts = sd === 1
+                          ? [{ v: '1min' as const, label: '1MIN' }, { v: '5min' as const, label: '5MIN' }]
+                          : sd <= 5
+                            ? [{ v: '30min' as const, label: '30M' }, { v: '1hour' as const, label: '1H' }]
+                            : [{ v: '1day' as const, label: '1D' }]
+                        return opts.map(({ v, label }) => (
+                          <button key={v} onClick={() => { setTimeInterval(v); setBrushIndices(null) }}
+                            style={{ padding: '2px 5px 4px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, border: 'none', background: 'none', color: timeInterval === v ? '#ff8500' : '#ffffff', cursor: 'pointer', whiteSpace: 'nowrap', borderBottom: timeInterval === v ? '2px solid #ff8500' : '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>{label}</button>
+                        ))
+                      })()}
+                      {brushIndices && (
+                        <button onClick={() => setBrushIndices(null)} style={{ padding: '2px 5px 4px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, border: 'none', background: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', borderBottom: '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>RESET</button>
+                      )}
+                      <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 9, fontFamily: 'JetBrains Mono,monospace', padding: '0 4px', userSelect: 'none' }}>|</span>
+                      {([['detailed', 'ALL'], ['simplified', 'BULL/BEAR'], ['net', 'NET']] as const).map(([mode, lbl]) => (
+                        <button key={mode} onClick={() => setChartViewMode(mode)} style={{ padding: '2px 5px 4px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, border: 'none', background: 'none', color: chartViewMode === mode ? '#ff8500' : '#ffffff', cursor: 'pointer', whiteSpace: 'nowrap', borderBottom: chartViewMode === mode ? '2px solid #ff8500' : '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>{lbl}</button>
+                      ))}
                     </div>
                   )}
                   {/* Glossy top-edge sheen */}
                   <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 32, background: 'linear-gradient(180deg, rgba(255,255,255,0.035) 0%, transparent 100%)', pointerEvents: 'none', zIndex: 2 }} />
                   <div ref={mainChartWrapRef} style={{ height: isMobile ? (showBullBear ? 400 : 494) : (embeddedMode ? 440 : (showBullBear ? 445 : 569)), flexShrink: 0, overflow: 'hidden', borderBottom: showBullBear ? '2px solid rgba(167,139,250,0.55)' : 'none' }}>
                     <ResponsiveContainer width="100%" height="100%" debounce={16}>
-                      <ComposedChart data={chartMemo.visibleData} margin={{ top: 10, right: 0, bottom: -5, left: 30 }}>
-                        <XAxis dataKey="timeLabel" hide />
+                      <ComposedChart data={chartMemo.visibleData} margin={{ top: 10, right: 0, bottom: 0, left: 30 }}>
+                        <XAxis dataKey="timeLabel" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#ffffff', fontSize: isMobile ? 11 : 17, fontWeight: 700 }} height={isMobile ? 22 : 34} interval={Math.max(0, Math.floor(chartMemo.visibleData.length / (isMobile ? 3 : 6)) - 1)} padding={{ left: 10, right: 10 }}
+                          tickFormatter={(label: string) => {
+                            if (chartDisplayDays <= 1) return label.includes('/') ? label.replace(/^\d+\/\d+\/\d+ /, '') : label
+                            else if (chartDisplayDays <= 5) return label.replace(/\/\d{4} /, ' ')
+                            else return label.replace(/\/(\d{4}) .*/, (_, yr) => `/${yr.slice(-2)}`)
+                          }}
+                        />
                         <YAxis yAxisId="flow" orientation="right" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#ffffff', fontSize: 18, fontWeight: 'bold' }} width={82}
                           tickFormatter={(value) => {
                             const absValue = Math.abs(value)
@@ -3174,13 +3201,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                         </div>
                         <ResponsiveContainer width="100%" height={isMobile ? 70 : 100} debounce={50}>
                           <LineChart data={pcData} margin={{ top: 6, right: 0, bottom: 0, left: 30 }}>
-                            <XAxis dataKey="timeLabel" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#ffffff', fontSize: isMobile ? 13 : 17, fontWeight: 700 }} height={isMobile ? 26 : 34} interval={Math.max(0, Math.floor(pcData.length / 6) - 1)} padding={{ left: 10, right: 10 }}
-                              tickFormatter={(label: string) => {
-                                if (chartDisplayDays <= 1) return label.includes('/') ? label.replace(/^\d+\/\d+\/\d+ /, '') : label
-                                else if (chartDisplayDays <= 5) return label.replace(/\/\d{4} /, ' ')
-                                else return label.replace(/\/(\d{4}) .*/, (_, yr) => `/${yr.slice(-2)}`)
-                              }}
-                            />
+                            <XAxis dataKey="timeLabel" hide />
                             <YAxis orientation="right" stroke="#ffffff" width={82}
                               domain={[Math.max(0, parseFloat((pcMin - pcPad).toFixed(3))), parseFloat((pcMax + pcPad).toFixed(3))]}
                               ticks={(() => {
@@ -3257,13 +3278,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                                 <stop offset={zeroStop} stopColor="#ef4444" />
                               </linearGradient>
                             </defs>
-                            <XAxis dataKey="timeLabel" stroke="rgba(255,255,255,0.25)" tick={{ fill: '#ffffff', fontSize: isMobile ? 13 : 16, fontWeight: 700 }} height={isMobile ? 24 : 30} interval={Math.max(0, Math.floor(gammaLineData.length / 6) - 1)} padding={{ left: 10, right: 10 }}
-                              tickFormatter={(label: string) => {
-                                if (chartDisplayDays <= 1) return label.includes('/') ? label.replace(/^\d+\/\d+\/\d+ /, '') : label
-                                else if (chartDisplayDays <= 5) return label.replace(/\/\d{4} /, ' ')
-                                else return label.replace(/\/(\d{4}) .*/, (_: string, yr: string) => `/${yr.slice(-2)}`)
-                              }}
-                            />
+                            <XAxis dataKey="timeLabel" hide />
                             <YAxis orientation="right" stroke="#ffffff" width={82}
                               domain={[gDomMin, gDomMax]}
                               ticks={(() => {

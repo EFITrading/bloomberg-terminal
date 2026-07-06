@@ -155,7 +155,7 @@ function _processLogoQueue(apiKey: string) {
       continue
     }
     _logoActiveCount++
-    fetch(`https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${apiKey}`)
+    fetch(`/api/polygon/v3/reference/tickers/${ticker}?apiKey=${apiKey}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         const url = data?.results?.branding?.icon_url || data?.results?.branding?.logo_url || null
@@ -227,7 +227,7 @@ const CompanyLogo: React.FC<{ ticker: string; size?: number; className?: string;
   const [logoUrl, setLogoUrl] = React.useState<string | null>(
     _logoCache[ticker] !== undefined ? _logoCache[ticker] : null
   )
-  const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+  const POLYGON_KEY = '' || ''
 
   React.useEffect(() => {
     if (!ticker || !POLYGON_KEY) return
@@ -548,7 +548,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
   const historicalFetchedRef = useRef(false)
   const [generalArticles, setGeneralArticles] = useState<NewsArticle[]>([])
 
-  const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+  const POLYGON_KEY = '' || ''
 
   // ── Calendar search bar ───────────────────────────────────────────────────
   const [calSearchInput, setCalSearchInput] = useState('')
@@ -589,7 +589,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
       // 1. Snapshot (price, change)
       let price: number | null = null, change: number | null = null, changePct: number | null = null
       try {
-        const snapUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${upper}?apikey=${POLYGON_KEY}`
+        const snapUrl = `/api/polygon/v2/snapshot/locale/us/markets/stocks/tickers/${upper}?apikey=${POLYGON_KEY}`
         const snapRes = await fetch(snapUrl)
         const snapJson = await snapRes.json()
         const t = snapJson?.ticker
@@ -617,7 +617,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
       let name = upper
       let mcap: number | null = null
       try {
-        const detUrl = `https://api.polygon.io/v3/reference/tickers/${upper}?apikey=${POLYGON_KEY}`
+        const detUrl = `/api/polygon/v3/reference/tickers/${upper}?apikey=${POLYGON_KEY}`
         const detRes = await fetch(detUrl)
         const detJson = await detRes.json()
         name = detJson?.results?.name || upper
@@ -860,7 +860,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
 
       // 1. Get current stock price — lastTrade.p is live, day.c is session close, prevDay.c is fallback
       const priceRes = await fetch(
-        `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apikey=${POLYGON_KEY}`
+        `/api/polygon/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apikey=${POLYGON_KEY}`
       )
       if (!priceRes.ok) { return }
       const priceData = await priceRes.json()
@@ -872,7 +872,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
 
       // 2. Get contracts for the Friday expiry (with fallback) — same as ChainPanel fetchOptionsChain
       const contractsRes = await fetch(
-        `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date=${fridayStr}&limit=500&apikey=${POLYGON_KEY}`
+        `/api/polygon/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date=${fridayStr}&limit=500&apikey=${POLYGON_KEY}`
       )
       if (!contractsRes.ok) { return }
       const contractsData = await contractsRes.json()
@@ -881,14 +881,14 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
       let usedExpiry = fridayStr
       if (results.length === 0) {
         const refRes = await fetch(
-          `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date.gte=${fridayStr}&limit=50&apikey=${POLYGON_KEY}`
+          `/api/polygon/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date.gte=${fridayStr}&limit=50&apikey=${POLYGON_KEY}`
         )
         if (!refRes.ok) { return }
         const refData = await refRes.json()
         if (!refData?.results?.length) { return }
         usedExpiry = refData.results[0].expiration_date
         const fallbackRes = await fetch(
-          `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date=${usedExpiry}&limit=500&apikey=${POLYGON_KEY}`
+          `/api/polygon/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date=${usedExpiry}&limit=500&apikey=${POLYGON_KEY}`
         )
         if (!fallbackRes.ok) { return }
         const fallbackData = await fallbackRes.json()
@@ -916,7 +916,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         await Promise.all(batch.map(async (opt: any) => {
           try {
             const snap = await fetch(
-              `https://api.polygon.io/v3/snapshot/options/${ticker}/${opt.ticker}?apikey=${POLYGON_KEY}`
+              `/api/polygon/v3/snapshot/options/${ticker}/${opt.ticker}?apikey=${POLYGON_KEY}`
             )
             const snapData = await snap.json()
             const iv: number = snapData?.results?.implied_volatility ?? 0
@@ -1012,7 +1012,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         startDate.setDate(startDate.getDate() - 10)
         const startDateStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`
 
-        const dailyUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${startDateStr}/${todayStr}?adjusted=true&sort=desc&limit=3&apiKey=${POLYGON_KEY}`
+        const dailyUrl = `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${startDateStr}/${todayStr}?adjusted=true&sort=desc&limit=3&apiKey=${POLYGON_KEY}`
         const dailyRes = await fetch(dailyUrl)
         if (!dailyRes.ok) {
           setMoverCharts((prev) => ({ ...prev, [ticker]: [] }))
@@ -1031,7 +1031,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         const lastDayStr = `${lastDay.getUTCFullYear()}-${String(lastDay.getUTCMonth() + 1).padStart(2, '0')}-${String(lastDay.getUTCDate()).padStart(2, '0')}`
 
         // Step 2: 1-minute intraday bars for last trading day
-        const intradayUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/minute/${lastDayStr}/${lastDayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_KEY}`
+        const intradayUrl = `/api/polygon/v2/aggs/ticker/${ticker}/range/1/minute/${lastDayStr}/${lastDayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_KEY}`
         const intradayRes = await fetch(intradayUrl)
         if (!intradayRes.ok) {
           setMoverCharts((prev) => ({ ...prev, [ticker]: [] }))

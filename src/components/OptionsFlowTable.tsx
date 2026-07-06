@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { TbStar, TbStarFilled, TbPencil } from 'react-icons/tb'
 import * as XLSX from 'xlsx'
@@ -20,7 +20,7 @@ import { useOptionsFlowTableMobile } from './useOptionsFlowTableMobile'
 
 // Polygon API key for bid/ask analysis
 
-const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const POLYGON_API_KEY: string = ''
 
 // Helper function to normalize ticker for options contracts
 
@@ -1210,7 +1210,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
           const TICKER_RESTORE_MAP: Record<string, string> = { BRKB: 'BRK.B', BRKA: 'BRK.A' }
           const polygonTicker = TICKER_RESTORE_MAP[ticker] ?? ticker
           const response = await fetch(
-            `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${polygonTicker}?apikey=${POLYGON_API_KEY}`,
+            `/api/polygon/v2/snapshot/locale/us/markets/stocks/tickers/${polygonTicker}?apikey=${POLYGON_API_KEY}`,
 
             {
               method: 'GET',
@@ -1325,14 +1325,14 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     const tickers = [...new Set(data.map((t) => t.underlying_ticker))]
     const missing = tickers.filter((t) => !historicalStdDevs.has(t))
     if (missing.length === 0) return
-    const STDDEV_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+    const STDDEV_API_KEY: string = ''
     missing.forEach(async (ticker, idx) => {
       await new Promise((r) => setTimeout(r, idx * 100))
       try {
         const end = new Date().toISOString().split('T')[0]
         const start = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
         const res = await fetch(
-          `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${start}/${end}?adjusted=true&sort=asc&limit=30&apiKey=${STDDEV_API_KEY}`,
+          `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${start}/${end}?adjusted=true&sort=asc&limit=30&apiKey=${STDDEV_API_KEY}`,
           { signal: AbortSignal.timeout(8000) }
         )
         if (res.ok) {
@@ -1440,7 +1440,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   // Fetch current option prices for position tracking (only when EFI Highlights is ON)
 
   const fetchCurrentOptionPrices = async (trades: OptionsFlowData[]) => {
-    const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+    const POLYGON_API_KEY: string = ''
 
     const pricesUpdate: Record<string, number> = {}
 
@@ -1499,7 +1499,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
               const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
 
-              const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`
+              const snapshotUrl = `/api/polygon/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`
 
               const response = await fetch(snapshotUrl, {
                 signal: AbortSignal.timeout(5000),
@@ -1526,7 +1526,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
                 const formattedExpiry = expiryDate.toISOString().split('T')[0]
 
-                const historicalUrl = `https://api.polygon.io/v2/aggs/ticker/${optionTicker}/range/1/day/${formattedExpiry}/${formattedExpiry}?apikey=${POLYGON_API_KEY}`
+                const historicalUrl = `/api/polygon/v2/aggs/ticker/${optionTicker}/range/1/day/${formattedExpiry}/${formattedExpiry}?apikey=${POLYGON_API_KEY}`
 
                 const histResponse = await fetch(historicalUrl, {
                   signal: AbortSignal.timeout(5000),
@@ -1589,7 +1589,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     ticker: string,
     timeframe: '1D' | '1W' | '1M'
   ) => {
-    const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+    const POLYGON_API_KEY: string = ''
 
     try {
       let multiplier = 5
@@ -1618,7 +1618,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
         from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       }
 
-      const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
+      const url = `/api/polygon/v2/aggs/ticker/${ticker}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
 
       const response = await fetch(url)
 
@@ -1647,7 +1647,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     trade: OptionsFlowData,
     timeframe: '1D' | '1W' | '1M'
   ) => {
-    const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+    const POLYGON_API_KEY: string = ''
 
     try {
       const expiry = trade.expiry.replace(/-/g, '').slice(2)
@@ -1686,7 +1686,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
         from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       }
 
-      const url = `https://api.polygon.io/v2/aggs/ticker/${optionTicker}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
+      const url = `/api/polygon/v2/aggs/ticker/${optionTicker}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
 
       const response = await fetch(url)
 
@@ -1711,7 +1711,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   // Fetch stock chart data for mini charts
 
   const fetchStockChartData = async (tickers: string[]) => {
-    const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+    const POLYGON_API_KEY: string = ''
 
     const chartData: Record<string, { price: number; timestamp: number }[]> = {}
     for (const ticker of tickers) {
@@ -1742,7 +1742,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
           from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // 30 days ago
         }
 
-        const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
+        const url = `/api/polygon/v2/aggs/ticker/${ticker}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
 
         const response = await fetch(url)
 
@@ -1770,7 +1770,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   // Fetch options premium data for mini charts
 
   const fetchOptionsPremiumData = async (trades: OptionsFlowData[]) => {
-    const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+    const POLYGON_API_KEY: string = ''
 
     const premiumData: Record<string, { price: number; timestamp: number }[]> = {}
     for (const trade of trades) {
@@ -1811,7 +1811,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
           from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // 30 days ago
         }
 
-        const url = `https://api.polygon.io/v2/aggs/ticker/${optionTicker}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
+        const url = `/api/polygon/v2/aggs/ticker/${optionTicker}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
 
         const response = await fetch(url)
 
@@ -1848,7 +1848,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
       const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
-      const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
+      const url = `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
 
       const response = await fetch(url, {
         signal: AbortSignal.timeout(8000), // 8 second timeout
@@ -1935,9 +1935,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
             // Fetch stock data
 
-            const stockUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
+            const stockUrl = `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
 
-            const spyUrl = `https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
+            const spyUrl = `/api/polygon/v2/aggs/ticker/SPY/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
 
             const [stockRes, spyRes] = await Promise.all([
               fetch(stockUrl, { signal: AbortSignal.timeout(5000) }),
@@ -2030,7 +2030,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     let spyResults: Array<{ c: number }> = []
     try {
       const spyRes = await fetch(
-        `https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`,
+        `/api/polygon/v2/aggs/ticker/SPY/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`,
         { signal: AbortSignal.timeout(8000) }
       )
       const spyData = await spyRes.json()
@@ -2060,7 +2060,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
           await new Promise((resolve) => setTimeout(resolve, idx * 50))
           try {
             const stockRes = await fetch(
-              `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`,
+              `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`,
               { signal: AbortSignal.timeout(8000) }
             )
             if (!stockRes.ok) return
@@ -2098,7 +2098,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
           try {
             const endDate = new Date().toISOString().split('T')[0]
             const startDate = new Date(Date.now() - 366 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-            const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&limit=400&apiKey=${POLYGON_API_KEY}`
+            const url = `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&limit=400&apiKey=${POLYGON_API_KEY}`
             const resp = await fetch(url, { signal: AbortSignal.timeout(10000) })
             if (!resp.ok) return
             const data = await resp.json()
@@ -2141,7 +2141,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
           try {
             const endDate = new Date().toISOString().split('T')[0]
             const startDate = new Date(Date.now() - 15 * 365.25 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-            const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&limit=5000&apiKey=${POLYGON_API_KEY}`
+            const url = `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&limit=5000&apiKey=${POLYGON_API_KEY}`
             const resp = await fetch(url, { signal: AbortSignal.timeout(15000) })
             if (!resp.ok) return
             const json = await resp.json()

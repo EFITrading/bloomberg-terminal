@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from 'framer-motion'
+﻿import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity,
   AlertCircle,
@@ -2063,7 +2063,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
 
   // tradeModeOnly auto-fetch is triggered in a useEffect placed after fetchODTRIOData is defined
 
-  const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+  const POLYGON_API_KEY = '' || ''
 
   // Calculate number of active tables and update parent container width
   const activeTableCount = [showGEX, showDealer, showFlowGEX, showGexMap].filter(Boolean).length
@@ -2310,7 +2310,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
 
             try {
               let pageUrl: string | null =
-                `https://api.polygon.io/v3/snapshot/options/${tickerToScan}?expiration_date=${expiryParam}&limit=250&apiKey=${POLYGON_API_KEY}`
+                `/api/polygon/v3/snapshot/options/${tickerToScan}?expiration_date=${expiryParam}&limit=250&apiKey=${POLYGON_API_KEY}`
               let totalForExpiry = 0
               while (pageUrl) {
                 const response: Response = await fetch(pageUrl)
@@ -2704,7 +2704,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
       const allContracts = new Map()
 
       try {
-        const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${ticker}?expiration_date=${expiryParam}&limit=250&apiKey=${POLYGON_API_KEY}`
+        const snapshotUrl = `/api/polygon/v3/snapshot/options/${ticker}?expiration_date=${expiryParam}&limit=250&apiKey=${POLYGON_API_KEY}`
         const response = await fetch(snapshotUrl)
 
         if (response.ok) {
@@ -4504,12 +4504,12 @@ const GexPanel: React.FC<GexPanelProps> = ({
 
     const recalculateHistoricalGEX = async () => {
       try {
-        const apiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+        const apiKey = '' || ''
 
         // Fetch ALL options contracts (increase limit to get all expirations)
         const allContracts: any[] = []
         let nextUrl: string | null =
-          `https://api.polygon.io/v3/snapshot/options/${selectedTicker}?limit=250&apikey=${apiKey}`
+          `/api/polygon/v3/snapshot/options/${selectedTicker}?limit=250&apikey=${apiKey}`
 
         // Paginate to get all contracts
         while (nextUrl && allContracts.length < 5000) {

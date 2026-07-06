@@ -283,7 +283,7 @@ export class OptionsFlowService {
     const { ParallelOptionsFlowProcessor } = require('./ParallelOptionsFlowProcessor.js')
     const parallelProcessor = new ParallelOptionsFlowProcessor()
 
-    const apiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY
+    const apiKey = ''
     if (!apiKey) {
       console.error('[ERROR] No API key found')
       return []
@@ -737,7 +737,7 @@ export class OptionsFlowService {
   }
 
   private async fetchOptionsSnapshot(ticker: string): Promise<ProcessedTrade[]> {
-    const url = `https://api.polygon.io/v3/snapshot/options/${ticker}?apikey=${this.polygonApiKey}`
+    const url = `/api/polygon/v3/snapshot/options/${ticker}?apikey=${this.polygonApiKey}`
 
     console.log(
       `[SNAP] SNAPSHOT REQUEST for ${ticker}: ${url.replace(this.polygonApiKey, 'API_KEY_HIDDEN')}`
@@ -845,7 +845,7 @@ export class OptionsFlowService {
 
       // Convert milliseconds to nanoseconds properly (multiply by 1,000,000)
       const nanosecondTimestamp = marketOpenTimestamp * 1000000
-      const url = `https://api.polygon.io/v3/trades/${optionTicker}?timestamp.gte=${nanosecondTimestamp}&apikey=${this.polygonApiKey}`
+      const url = `/api/polygon/v3/trades/${optionTicker}?timestamp.gte=${nanosecondTimestamp}&apikey=${this.polygonApiKey}`
 
       console.log(
         `[FETCH] Fetching ${optionTicker} trades from market open: ${marketOpenDate.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PST`
@@ -1585,7 +1585,7 @@ export class OptionsFlowService {
         return []
       }
 
-      const url = `https://api.polygon.io/v3/snapshot/options/${ticker}?apikey=${this.polygonApiKey}`
+      const url = `/api/polygon/v3/snapshot/options/${ticker}?apikey=${this.polygonApiKey}`
       const response = await this.robustFetch(url)
       const data = await response.json()
 
@@ -1702,7 +1702,7 @@ export class OptionsFlowService {
       const todayDateStr = todayStart.toISOString().split('T')[0] // YYYY-MM-DD format
 
       // Get options chains with proper API limits
-      const chainUrl = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&limit=1000&apikey=${this.polygonApiKey}`
+      const chainUrl = `/api/polygon/v3/reference/options/contracts?underlying_ticker=${ticker}&limit=1000&apikey=${this.polygonApiKey}`
 
       console.log(`[CHAIN] Fetching options chain for ${ticker}...`)
       const chainResponse = await fetch(chainUrl)
@@ -1731,7 +1731,7 @@ export class OptionsFlowService {
       for (const contract of allContracts) {
         try {
           // Use trades endpoint with TODAY's timestamp filter
-          const tradesUrl = `https://api.polygon.io/v3/trades/${contract.ticker}?timestamp.gte=${marketOpenTimestamp * 1000000}&apikey=${this.polygonApiKey}`
+          const tradesUrl = `/api/polygon/v3/trades/${contract.ticker}?timestamp.gte=${marketOpenTimestamp * 1000000}&apikey=${this.polygonApiKey}`
 
           const tradesResponse = await fetch(tradesUrl)
           const tradesData = await tradesResponse.json()
@@ -1878,7 +1878,7 @@ export class OptionsFlowService {
 
       const oneYearStr = oneYearFromNow.toISOString().split('T')[0]
 
-      const contractsUrl = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&expired=false&expiration_date.gte=${todayStr}&expiration_date.lte=${oneYearStr}&apikey=${this.polygonApiKey}`
+      const contractsUrl = `/api/polygon/v3/reference/options/contracts?underlying_ticker=${ticker}&expired=false&expiration_date.gte=${todayStr}&expiration_date.lte=${oneYearStr}&apikey=${this.polygonApiKey}`
       console.log(`[TIME] Scanning contracts from ${todayStr} to ${oneYearStr}`)
       const contractsResponse = await fetch(contractsUrl)
 
@@ -1925,7 +1925,7 @@ export class OptionsFlowService {
 
   private async getCurrentStockPrice(ticker: string): Promise<number> {
     try {
-      const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apikey=${this.polygonApiKey}`
+      const url = `/api/polygon/v2/aggs/ticker/${ticker}/prev?adjusted=true&apikey=${this.polygonApiKey}`
       console.log(`[PRICE] Fetching current price for ${ticker}...`)
 
       const response = await this.robustFetch(url, 3) // Use robust fetch with 3 retries
@@ -1987,7 +1987,7 @@ export class OptionsFlowService {
       const dateStr = tradeDate.toISOString().split('T')[0] // YYYY-MM-DD format
 
       // Get minute-level data for the trade date
-      const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/minute/${dateStr}/${dateStr}?adjusted=true&sort=asc&apikey=${this.polygonApiKey}`
+      const url = `/api/polygon/v2/aggs/ticker/${ticker}/range/1/minute/${dateStr}/${dateStr}?adjusted=true&sort=asc&apikey=${this.polygonApiKey}`
       const response = await fetch(url)
       const data = await response.json()
 
@@ -2152,7 +2152,7 @@ export class OptionsFlowService {
   private async performSweepScan(ticker: string): Promise<ProcessedTrade[]> {
     try {
       // Get stock price first
-      const stockUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apikey=${this.polygonApiKey}`
+      const stockUrl = `/api/polygon/v2/aggs/ticker/${ticker}/prev?adjusted=true&apikey=${this.polygonApiKey}`
       const stockResponse = await fetch(stockUrl)
       const stockData = await stockResponse.json()
       const stockPrice = stockData.results?.[0]?.c || 50
@@ -2570,7 +2570,7 @@ export class OptionsFlowService {
                 const optionTicker = `O:${ticker}${expiry}${optionType}${strikeFormatted}`
 
                 // Direct contract snapshot - gets Vol/OI/Greeks/Bid/Ask in ONE call
-                const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${ticker}/${optionTicker}?apikey=${this.polygonApiKey}`
+                const snapshotUrl = `/api/polygon/v3/snapshot/options/${ticker}/${optionTicker}?apikey=${this.polygonApiKey}`
                 const response = await this.robustFetch(snapshotUrl, 3000)
                 const data = await response.json()
 
@@ -2669,7 +2669,7 @@ export class OptionsFlowService {
       async ([ticker, tickerTrades]) => {
         try {
           // ONE snapshot call gets ALL enrichment data for this ticker
-          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${ticker}?apikey=${this.polygonApiKey}`
+          const snapshotUrl = `/api/polygon/v3/snapshot/options/${ticker}?apikey=${this.polygonApiKey}`
           const response = await this.robustFetch(snapshotUrl)
           const snapshotData = await response.json()
 
@@ -2774,7 +2774,7 @@ export class OptionsFlowService {
 
     try {
       // Step 1: Get snapshot data for ALL contracts in ONE API call (Vol/OI/Greeks/Bid-Ask)
-      const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${ticker}?apikey=${this.polygonApiKey}`
+      const snapshotUrl = `/api/polygon/v3/snapshot/options/${ticker}?apikey=${this.polygonApiKey}`
       const snapshotResponse = await this.robustFetch(snapshotUrl)
       const snapshotData = await snapshotResponse.json()
 
@@ -2811,7 +2811,7 @@ export class OptionsFlowService {
           await new Promise((resolve) => setTimeout(resolve, index * 20))
 
           const timestampNanos = marketOpenTimestamp * 1000000
-          const tradesUrl = `https://api.polygon.io/v3/trades/${contract.ticker}?timestamp.gte=${timestampNanos}&limit=1000&apikey=${this.polygonApiKey}`
+          const tradesUrl = `/api/polygon/v3/trades/${contract.ticker}?timestamp.gte=${timestampNanos}&limit=1000&apikey=${this.polygonApiKey}`
 
           const tradesResponse = await this.robustFetch(tradesUrl)
           const tradesData = await tradesResponse.json()
@@ -2988,7 +2988,7 @@ export class OptionsFlowService {
     timestampNs: number
   ): Promise<{ bid: number; ask: number } | null> {
     try {
-      const url = `https://api.polygon.io/v3/quotes/${encodeURIComponent(optionTicker)}?timestamp.lte=${timestampNs}&order=desc&limit=1&apikey=${this.polygonApiKey}`
+      const url = `/api/polygon/v3/quotes/${encodeURIComponent(optionTicker)}?timestamp.lte=${timestampNs}&order=desc&limit=1&apikey=${this.polygonApiKey}`
       const res = await fetch(url)
       if (!res.ok) return null
       const data = await res.json()
@@ -3092,8 +3092,8 @@ export class OptionsFlowService {
     do {
       pageCount++
       const url = cursor
-        ? `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&limit=1000&cursor=${cursor}&apikey=${this.polygonApiKey}`
-        : `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${ticker}&limit=1000&apikey=${this.polygonApiKey}`
+        ? `/api/polygon/v3/reference/options/contracts?underlying_ticker=${ticker}&limit=1000&cursor=${cursor}&apikey=${this.polygonApiKey}`
+        : `/api/polygon/v3/reference/options/contracts?underlying_ticker=${ticker}&limit=1000&apikey=${this.polygonApiKey}`
 
       try {
         const response = await this.robustFetch(url)
@@ -3159,7 +3159,7 @@ export class OptionsFlowService {
 
       try {
         // Use bulk snapshot API to get all contract data in one call with ROBUST retry logic
-        const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${ticker}?apikey=${this.polygonApiKey}`
+        const snapshotUrl = `/api/polygon/v3/snapshot/options/${ticker}?apikey=${this.polygonApiKey}`
         const snapshotResponse = await this.robustFetch(snapshotUrl, 3) // Use robustFetch with 3 retries
 
         if (!snapshotResponse.ok) {
@@ -3278,8 +3278,8 @@ export class OptionsFlowService {
               // STEP 1: Get snapshot for volume/OI (current is fine for these)
               const snapshotUrl =
                 trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX'
-                  ? `https://api.polygon.io/v3/snapshot/options/I:${trade.underlying_ticker}?limit=250&apiKey=${this.polygonApiKey}`
-                  : `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apiKey=${this.polygonApiKey}`
+                  ? `/api/polygon/v3/snapshot/options/I:${trade.underlying_ticker}?limit=250&apiKey=${this.polygonApiKey}`
+                  : `/api/polygon/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apiKey=${this.polygonApiKey}`
 
               const response = await fetch(snapshotUrl)
               if (!response.ok) {
@@ -3319,7 +3319,7 @@ export class OptionsFlowService {
                 const tradeTimestampNano = tradeDate.getTime() * 1000000 // Convert ms to nanoseconds
 
                 try {
-                  const quoteUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${tradeTimestampNano}&limit=1&order=desc&apiKey=${this.polygonApiKey}`
+                  const quoteUrl = `/api/polygon/v3/quotes/${optionTicker}?timestamp.lte=${tradeTimestampNano}&limit=1&order=desc&apiKey=${this.polygonApiKey}`
                   const quoteResponse = await fetch(quoteUrl)
 
                   if (quoteResponse.ok) {
@@ -3426,7 +3426,7 @@ export class OptionsFlowService {
                 const date = trade.trading_date // YYYY-MM-DD format
 
                 // Fetch daily aggregate for volume
-                const aggUrl = `https://api.polygon.io/v2/aggs/ticker/${optionTicker}/range/1/day/${date}/${date}?adjusted=true&sort=asc&apiKey=${this.polygonApiKey}`
+                const aggUrl = `/api/polygon/v2/aggs/ticker/${optionTicker}/range/1/day/${date}/${date}?adjusted=true&sort=asc&apiKey=${this.polygonApiKey}`
                 const aggResponse = await fetch(aggUrl)
 
                 if (aggResponse.ok) {
@@ -3441,8 +3441,8 @@ export class OptionsFlowService {
               // Use snapshot endpoint - VIX/SPX weeklies need different format
               const snapshotUrl =
                 trade.underlying_ticker === 'VIX' || trade.underlying_ticker === 'SPX'
-                  ? `https://api.polygon.io/v3/snapshot/options/I:${trade.underlying_ticker}?limit=250&apikey=${this.polygonApiKey}`
-                  : `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apiKey=${this.polygonApiKey}`
+                  ? `/api/polygon/v3/snapshot/options/I:${trade.underlying_ticker}?limit=250&apikey=${this.polygonApiKey}`
+                  : `/api/polygon/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apiKey=${this.polygonApiKey}`
 
               const snapResponse = await fetch(snapshotUrl)
 
@@ -3481,7 +3481,7 @@ export class OptionsFlowService {
                 const tradeTimestampNano = tradeDate.getTime() * 1000000 // Convert ms to nanoseconds
 
                 try {
-                  const quoteUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${tradeTimestampNano}&limit=1&order=desc&apiKey=${this.polygonApiKey}`
+                  const quoteUrl = `/api/polygon/v3/quotes/${optionTicker}?timestamp.lte=${tradeTimestampNano}&limit=1&order=desc&apiKey=${this.polygonApiKey}`
                   const quoteResponse = await fetch(quoteUrl)
 
                   if (quoteResponse.ok) {

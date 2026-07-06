@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -785,7 +785,7 @@ const RRGScreener: React.FC<RRGScreenerProps> = ({
 
       // For 1D intraday, we need to fetch separately (daily data won't work)
       if (chartTimeframe === '1D') {
-        const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+        const POLYGON_API_KEY = '' || ''
         const now = new Date()
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
         const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
@@ -793,7 +793,7 @@ const RRGScreener: React.FC<RRGScreenerProps> = ({
         // First, fetch SPY data for benchmarking
         let spyData: Array<{ time: number; price: number }> = []
         try {
-          const spyUrl = `https://api.polygon.io/v2/aggs/ticker/${benchmark}/range/1/minute/${todayStr}/${todayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
+          const spyUrl = `/api/polygon/v2/aggs/ticker/${benchmark}/range/1/minute/${todayStr}/${todayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
           const spyResponse = await fetch(spyUrl)
           const spyJson = await spyResponse.json()
           if (spyJson.results && spyJson.results.length > 0) {
@@ -809,7 +809,7 @@ const RRGScreener: React.FC<RRGScreenerProps> = ({
           const batch = filteredData.slice(i, i + BATCH_SIZE)
           const batchPromises = batch.map(async (item) => {
             try {
-              const dataUrl = `https://api.polygon.io/v2/aggs/ticker/${item.symbol}/range/1/minute/${todayStr}/${todayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
+              const dataUrl = `/api/polygon/v2/aggs/ticker/${item.symbol}/range/1/minute/${todayStr}/${todayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
               const response = await fetch(dataUrl)
               const data = await response.json()
 
@@ -860,7 +860,7 @@ const RRGScreener: React.FC<RRGScreenerProps> = ({
         }
       } else {
         // For all other timeframes, we need to fetch daily data for proper sparklines
-        const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+        const POLYGON_API_KEY = '' || ''
         const now = new Date()
         let daysBack = 5
         const multiplier = 1
@@ -894,7 +894,7 @@ const RRGScreener: React.FC<RRGScreenerProps> = ({
         // First, fetch benchmark data
         let benchmarkData: Array<{ time: number; price: number }> = []
         try {
-          const benchmarkUrl = `https://api.polygon.io/v2/aggs/ticker/${benchmark}/range/${multiplier}/${timespan}/${startStr}/${endStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
+          const benchmarkUrl = `/api/polygon/v2/aggs/ticker/${benchmark}/range/${multiplier}/${timespan}/${startStr}/${endStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
           const benchmarkResponse = await fetch(benchmarkUrl)
           const benchmarkJson = await benchmarkResponse.json()
           if (benchmarkJson.results && benchmarkJson.results.length > 0) {
@@ -910,7 +910,7 @@ const RRGScreener: React.FC<RRGScreenerProps> = ({
           const batch = filteredData.slice(i, i + BATCH_SIZE)
           const batchPromises = batch.map(async (item) => {
             try {
-              const dataUrl = `https://api.polygon.io/v2/aggs/ticker/${item.symbol}/range/${multiplier}/${timespan}/${startStr}/${endStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
+              const dataUrl = `/api/polygon/v2/aggs/ticker/${item.symbol}/range/${multiplier}/${timespan}/${startStr}/${endStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
               const response = await fetch(dataUrl)
               const data = await response.json()
 

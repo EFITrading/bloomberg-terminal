@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const API_KEY = process.env.POLYGON_API_KEY || process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const API_KEY = process.env.POLYGON_API_KEY!
 
 // Format Polygon option ticker: e.g. O:AAPL260515C00150000
 function formatOptionTicker(
@@ -75,7 +75,7 @@ async function fetchAvailableStrikes(
         return strikes
       }
     }
-  } catch {}
+  } catch { }
 
   // Expired expiry — synthesize strikes from standard spacings around stock price
   if (priceHint > 0) {

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import React, { useCallback, useEffect, useRef, useState, startTransition } from 'react'
 
@@ -215,7 +215,7 @@ async function fetchNearestRealExpiry(
       ? toLocalDateStr(new Date(Date.now() + 86_400_000)) // tomorrow
       : earliest
     const url =
-      `https://api.polygon.io/v3/reference/options/contracts` +
+      `/api/polygon/v3/reference/options/contracts` +
       `?underlying_ticker=${symbol}&contract_type=call` +
       `&expiration_date.gte=${fromDate}&expiration_date.lte=${windowEnd}` +
       `&order=asc&sort=expiration_date&limit=20&apiKey=${apiKey}`
@@ -253,7 +253,7 @@ async function fetchRealStraddlePrices(
     const callHi = (currentPrice * 1.45).toFixed(2)
     const putLo = (currentPrice * 0.65).toFixed(2)
     const putHi = (currentPrice * 1.02).toFixed(2)
-    const base = `https://api.polygon.io/v3/snapshot/options/${encodeURIComponent(symbol)}`
+    const base = `/api/polygon/v3/snapshot/options/${encodeURIComponent(symbol)}`
     const [callRes, putRes] = await Promise.all([
       fetch(`${base}?expiration_date=${expiration}&contract_type=call&strike_price.gte=${callLo}&strike_price.lte=${callHi}&order=asc&sort=strike_price&limit=50&apiKey=${apiKey}`, { cache: 'no-store' }),
       fetch(`${base}?expiration_date=${expiration}&contract_type=put&strike_price.gte=${putLo}&strike_price.lte=${putHi}&order=asc&sort=strike_price&limit=50&apiKey=${apiKey}`, { cache: 'no-store' }),
@@ -722,7 +722,7 @@ async function fetchOHLCV(
     from.setDate(from.getDate() - calDays)
     const fromDate = from.toISOString().split('T')[0]
     const res = await fetch(
-      `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${fromDate}/${toDate}?adjusted=true&sort=asc&limit=${limit}&apiKey=${apiKey}`,
+      `/api/polygon/v2/aggs/ticker/${symbol}/range/1/day/${fromDate}/${toDate}?adjusted=true&sort=asc&limit=${limit}&apiKey=${apiKey}`,
       { signal }
     )
     if (!res.ok) return null
@@ -901,7 +901,7 @@ async function scanDPDays(
           if (aborted) return { prints: [] as DPPrint[], windowNotional: 0 }
           const s = rthStartNs + i * winNs
           const e = rthStartNs + (i + 1) * winNs
-          const base = `https://api.polygon.io/v3/trades/${symbol}?timestamp.gte=${s}&timestamp.lte=${e}&limit=50000&apiKey=${apiKey}`
+          const base = `/api/polygon/v3/trades/${symbol}?timestamp.gte=${s}&timestamp.lte=${e}&limit=50000&apiKey=${apiKey}`
           const [ascResult, descResult] = await Promise.all([
             fetchWindowStreaming(base + '&order=asc'),
             fetchWindowStreaming(base + '&order=desc'),
@@ -1909,7 +1909,7 @@ function ResultsTable({
     setExpiryBySymbol(prev => { const m = new Map(prev); m.set(r.symbol, newExpiry); return m })
     setExpiryLoadingSet(prev => { const s = new Set(prev); s.add(r.symbol); return s })
     try {
-      const apiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY ?? ''
+      const apiKey = '' ?? ''
       const trade = buildStraddleTrade(r.bars, r.symbol, r.compressionPct, 'gray', newExpiry)
       const real = await fetchRealStraddlePrices(r.symbol, newExpiry, trade.callStrike, trade.putStrike, r.currentPrice, apiKey)
       const patched = real ? patchTradeWithRealPrices(trade, real) : trade
@@ -2334,7 +2334,7 @@ const _straddleHeapMB = () => {
 // ── Main Component ─────────────────────────────────────────────────────────────
 export default function StraddleTownScreener({ autoRun = false }: { autoRun?: boolean }) {
   const mono: React.CSSProperties = { fontFamily: 'JetBrains Mono, monospace' }
-  const API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY ?? ''
+  const API_KEY = '' ?? ''
   const abortRef = useRef<AbortController | null>(null)
 
 

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useChainCalculatorMobile } from './useChainCalculatorMobile'
@@ -336,9 +336,9 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
     setError(null)
 
     try {
-      const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+      const POLYGON_API_KEY = '' || ''
 
-      const priceUrl = `https://api.polygon.io/v2/last/trade/${upperSymbol}?apikey=${POLYGON_API_KEY}`
+      const priceUrl = `/api/polygon/v2/last/trade/${upperSymbol}?apikey=${POLYGON_API_KEY}`
       const priceResponse = await fetch(priceUrl)
 
       if (!priceResponse.ok) {
@@ -359,7 +359,7 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
 
       setCurrentPrice(currentStockPrice)
 
-      const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${upperSymbol}?apikey=${POLYGON_API_KEY}`
+      const snapshotUrl = `/api/polygon/v3/snapshot/options/${upperSymbol}?apikey=${POLYGON_API_KEY}`
       const snapshotResponse = await fetch(snapshotUrl)
 
       if (!snapshotResponse.ok) {
@@ -384,7 +384,7 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
       const allContracts: any[] = []
       const today = new Date().toISOString().split('T')[0]
       let nextUrl: string | null =
-        `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${upperSymbol}&active=true&expiration_date.gte=${today}&limit=1000&apikey=${POLYGON_API_KEY}`
+        `/api/polygon/v3/reference/options/contracts?underlying_ticker=${upperSymbol}&active=true&expiration_date.gte=${today}&limit=1000&apikey=${POLYGON_API_KEY}`
       let pageCount = 0
 
       while (nextUrl && pageCount < 50) {
@@ -494,10 +494,10 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
   }, [])
 
   const fetchSpecificOptionPricing = async (ticker: string): Promise<any> => {
-    const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+    const POLYGON_API_KEY = '' || ''
 
     try {
-      const quotesUrl = `https://api.polygon.io/v3/quotes/${ticker}?order=desc&limit=1&apikey=${POLYGON_API_KEY}`
+      const quotesUrl = `/api/polygon/v3/quotes/${ticker}?order=desc&limit=1&apikey=${POLYGON_API_KEY}`
 
       const quotesResponse = await fetch(quotesUrl)
       const quotesData = await quotesResponse.json()
@@ -517,7 +517,7 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
           volume: quote.ask_size || 0,
         }
       } else {
-        const tradesUrl = `https://api.polygon.io/v3/trades/${ticker}?order=desc&limit=1&apikey=${POLYGON_API_KEY}`
+        const tradesUrl = `/api/polygon/v3/trades/${ticker}?order=desc&limit=1&apikey=${POLYGON_API_KEY}`
 
         const tradesResponse = await fetch(tradesUrl)
         const tradesData = await tradesResponse.json()
@@ -579,7 +579,7 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
       const key = `${strike}-${expiration}-${optionType}`
 
       try {
-        const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+        const POLYGON_API_KEY = '' || ''
         const upperSymbol = symbol.toUpperCase().trim()
 
         const expDate = new Date(expiration)
@@ -588,7 +588,7 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
         const typeChar = optionType.toUpperCase().charAt(0)
         const optionTicker = `O:${upperSymbol}${dateStr}${typeChar}${strikeStr}`
 
-        const optionUrl = `https://api.polygon.io/v3/snapshot/options/${upperSymbol}/${optionTicker}?apikey=${POLYGON_API_KEY}`
+        const optionUrl = `/api/polygon/v3/snapshot/options/${upperSymbol}/${optionTicker}?apikey=${POLYGON_API_KEY}`
         const response = await fetch(optionUrl)
 
         if (!response.ok) {

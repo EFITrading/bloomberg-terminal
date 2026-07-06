@@ -4,7 +4,7 @@ import { PrismaClient } from '@prisma/client'
 const globalForPrisma = global as unknown as { prismaEF: PrismaClient }
 const prisma = globalForPrisma.prismaEF ?? new PrismaClient()
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prismaEF = prisma
-const POLY_KEY = process.env.POLYGON_API_KEY || process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const POLY_KEY = process.env.POLYGON_API_KEY!
 const DB_KEY = 'main'
 
 const ETF_TICKERS = [

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { createPortal } from 'react-dom'
 import {
@@ -266,7 +266,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
     setFetchingPrice(true)
     try {
       const response = await fetch(
-        `https://api.polygon.io/v2/last/trade/${tradeFormData.symbol.toUpperCase()}?apikey=${POLYGON_API_KEY}`
+        `/api/polygon/v2/last/trade/${tradeFormData.symbol.toUpperCase()}?apikey=${POLYGON_API_KEY}`
       )
       const data = await response.json()
       if (data.status === 'OK' && data.results) {
@@ -291,7 +291,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
 
   // Fetch current option premium prices for open options trades and update unrealizedPnL
   useEffect(() => {
-    const POLY_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+    const POLY_KEY = '' || ''
     const openOptionTrades = trades.filter(
       (t) => t.isOptions && t.status === 'open' && t.strike && t.expiry
     )
@@ -320,7 +320,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
             const strikeFormatted = String(Math.round(trade.strike! * 1000)).padStart(8, '0')
             const optionTicker = `O:${trade.symbol}${expRaw}${optType}${strikeFormatted}`
             // try snapshot first (live bid/ask mid)
-            const snapUrl = `https://api.polygon.io/v3/snapshot/options/${trade.symbol}/${optionTicker}?apikey=${POLY_KEY}`
+            const snapUrl = `/api/polygon/v3/snapshot/options/${trade.symbol}/${optionTicker}?apikey=${POLY_KEY}`
             const snapRes = await fetch(snapUrl, { signal: AbortSignal.timeout(5000) })
             const snapData = await snapRes.json()
             const bid = snapData?.results?.day?.close ?? snapData?.results?.last_quote?.bid
@@ -333,7 +333,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
             }
             // fallback: prev-close bars from Polygon
             if (!currentOptionPrice) {
-              const barUrl = `https://api.polygon.io/v2/aggs/ticker/${optionTicker}/range/5/minute/${fromStr}/${toStr}?adjusted=true&sort=desc&limit=1&apiKey=${POLY_KEY}`
+              const barUrl = `/api/polygon/v2/aggs/ticker/${optionTicker}/range/5/minute/${fromStr}/${toStr}?adjusted=true&sort=desc&limit=1&apiKey=${POLY_KEY}`
               const barRes = await fetch(barUrl, { signal: AbortSignal.timeout(5000) })
               const barData = await barRes.json()
               if (barData?.results?.length > 0) {
@@ -452,7 +452,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
     setEditingTrade(null)
   }, [tradeFormData, editingTrade]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+  const POLYGON_API_KEY = '' || ''
 
   // Real-time market data fetching
   const fetchMarketData = useCallback(
@@ -463,13 +463,13 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
       try {
         const promises = symbols.map(async (symbol) => {
           const response = await fetch(
-            `https://api.polygon.io/v2/last/trade/${symbol}?apikey=${POLYGON_API_KEY}`
+            `/api/polygon/v2/last/trade/${symbol}?apikey=${POLYGON_API_KEY}`
           )
           const data = await response.json()
 
           if (data.status === 'OK' && data.results) {
             const prevCloseResponse = await fetch(
-              `https://api.polygon.io/v2/aggs/ticker/${symbol}/prev?adjusted=true&apikey=${POLYGON_API_KEY}`
+              `/api/polygon/v2/aggs/ticker/${symbol}/prev?adjusted=true&apikey=${POLYGON_API_KEY}`
             )
             const prevCloseData = await prevCloseResponse.json()
 
@@ -819,7 +819,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
     )
     if (openOptionTrades.length === 0) return
 
-    const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+    const POLYGON_KEY = '' || ''
 
     const buildOptionTicker = (trade: Trade): string => {
       const sym = trade.symbol.toUpperCase()
@@ -837,7 +837,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
       try {
         // Try snapshot first
         const snapRes = await fetch(
-          `https://api.polygon.io/v3/snapshot/options/${trade.symbol.toUpperCase()}/${ticker}?apiKey=${POLYGON_KEY}`
+          `/api/polygon/v3/snapshot/options/${trade.symbol.toUpperCase()}/${ticker}?apiKey=${POLYGON_KEY}`
         )
         if (snapRes.ok) {
           const snapData = await snapRes.json()
@@ -860,7 +860,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
         const fromStr = from.toISOString().split('T')[0]
         const toStr = today.toISOString().split('T')[0]
         const aggRes = await fetch(
-          `https://api.polygon.io/v2/aggs/ticker/${ticker2}/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=desc&limit=1&apiKey=${POLYGON_KEY}`
+          `/api/polygon/v2/aggs/ticker/${ticker2}/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=desc&limit=1&apiKey=${POLYGON_KEY}`
         )
         if (aggRes.ok) {
           const aggData = await aggRes.json()

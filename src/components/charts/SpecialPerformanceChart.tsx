@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
@@ -42,7 +42,7 @@ const SPECIAL_ETFS = [
   { symbol: 'QQQ', name: 'Nasdaq', color: '#ff0000' },
 ]
 
-const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const POLYGON_API_KEY = '' || ''
 
 const SpecialPerformanceChart: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -253,7 +253,7 @@ const SpecialPerformanceChart: React.FC = () => {
         etf: (typeof SPECIAL_ETFS)[0],
         retries = 5
       ): Promise<SpecialPerformance | null> => {
-        const url = `https://api.polygon.io/v2/aggs/ticker/${etf.symbol}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
+        const url = `/api/polygon/v2/aggs/ticker/${etf.symbol}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
 
         for (let attempt = 0; attempt < retries; attempt++) {
           try {

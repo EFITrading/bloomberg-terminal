@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import React, { useEffect, useRef, useState } from 'react'
 
@@ -589,7 +589,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
         console.log(`Fetching ${eventType} data for ${eventDate.getFullYear()}: ${from} to ${to}`)
 
         const response = await fetch(
-          `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`
+          `/api/polygon/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${'' || ''}`
         )
 
         if (!response.ok) {
@@ -764,8 +764,8 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
 
       console.log(`Fetching ${yearsBack} years of data from ${startStr} to ${endStr}`)
 
-      const apiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
-      const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${apiKey}`
+      const apiKey = '' || ''
+      const url = `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${apiKey}`
 
       const response = await fetch(url)
       const data = await response.json()

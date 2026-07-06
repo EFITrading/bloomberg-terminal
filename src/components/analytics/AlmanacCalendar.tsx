@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import React, { useEffect, useState } from 'react'
 import { useAlmanacCalendarMobile } from './useAlmanacCalendarMobile'
@@ -345,7 +345,7 @@ function getSpecialEvents(year: number, month: number, day: number): string[] {
   return events
 }
 
-const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const POLYGON_API_KEY = '' || ''
 
 // Post-election years to exclude from normal years calculation
 const POST_ELECTION_YEARS = [
@@ -367,7 +367,7 @@ async function fetchDailyHistoricalStats(
     const endDate = `${currentYear}-12-31`
 
     const response = await fetch(
-      `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`,
+      `/api/polygon/v2/aggs/ticker/${symbol}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`,
       { signal: AbortSignal.timeout(30000) }
     )
 

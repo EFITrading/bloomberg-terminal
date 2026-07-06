@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import {
   TbCalculator,
@@ -98,7 +98,7 @@ interface WatchlistOption {
   stockPrice: number // Stock price when added
 }
 
-const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const POLYGON_API_KEY = '' || ''
 
 function ChainPanel({
   symbol: initialSymbol,
@@ -259,7 +259,7 @@ function ChainPanel({
 
         polygonRateLimiter
           .fetch(
-            `https://api.polygon.io/v2/aggs/ticker/${item.symbol}/prev?apikey=${POLYGON_API_KEY}`
+            `/api/polygon/v2/aggs/ticker/${item.symbol}/prev?apikey=${POLYGON_API_KEY}`
           )
 
           .then((data) => {
@@ -280,7 +280,7 @@ function ChainPanel({
   const fetchStockPrice = useCallback(async () => {
     try {
       const data = await polygonRateLimiter.fetch(
-        `https://api.polygon.io/v2/aggs/ticker/${symbol}/prev?apikey=${POLYGON_API_KEY}`
+        `/api/polygon/v2/aggs/ticker/${symbol}/prev?apikey=${POLYGON_API_KEY}`
       )
 
       if (data.results?.[0]?.c) {
@@ -289,7 +289,7 @@ function ChainPanel({
         // Also fetch snapshot for today's change %
         try {
           const snap = await polygonRateLimiter.fetch(
-            `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apikey=${POLYGON_API_KEY}`
+            `/api/polygon/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apikey=${POLYGON_API_KEY}`
           )
           const tc = snap?.ticker?.todaysChangePerc
           if (typeof tc === 'number') setStockDayChange(tc)
@@ -432,7 +432,7 @@ function ChainPanel({
 
       const toStr = toDate.toISOString().split('T')[0]
 
-      const url = `https://api.polygon.io/v2/aggs/ticker/${optionTicker}/range/${multiplier}/${timespan}/${fromStr}/${toStr}?adjusted=true&sort=asc&limit=5000&apikey=${POLYGON_API_KEY}`
+      const url = `/api/polygon/v2/aggs/ticker/${optionTicker}/range/${multiplier}/${timespan}/${fromStr}/${toStr}?adjusted=true&sort=asc&limit=5000&apikey=${POLYGON_API_KEY}`
 
       const data = await polygonRateLimiter.fetch(url)
 
@@ -483,7 +483,7 @@ function ChainPanel({
 
             const prevDateStr = prevDate.toISOString().split('T')[0]
 
-            const fallbackUrl = `https://api.polygon.io/v2/aggs/ticker/${optionTicker}/range/5/minute/${prevDateStr}/${prevDateStr}?adjusted=true&sort=asc&limit=5000&apikey=${POLYGON_API_KEY}`
+            const fallbackUrl = `/api/polygon/v2/aggs/ticker/${optionTicker}/range/5/minute/${prevDateStr}/${prevDateStr}?adjusted=true&sort=asc&limit=5000&apikey=${POLYGON_API_KEY}`
 
             const fallbackData = await polygonRateLimiter.fetch(fallbackUrl)
 
@@ -553,7 +553,7 @@ function ChainPanel({
       let allResults: any[] = []
 
       let nextUrl: string | null =
-        `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${symbol}&limit=1000&apikey=${POLYGON_API_KEY}`
+        `/api/polygon/v3/reference/options/contracts?underlying_ticker=${symbol}&limit=1000&apikey=${POLYGON_API_KEY}`
 
       // Fetch all pages
 
@@ -603,7 +603,7 @@ function ChainPanel({
     try {
       // Primary: Get bid/ask from quotes endpoint (this works reliably)
 
-      const quotesUrl = `https://api.polygon.io/v3/quotes/${optionSymbol}?limit=1&order=desc&apikey=${POLYGON_API_KEY}`
+      const quotesUrl = `/api/polygon/v3/quotes/${optionSymbol}?limit=1&order=desc&apikey=${POLYGON_API_KEY}`
 
       const quotesResponse = await fetch(quotesUrl)
 
@@ -645,7 +645,7 @@ function ChainPanel({
 
       // Get greeks and OI from snapshot - FIXED: Include underlying symbol in URL
 
-      const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${symbol}/${optionSymbol}?apikey=${POLYGON_API_KEY}`
+      const snapshotUrl = `/api/polygon/v3/snapshot/options/${symbol}/${optionSymbol}?apikey=${POLYGON_API_KEY}`
 
       const snapshotResponse = await fetch(snapshotUrl)
 
@@ -690,7 +690,7 @@ function ChainPanel({
           from.setDate(from.getDate() - 10)
           const fromStr = from.toISOString().split('T')[0]
           const toStr = today.toISOString().split('T')[0]
-          const barsUrl = `https://api.polygon.io/v2/aggs/ticker/${optionSymbol}/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=asc&limit=10&apikey=${POLYGON_API_KEY}`
+          const barsUrl = `/api/polygon/v2/aggs/ticker/${optionSymbol}/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=asc&limit=10&apikey=${POLYGON_API_KEY}`
           const barsResponse = await fetch(barsUrl)
           const barsData = await barsResponse.json()
           if (barsData.results && barsData.results.length >= 2) {
@@ -750,7 +750,7 @@ function ChainPanel({
       const puts: OptionContract[] = []
 
       let nextUrl: string | null =
-        `https://api.polygon.io/v3/snapshot/options/${symbol}?expiration_date=${selectedExpiration}&limit=250&order=asc&sort=strike_price&apikey=${POLYGON_API_KEY}`
+        `/api/polygon/v3/snapshot/options/${symbol}?expiration_date=${selectedExpiration}&limit=250&order=asc&sort=strike_price&apikey=${POLYGON_API_KEY}`
 
       while (nextUrl) {
         if (controller.signal.aborted) break

@@ -15,7 +15,7 @@ import { MarketRegimeData } from '../../lib/industryAnalysisService'
 import { useRegimesPanelMobile } from './useRegimesPanelMobile'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const POLYGON_API_KEY = '' || ''
 
 const SCANNER_UNIVERSE = [...new Set(TOP_1000_SYMBOLS)]
 
@@ -2109,7 +2109,7 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
   // ── Fetch helpers ───────────────────────────────────────────────────────────
   const fetchSnapshotRows = async (): Promise<ScannerRow[]> => {
     const tickers = SCANNER_UNIVERSE.join(',')
-    const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers}&apikey=${POLYGON_API_KEY}`
+    const url = `/api/polygon/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers}&apikey=${POLYGON_API_KEY}`
     const resp = await fetch(url)
     const data = await resp.json()
     const snaps: any[] = data.tickers || []
@@ -2146,7 +2146,7 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
         batch.map(async (sym) => {
           try {
             const r = await fetch(
-              `https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/day/${from}/${today}?adjusted=true&sort=asc&limit=300&apikey=${POLYGON_API_KEY}`
+              `/api/polygon/v2/aggs/ticker/${sym}/range/1/day/${from}/${today}?adjusted=true&sort=asc&limit=300&apikey=${POLYGON_API_KEY}`
             )
             const d = await r.json()
             const bars: any[] = d.results || []
@@ -2398,25 +2398,25 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
     let url: string
     if (tf === '5M') {
       const from = new Date(Date.now() - 6 * 86400_000).toISOString().split('T')[0]
-      url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/5/minute/${from}/${todayStr}?adjusted=true&sort=asc&limit=1000&apikey=${POLYGON_API_KEY}`
+      url = `/api/polygon/v2/aggs/ticker/${symbol}/range/5/minute/${from}/${todayStr}?adjusted=true&sort=asc&limit=1000&apikey=${POLYGON_API_KEY}`
     } else if (tf === '1H') {
       const from = new Date(Date.now() - 32 * 86400_000).toISOString().split('T')[0]
-      url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/hour/${from}/${todayStr}?adjusted=true&sort=asc&limit=750&apikey=${POLYGON_API_KEY}`
+      url = `/api/polygon/v2/aggs/ticker/${symbol}/range/1/hour/${from}/${todayStr}?adjusted=true&sort=asc&limit=750&apikey=${POLYGON_API_KEY}`
     } else if (tf === '1W') {
       const from = new Date(Date.now() - 95 * 86400_000).toISOString().split('T')[0]
-      url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${from}/${todayStr}?adjusted=true&sort=asc&limit=130&apikey=${POLYGON_API_KEY}`
+      url = `/api/polygon/v2/aggs/ticker/${symbol}/range/1/day/${from}/${todayStr}?adjusted=true&sort=asc&limit=130&apikey=${POLYGON_API_KEY}`
     } else {
       const tenDaysAgo = new Date(Date.now() - 10 * 86400_000).toISOString().split('T')[0]
       let lastDay = todayStr
       try {
-        const r = await fetch(`https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${tenDaysAgo}/${todayStr}?adjusted=true&sort=desc&limit=3&apikey=${POLYGON_API_KEY}`)
+        const r = await fetch(`/api/polygon/v2/aggs/ticker/${symbol}/range/1/day/${tenDaysAgo}/${todayStr}?adjusted=true&sort=desc&limit=3&apikey=${POLYGON_API_KEY}`)
         const d = await r.json()
         if (d.results?.length > 0) {
           const ts = d.results[0].t; const dt = new Date(ts)
           lastDay = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`
         }
       } catch { }
-      url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/minute/${lastDay}/${lastDay}?adjusted=true&sort=asc&limit=1000&apikey=${POLYGON_API_KEY}`
+      url = `/api/polygon/v2/aggs/ticker/${symbol}/range/1/minute/${lastDay}/${lastDay}?adjusted=true&sort=asc&limit=1000&apikey=${POLYGON_API_KEY}`
     }
     try {
       const r = await fetch(url)
@@ -2510,13 +2510,13 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
     let mkUrl: (sym: string) => string
     if (tf === '5M') {
       const from = new Date(Date.now() - 6 * 86400_000).toISOString().split('T')[0]
-      mkUrl = sym => `https://api.polygon.io/v2/aggs/ticker/${sym}/range/5/minute/${from}/${todayStr}?adjusted=true&sort=asc&limit=1000&apikey=${POLYGON_API_KEY}`
+      mkUrl = sym => `/api/polygon/v2/aggs/ticker/${sym}/range/5/minute/${from}/${todayStr}?adjusted=true&sort=asc&limit=1000&apikey=${POLYGON_API_KEY}`
     } else if (tf === '1H') {
       const from = new Date(Date.now() - 32 * 86400_000).toISOString().split('T')[0]
-      mkUrl = sym => `https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/hour/${from}/${todayStr}?adjusted=true&sort=asc&limit=750&apikey=${POLYGON_API_KEY}`
+      mkUrl = sym => `/api/polygon/v2/aggs/ticker/${sym}/range/1/hour/${from}/${todayStr}?adjusted=true&sort=asc&limit=750&apikey=${POLYGON_API_KEY}`
     } else if (tf === '1W') {
       const from = new Date(Date.now() - 95 * 86400_000).toISOString().split('T')[0]
-      mkUrl = sym => `https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/day/${from}/${todayStr}?adjusted=true&sort=asc&limit=130&apikey=${POLYGON_API_KEY}`
+      mkUrl = sym => `/api/polygon/v2/aggs/ticker/${sym}/range/1/day/${from}/${todayStr}?adjusted=true&sort=asc&limit=130&apikey=${POLYGON_API_KEY}`
     } else {
       const nowUtc = new Date(); const dow = nowUtc.getUTCDay()
       const daysBack = dow === 0 ? 2 : dow === 6 ? 1 : 0
@@ -2524,11 +2524,11 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
       const tenDaysAgo = new Date(Date.now() - 10 * 86400_000).toISOString().split('T')[0]
       let lastDay = lastMarketDay
       try {
-        const r = await fetch(`https://api.polygon.io/v2/aggs/ticker/${missing[0].symbol}/range/1/day/${tenDaysAgo}/${lastMarketDay}?adjusted=true&sort=desc&limit=3&apikey=${POLYGON_API_KEY}`)
+        const r = await fetch(`/api/polygon/v2/aggs/ticker/${missing[0].symbol}/range/1/day/${tenDaysAgo}/${lastMarketDay}?adjusted=true&sort=desc&limit=3&apikey=${POLYGON_API_KEY}`)
         const d = await r.json()
         if (d.results?.length > 0) { const ts = d.results[0].t; const dt = new Date(ts); lastDay = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}` }
       } catch { }
-      mkUrl = sym => `https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/minute/${lastDay}/${lastDay}?adjusted=true&sort=asc&limit=1000&apikey=${POLYGON_API_KEY}`
+      mkUrl = sym => `/api/polygon/v2/aggs/ticker/${sym}/range/1/minute/${lastDay}/${lastDay}?adjusted=true&sort=asc&limit=1000&apikey=${POLYGON_API_KEY}`
     }
 
     if (!SPY_SPARK_CACHE[tf]) {

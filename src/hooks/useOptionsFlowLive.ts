@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 /**
  * useOptionsFlowLive
@@ -11,7 +11,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { polygonOptionsWS, parseOCCTicker } from '@/lib/polygonOptionsWS'
 import type { PolygonOptionsTradeMsg } from '@/lib/polygonOptionsWS'
 
-const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const POLYGON_API_KEY = '' || ''
 
 const US_MARKET_HOLIDAYS_SET = new Set([
     '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18', '2025-05-26',
@@ -125,7 +125,7 @@ const enrichFlowTradeCombined = async (trades: FlowLiveTrade[]): Promise<FlowLiv
     for (const batch of batches) {
         await Promise.all(batch.map(async ([optTicker, underlying]) => {
             try {
-                const res = await fetch(`https://api.polygon.io/v3/snapshot/options/${underlying}/${optTicker}?apikey=${POLYGON_API_KEY}`, { signal: AbortSignal.timeout(5000) } as RequestInit)
+                const res = await fetch(`/api/polygon/v3/snapshot/options/${underlying}/${optTicker}?apikey=${POLYGON_API_KEY}`, { signal: AbortSignal.timeout(5000) } as RequestInit)
                 if (!res.ok) { cache.set(optTicker, null); return }
                 const data = await res.json()
                 cache.set(optTicker, data.results ? { volume: data.results.day?.volume || 0, open_interest: data.results.open_interest || 0 } : null)

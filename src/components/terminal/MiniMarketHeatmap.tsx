@@ -1,9 +1,9 @@
-'use client'
+﻿'use client'
 
 import * as d3Hierarchy from 'd3-hierarchy'
 import { useEffect, useRef, useState } from 'react'
 
-const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const POLYGON_API_KEY = '' || ''
 
 // Top 10 per sector with approximate relative market caps (billions)
 const SECTORS: Record<string, { stocks: string[]; caps: number[] }> = {
@@ -116,7 +116,7 @@ export default function MiniMarketHeatmap() {
     const fetchData = async () => {
         try {
             const tickers = ALL_SYMBOLS.join(',')
-            const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers}&apiKey=${POLYGON_API_KEY}`
+            const url = `/api/polygon/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers}&apiKey=${POLYGON_API_KEY}`
             const res = await fetch(url)
             const data = await res.json()
             if (!data.tickers) return

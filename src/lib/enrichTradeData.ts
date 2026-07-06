@@ -1,6 +1,6 @@
-'use client'
+﻿'use client'
 
-const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const POLYGON_API_KEY = '' || ''
 
 const getOptionTicker = (trade: any) => {
   const expiry = trade.expiry.replace(/-/g, '').slice(2)
@@ -39,7 +39,7 @@ export const enrichTradeDataCombined = async (
     await Promise.all(
       batch.map(async ([optionTicker, { underlying }]) => {
         try {
-          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${underlying}/${optionTicker}?apikey=${POLYGON_API_KEY}`
+          const snapshotUrl = `/api/polygon/v3/snapshot/options/${underlying}/${optionTicker}?apikey=${POLYGON_API_KEY}`
           const response = await fetch(snapshotUrl, {
             signal: AbortSignal.timeout(5000),
           } as RequestInit)

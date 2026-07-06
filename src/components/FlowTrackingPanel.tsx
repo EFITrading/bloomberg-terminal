@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { TbStar } from 'react-icons/tb'
 
@@ -84,7 +84,7 @@ function fpLoadData(): { trades: FlowPortfolioTrade[]; alerts: FPAlert[]; cash: 
   return { trades: [], alerts: [], cash: FP_STARTING_BALANCE, equity: [{ ts: Date.now(), value: FP_STARTING_BALANCE }] }
 }
 
-const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const POLYGON_API_KEY = '' || ''
 
 interface OptionsFlowData {
   ticker: string
@@ -384,7 +384,7 @@ export default function FlowTrackingPanel({
           await new Promise((r) => setTimeout(r, idx * 30))
           try {
             const res = await fetch(
-              `https://api.polygon.io/v3/snapshot/options/${t.underlying}/${t.optionTicker}?apikey=${POLYGON_API_KEY}`,
+              `/api/polygon/v3/snapshot/options/${t.underlying}/${t.optionTicker}?apikey=${POLYGON_API_KEY}`,
               { signal: AbortSignal.timeout(5000) }
             )
             if (res.ok) {
@@ -558,7 +558,7 @@ export default function FlowTrackingPanel({
         const end = new Date().toISOString().split('T')[0]
         const start = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
         const res = await fetch(
-          `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${start}/${end}?adjusted=true&sort=asc&limit=30&apiKey=${POLYGON_API_KEY}`,
+          `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${start}/${end}?adjusted=true&sort=asc&limit=30&apiKey=${POLYGON_API_KEY}`,
           { signal: AbortSignal.timeout(8000) }
         )
         if (res.ok) {
@@ -637,7 +637,7 @@ export default function FlowTrackingPanel({
         await new Promise((r) => setTimeout(r, idx * 50))
         try {
           const res = await fetch(
-            `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apikey=${POLYGON_API_KEY}`,
+            `/api/polygon/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apikey=${POLYGON_API_KEY}`,
             { signal: AbortSignal.timeout(5000) }
           )
           if (res.ok) {
@@ -677,7 +677,7 @@ export default function FlowTrackingPanel({
             const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
             const optionTicker = `O:${normalizeTickerForOptions(trade.underlying_ticker)}${expiry}${optionType}${strikeFormatted}`
             const res = await fetch(
-              `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`,
+              `/api/polygon/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`,
               { signal: AbortSignal.timeout(5000) }
             )
             if (res.ok) {
@@ -720,7 +720,7 @@ export default function FlowTrackingPanel({
         from = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
       }
       const res = await fetch(
-        `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
+        `/api/polygon/v2/aggs/ticker/${ticker}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
       )
       if (res.ok) {
         const data = await res.json()
@@ -762,7 +762,7 @@ export default function FlowTrackingPanel({
         from = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
       }
       const res = await fetch(
-        `https://api.polygon.io/v2/aggs/ticker/${optionTicker}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
+        `/api/polygon/v2/aggs/ticker/${optionTicker}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
       )
       if (res.ok) {
         const data = await res.json()

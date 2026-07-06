@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { createPortal } from 'react-dom'
 import { flushSync } from 'react-dom'
@@ -2106,7 +2106,7 @@ const addTradingDays = (date: Date, days: number): Date => {
 }
 
 // Polygon API Integration for Expected Range Calculations
-const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const POLYGON_API_KEY: string = ''
 
 // Black-Scholes price calculation
 const calculateBlackScholesPrice = (
@@ -2166,7 +2166,7 @@ const getOptionQuotes = async (optionSymbol: string) => {
   try {
     // Try snapshot first for more reliable data
     const snapshotResponse = await fetch(
-      `https://api.polygon.io/v3/snapshot/options/${optionSymbol}?apikey=${POLYGON_API_KEY}`
+      `/api/polygon/v3/snapshot/options/${optionSymbol}?apikey=${POLYGON_API_KEY}`
     )
     const snapshotData = await snapshotResponse.json()
 
@@ -2180,7 +2180,7 @@ const getOptionQuotes = async (optionSymbol: string) => {
 
     // Fallback to last trade
     const response = await fetch(
-      `https://api.polygon.io/v2/last/trade/${optionSymbol}?apikey=${POLYGON_API_KEY}`
+      `/api/polygon/v2/last/trade/${optionSymbol}?apikey=${POLYGON_API_KEY}`
     )
     const data = await response.json()
 
@@ -2229,7 +2229,7 @@ const calculateIVFromOptionsChain = async (
 
   // Fetch IV directly from Polygon snapshot endpoint
   try {
-    const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${symbol}/${atmStrike.ticker}?apikey=${POLYGON_API_KEY}`
+    const snapshotUrl = `/api/polygon/v3/snapshot/options/${symbol}/${atmStrike.ticker}?apikey=${POLYGON_API_KEY}`
     const snapshotResponse = await fetch(snapshotUrl)
 
     if (!snapshotResponse.ok) {
@@ -2261,7 +2261,7 @@ const fetchMarketDataForExpectedRange = async (symbol: string, customDate?: stri
   try {
     // Get current stock price
     const stockResponse = await fetch(
-      `https://api.polygon.io/v2/last/trade/${symbol}?apikey=${POLYGON_API_KEY}`
+      `/api/polygon/v2/last/trade/${symbol}?apikey=${POLYGON_API_KEY}`
     )
 
     if (!stockResponse.ok) {
@@ -2295,10 +2295,10 @@ const fetchMarketDataForExpectedRange = async (symbol: string, customDate?: stri
     // Fetch options chains with API-level strike filtering - increased limit for better IV accuracy
     const fetchPromises: Promise<Response>[] = [
       fetch(
-        `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${symbol}&expiration_date=${weeklyExpiryDate}&strike_price.gte=${Math.floor(lowerBound)}&strike_price.lte=${Math.ceil(upperBound)}&limit=300&apikey=${POLYGON_API_KEY}`
+        `/api/polygon/v3/reference/options/contracts?underlying_ticker=${symbol}&expiration_date=${weeklyExpiryDate}&strike_price.gte=${Math.floor(lowerBound)}&strike_price.lte=${Math.ceil(upperBound)}&limit=300&apikey=${POLYGON_API_KEY}`
       ),
       fetch(
-        `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${symbol}&expiration_date=${monthlyExpiryDate}&strike_price.gte=${Math.floor(lowerBound)}&strike_price.lte=${Math.ceil(upperBound)}&limit=300&apikey=${POLYGON_API_KEY}`
+        `/api/polygon/v3/reference/options/contracts?underlying_ticker=${symbol}&expiration_date=${monthlyExpiryDate}&strike_price.gte=${Math.floor(lowerBound)}&strike_price.lte=${Math.ceil(upperBound)}&limit=300&apikey=${POLYGON_API_KEY}`
       ),
     ]
 
@@ -2306,7 +2306,7 @@ const fetchMarketDataForExpectedRange = async (symbol: string, customDate?: stri
     if (customExpiryDate) {
       fetchPromises.push(
         fetch(
-          `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${symbol}&expiration_date=${customExpiryDate}&strike_price.gte=${Math.floor(lowerBound)}&strike_price.lte=${Math.ceil(upperBound)}&limit=300&apikey=${POLYGON_API_KEY}`
+          `/api/polygon/v3/reference/options/contracts?underlying_ticker=${symbol}&expiration_date=${customExpiryDate}&strike_price.gte=${Math.floor(lowerBound)}&strike_price.lte=${Math.ceil(upperBound)}&limit=300&apikey=${POLYGON_API_KEY}`
         )
       )
     }
@@ -2609,7 +2609,7 @@ const calculateFutureExpiriesLevels = async (
     // Fetch price + all expiry dates in parallel — ONE round-trip each
     const [allDates, priceResp, riskFreeRate] = await Promise.all([
       fetchAvailableExpirationDates(symbol),
-      fetch(`https://api.polygon.io/v2/last/trade/${symbol}?apikey=${POLYGON_API_KEY}`),
+      fetch(`/api/polygon/v2/last/trade/${symbol}?apikey=${POLYGON_API_KEY}`),
       getRiskFreeRate().then(r => r ?? 0.0442),
     ])
 
@@ -2632,7 +2632,7 @@ const calculateFutureExpiriesLevels = async (
     const chainResponses = await Promise.allSettled(
       targetDates.map(expiryDate =>
         fetch(
-          `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${symbol}&expiration_date=${expiryDate}&strike_price.gte=${Math.floor(lowerBound)}&strike_price.lte=${Math.ceil(upperBound)}&limit=300&apikey=${POLYGON_API_KEY}`
+          `/api/polygon/v3/reference/options/contracts?underlying_ticker=${symbol}&expiration_date=${expiryDate}&strike_price.gte=${Math.floor(lowerBound)}&strike_price.lte=${Math.ceil(upperBound)}&limit=300&apikey=${POLYGON_API_KEY}`
         ).then(r => r.ok ? r.json() : null)
       )
     )
@@ -2688,7 +2688,7 @@ const calculateFutureExpiriesLevels = async (
 const calculatePctChanceLevels = async (symbol: string, overrideExpiry?: string) => {
   try {
     // 1. Current price
-    const priceResp = await fetch(`https://api.polygon.io/v2/last/trade/${symbol}?apikey=${POLYGON_API_KEY}`)
+    const priceResp = await fetch(`/api/polygon/v2/last/trade/${symbol}?apikey=${POLYGON_API_KEY}`)
     if (!priceResp.ok) throw new Error('Failed to fetch price')
     const priceData = await priceResp.json()
     const S = priceData.results?.p as number
@@ -2701,11 +2701,11 @@ const calculatePctChanceLevels = async (symbol: string, overrideExpiry?: string)
     const rfr = await getRiskFreeRate().then(v => v ?? 0.0442)
 
     // 3. Get ATM IV from snapshot — fetch all calls, find closest strike to S
-    let allCallsSnap = await fetch(`https://api.polygon.io/v3/snapshot/options/${symbol}?expiration_date=${chosenExpiry}&contract_type=call&limit=250&apikey=${POLYGON_API_KEY}`).then(r => r.json())
+    let allCallsSnap = await fetch(`/api/polygon/v3/snapshot/options/${symbol}?expiration_date=${chosenExpiry}&contract_type=call&limit=250&apikey=${POLYGON_API_KEY}`).then(r => r.json())
 
     // If chosen expiry has no options (e.g. holiday), fall back to nearest valid expiry
     if (!allCallsSnap.results?.length && overrideExpiry) {
-      allCallsSnap = await fetch(`https://api.polygon.io/v3/snapshot/options/${symbol}?expiration_date=${weeklyExpiry}&contract_type=call&limit=250&apikey=${POLYGON_API_KEY}`).then(r => r.json())
+      allCallsSnap = await fetch(`/api/polygon/v3/snapshot/options/${symbol}?expiration_date=${weeklyExpiry}&contract_type=call&limit=250&apikey=${POLYGON_API_KEY}`).then(r => r.json())
       chosenExpiry = weeklyExpiry
       chosenDate = weeklyDate
     }
@@ -2725,7 +2725,7 @@ const calculatePctChanceLevels = async (symbol: string, overrideExpiry?: string)
     const hi = findStrikeForProbability(S, rfr, atmIV, T, 90, true)
 
     // 5. Snapshot for puts within the 90% band (calls already fetched above)
-    const putSnap = await fetch(`https://api.polygon.io/v3/snapshot/options/${symbol}?expiration_date=${chosenExpiry}&contract_type=put&limit=250&apikey=${POLYGON_API_KEY}`).then(r => r.json())
+    const putSnap = await fetch(`/api/polygon/v3/snapshot/options/${symbol}?expiration_date=${chosenExpiry}&contract_type=put&limit=250&apikey=${POLYGON_API_KEY}`).then(r => r.json())
 
     // 6. Build (K, C) pairs
     type KCPair = { K: number; C: number }
@@ -2815,7 +2815,7 @@ const fetchOptionExpiries = async (sym: string): Promise<Set<string>> => {
   try {
     const today = new Date().toISOString().slice(0, 10)
     const oneYearOut = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-    let url = `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${sym}&expiration_date.gte=${today}&expiration_date.lte=${oneYearOut}&limit=1000&sort=expiration_date&order=asc&apikey=${POLYGON_API_KEY}`
+    let url = `/api/polygon/v3/reference/options/contracts?underlying_ticker=${sym}&expiration_date.gte=${today}&expiration_date.lte=${oneYearOut}&limit=1000&sort=expiration_date&order=asc&apikey=${POLYGON_API_KEY}`
     const dates = new Set<string>()
     while (url) {
       const data = await fetch(url).then(r => r.json())
@@ -4594,7 +4594,7 @@ export function TradePopupChart({
     if (!symbol) return
     const today = new Date().toISOString().split('T')[0]
     const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
-    fetch(`https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/minute/${yesterday}/${today}?adjusted=true&sort=desc&limit=1&apiKey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`)
+    fetch(`/api/polygon/v2/aggs/ticker/${symbol}/range/1/minute/${yesterday}/${today}?adjusted=true&sort=desc&limit=1&apiKey=`)
       .then((r) => r.json())
       .then((d) => { if (d.results?.[0]?.c) setLivePrice(d.results[0].c) })
       .catch(() => { })
@@ -7856,7 +7856,7 @@ export default function TradingViewChart({
       const optionTicker = `O:${option.symbol}${expiry}${optionType}${strikeFormatted}`
 
       const today = new Date()
-      const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+      const POLYGON_API_KEY: string = ''
 
       // Roll a date back until it lands on a weekday (Mon-Fri)
       const lastTradingDay = (d: Date, extraDays = 0): Date => {
@@ -7895,7 +7895,7 @@ export default function TradingViewChart({
       const toStr = `${toDate.getFullYear()}-${String(toDate.getMonth() + 1).padStart(2, '0')}-${String(toDate.getDate()).padStart(2, '0')}`
 
       // Fetch option premium data
-      const optionUrl = `https://api.polygon.io/v2/aggs/ticker/${optionTicker}/range/${multiplier}/${timespan}/${fromStr}/${toStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
+      const optionUrl = `/api/polygon/v2/aggs/ticker/${optionTicker}/range/${multiplier}/${timespan}/${fromStr}/${toStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
       const optionResponse = await fetchWithRetry(optionUrl)
       const optionData = await optionResponse.json()
 
@@ -7910,7 +7910,7 @@ export default function TradingViewChart({
       }
 
       // Fetch underlying stock data
-      const stockUrl = `https://api.polygon.io/v2/aggs/ticker/${option.symbol}/range/${multiplier}/${timespan}/${fromStr}/${toStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
+      const stockUrl = `/api/polygon/v2/aggs/ticker/${option.symbol}/range/${multiplier}/${timespan}/${fromStr}/${toStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
       const stockResponse = await fetchWithRetry(stockUrl)
       const stockData = await stockResponse.json()
 
@@ -7933,7 +7933,7 @@ export default function TradingViewChart({
     const _t0 = performance.now()
 
     try {
-      const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+      const POLYGON_API_KEY: string = ''
 
       for (const option of options) {
         const expiry = option.expiration.split('-').join('').slice(2)
@@ -7942,7 +7942,7 @@ export default function TradingViewChart({
         const optionTicker = `O:${option.symbol}${expiry}${optionType}${strikeFormatted}`
 
         // Fetch last quote with Greeks
-        const quoteUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?limit=1&order=desc&sort=timestamp&apiKey=${POLYGON_API_KEY}`
+        const quoteUrl = `/api/polygon/v3/quotes/${optionTicker}?limit=1&order=desc&sort=timestamp&apiKey=${POLYGON_API_KEY}`
         const quoteResponse = await fetchWithRetry(quoteUrl)
         const quoteData = await quoteResponse.json()
 
@@ -7950,7 +7950,7 @@ export default function TradingViewChart({
           const quote = quoteData.results[0]
 
           // Fetch snapshot for Greeks and IV
-          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${option.symbol}/${optionTicker}?apiKey=${POLYGON_API_KEY}`
+          const snapshotUrl = `/api/polygon/v3/snapshot/options/${option.symbol}/${optionTicker}?apiKey=${POLYGON_API_KEY}`
           const snapshotResponse = await fetchWithRetry(snapshotUrl)
           const snapshotData = await snapshotResponse.json()
 
@@ -7982,7 +7982,7 @@ export default function TradingViewChart({
   // Fetch ATR (Average True Range) for stock volatility calculation
   const fetchStockATR = useCallback(async (symbols: string[]) => {
     try {
-      const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+      const POLYGON_API_KEY: string = ''
       const uniqueSymbols = [...new Set(symbols)]
 
       for (const symbol of uniqueSymbols) {
@@ -7993,7 +7993,7 @@ export default function TradingViewChart({
         const fromStr = `${fromDate.getFullYear()}-${String(fromDate.getMonth() + 1).padStart(2, '0')}-${String(fromDate.getDate()).padStart(2, '0')}`
         const toStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
 
-        const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=asc&limit=20&apiKey=${POLYGON_API_KEY}`
+        const url = `/api/polygon/v2/aggs/ticker/${symbol}/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=asc&limit=20&apiKey=${POLYGON_API_KEY}`
         const response = await fetchWithRetry(url)
         const data = await response.json()
 
@@ -8274,7 +8274,7 @@ export default function TradingViewChart({
     { symbol: 'IWO', name: 'Small Cap Growth', color: '#ff0088' },
   ]
 
-  const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+  const POLYGON_API_KEY: string = ''
 
   // Performance Dashboard Data Fetching Functions
   const getPdDateRange = (tf: typeof pdTimeframe): { from: string; to: string } => {
@@ -9161,7 +9161,7 @@ export default function TradingViewChart({
       occurrences: number
     }>
   > => {
-    const API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+    const API_KEY: string = ''
     const currentYear = new Date().getFullYear()
     const today = new Date()
     const oneMonthBefore = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000)
@@ -9278,7 +9278,7 @@ export default function TradingViewChart({
           const to = allDays[allDays.length - 1].toISOString().split('T')[0]
 
           const response = await fetch(
-            `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${API_KEY}`
+            `/api/polygon/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${API_KEY}`
           )
 
           if (!response.ok) continue
@@ -9360,8 +9360,8 @@ export default function TradingViewChart({
       const startStr = startDate.toISOString().split('T')[0]
       const endStr = endDate.toISOString().split('T')[0]
 
-      const apiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
-      const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${apiKey}`
+      const apiKey: string = ''
+      const url = `/api/polygon/v2/aggs/ticker/${symbol}/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${apiKey}`
 
       const response = await fetch(url)
       const data = await response.json()
@@ -10361,7 +10361,7 @@ export default function TradingViewChart({
 
   // Calculate performance projection anchored to signal trigger date
   const calculateSmartPerformanceSeasonal = useCallback(async (signalKey: string, chartData: ChartDataPoint[], timeframe?: string | null): Promise<{ projection: Array<{ date: Date; price: number; open: number; high: number; low: number; close: number }>; triggerDate: Date } | null> => {
-    const API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+    const API_KEY: string = ''
     const SLOTS = 45
     const isWknd = (d: Date) => d.getDay() === 0 || d.getDay() === 6
     const isHol = (d: Date) => {
@@ -10386,7 +10386,7 @@ export default function TradingViewChart({
     const startDate = new Date(); startDate.setFullYear(endDate.getFullYear() - 12)
     let dailyBars: any[] = []
     try {
-      let nextUrl: string | null = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${startDate.toISOString().split('T')[0]}/${endDate.toISOString().split('T')[0]}?adjusted=true&sort=asc&limit=50000&apiKey=${API_KEY}`
+      let nextUrl: string | null = `/api/polygon/v2/aggs/ticker/${symbol}/range/1/day/${startDate.toISOString().split('T')[0]}/${endDate.toISOString().split('T')[0]}?adjusted=true&sort=asc&limit=50000&apiKey=${API_KEY}`
       while (nextUrl) {
         const resp: Response = await fetch(nextUrl)
         if (!resp.ok) break
@@ -10401,7 +10401,7 @@ export default function TradingViewChart({
     let spyBars: any[] = []
     if (signalKey === 'perf-rs-spy') {
       try {
-        let nextUrl: string | null = `https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day/${startDate.toISOString().split('T')[0]}/${endDate.toISOString().split('T')[0]}?adjusted=true&sort=asc&limit=50000&apiKey=${API_KEY}`
+        let nextUrl: string | null = `/api/polygon/v2/aggs/ticker/SPY/range/1/day/${startDate.toISOString().split('T')[0]}/${endDate.toISOString().split('T')[0]}?adjusted=true&sort=asc&limit=50000&apiKey=${API_KEY}`
         while (nextUrl) {
           const resp: Response = await fetch(nextUrl)
           if (!resp.ok) break
@@ -10582,7 +10582,7 @@ export default function TradingViewChart({
         const endStr = fetchEnd.toISOString().split('T')[0]
         let winBars: any[] = []
         try {
-          const resp = await fetch(`https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${intradayCfg.mult}/minute/${startStr}/${endStr}?adjusted=true&sort=asc&limit=50000&apiKey=${API_KEY}`)
+          const resp = await fetch(`/api/polygon/v2/aggs/ticker/${symbol}/range/${intradayCfg.mult}/minute/${startStr}/${endStr}?adjusted=true&sort=asc&limit=50000&apiKey=${API_KEY}`)
           if (!resp.ok) return
           const json = await resp.json()
           if (!json.results?.length) return
@@ -10731,7 +10731,7 @@ export default function TradingViewChart({
   // Event seasonal calculation with Polygon API
   const calculateEventSeasonal = useCallback(
     async (eventType: string, chartData: ChartDataPoint[], timeframe?: string) => {
-      const API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+      const API_KEY: string = ''
       const currentYear = new Date().getFullYear()
 
       // For intraday timeframes, use per-bar OHLC logic instead of daily
@@ -10889,7 +10889,7 @@ export default function TradingViewChart({
           // Fast 5-year check: one small daily request instead of fetching all intraday bars
           const fiveYearsAgo = new Date(); fiveYearsAgo.setFullYear(fiveYearsAgo.getFullYear() - 5)
           try {
-            const chkResp: Response = await fetch(`https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${fiveYearsAgo.toISOString().slice(0, 10)}/${fiveYearsAgo.toISOString().slice(0, 10)}?adjusted=true&sort=asc&limit=1&apiKey=${API_KEY}`)
+            const chkResp: Response = await fetch(`/api/polygon/v2/aggs/ticker/${symbol}/range/1/day/${fiveYearsAgo.toISOString().slice(0, 10)}/${fiveYearsAgo.toISOString().slice(0, 10)}?adjusted=true&sort=asc&limit=1&apiKey=${API_KEY}`)
             const chkJson: any = chkResp.ok ? await chkResp.json() : {}
             if (!chkJson.results?.length) { setSeasonalEventNoData(true); setIsSeasonalEventActive(false); return }
           } catch { setSeasonalEventNoData(true); setIsSeasonalEventActive(false); return }
@@ -10945,7 +10945,7 @@ export default function TradingViewChart({
             const winTo = new Date(refDate.getTime() + (totalSlotDays + 7) * 86400000).toISOString().slice(0, 10)
             let winBars: any[] = []
             try {
-              let url: string | null = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${intradayCfg.mult}/minute/${winFrom}/${winTo}?adjusted=true&sort=asc&limit=50000&apiKey=${API_KEY}`
+              let url: string | null = `/api/polygon/v2/aggs/ticker/${symbol}/range/${intradayCfg.mult}/minute/${winFrom}/${winTo}?adjusted=true&sort=asc&limit=50000&apiKey=${API_KEY}`
               while (url) {
                 const r: Response = await fetch(url)
                 if (!r.ok) break
@@ -11065,7 +11065,7 @@ export default function TradingViewChart({
               const from = allDays[0].toISOString().split('T')[0]
               const to = allDays[allDays.length - 1].toISOString().split('T')[0]
               try {
-                const resp: Response = await fetch(`https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${API_KEY}`)
+                const resp: Response = await fetch(`/api/polygon/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${API_KEY}`)
                 if (!resp.ok) return
                 const json: any = await resp.json()
                 if (!json.results?.length) return
@@ -13176,7 +13176,7 @@ export default function TradingViewChart({
     const fetchShares = async (ticker: string, date: string): Promise<number | null> => {
       try {
         const res = await fetch(
-          `https://api.polygon.io/v3/reference/tickers/${ticker}?date=${date}&apiKey=${POLYGON_API_KEY}`,
+          `/api/polygon/v3/reference/tickers/${ticker}?date=${date}&apiKey=${POLYGON_API_KEY}`,
           { headers: { Accept: 'application/json' } }
         )
         if (!res.ok) return null
@@ -13201,7 +13201,7 @@ export default function TradingViewChart({
       if (missing.length > 0) {
         try {
           const snapRes = await fetch(
-            `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${missing.join(',')}&apiKey=${POLYGON_API_KEY}`,
+            `/api/polygon/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${missing.join(',')}&apiKey=${POLYGON_API_KEY}`,
             { headers: { Accept: 'application/json' } }
           )
           if (snapRes.ok) {
@@ -13295,7 +13295,7 @@ export default function TradingViewChart({
     } // analysis-suite: skip tracking scan
     setTrackingLoading(true)
 
-    const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+    const POLYGON_API_KEY: string = ''
 
     const categories = {
       Markets: ['SPY', 'QQQ', 'IWM', 'DIA', 'GLD', 'TLT'],
@@ -13419,7 +13419,7 @@ export default function TradingViewChart({
               // Single call: 5-minute bars for today — replaces old daily + 1-min two-call approach.
               // First bar's open is used as prev-close approximation; last bar's close is current price.
               // ~78 bars max (6.5h × 12 bars/h) vs 390 bars at 1-min — 5× less data per call.
-              const fiveMinsUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/5/minute/${startDateStr}/${todayStr}?adjusted=true&sort=asc&limit=1000&apiKey=${POLYGON_API_KEY}`
+              const fiveMinsUrl = `/api/polygon/v2/aggs/ticker/${symbol}/range/5/minute/${startDateStr}/${todayStr}?adjusted=true&sort=asc&limit=1000&apiKey=${POLYGON_API_KEY}`
               const fiveMinsResponse = await fetchWithRetry(fiveMinsUrl)
               const fiveMinsData = await fiveMinsResponse.json()
 
@@ -13498,7 +13498,7 @@ export default function TradingViewChart({
               rangeStartDate.setDate(rangeStartDate.getDate() - daysBack)
               const rangeStartStr = `${rangeStartDate.getFullYear()}-${String(rangeStartDate.getMonth() + 1).padStart(2, '0')}-${String(rangeStartDate.getDate()).padStart(2, '0')}`
 
-              const dataUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${rangeStartStr}/${todayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
+              const dataUrl = `/api/polygon/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${rangeStartStr}/${todayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
 
               const dataResponse = await fetchWithRetry(dataUrl)
               const data = await dataResponse.json()
@@ -14838,7 +14838,7 @@ export default function TradingViewChart({
     // Minimum notional ($) for a LIT-exchange print to qualify as a notable block trade.
     // Captures large block activity on NYSE, Nasdaq, Arca, CBOE, etc. that VL also tracks.
     const LIT_BLOCK_MIN_NOTIONAL = 250_000 // $250k notional
-    const API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+    const API_KEY: string = ''
     if (!API_KEY) return
 
     // Clear cache when symbol changes
@@ -14965,7 +14965,7 @@ export default function TradingViewChart({
       const windowUrls = Array.from({ length: WIN }, (_, i) => {
         const wStartNs = rthStartNs + i * winNs
         const wEndNs = rthStartNs + (i + 1) * winNs
-        return `https://api.polygon.io/v3/trades/${config.symbol}?timestamp.gte=${wStartNs}&timestamp.lte=${wEndNs}&limit=10000&order=asc&apiKey=${API_KEY}`
+        return `/api/polygon/v3/trades/${config.symbol}?timestamp.gte=${wStartNs}&timestamp.lte=${wEndNs}&limit=10000&order=asc&apiKey=${API_KEY}`
       })
 
       try {
@@ -15482,7 +15482,7 @@ export default function TradingViewChart({
       const todayStr = today.toISOString().split('T')[0]
       const yesterdayStr = yesterday.toISOString().split('T')[0]
 
-      const recentUrl = `https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/minute/${yesterdayStr}/${todayStr}?adjusted=true&sort=desc&limit=1&apiKey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`
+      const recentUrl = `/api/polygon/v2/aggs/ticker/${sym}/range/1/minute/${yesterdayStr}/${todayStr}?adjusted=true&sort=desc&limit=1&apiKey=`
       const response = await fetchWithRetry(recentUrl)
       const result = await response.json()
 
@@ -15492,7 +15492,7 @@ export default function TradingViewChart({
 
         // Get previous day's close using Polygon /prev endpoint for accurate day-over-day change
         // This includes pre-market and after-hours moves: if prev close = $692, after-hours = $689, shows -$3
-        const prevDayUrl = `https://api.polygon.io/v2/aggs/ticker/${sym}/prev?adjusted=true&apiKey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`
+        const prevDayUrl = `/api/polygon/v2/aggs/ticker/${sym}/prev?adjusted=true&apiKey=`
         try {
           const prevResponse = await fetchWithRetry(prevDayUrl)
           if (prevResponse.ok) {
@@ -15521,7 +15521,7 @@ export default function TradingViewChart({
         }
       } else {
         // Fallback: market closed / weekend — use last two daily bars to show real change
-        const fallbackUrl = `https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/day/${(() => { const d = new Date(); d.setDate(d.getDate() - 10); return d.toISOString().split('T')[0] })()}/${new Date().toISOString().split('T')[0]}?adjusted=true&sort=desc&limit=2&apikey=${process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''}`
+        const fallbackUrl = `/api/polygon/v2/aggs/ticker/${sym}/range/1/day/${(() => { const d = new Date(); d.setDate(d.getDate() - 10); return d.toISOString().split('T')[0] })()}/${new Date().toISOString().split('T')[0]}?adjusted=true&sort=desc&limit=2&apikey=`
         try {
           const fallbackResponse = await fetchWithRetry(fallbackUrl)
           const fallbackResult = await fallbackResponse.json()

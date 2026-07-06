@@ -1,4 +1,4 @@
-import { getRiskFreeRate } from './riskFreeRate'
+﻿import { getRiskFreeRate } from './riskFreeRate'
 
 interface Message {
   role: 'user' | 'assistant' | 'system'
@@ -18,7 +18,7 @@ interface TradingKnowledge {
 export class TradingAssistant {
   private knowledge: TradingKnowledge
   private baseUrl: string
-  private POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+  private POLYGON_API_KEY = '' || ''
 
   constructor(baseUrl: string = '') {
     this.baseUrl = baseUrl
@@ -1041,7 +1041,7 @@ export class TradingAssistant {
           const expiryParam = expiry.includes('T') ? expiry.split('T')[0] : expiry
 
           const response = await fetch(
-            `https://api.polygon.io/v3/snapshot/options/${underlying}?expiration_date=${expiryParam}&limit=250&apikey=${this.POLYGON_API_KEY}`
+            `/api/polygon/v3/snapshot/options/${underlying}?expiration_date=${expiryParam}&limit=250&apikey=${this.POLYGON_API_KEY}`
           )
 
           if (response.ok) {
@@ -1139,7 +1139,7 @@ export class TradingAssistant {
           const tradeTime = new Date(trade.trade_timestamp)
           const checkTimestamp = tradeTime.getTime() * 1000000
 
-          const quotesUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${checkTimestamp}&limit=1&apikey=${this.POLYGON_API_KEY}`
+          const quotesUrl = `/api/polygon/v3/quotes/${optionTicker}?timestamp.lte=${checkTimestamp}&limit=1&apikey=${this.POLYGON_API_KEY}`
 
           const response = await fetch(quotesUrl)
           const data = await response.json()
@@ -1196,7 +1196,7 @@ export class TradingAssistant {
           const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
           const optionTicker = `O:${trade.underlying_ticker}${expiry}${optionType}${strikeFormatted}`
 
-          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${this.POLYGON_API_KEY}`
+          const snapshotUrl = `/api/polygon/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${this.POLYGON_API_KEY}`
 
           const response = await fetch(snapshotUrl, {
             signal: AbortSignal.timeout(3000),
@@ -1235,7 +1235,7 @@ export class TradingAssistant {
     // Fetch all stock prices in parallel
     const pricePromises = uniqueTickers.map(async (ticker) => {
       try {
-        const url = `https://api.polygon.io/v2/last/trade/${ticker}?apikey=${this.POLYGON_API_KEY}`
+        const url = `/api/polygon/v2/last/trade/${ticker}?apikey=${this.POLYGON_API_KEY}`
         const response = await fetch(url, { signal: AbortSignal.timeout(3000) })
 
         if (response.ok) {

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -81,7 +81,7 @@ function optionTicker(symbol: string, expiration: string, type: 'C' | 'P', strik
 // ── Portfolio Component ───────────────────────────────────────────────────────
 export default function StraddlePortfolio({ onClose }: { onClose?: () => void }) {
     const mono: React.CSSProperties = { fontFamily: 'JetBrains Mono, monospace' }
-    const API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY ?? ''
+    const API_KEY = '' ?? ''
 
     const [positions, setPositions] = useState<StraddlePosition[]>([])
     const [tab, setTab] = useState<'ACCOUNT' | 'OPEN' | 'CLOSED'>('ACCOUNT')
@@ -113,7 +113,7 @@ export default function StraddlePortfolio({ onClose }: { onClose?: () => void })
         if (!open.length || !API_KEY) return
         for (const sym of [...new Set(open.map(p => p.symbol))]) {
             try {
-                const r = await fetch(`https://api.polygon.io/v2/aggs/ticker/${sym}/prev?apiKey=${API_KEY}`)
+                const r = await fetch(`/api/polygon/v2/aggs/ticker/${sym}/prev?apiKey=${API_KEY}`)
                 const d = await r.json()
                 const price: number | undefined = d?.results?.[0]?.c
                 if (price) setStockPrices(prev => ({ ...prev, [sym]: price }))
@@ -126,7 +126,7 @@ export default function StraddlePortfolio({ onClose }: { onClose?: () => void })
                 const ticker = optionTicker(pos.symbol, pos.expiration, type, leg.strike)
                 try {
                     const r = await fetch(
-                        `https://api.polygon.io/v3/snapshot/options/${pos.symbol}/${encodeURIComponent(ticker)}?apiKey=${API_KEY}`
+                        `/api/polygon/v3/snapshot/options/${pos.symbol}/${encodeURIComponent(ticker)}?apiKey=${API_KEY}`
                     )
                     const d = await r.json()
                     const price: number | null = d?.results?.day?.close ?? d?.results?.last_quote?.midpoint ?? null

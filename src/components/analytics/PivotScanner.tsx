@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { Activity, AlertCircle, TrendingDown, TrendingUp, X } from 'lucide-react'
 
@@ -255,7 +255,7 @@ export default function PivotScanner({ compactMode = false }: PivotScannerProps)
 
   const fetchChartData = async (symbol: string, timeframe: '1D' | '5D' | '1M') => {
     try {
-      const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+      const POLYGON_API_KEY = '' || ''
       const now = new Date()
       const pstDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
 
@@ -283,7 +283,7 @@ export default function PivotScanner({ compactMode = false }: PivotScannerProps)
       // Use exact logic from tracking tab
       if (timeframe === '1D') {
         // Intraday 5-minute data
-        const dataUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/5/minute/${todayStr}/${todayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
+        const dataUrl = `/api/polygon/v2/aggs/ticker/${symbol}/range/5/minute/${todayStr}/${todayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
         const response = await fetch(dataUrl)
         const data = await response.json()
 
@@ -296,7 +296,7 @@ export default function PivotScanner({ compactMode = false }: PivotScannerProps)
         const prevDayDate = new Date(pstDate)
         prevDayDate.setDate(prevDayDate.getDate() - 1)
         const prevDayStr = `${prevDayDate.getFullYear()}-${String(prevDayDate.getMonth() + 1).padStart(2, '0')}-${String(prevDayDate.getDate()).padStart(2, '0')}`
-        const prevDayUrl = `https://api.polygon.io/v1/open-close/${symbol}/${prevDayStr}?adjusted=true&apiKey=${POLYGON_API_KEY}`
+        const prevDayUrl = `/api/polygon/v1/open-close/${symbol}/${prevDayStr}?adjusted=true&apiKey=${POLYGON_API_KEY}`
         const prevDayResponse = await fetch(prevDayUrl)
         const prevDayData = await prevDayResponse.json()
         const previousDayClose = prevDayData?.close || data.results[0].c
@@ -337,7 +337,7 @@ export default function PivotScanner({ compactMode = false }: PivotScannerProps)
         rangeStartDate.setDate(rangeStartDate.getDate() - daysBack)
         const rangeStartStr = `${rangeStartDate.getFullYear()}-${String(rangeStartDate.getMonth() + 1).padStart(2, '0')}-${String(rangeStartDate.getDate()).padStart(2, '0')}`
 
-        const dataUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${rangeStartStr}/${todayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
+        const dataUrl = `/api/polygon/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${rangeStartStr}/${todayStr}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`
         const response = await fetch(dataUrl)
         const data = await response.json()
 

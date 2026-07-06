@@ -1,11 +1,11 @@
-// Stock Trader's Almanac Service
+﻿// Stock Trader's Almanac Service
 // Fetches real historical data and calculates seasonal patterns
 // Uses Polygon.io API for real market data and FRED API for economic releases
 import { EconomicRelease, getMonthlyEconomicReleases } from './fredService'
 import PolygonService from './polygonService'
 
 const polygonService = new PolygonService()
-const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const POLYGON_API_KEY = '' || ''
 
 export interface DailySeasonalPoint {
   tradingDay: number
@@ -96,7 +96,7 @@ async function fetchMarketHolidays(): Promise<MarketHoliday[]> {
 
   try {
     const response = await fetch(
-      `https://api.polygon.io/v1/marketstatus/upcoming?apikey=${POLYGON_API_KEY}`,
+      `/api/polygon/v1/marketstatus/upcoming?apikey=${POLYGON_API_KEY}`,
       {
         headers: { Accept: 'application/json' },
         signal: AbortSignal.timeout(10000),

@@ -1,4 +1,4 @@
-interface OptionQuote {
+﻿interface OptionQuote {
   bid: number
   ask: number
   mid: number
@@ -28,7 +28,7 @@ interface PremiumImbalance {
 }
 
 class PremiumImbalanceScanner {
-  private readonly API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+  private readonly API_KEY = '' || ''
   private readonly CONCURRENT_REQUESTS = 10 // Process 10 symbols at once for faster scanning
   private readonly REQUEST_DELAY = 25 // Reduced delay between batches for 1000+ stocks
 
@@ -209,7 +209,7 @@ class PremiumImbalanceScanner {
 
   private async fetchTodayMinuteBars(symbol: string, dateStr: string): Promise<any[]> {
     try {
-      const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/1/minute/${dateStr}/${dateStr}?adjusted=false&sort=desc&limit=500&apiKey=${this.API_KEY}`
+      const url = `/api/polygon/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/1/minute/${dateStr}/${dateStr}?adjusted=false&sort=desc&limit=500&apiKey=${this.API_KEY}`
       const res = await fetch(url)
       if (!res.ok) return []
       const data = await res.json()
@@ -225,7 +225,7 @@ class PremiumImbalanceScanner {
   ): Promise<{ bid: number; ask: number } | null> {
     try {
       const toNs = (atMs + 59_999) * 1_000_000
-      const url = `https://api.polygon.io/v3/quotes/${encodeURIComponent(optionTicker)}?timestamp.lte=${toNs}&order=desc&limit=1&apiKey=${this.API_KEY}`
+      const url = `/api/polygon/v3/quotes/${encodeURIComponent(optionTicker)}?timestamp.lte=${toNs}&order=desc&limit=1&apiKey=${this.API_KEY}`
       const res = await fetch(url)
       if (!res.ok) return null
       const data = await res.json()
@@ -482,7 +482,7 @@ class PremiumImbalanceScanner {
 
   private async getStockPrice(symbol: string): Promise<number | null> {
     try {
-      const url = `https://api.polygon.io/v2/last/trade/${symbol}?apiKey=${this.API_KEY}`
+      const url = `/api/polygon/v2/last/trade/${symbol}?apiKey=${this.API_KEY}`
       const response = await fetch(url)
       if (!response.ok) return null
 
@@ -495,7 +495,7 @@ class PremiumImbalanceScanner {
 
   private async getOptionChain(symbol: string, expiry: string): Promise<any> {
     try {
-      const url = `https://api.polygon.io/v3/snapshot/options/${symbol}?expiration_date=${expiry}&limit=250&apiKey=${this.API_KEY}`
+      const url = `/api/polygon/v3/snapshot/options/${symbol}?expiration_date=${expiry}&limit=250&apiKey=${this.API_KEY}`
       const response = await fetch(url)
 
       if (!response.ok) return null

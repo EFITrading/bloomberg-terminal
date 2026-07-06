@@ -1,11 +1,11 @@
-/**
+﻿/**
  * Singleton WebSocket service for wss://socket.polygon.io/options
  *
  * Streams real-time options trade events (ev:"T") during market hours.
  * All subscribers share ONE connection — Polygon closes duplicates.
  */
 
-const API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const API_KEY = '' || ''
 const WS_URL = 'wss://socket.polygon.io/options'
 
 export interface PolygonOptionsTradeMsg {

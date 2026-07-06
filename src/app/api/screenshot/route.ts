@@ -5,7 +5,27 @@ import { NextRequest, NextResponse } from 'next/server'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
+// Simple in-memory rate limit: max 10 requests per IP per minute
+const rateLimitMap = new Map<string, { count: number; reset: number }>()
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now()
+  const entry = rateLimitMap.get(ip)
+  if (!entry || now > entry.reset) {
+    rateLimitMap.set(ip, { count: 1, reset: now + 60_000 })
+    return true
+  }
+  if (entry.count >= 10) return false
+  entry.count++
+  return true
+}
+
 export async function GET(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  if (!checkRateLimit(ip)) {
+    return new NextResponse('Rate limit exceeded', { status: 429 })
+  }
+
   const searchParams = request.nextUrl.searchParams
   const ticker = searchParams.get('ticker')
   const type = searchParams.get('type') || 'efi'

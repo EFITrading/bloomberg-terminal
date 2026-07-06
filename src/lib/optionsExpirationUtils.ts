@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Utility functions for calculating o console.log(' console.log('» RESULT: Next Friday calculated as:', nextFriday.toISOString().split('T')[0]); GET NEXT FRIDAY: CRITICAL - if today is Oct 1 2025 (Wed=3), next Friday should be Oct 3');tions expiration dates
  * All calculations use PST (America/Los_Angeles) for accurate market dates
  */
@@ -141,10 +141,10 @@ export function formatDateForAPI(date: Date): string {
  */
 export async function fetchAvailableExpirationDates(symbol: string = 'SPY'): Promise<string[]> {
   try {
-    const apiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+    const apiKey = '' || ''
     const allExpirations = new Set<string>()
     let nextUrl: string | null =
-      `https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=${symbol}&limit=1000&apikey=${apiKey}`
+      `/api/polygon/v3/reference/options/contracts?underlying_ticker=${symbol}&limit=1000&apikey=${apiKey}`
 
     // Paginate through all results
     while (nextUrl) {

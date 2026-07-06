@@ -1,4 +1,4 @@
-// Web Worker for parallel bid/ask analysis
+﻿// Web Worker for parallel bid/ask analysis
 // This runs in a separate thread to avoid blocking the main UI
 
 interface TradeData {
@@ -26,7 +26,7 @@ interface WorkerResponse {
 }
 
 // Polygon API key
-const POLYGON_API_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const POLYGON_API_KEY = '' || ''
 
 // Main worker function
 self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
@@ -52,7 +52,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
             const checkTime = new Date(tradeTime.getTime() - 2000)
             const checkTimestamp = checkTime.getTime() * 1000000
 
-            const quotesUrl = `https://api.polygon.io/v3/quotes/${optionTicker}?timestamp.lte=${checkTimestamp}&limit=1&apikey=${POLYGON_API_KEY}`
+            const quotesUrl = `/api/polygon/v3/quotes/${optionTicker}?timestamp.lte=${checkTimestamp}&limit=1&apikey=${POLYGON_API_KEY}`
 
             const response = await fetch(quotesUrl, {
               signal: controller.signal,

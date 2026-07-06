@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const POLYGON_API_KEY = process.env.POLYGON_API_KEY || process.env.NEXT_PUBLIC_POLYGON_API_KEY || ''
+const POLYGON_API_KEY = process.env.POLYGON_API_KEY!
 
 export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
