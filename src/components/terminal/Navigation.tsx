@@ -17,6 +17,7 @@ export default function Navigation() {
   const { regimes, regimeAnalysis } = useMarketRegime()
   const [currentTime, setCurrentTime] = useState('')
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [isClient, setIsClient] = useState(false)
   const [isBlindMe, setIsBlindMe] = useState(false)
   const { isMobile, isSmallMobile } = useNavigationMobile()
@@ -65,8 +66,10 @@ export default function Navigation() {
     const checkAuth = () => {
       const cookies = document.cookie.split(';')
       const authCookie = cookies.find((cookie) => cookie.trim().startsWith('efi-auth='))
-      const isAuth = authCookie && authCookie.includes('authenticated')
+      const cookieVal = authCookie?.split('=')[1]?.trim()
+      const isAuth = cookieVal === 'authenticated' || cookieVal === 'admin'
       setIsAuthenticated(!!isAuth)
+      setIsAdmin(cookieVal === 'admin')
     }
 
     checkAuth()
@@ -75,14 +78,18 @@ export default function Navigation() {
 
   const LOCKED_PATHS = new Set(['/analysis-suite', '/ai-suite', '/market-overview', '/data-driven', '/analytics', '/dealers-workbench', '/rrg-screener', '/ai-trades'])
 
-  const navLinks = [
+  const ALL_NAV_LINKS = [
     { name: 'Market Overview', path: '/market-overview', color: '#f97316' },
     { name: 'Analysis Suite', path: '/analysis-suite', color: '#a855f7' },
     { name: 'Data Driven', path: '/data-driven', color: '#22c55e' },
     { name: 'Analytics', path: '/analytics', color: '#FF8500' },
     { name: 'AI Suite', path: '/ai-suite', color: '#ec4899' },
     { name: 'OptionsFlow', path: '/options-flow', color: '#06b6d4' },
-  ].filter(link => !LOCKED_PATHS.has(link.path))
+  ]
+
+  const navLinks = isAdmin
+    ? ALL_NAV_LINKS
+    : ALL_NAV_LINKS.filter(link => !LOCKED_PATHS.has(link.path))
 
   const isLandingPage = pathname === '/' || pathname === '/login' || pathname === '/auth'
   const hideMobileNav = isMobile && !isLandingPage
@@ -263,7 +270,7 @@ export default function Navigation() {
                   )}
                   <Link
                     href={link.path}
-                    onClick={LOCKED_PATHS.has(link.path) ? (e) => e.preventDefault() : undefined}
+                    onClick={(!isAdmin && LOCKED_PATHS.has(link.path)) ? (e) => e.preventDefault() : undefined}
                     style={{
                       padding: '0 22px',
                       height: '48px',
@@ -323,7 +330,7 @@ export default function Navigation() {
                     }}
                   >
                     {link.name}
-                    {LOCKED_PATHS.has(link.path) && (
+                    {(!isAdmin && LOCKED_PATHS.has(link.path)) && (
                       <svg
                         width="11" height="13" viewBox="0 0 12 15" fill="none"
                         style={{ marginLeft: '7px', flexShrink: 0, opacity: 0.75 }}

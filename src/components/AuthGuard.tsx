@@ -7,7 +7,7 @@ function getCookieAuth(): boolean {
   if (typeof document === 'undefined') return false
   const cookies = document.cookie.split(';')
   const authCookie = cookies.find((c) => c.trim().startsWith('efi-auth='))
-  return authCookie ? authCookie.split('=')[1]?.trim() === 'authenticated' : false
+  return authCookie ? ['authenticated', 'admin'].includes(authCookie.split('=')[1]?.trim()) : false
 }
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
