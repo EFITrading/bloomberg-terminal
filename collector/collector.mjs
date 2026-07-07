@@ -149,7 +149,18 @@ async function enrichBatch(trades) {
             else if (fill === c.bid) fill_type = 'B'
             else fill_type = fill >= mid ? 'A' : 'B'
         }
-        return { ...t, volume: c.volume, open_interest: c.open_interest, iv: c.iv, spot_price: c.spot_price, fill_style: fill_type }
+        const spot = c.spot_price
+        let moneyness = t.moneyness
+        if (spot > 0) {
+            const ATM_BAND = 0.005
+            const pct = (t.strike - spot) / spot
+            if (t.type === 'call') {
+                moneyness = pct <= -ATM_BAND ? 'ITM' : pct >= ATM_BAND ? 'OTM' : 'ATM'
+            } else {
+                moneyness = pct >= ATM_BAND ? 'ITM' : pct <= -ATM_BAND ? 'OTM' : 'ATM'
+            }
+        }
+        return { ...t, volume: c.volume, open_interest: c.open_interest, iv: c.iv, spot_price: c.spot_price, fill_style: fill_type, moneyness }
     })
 }
 

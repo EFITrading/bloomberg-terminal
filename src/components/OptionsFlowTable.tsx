@@ -3418,10 +3418,11 @@ Stock Reaction: ${scores.stockReaction}/15`
       })
     }
 
-    // Patch moneyness for live trades where spot_price = 0 — use currentPrices to compute real ITM/OTM/ATM
+    // Patch moneyness for live trades — use currentPrices (or spot_price) to compute real ITM/OTM/ATM
+    // Also handles DB-loaded live trades that have spot_price > 0 but no moneyness field (collector omits it)
     sourceData = sourceData.map((trade) => {
-      if (trade.spot_price > 0) return trade
-      const spot = currentPrices[trade.underlying_ticker]
+      if (trade.spot_price > 0 && trade.moneyness) return trade
+      const spot = trade.spot_price > 0 ? trade.spot_price : currentPrices[trade.underlying_ticker]
       if (!spot || spot <= 0) return trade
       const pct = (trade.strike - spot) / spot
       const ATM_BAND = 0.005 // 0.5% band = ATM
