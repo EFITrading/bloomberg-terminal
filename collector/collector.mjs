@@ -328,8 +328,9 @@ function startCollecting() {
         try {
             const enriched = await enrichBatch(batch)
             const withOI = applyLiveOI(enriched)
-            pendingTrades.push(...withOI)
-            console.log(`[FLUSH] +${withOI.length} enriched | pending: ${pendingTrades.length}`)
+            const filtered = withOI.filter(t => t.trade_type !== 'MINI' && t.total_premium >= 10000)
+            pendingTrades.push(...filtered)
+            console.log(`[FLUSH] +${withOI.length} enriched | ${withOI.length - filtered.length} dropped (MINI/<$10k) | pending: ${pendingTrades.length}`)
         } catch (err) {
             console.error('[FLUSH] Enrich error:', err.message)
             pendingTrades.push(...batch)

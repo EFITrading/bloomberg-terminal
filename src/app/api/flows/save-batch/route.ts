@@ -1,14 +1,20 @@
 import { promisify } from 'util'
 import { gunzip, gzip } from 'zlib'
 
+import { PrismaClient } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
-
-import prisma from '@/lib/prisma'
 
 const gzipAsync = promisify(gzip)
 const gunzipAsync = promisify(gunzip)
 
 export const runtime = 'nodejs'
+
+// Use the direct DB URL (bypasses Prisma Accelerate's 5MB response limit)
+// The `data` column is a blob — it must never go through the Accelerate proxy
+const directPrisma = new PrismaClient({
+    datasources: { db: { url: process.env.POSTGRES_URL } },
+    log: ['error'],
+})
 
 export async function GET(request: NextRequest) {
     try {
@@ -20,7 +26,7 @@ export async function GET(request: NextRequest) {
 
         // Incremental poll — only fetch chunks newer than `since` (tiny, ~6 chunks per 30s poll)
         if (since) {
-            const newChunks = await prisma.flowBatch.findMany({
+            const newChunks = await directPrisma.flowBatch.findMany({
                 where: { tradingDate, batchTime: { gt: new Date(since) } },
                 orderBy: { batchTime: 'asc' },
                 select: { id: true, data: true, batchTime: true },
@@ -34,9 +40,9 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ trades, tradeCount: trades.length, batchTime: latestTime, incremental: true })
         }
 
-        // Initial full-day load — parallel pages of 40 chunks (~104KB each → ~4.1MB < 5MB Accelerate limit)
+        // Initial full-day load — direct connection has no 5MB limit, use large pages for speed
         const PAGE_SIZE = 40
-        const total = await prisma.flowBatch.count({ where: { tradingDate } })
+        const total = await directPrisma.flowBatch.count({ where: { tradingDate } })
         if (total === 0) return NextResponse.json({ trades: [], tradeCount: 0 })
 
         const pageCount = Math.ceil(total / PAGE_SIZE)
@@ -48,7 +54,7 @@ export async function GET(request: NextRequest) {
         for (let i = 0; i < pageCount; i += 10) {
             const batch = await Promise.all(
                 Array.from({ length: Math.min(10, pageCount - i) }, (_, j) =>
-                    prisma.flowBatch.findMany({
+                    directPrisma.flowBatch.findMany({
                         where: { tradingDate },
                         orderBy: { batchTime: 'asc' },
                         skip: (i + j) * PAGE_SIZE,
@@ -83,16 +89,25 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'tradingDate and trades array are required' }, { status: 400 })
         }
 
-        const compressed = await gzipAsync(JSON.stringify(trades))
-        const compressedBase64 = compressed.toString('base64')
+        // Split into sub-chunks of 50 trades each so each DB row stays small (~10-20KB compressed)
+        // This prevents any single row from ever approaching Accelerate's 5MB limit
+        const CHUNK_SIZE = 50
+        const now = new Date()
+        const batches: { tradingDate: string; batchTime: Date; data: string; tradeCount: number }[] = []
+        for (let i = 0; i < trades.length; i += CHUNK_SIZE) {
+            const slice = trades.slice(i, i + CHUNK_SIZE)
+            const compressed = await gzipAsync(JSON.stringify(slice))
+            batches.push({
+                tradingDate,
+                batchTime: new Date(now.getTime() + i), // ensure unique ordering
+                data: compressed.toString('base64'),
+                tradeCount: slice.length,
+            })
+        }
 
-        // Append-only — each call creates a new small chunk record
-        const batch = await prisma.flowBatch.create({
-            data: { tradingDate, batchTime: new Date(), data: compressedBase64, tradeCount: trades.length },
-            select: { id: true, tradingDate: true, batchTime: true, tradeCount: true },
-        })
+        await directPrisma.flowBatch.createMany({ data: batches })
 
-        return NextResponse.json({ success: true, batch })
+        return NextResponse.json({ success: true, chunks: batches.length, tradeCount: trades.length })
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error)
         console.error('[FlowBatch POST] Error:', msg)
