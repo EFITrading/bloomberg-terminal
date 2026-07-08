@@ -501,7 +501,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   >({})
 
   const [isMounted, setIsMounted] = useState(false)
-  const { isMobileView } = useOptionsFlowTableMobile()
+  const { isMobileView, isTabletView, windowWidth } = useOptionsFlowTableMobile()
 
 
 
@@ -5773,9 +5773,9 @@ Stock Reaction: ${scores.stockReaction}/15`
           minHeight: showFlowTrackingInline ? 'auto' : undefined,
           overflow: showFlowTrackingInline ? undefined : isSidebarPanel ? 'visible' : 'hidden',
 
-          width: isSidebarPanel ? '100%' : isMobileView ? '100%' : '74%',
+          width: isSidebarPanel ? '100%' : (isMobileView || isTabletView) ? '100%' : '74%',
 
-          marginRight: isSidebarPanel || isMobileView ? '0' : '38%',
+          marginRight: isSidebarPanel || isMobileView || isTabletView ? '0' : '38%',
 
           marginTop: '0',
 
@@ -7874,7 +7874,7 @@ Stock Reaction: ${scores.stockReaction}/15`
           )}
           <div className="p-0">
             <div
-              className="table-scroll-container custom-scrollbar overflow-y-auto overflow-x-auto"
+              className={`table-scroll-container custom-scrollbar overflow-y-auto overflow-x-auto${isTabletView ? ' table-tablet' : ''}`}
               style={{
                 height: isMobileView ? 'calc(100vh - 200px)' : 'calc(100vh - 171px)',
                 overflowY: 'auto',
@@ -8015,7 +8015,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     </th>
 
                     {/* VOL/OI — not sortable */}
-                    <th className="col-hdr hidden md:table-cell text-left">
+                    <th className="col-hdr col-vol-oi hidden md:table-cell text-left">
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="6" y1="20" x2="6" y2="14" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="18" y1="20" x2="18" y2="10" /></svg>
                         VOL/OI
@@ -8024,8 +8024,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                     {/* TYPE */}
                     <th
-                      className="col-hdr col-sortable hidden md:table-cell text-left"
-                      onClick={() => handleSort('trade_type')}
+                      className="col-hdr col-type col-sortable hidden md:table-cell text-left"
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#facc15" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></svg>
@@ -8040,7 +8039,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                     {/* Conditional: TARGETS */}
                     {notableFilterActive && (
-                      <th className="col-hdr hidden md:table-cell text-left">
+                      <th className="col-hdr col-targets hidden md:table-cell text-left">
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" fill="#10b981" /></svg>
                           TARGETS
@@ -8050,7 +8049,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                     {/* Conditional: DEALER */}
                     {notableFilterActive && (
-                      <th className="col-hdr hidden md:table-cell text-left">
+                      <th className="col-hdr col-dealer hidden md:table-cell text-left">
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#c084fc" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 21V8l9-6 9 6v13" /><path d="M9 21V12h6v9" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
                           DEALER
@@ -8224,7 +8223,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                               className="hidden md:block"
                               style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : {}}
                             >
-                              {notableFilterActive ? formatTime(trade.trade_timestamp) : formatTimeWithSeconds(trade.trade_timestamp)}
+                              {notableFilterActive ? formatTime(trade.trade_timestamp) : formatTime(trade.trade_timestamp)}
                             </div>
                           </td>
 
@@ -8523,7 +8522,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                             </div>
                           </td>
 
-                          <td className="hidden md:table-cell p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 vol-oi-display">
+                          <td className="col-vol-oi hidden md:table-cell p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 vol-oi-display">
                             {typeof trade.volume === 'number' &&
                               typeof trade.open_interest === 'number' ? (
                               <div className="flex items-center justify-center gap-1">
@@ -8559,7 +8558,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                             )}
                           </td>
 
-                          <td className="hidden md:table-cell p-2 md:p-6 border-r border-gray-700/30 text-center">
+                          <td className="col-type hidden md:table-cell p-2 md:p-6 border-r border-gray-700/30 text-center">
                             <span
                               className={`${getTradeTypeColor(trade.classification || trade.trade_type).className} px-4 py-2 text-xs md:text-lg`}
                               style={getTradeTypeColor(trade.classification || trade.trade_type).style}
