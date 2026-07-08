@@ -283,7 +283,7 @@ export class OptionsFlowService {
     const { ParallelOptionsFlowProcessor } = require('./ParallelOptionsFlowProcessor.js')
     const parallelProcessor = new ParallelOptionsFlowProcessor()
 
-    const apiKey = ''
+    const apiKey = this.polygonApiKey
     if (!apiKey) {
       console.error('[ERROR] No API key found')
       return []

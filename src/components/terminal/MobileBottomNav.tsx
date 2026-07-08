@@ -17,6 +17,7 @@ interface Props {
   isAuthenticated: boolean
   isClient: boolean
   router: AppRouterInstance
+  isAdmin?: boolean
 }
 
 const ACTIVE_COLOR = '#FF8500'
@@ -175,7 +176,7 @@ const STYLES = `
   .efi-wave { stroke-dasharray:60; animation: efi-wave-draw 1.2s linear infinite; }
 `
 
-export default function MobileBottomNav({ navLinks, pathname }: Props) {
+export default function MobileBottomNav({ navLinks, pathname, isAdmin = false }: Props) {
   const [mounted, setMounted] = useState(false)
   useEffect(() => { setMounted(true) }, [])
 
@@ -209,7 +210,8 @@ export default function MobileBottomNav({ navLinks, pathname }: Props) {
           const isActive = pathname === link.path
           const Icon = ICONS[link.path]
           const label = SHORT_LABELS[link.path] ?? link.name
-          const isLocked = link.path !== '/options-flow' && link.path !== '/account'
+          const LOCKED_MOBILE_PATHS = new Set(['/analysis-suite', '/ai-suite', '/market-overview', '/data-driven', '/analytics', '/dealers-workbench', '/rrg-screener', '/ai-trades'])
+          const isLocked = !isAdmin && LOCKED_MOBILE_PATHS.has(link.path)
           return isLocked ? (
             <div
               key={link.path}

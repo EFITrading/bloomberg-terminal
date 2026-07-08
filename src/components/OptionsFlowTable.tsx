@@ -438,6 +438,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [calMonth, setCalMonth] = useState(new Date().getMonth())
   const [calHover, setCalHover] = useState<string | null>(null)
   const [calPickStart, setCalPickStart] = useState<string | null>(null) // first click pending end
+  const calBtnRef = React.useRef<HTMLButtonElement>(null)
+  const [calRect, setCalRect] = useState<{ top: number; left: number } | null>(null)
 
   const [saveErrorMsg, setSaveErrorMsg] = useState<string>('')
 
@@ -471,6 +473,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({})
 
   const [priceLoadingState, setPriceLoadingState] = useState<Record<string, boolean>>({})
+  // True while any stock price is still being fetched for the current flow dataset
+  const stockPricesLoading = Object.values(priceLoadingState).some(v => v)
 
   const [currentOptionPrices, setCurrentOptionPrices] = useState<Record<string, number>>({})
 
@@ -516,144 +520,214 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [leapSeasonalData, setLeapSeasonalData] = useState<Map<string, { inSweetSpot: boolean; inPainPoint: boolean }>>(new Map())
   const [modeLoadingStep, setModeLoadingStep] = useState<{ mode: 'LEAP' | 'EFI'; step: string } | null>(null)
 
-  // ---- Canvas scene components for loading screen art ----
-  // ---- Bloomberg-graphic loading scenes (panel built dynamically from live data) ----
-  const _sceneFont = '"Arial Black","Arial Bold",Impact,sans-serif'
+  // ---- Weather particle loading background ----
+  const weatherCanvasRef = React.useRef<HTMLCanvasElement>(null)
+  const weatherModeRef = React.useRef(0)
 
-  const LoadingCrashScene = React.useCallback(() => (
-    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#060102' }}>
-      {/* Bear photo — right 60%, fade left */}
-      <div style={{ position: 'absolute', right: 0, top: 0, width: '62%', height: '100%', overflow: 'hidden' }}>
-        <img src="/loading/bear.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', filter: 'contrast(1.5) brightness(0.55) saturate(0.4)' }} />
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg,#060102 0%,rgba(6,1,2,0.75) 28%,rgba(6,1,2,0) 100%)' }} />
-        <div style={{ position: 'absolute', inset: 0, background: 'rgba(200,0,0,0.22)', mixBlendMode: 'screen' }} />
-      </div>
-      {/* Left text panel */}
-      <div style={{ position: 'absolute', left: 0, top: 0, width: '66%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', paddingLeft: '5%', paddingRight: '2%', gap: 0 }}>
-        <div style={{ color: '#fff', fontFamily: _sceneFont, fontWeight: 900, fontSize: 'clamp(24px,4.8vw,52px)', lineHeight: 1, textTransform: 'uppercase', letterSpacing: '0.02em', textShadow: '2px 2px 8px rgba(0,0,0,0.9)' }}>MARKETS IN</div>
-        <div style={{ color: '#e01010', fontFamily: _sceneFont, fontWeight: 900, fontSize: 'clamp(38px,7.5vw,82px)', lineHeight: 1.0, textTransform: 'uppercase', letterSpacing: '0.01em', textShadow: '0 0 30px rgba(230,0,0,0.5)', marginBottom: '4%' }}>FREEFALL</div>
-        <div style={{ width: '80%', height: '2px', background: 'rgba(200,20,20,0.7)', marginBottom: '4%' }} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(3px,0.7vh,8px)' }}>
-          {([['S&P 500', '-4.32%'], ['NASDAQ', '-5.16%'], ['DOW', '-1,276.37']] as [string, string][]).map(([t, v]) => (
-            <div key={t} style={{ display: 'flex', gap: 'clamp(8px,2vw,20px)', alignItems: 'baseline' }}>
-              <span style={{ color: 'rgba(255,255,255,0.65)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(10px,1.4vw,15px)', minWidth: '4.5em' }}>{t}</span>
-              <span style={{ color: '#e03535', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(10px,1.5vw,16px)' }}>{v}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-      {/* Top-right badge */}
-      <div style={{ position: 'absolute', top: '4%', right: '2%', color: 'rgba(210,30,30,0.92)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>▼ CIRCUIT BREAKER TRIGGERED</div>
-      {/* Scanlines */}
-      <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.05) 0px,rgba(0,0,0,0.05) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
-    </div>
-  ), [])
+  React.useEffect(() => {
+    if (!loading) return
+    const canvas = weatherCanvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
 
-  const LoadingBullScene = React.useCallback(() => (
-    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#010602' }}>
-      {/* Bull statue photo — left 55%, fade right */}
-      <div style={{ position: 'absolute', left: 0, top: 0, width: '55%', height: '100%', overflow: 'hidden' }}>
-        <img src="/loading/bull.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', filter: 'contrast(1.6) brightness(0.5) saturate(0.3)' }} />
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(270deg,#010602 0%,rgba(1,6,2,0.65) 25%,rgba(1,6,2,0) 100%)' }} />
-        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,200,60,0.28)', mixBlendMode: 'screen' }} />
-      </div>
-      {/* Right text panel */}
-      <div style={{ position: 'absolute', right: 0, top: 0, width: '58%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', paddingRight: '5%', paddingLeft: '2%', gap: 0, textAlign: 'right', alignItems: 'flex-end' }}>
-        <div style={{ color: '#fff', fontFamily: _sceneFont, fontWeight: 900, fontSize: 'clamp(24px,4.8vw,52px)', lineHeight: 1, textTransform: 'uppercase', letterSpacing: '0.02em', textShadow: '2px 2px 8px rgba(0,0,0,0.9)' }}>BULL MARKET</div>
-        <div style={{ color: '#00e040', fontFamily: _sceneFont, fontWeight: 900, fontSize: 'clamp(26px,5.2vw,58px)', lineHeight: 1.0, textTransform: 'uppercase', letterSpacing: '0.01em', textShadow: '0 0 30px rgba(0,220,60,0.5)', marginBottom: '4%' }}>STILL ALIVE?</div>
-        <div style={{ width: '80%', height: '2px', background: 'rgba(0,200,60,0.7)', marginBottom: '4%' }} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(3px,0.7vh,8px)', alignItems: 'flex-end' }}>
-          {([['S&P 500', '+1.42%'], ['DOW', '+1.18%'], ['NASDAQ', '+2.35%'], ['VIX', '-8.91%']] as [string, string][]).map(([t, v]) => (
-            <div key={t} style={{ display: 'flex', gap: 'clamp(8px,2vw,20px)', alignItems: 'baseline' }}>
-              <span style={{ color: 'rgba(255,255,255,0.65)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(10px,1.4vw,15px)', minWidth: '4.5em', textAlign: 'right' }}>{t}</span>
-              <span style={{ color: '#00e040', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(10px,1.5vw,16px)' }}>{v}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-      {/* Top-left badge */}
-      <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(0,200,60,0.92)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>▲ RISK ON — BULLS IN CONTROL</div>
-      <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.05) 0px,rgba(0,0,0,0.05) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
-    </div>
-  ), [])
+    let raf = 0
+    let lightning = 0
+    let lightningAlpha = 0
+    type WP = { x: number; y: number; vx: number; vy: number; len: number; r: number; alpha: number; depth: number; drift: number; rot: number; rotV: number }
+    let particles: WP[] = []
+    let prevMode = -1
 
-  const LoadingWatchScene = React.useCallback(() => (
-    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#010308' }}>
-      {/* Trader photo — right 60%, fade left */}
-      <div style={{ position: 'absolute', right: 0, top: 0, width: '60%', height: '100%', overflow: 'hidden' }}>
-        <img src="/loading/trader.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top', filter: 'contrast(1.6) brightness(0.45) saturate(0.3) hue-rotate(180deg)' }} />
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg,#010308 0%,rgba(1,3,8,0.72) 25%,rgba(1,3,8,0) 100%)' }} />
-        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,140,255,0.2)', mixBlendMode: 'screen' }} />
-      </div>
-      {/* Left text panel */}
-      <div style={{ position: 'absolute', left: 0, top: 0, width: '65%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', paddingLeft: '5%', paddingRight: '2%', gap: 0 }}>
-        <div style={{ color: 'rgba(255,255,255,0.55)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.3vw,14px)', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: '2%' }}>REAL-TIME SWEEP SCANNER</div>
-        <div style={{ color: '#fff', fontFamily: _sceneFont, fontWeight: 900, fontSize: 'clamp(22px,4.5vw,48px)', lineHeight: 1, textTransform: 'uppercase', letterSpacing: '0.02em', textShadow: '2px 2px 8px rgba(0,0,0,0.9)' }}>UNUSUAL</div>
-        <div style={{ color: '#00aaff', fontFamily: _sceneFont, fontWeight: 900, fontSize: 'clamp(22px,4.5vw,48px)', lineHeight: 1, textTransform: 'uppercase', letterSpacing: '0.02em', textShadow: '0 0 30px rgba(0,150,255,0.5)' }}>OPTIONS</div>
-        <div style={{ color: '#fff', fontFamily: _sceneFont, fontWeight: 900, fontSize: 'clamp(22px,4.5vw,48px)', lineHeight: 1, textTransform: 'uppercase', letterSpacing: '0.02em', textShadow: '2px 2px 8px rgba(0,0,0,0.9)', marginBottom: '4%' }}>ACTIVITY</div>
-        <div style={{ width: '80%', height: '2px', background: 'rgba(0,150,255,0.7)', marginBottom: '4%' }} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(3px,0.7vh,8px)' }}>
-          {([['SWEEPS', 'DETECTED'], ['BLOCKS', 'DETECTED'], ['DARK POOL', 'ACTIVE'], ['IV RANK', 'ELEVATED']] as [string, string][]).map(([t, v]) => (
-            <div key={t} style={{ display: 'flex', gap: 'clamp(8px,2vw,20px)', alignItems: 'baseline' }}>
-              <span style={{ color: 'rgba(255,255,255,0.6)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.3vw,14px)', minWidth: '5.5em' }}>{t}</span>
-              <span style={{ color: '#00ccff', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.3vw,14px)' }}>● {v}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div style={{ position: 'absolute', top: '4%', right: '2%', color: 'rgba(0,200,255,0.9)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>● SCANNING FLOW...</div>
-      <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.05) 0px,rgba(0,0,0,0.05) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
-    </div>
-  ), [])
+    const W = () => canvas.offsetWidth
+    const H = () => canvas.offsetHeight
 
-  const LoadingFloorScene = React.useCallback(() => (
-    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#060400' }}>
-      {/* NYSE building — left 55%, fade right */}
-      <div style={{ position: 'absolute', left: 0, top: 0, width: '55%', height: '100%', overflow: 'hidden' }}>
-        <img src="/loading/nyse.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', filter: 'contrast(1.5) brightness(0.5) saturate(0.4)' }} />
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(270deg,#060400 0%,rgba(6,4,0,0.62) 25%,rgba(6,4,0,0) 100%)' }} />
-        <div style={{ position: 'absolute', inset: 0, background: 'rgba(255,140,0,0.2)', mixBlendMode: 'screen' }} />
-      </div>
-      {/* Right text panel */}
-      <div style={{ position: 'absolute', right: 0, top: 0, width: '58%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', paddingRight: '5%', paddingLeft: '2%', gap: 0, textAlign: 'right', alignItems: 'flex-end' }}>
-        <div style={{ color: 'rgba(255,180,50,0.7)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.3vw,14px)', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: '2%' }}>NEW YORK STOCK EXCHANGE</div>
-        <div style={{ color: '#fff', fontFamily: _sceneFont, fontWeight: 900, fontSize: 'clamp(28px,5.5vw,60px)', lineHeight: 1, textTransform: 'uppercase', letterSpacing: '0.02em', textShadow: '2px 2px 8px rgba(0,0,0,0.9)' }}>TRADING</div>
-        <div style={{ color: '#ffaa00', fontFamily: _sceneFont, fontWeight: 900, fontSize: 'clamp(28px,5.5vw,60px)', lineHeight: 1, textTransform: 'uppercase', letterSpacing: '0.02em', textShadow: '0 0 30px rgba(255,140,0,0.5)', marginBottom: '4%' }}>THE FLOOR</div>
-        <div style={{ width: '80%', height: '2px', background: 'rgba(255,140,0,0.7)', marginBottom: '4%' }} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(3px,0.7vh,8px)', alignItems: 'flex-end' }}>
-          {([['AAPL', '+2.3%'], ['NVDA', '+4.1%'], ['TSLA', '-1.8%'], ['SPY', '+0.9%']] as [string, string][]).map(([t, v]) => (
-            <div key={t} style={{ display: 'flex', gap: 'clamp(8px,2vw,20px)', alignItems: 'baseline' }}>
-              <span style={{ color: 'rgba(255,255,255,0.65)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(10px,1.4vw,15px)', minWidth: '4em', textAlign: 'right' }}>{t}</span>
-              <span style={{ color: v.startsWith('+') ? '#00e060' : '#e03535', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(10px,1.5vw,16px)' }}>{v}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(255,160,30,0.9)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>NYSE · MARKET OPEN</div>
-      <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.05) 0px,rgba(0,0,0,0.05) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
-    </div>
-  ), [])
-  // ---- end Bloomberg-graphic scenes ----
+    const init = (mode: number) => {
+      particles = []
+      const w = W(), h = H()
+      if (mode === 0) {
+        for (let i = 0; i < 320; i++) {
+          const d = 0.3 + Math.random() * 0.7
+          particles.push({ x: Math.random() * w, y: Math.random() * h, vx: -1.2 - d * 2.5, vy: 9 + d * 12, len: 8 + d * 22, r: 0.5 + d * 0.9, alpha: 0.12 + d * 0.5, depth: d, drift: 0, rot: 0, rotV: 0 })
+        }
+      } else if (mode === 1) {
+        for (let i = 0; i < 220; i++) {
+          const d = Math.random()
+          const layer = d < 0.33 ? 0 : d < 0.66 ? 1 : 2
+          particles.push({ x: Math.random() * w, y: Math.random() * h, vx: 0, vy: 0.4 + layer * 0.9 + Math.random() * 0.5, len: 0, r: 1 + layer * 2.2 + Math.random() * 1.5, alpha: 0.15 + layer * 0.35 + Math.random() * 0.25, depth: d, drift: (Math.random() - 0.5) * 0.4, rot: Math.random() * Math.PI * 2, rotV: (Math.random() - 0.5) * 0.025 })
+        }
+      } else {
+        for (let i = 0; i < 400; i++) {
+          const d = 0.3 + Math.random() * 0.7
+          particles.push({ x: Math.random() * w, y: Math.random() * h, vx: -7 - d * 10, vy: 4 + d * 7, len: 14 + d * 32, r: 0.35 + d * 0.7, alpha: 0.08 + d * 0.4, depth: d, drift: 0, rot: 0, rotV: 0 })
+        }
+      }
+    }
 
+    const draw = () => {
+      const mode = weatherModeRef.current
+      const w = W(), h = H()
+      if (!canvas.width || canvas.width !== w) { canvas.width = w; canvas.height = h }
+      if (mode !== prevMode) { init(mode); prevMode = mode; lightning = 0 }
+
+      if (mode === 0) {
+        // RAIN
+        ctx.fillStyle = '#020407'; ctx.fillRect(0, 0, w, h)
+        const fog = ctx.createLinearGradient(0, 0, 0, h)
+        fog.addColorStop(0, 'rgba(5,15,30,0.35)'); fog.addColorStop(1, 'rgba(2,6,14,0)')
+        ctx.fillStyle = fog; ctx.fillRect(0, 0, w, h)
+        if (lightning > 0) {
+          ctx.fillStyle = `rgba(180,220,255,${lightningAlpha * lightning / 6})`; ctx.fillRect(0, 0, w, h); lightning--
+        } else if (Math.random() < 0.0018) { lightning = 4 + Math.floor(Math.random() * 4); lightningAlpha = 0.1 + Math.random() * 0.15 }
+        ctx.lineCap = 'round'
+        for (const p of particles) {
+          ctx.beginPath(); ctx.strokeStyle = `rgba(160,205,255,${p.alpha})`; ctx.lineWidth = p.r
+          const a = Math.atan2(p.vy, p.vx); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + Math.cos(a) * p.len, p.y + Math.sin(a) * p.len); ctx.stroke()
+          p.x += p.vx * 0.55; p.y += p.vy * 0.55
+          if (p.y > h + p.len) { p.y = -p.len; p.x = Math.random() * w }
+          if (p.x < -p.len) { p.x = w + p.len; p.y = Math.random() * h }
+        }
+      } else if (mode === 1) {
+        // SNOW
+        ctx.fillStyle = '#020309'; ctx.fillRect(0, 0, w, h)
+        const atm = ctx.createRadialGradient(w * 0.5, h * 0.15, 0, w * 0.5, h * 0.5, w * 0.65)
+        atm.addColorStop(0, 'rgba(12,22,55,0.35)'); atm.addColorStop(1, 'rgba(0,0,0,0)')
+        ctx.fillStyle = atm; ctx.fillRect(0, 0, w, h)
+        const wind = Math.sin(Date.now() * 0.00025) * 0.35
+        for (const p of particles) {
+          ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.globalAlpha = p.alpha
+          if (p.r > 2.8) {
+            ctx.strokeStyle = `rgba(220,238,255,${p.alpha})`; ctx.lineWidth = 0.75
+            for (let a2 = 0; a2 < 6; a2++) {
+              const ax = Math.cos(a2 * Math.PI / 3), ay = Math.sin(a2 * Math.PI / 3)
+              ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(ax * p.r, ay * p.r); ctx.stroke()
+              ctx.beginPath(); ctx.moveTo(ax * p.r * 0.5, ay * p.r * 0.5)
+              ctx.lineTo(ax * p.r * 0.5 + Math.cos(a2 * Math.PI / 3 + Math.PI / 2) * p.r * 0.28, ay * p.r * 0.5 + Math.sin(a2 * Math.PI / 3 + Math.PI / 2) * p.r * 0.28); ctx.stroke()
+            }
+          } else {
+            const g = ctx.createRadialGradient(0, 0, 0, 0, 0, p.r * 1.8)
+            g.addColorStop(0, `rgba(240,250,255,${p.alpha})`); g.addColorStop(1, 'rgba(200,225,255,0)')
+            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, p.r * 1.8, 0, Math.PI * 2); ctx.fill()
+          }
+          ctx.restore(); ctx.globalAlpha = 1
+          p.drift += (Math.random() - 0.5) * 0.012; p.drift = Math.max(-0.55, Math.min(0.55, p.drift))
+          p.x += p.drift + wind; p.y += p.vy; p.rot += p.rotV
+          if (p.y > h + p.r * 2) { p.y = -p.r * 2; p.x = Math.random() * w }
+          if (p.x < -p.r * 2) p.x = w + p.r * 2
+          if (p.x > w + p.r * 2) p.x = -p.r * 2
+        }
+      } else {
+        // STORM
+        ctx.fillStyle = '#010203'; ctx.fillRect(0, 0, w, h)
+        for (let l = 0; l < 3; l++) {
+          const fy = h * (0.2 + l * 0.3) + Math.sin(Date.now() * 0.00009 + l * 2) * 25
+          const fg = ctx.createLinearGradient(0, fy - 50, 0, fy + 90)
+          fg.addColorStop(0, 'rgba(10,18,30,0)'); fg.addColorStop(0.5, 'rgba(14,24,42,0.2)'); fg.addColorStop(1, 'rgba(10,18,30,0)')
+          ctx.fillStyle = fg; ctx.fillRect(0, fy - 50, w, 140)
+        }
+        if (lightning > 0) {
+          ctx.fillStyle = `rgba(200,230,255,${lightningAlpha * lightning / 8})`; ctx.fillRect(0, 0, w, h)
+          if (lightning === 8) {
+            ctx.beginPath(); ctx.strokeStyle = 'rgba(255,255,255,0.92)'; ctx.lineWidth = 1.5
+            let bx = w * 0.25 + Math.random() * w * 0.5, by = 0; ctx.moveTo(bx, 0)
+            while (by < h * 0.72) { by += 18 + Math.random() * 28; bx += (Math.random() - 0.5) * 55; ctx.lineTo(bx, by) }
+            ctx.stroke()
+          }
+          lightning--
+        } else if (Math.random() < 0.005) { lightning = 6 + Math.floor(Math.random() * 6); lightningAlpha = 0.13 + Math.random() * 0.2 }
+        ctx.lineCap = 'round'
+        for (const p of particles) {
+          ctx.beginPath(); ctx.strokeStyle = `rgba(130,180,230,${p.alpha})`; ctx.lineWidth = p.r
+          const a = Math.atan2(p.vy, p.vx); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + Math.cos(a) * p.len, p.y + Math.sin(a) * p.len); ctx.stroke()
+          p.x += p.vx * 0.65; p.y += p.vy * 0.65
+          if (p.y > h + p.len) { p.y = -p.len; p.x = Math.random() * (w + 150) - 75 }
+          if (p.x < -p.len * 2) { p.x = w + p.len; p.y = Math.random() * h }
+        }
+      }
+      raf = requestAnimationFrame(draw)
+    }
+
+    canvas.width = W(); canvas.height = H()
+    init(weatherModeRef.current); prevMode = weatherModeRef.current
+    draw()
+    const ro = new ResizeObserver(() => { canvas.width = W(); canvas.height = H(); init(weatherModeRef.current) })
+    ro.observe(canvas)
+    return () => { cancelAnimationFrame(raf); ro.disconnect() }
+  }, [loading])
+
+  React.useEffect(() => {
+    if (!loading) return
+    const t = setInterval(() => { weatherModeRef.current = (weatherModeRef.current + 1) % 3 }, 14000)
+    return () => clearInterval(t)
+  }, [loading])
 
   const EFI_LOADING_QUOTES = [
+    // Market wisdom
     { text: 'The trend is your friend — until it bends.', author: 'Wall Street Proverb' },
+    { text: 'Markets can remain irrational longer than you can remain solvent.', author: 'John Maynard Keynes' },
+    { text: 'In the short run the market is a voting machine. In the long run, a weighing machine.', author: 'Benjamin Graham' },
+    { text: 'The stock market is filled with individuals who know the price of everything, but the value of nothing.', author: 'Philip Fisher' },
+    { text: 'The four most dangerous words in investing: "this time it\'s different."', author: 'Sir John Templeton' },
+    { text: 'Risk comes from not knowing what you\'re doing.', author: 'Warren Buffett' },
+    { text: 'Price is what you pay. Value is what you get.', author: 'Warren Buffett' },
+    { text: 'The market is a device for transferring money from the impatient to the patient.', author: 'Warren Buffett' },
+    { text: 'It\'s not whether you\'re right or wrong, but how much money you make when you\'re right and lose when you\'re wrong.', author: 'George Soros' },
+    { text: 'Know what you own, and know why you own it.', author: 'Peter Lynch' },
+    { text: 'Behind every stock is a company. Find out what it\'s doing.', author: 'Peter Lynch' },
+    { text: 'I will tell you how to become rich: be fearful when others are greedy. Be greedy when others are fearful.', author: 'Warren Buffett' },
+    { text: 'The intelligent investor is a realist who sells to optimists and buys from pessimists.', author: 'Benjamin Graham' },
+    { text: 'Wide diversification is only required when investors do not understand what they are doing.', author: 'Warren Buffett' },
+    { text: 'October is one of the peculiarly dangerous months to speculate in stocks. Others are July, January, April...', author: 'Mark Twain' },
+    { text: 'An investment in knowledge pays the best interest.', author: 'Benjamin Franklin' },
+    { text: 'Money is a terrible master but an excellent servant.', author: 'P.T. Barnum' },
+    { text: 'The biggest risk is not taking any risk at all.', author: 'Mark Zuckerberg' },
+    { text: 'Diversification is protection against ignorance. It makes little sense if you know what you\'re doing.', author: 'Warren Buffett' },
+    { text: 'The secret of getting ahead is getting started.', author: 'Mark Twain' },
+    // Options & flow
     { text: 'Block trades don\'t lie. Institutions leave footprints.', author: 'EFI Research' },
     { text: 'When sweep orders cluster, the smart money is speaking.', author: 'EFI Research' },
-    { text: 'Markets can remain irrational longer than you can remain solvent.', author: 'John Maynard Keynes' },
     { text: 'Volume is the weapon of the informed trader.', author: 'EFI Research' },
-    { text: 'The stock market is filled with individuals who know the price of everything, but the value of nothing.', author: 'Philip Fisher' },
-    { text: 'In the short run the market is a voting machine. In the long run, a weighing machine.', author: 'Benjamin Graham' },
     { text: 'The best trades come from where conviction meets flow.', author: 'EFI Research' },
-    { text: 'Risk comes from not knowing what you\'re doing.', author: 'Warren Buffett' },
     { text: 'Follow the smart money — it always leaves a trail in options.', author: 'EFI Research' },
-    { text: 'The four most dangerous words in investing: \'this time it\'s different\'.', author: 'Sir John Templeton' },
     { text: 'Premium doesn\'t lie. Size tells the story.', author: 'EFI Research' },
     { text: 'Unusual options activity today is tomorrow\'s headline.', author: 'EFI Research' },
     { text: 'Every large position started as an idea someone believed in enough to size up.', author: 'EFI Research' },
+    { text: 'Options flow is the heartbeat of institutional conviction.', author: 'EFI Research' },
+    { text: 'The dark pool is where certainty trades. Follow the size.', author: 'EFI Research' },
+    { text: 'A sweep across multiple exchanges is a trader screaming urgency.', author: 'EFI Research' },
+    { text: 'When IV crush comes, preparation determines winners from losers.', author: 'EFI Research' },
+    // Trading psychology
+    { text: 'The goal of a successful trader is to make the best trades. Money is secondary.', author: 'Alexander Elder' },
+    { text: 'Trading is 30% strategy, 70% psychology. Master yourself first.', author: 'Mark Douglas' },
+    { text: 'Losers average losers. Size up only when you\'re right.', author: 'Paul Tudor Jones' },
+    { text: 'The most important quality for an investor is temperament, not intellect.', author: 'Warren Buffett' },
+    { text: 'Win or lose, everybody gets what they want out of the market.', author: 'Ed Seykota' },
+    { text: 'Cut your losses short and let your profits run.', author: 'Trading Maxim' },
+    { text: 'The hard part isn\'t knowing what to do — it\'s sitting on your hands when there\'s nothing to do.', author: 'Jesse Livermore' },
+    { text: 'Never risk more than 1% of your total equity on any single trade.', author: 'Larry Hite' },
+    { text: 'Amateurs go broke taking large losses. Professionals go broke taking small profits.', author: 'Thomas Bulkowski' },
+    { text: 'The market can do anything. Accept the risk, embrace the uncertainty.', author: 'Mark Douglas' },
+    { text: 'Confidence is not "I will profit on this trade." Confidence is "I will be fine if I don\'t."', author: 'Yvan Byeajee' },
+    // Wealth & success
+    { text: 'Compound interest is the eighth wonder of the world. He who understands it, earns it.', author: 'Albert Einstein' },
+    { text: 'Do not save what is left after spending; spend what is left after saving.', author: 'Warren Buffett' },
+    { text: 'If you don\'t find a way to make money while you sleep, you will work until you die.', author: 'Warren Buffett' },
+    { text: 'Opportunities come infrequently. When it rains gold, put out the bucket, not the thimble.', author: 'Warren Buffett' },
+    { text: 'The best investment you can make is in yourself.', author: 'Warren Buffett' },
+    { text: 'Wealth is not about having a lot of money; it\'s about having a lot of options.', author: 'Chris Rock' },
+    { text: 'Financial freedom is available to those who learn about it and work for it.', author: 'Robert Kiyosaki' },
+    { text: 'It\'s not how much money you make, but how much you keep and how hard it works for you.', author: 'Robert Kiyosaki' },
+    { text: 'Success is not final, failure is not fatal: it is the courage to continue that counts.', author: 'Winston Churchill' },
+    { text: 'The rich invest in time. The poor invest in money.', author: 'Warren Buffett' },
+    { text: 'Formal education will make you a living; self-education will make you a fortune.', author: 'Jim Rohn' },
+    { text: 'The difference between ordinary and extraordinary is that little extra.', author: 'Jimmy Johnson' },
+    { text: 'Your income is directly related to the quality of service you provide.', author: 'Earl Nightingale' },
+    { text: 'Discipline is the bridge between goals and accomplishment.', author: 'Jim Rohn' },
+    { text: 'You don\'t need to be brilliant, just wiser than the other guys on average, for a long time.', author: 'Charlie Munger' },
+    { text: 'Invert, always invert. Avoid stupidity rather than seeking brilliance.', author: 'Charlie Munger' },
+    { text: 'All I want to know is where I\'m going to die, so I\'ll never go there.', author: 'Charlie Munger' },
+    { text: 'The stock market is a no-called-strike game. You don\'t have to swing at everything.', author: 'Warren Buffett' },
   ]
   const [loadingQuoteIndex, setLoadingQuoteIndex] = useState(0)
-  const [loadingArtIndex, setLoadingArtIndex] = useState(0)
 
   const [historicalDataLoading, setHistoricalDataLoading] = useState<Set<string>>(new Set())
 
@@ -664,329 +738,14 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     return () => clearInterval(iv)
   }, [gradingProgress !== null, modeLoadingStep !== null, loading])
 
-  // Cycle art panel every 8s — only when snapshot hasn't locked a scene yet
-  const [snapDriven, setSnapDriven] = React.useState(false)
-  const [mktSnap, setMktSnap] = React.useState<Record<string, number> | null>(null)
-  const [mktCtx, setMktCtx] = React.useState<{ sectors: Record<string, number>; movers: Array<{ ticker: string; pct: number; price: number }> } | null>(null)
-
-  React.useEffect(() => {
-    if (!loading || snapDriven) return
-    const iv = setInterval(() => setLoadingArtIndex(i => (i + 1) % 7), 8000)
-    return () => clearInterval(iv)
-  }, [loading, snapDriven])
-
-  // Fetch live SPY + sector data on mount (pre-load before any scan) and lock scene
-  React.useEffect(() => {
-    let cancelled = false
-    const doFetch = async () => {
-      try {
-        const snapRes = await fetch('/api/market-snapshot')
-        if (cancelled) return
-        if (!snapRes.ok) return
-        const d: Record<string, any> = await snapRes.json()
-        if (cancelled || !d || typeof d !== 'object' || d.error) return
-        const sectors: Record<string, number> = d.sectors && typeof d.sectors === 'object' ? d.sectors : d
-        const spy = sectors['SPY'] ?? NaN
-        if (isNaN(spy)) return // markets closed / no data — keep cycling
-        setMktSnap(sectors)
-        setMktCtx({ sectors, movers: Array.isArray(d.movers) ? d.movers : [] })
-        setSnapDriven(true)
-        const bearVariants = [0, 4]  // bear.jpg, cryptocrash.jpg
-        const bullVariants = [1, 5, 6]  // bull.jpg, bullwall.jpg, cryptorally.jpg
-        const rng = (arr: number[]) => arr[Math.floor(Math.random() * arr.length)]
-        setLoadingArtIndex(spy <= -1.5 ? rng(bearVariants) : spy >= 1.5 ? rng(bullVariants) : spy < 0 ? 2 : 3)
-      } catch { /* silent */ }
-    }
-    doFetch()
-    return () => { cancelled = true }
-  }, [])
-
-  // Single scene renderer — uses live data when available, hardcoded fallback otherwise
   const LoadingScenePanel = React.useCallback((): React.ReactElement => {
-    const fnt = _sceneFont
-    const spyRaw = mktSnap != null ? (mktSnap['SPY'] ?? NaN) : NaN
-    const sceneIdx: number = loadingArtIndex
-    const fmtChg = (v: number): string => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
-    const allSectors = mktSnap
-      ? Object.entries(mktSnap)
-        .filter(([s]) => s !== 'SPY')
-        .map(([s, v]) => ({ s, v }))
-        .sort((a, b) => a.v - b.v) // ascending: worst first
-      : null
-    const spyVal = mktSnap ? mktSnap['SPY'] : null
-
-    // Live movers from enriched snapshot
-    const movers = mktCtx?.movers ?? []
-    const bigLosers: [string, string][] = movers.filter(m => m.pct < 0).slice(0, 2).map(m => [m.ticker, fmtChg(m.pct)])
-    const bigGainers: [string, string][] = movers.filter(m => m.pct > 0).slice(0, 2).map(m => [m.ticker, fmtChg(m.pct)])
-
-    if (sceneIdx === 0) {
-      // MARKETS IN FREEFALL — bear photo full bg, biggest losers
-      const rows: [string, string][] = bigLosers.length > 0
-        ? [['S&P 500', fmtChg(spyVal ?? -2.1)], ...bigLosers.slice(0, 2)]
-        : spyVal != null && allSectors
-          ? [['S&P 500', fmtChg(spyVal)], ...allSectors.slice(0, 2).map(x => [x.s, fmtChg(x.v)] as [string, string])]
-          : [['S&P 500', '-4.32%'], ['NASDAQ', '-5.16%'], ['DOW', '-1,276.37']]
-      return (
-        <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#060102' }}>
-          {/* Full-screen image */}
-          <div style={{ position: 'absolute', inset: 0 }}>
-            <img src="/loading/bear.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', filter: 'contrast(1.4) brightness(0.6) saturate(0.45)' }} />
-            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, rgba(6,1,2,0) 55%, rgba(6,1,2,0.7) 72%, rgba(6,1,2,0.96) 88%, #060102 100%)' }} />
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(200,0,0,0.18)', mixBlendMode: 'screen' }} />
-          </div>
-          {/* Narrow text panel — right 26% */}
-          <div style={{ position: 'absolute', right: 0, top: 0, width: '26%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'right', alignItems: 'flex-end' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', alignSelf: 'flex-end', gap: '4px' }}>
-              <div style={{ color: '#fff', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(14px,2.2vw,28px)', lineHeight: 1, textTransform: 'uppercase', textShadow: '2px 2px 8px rgba(0,0,0,0.9)', background: '#000', padding: '2px 10px' }}>MARKETS IN</div>
-              <div style={{ color: '#e01010', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(18px,3vw,38px)', lineHeight: 1.05, textTransform: 'uppercase', textShadow: '0 0 20px rgba(230,0,0,0.6)', marginBottom: '8%', background: '#000', padding: '2px 10px' }}>FREEFALL</div>
-              <div style={{ width: '100%', height: '2px', background: 'rgba(200,20,20,0.7)', marginBottom: '8%' }} />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(4px,0.9vh,10px)', alignItems: 'flex-end' }}>
-                {rows.map(([t, v]) => (
-                  <div key={t} style={{ display: 'flex', gap: '8px', alignItems: 'baseline', background: '#000', padding: '2px 10px' }}>
-                    <span style={{ color: '#ffffff', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(16px,2vw,24px)' }}>{t}</span>
-                    <span style={{ color: '#e03535', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(18px,2.1vw,25px)' }}>{v}</span>
-                  </div>
-                ))}
-              </div>
-
-            </div>
-          </div>
-          <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(210,30,30,0.92)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>▼ CIRCUIT BREAKER TRIGGERED</div>
-          <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.04) 0px,rgba(0,0,0,0.04) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
-        </div>
-      )
-    }
-    if (sceneIdx === 1) {
-      // BULL MARKET STILL ALIVE — bull statue full bg, biggest gainers
-      const rows: [string, string][] = bigGainers.length > 0
-        ? [['S&P 500', fmtChg(spyVal ?? 1.8)], ...bigGainers.slice(0, 2)]
-        : spyVal != null && allSectors
-          ? [['S&P 500', fmtChg(spyVal)], ...allSectors.slice(-2).reverse().map(x => [x.s, fmtChg(x.v)] as [string, string])]
-          : [['S&P 500', '+1.42%'], ['DOW', '+1.18%'], ['NASDAQ', '+2.35%']]
-      return (
-        <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#010602' }}>
-          {/* Full-screen image */}
-          <div style={{ position: 'absolute', inset: 0 }}>
-            <img src="/loading/bull.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', filter: 'contrast(1.5) brightness(0.62) saturate(0.35)' }} />
-            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, rgba(1,6,2,0) 55%, rgba(1,6,2,0.7) 72%, rgba(1,6,2,0.96) 88%, #010602 100%)' }} />
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,200,60,0.2)', mixBlendMode: 'screen' }} />
-          </div>
-          {/* Narrow text panel — right 26% */}
-          <div style={{ position: 'absolute', right: 0, top: 0, width: '26%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'right', alignItems: 'flex-end' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', alignSelf: 'flex-end', gap: '4px' }}>
-              <div style={{ color: '#fff', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(13px,2vw,26px)', lineHeight: 1, textTransform: 'uppercase', textShadow: '2px 2px 8px rgba(0,0,0,0.9)', background: '#000', padding: '2px 10px' }}>BULL MARKET</div>
-              <div style={{ color: '#00e040', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(15px,2.4vw,30px)', lineHeight: 1.05, textTransform: 'uppercase', textShadow: '0 0 20px rgba(0,220,60,0.6)', marginBottom: '8%', background: '#000', padding: '2px 10px' }}>STILL ALIVE?</div>
-              <div style={{ width: '100%', height: '2px', background: 'rgba(0,200,60,0.7)', marginBottom: '8%' }} />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(4px,0.9vh,10px)', alignItems: 'flex-end' }}>
-                {rows.map(([t, v]) => (
-                  <div key={t} style={{ display: 'flex', gap: '8px', alignItems: 'baseline', background: '#000', padding: '2px 10px' }}>
-                    <span style={{ color: '#ffffff', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(16px,2vw,24px)' }}>{t}</span>
-                    <span style={{ color: '#00e040', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(18px,2.1vw,25px)' }}>{v}</span>
-                  </div>
-                ))}
-              </div>
-
-            </div>
-          </div>
-          <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(0,200,60,0.92)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>▲ RISK ON — BULLS IN CONTROL</div>
-          <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.04) 0px,rgba(0,0,0,0.04) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
-        </div>
-      )
-    }
-    if (sceneIdx === 2) {
-      // UNUSUAL ACTIVITY — trader photo full bg, most volatile movers
-      const volatileMvs: [string, string][] = [...movers].sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).slice(0, 2).map(m => [m.ticker, fmtChg(m.pct)])
-      const rows: [string, string][] = volatileMvs.length > 0
-        ? [['S&P 500', fmtChg(spyVal ?? -0.4)], ...volatileMvs.slice(0, 2)]
-        : spyVal != null && allSectors
-          ? [['S&P 500', fmtChg(spyVal)], ...[...allSectors].sort((a, b) => Math.abs(b.v) - Math.abs(a.v)).slice(0, 2).map(x => [x.s, fmtChg(x.v)] as [string, string])]
-          : [['S&P 500', '-0.4%'], ['XLK', '-1.2%'], ['XLY', '-0.8%']]
-      return (
-        <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#010308' }}>
-          {/* Full-screen image */}
-          <div style={{ position: 'absolute', inset: 0 }}>
-            <img src="/loading/trader.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top', filter: 'contrast(1.5) brightness(0.55) saturate(0.35) hue-rotate(180deg)' }} />
-            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, rgba(1,3,8,0) 55%, rgba(1,3,8,0.7) 72%, rgba(1,3,8,0.96) 88%, #010308 100%)' }} />
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,140,255,0.18)', mixBlendMode: 'screen' }} />
-          </div>
-          {/* Narrow text panel — right 26% */}
-          <div style={{ position: 'absolute', right: 0, top: 0, width: '26%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'right', alignItems: 'flex-end' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', alignSelf: 'flex-end', gap: '4px' }}>
-              <div style={{ color: 'rgba(255,255,255,0.5)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(8px,1vw,11px)', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: '6%', background: '#000', padding: '2px 10px' }}>REAL-TIME SWEEP SCANNER</div>
-              <div style={{ color: '#fff', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(13px,2vw,26px)', lineHeight: 1, textTransform: 'uppercase', textShadow: '2px 2px 8px rgba(0,0,0,0.9)', background: '#000', padding: '2px 10px' }}>UNUSUAL</div>
-              <div style={{ color: '#00aaff', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(13px,2vw,26px)', lineHeight: 1, textTransform: 'uppercase', textShadow: '0 0 20px rgba(0,150,255,0.6)', background: '#000', padding: '2px 10px' }}>OPTIONS</div>
-              <div style={{ color: '#fff', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(13px,2vw,26px)', lineHeight: 1, textTransform: 'uppercase', textShadow: '2px 2px 8px rgba(0,0,0,0.9)', marginBottom: '8%', background: '#000', padding: '2px 10px' }}>ACTIVITY</div>
-              <div style={{ width: '100%', height: '2px', background: 'rgba(0,150,255,0.7)', marginBottom: '8%' }} />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(4px,0.9vh,10px)', alignItems: 'flex-end' }}>
-                {rows.map(([t, v]) => (
-                  <div key={t} style={{ display: 'flex', gap: '8px', alignItems: 'baseline', background: '#000', padding: '2px 10px' }}>
-                    <span style={{ color: '#ffffff', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(16px,2vw,24px)' }}>{t}</span>
-                    <span style={{ color: v.startsWith('-') ? '#e03535' : '#00ccff', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(18px,2.1vw,25px)' }}>{v}</span>
-                  </div>
-                ))}
-              </div>
-
-            </div>
-          </div>
-          <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(0,200,255,0.9)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>● SCANNING FLOW...</div>
-          <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.04) 0px,rgba(0,0,0,0.04) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
-        </div>
-      )
-    }
-    // sceneIdx === 4: CRYPTO CRASH — alternate bear scene (cryptocrash.jpg)
-    if (sceneIdx === 4) {
-      const rows: [string, string][] = bigLosers.length > 0
-        ? [['S&P 500', fmtChg(spyVal ?? -2)], ...bigLosers.slice(0, 2)]
-        : spyVal != null && allSectors
-          ? [['S&P 500', fmtChg(spyVal)], ...allSectors.slice(0, 2).map(x => [x.s, fmtChg(x.v)] as [string, string])]
-          : [['S&P 500', '-2.1%'], ['XLK', '-3.2%'], ['XLY', '-2.8%']]
-      return (
-        <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#060102' }}>
-          <div style={{ position: 'absolute', inset: 0 }}>
-            <img src="/loading/cryptocrash.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', filter: 'contrast(1.5) brightness(0.55) saturate(0.6)' }} />
-            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, rgba(6,1,2,0) 55%, rgba(6,1,2,0.7) 72%, rgba(6,1,2,0.96) 88%, #060102 100%)' }} />
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(200,0,0,0.2)', mixBlendMode: 'screen' }} />
-          </div>
-          <div style={{ position: 'absolute', right: 0, top: 0, width: '26%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'right', alignItems: 'flex-end' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', alignSelf: 'flex-end', gap: '4px' }}>
-              <div style={{ color: '#fff', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(14px,2.2vw,28px)', lineHeight: 1, textTransform: 'uppercase', textShadow: '2px 2px 8px rgba(0,0,0,0.9)', background: '#000', padding: '2px 10px' }}>CRYPTO</div>
-              <div style={{ color: '#cc0000', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(18px,3vw,38px)', lineHeight: 1.05, textTransform: 'uppercase', textShadow: '0 0 20px rgba(200,0,0,0.6)', marginBottom: '8%', background: '#000', padding: '2px 10px' }}>IN FREEFALL</div>
-              <div style={{ width: '100%', height: '2px', background: 'rgba(200,20,20,0.7)', marginBottom: '8%' }} />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(4px,0.9vh,10px)', alignItems: 'flex-end' }}>
-                {rows.map(([t, v]) => (
-                  <div key={t} style={{ display: 'flex', gap: '8px', alignItems: 'baseline', background: '#000', padding: '2px 10px' }}>
-                    <span style={{ color: '#ffffff', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(16px,2vw,24px)' }}>{t}</span>
-                    <span style={{ color: '#cc0000', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(18px,2.1vw,25px)' }}>{v}</span>
-                  </div>
-                ))}
-              </div>
-
-            </div>
-          </div>
-          <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(210,30,30,0.92)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>▼ CRYPTO MARKET SELLOFF</div>
-          <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.04) 0px,rgba(0,0,0,0.04) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
-        </div>
-      )
-    }
-    // sceneIdx === 5: WALL ST BULL RUN — golden bull scene (bullwall.jpg)
-    if (sceneIdx === 5) {
-      const rows: [string, string][] = bigGainers.length > 0
-        ? [['S&P 500', fmtChg(spyVal ?? 1.8)], ...bigGainers.slice(0, 2)]
-        : spyVal != null && allSectors
-          ? [['S&P 500', fmtChg(spyVal)], ...allSectors.slice(-2).reverse().map(x => [x.s, fmtChg(x.v)] as [string, string])]
-          : [['S&P 500', '+1.8%'], ['XLK', '+2.1%'], ['XLY', '+1.6%']]
-      return (
-        <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#020100' }}>
-          <div style={{ position: 'absolute', inset: 0 }}>
-            <img src="/loading/bullwall.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', filter: 'contrast(1.4) brightness(0.6) saturate(0.5)' }} />
-            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, rgba(2,1,0,0) 55%, rgba(2,1,0,0.7) 72%, rgba(2,1,0,0.96) 88%, #020100 100%)' }} />
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(180,130,0,0.15)', mixBlendMode: 'screen' }} />
-          </div>
-          <div style={{ position: 'absolute', right: 0, top: 0, width: '26%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'right', alignItems: 'flex-end' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', alignSelf: 'flex-end', gap: '4px' }}>
-              <div style={{ color: '#fff', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(14px,2.2vw,28px)', lineHeight: 1, textTransform: 'uppercase', textShadow: '2px 2px 8px rgba(0,0,0,0.9)', background: '#000', padding: '2px 10px' }}>WALL ST</div>
-              <div style={{ color: '#ffd700', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(18px,3vw,38px)', lineHeight: 1.05, textTransform: 'uppercase', textShadow: '0 0 20px rgba(255,200,0,0.6)', marginBottom: '8%', background: '#000', padding: '2px 10px' }}>BULL RUN</div>
-              <div style={{ width: '100%', height: '2px', background: 'rgba(255,200,0,0.7)', marginBottom: '8%' }} />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(4px,0.9vh,10px)', alignItems: 'flex-end' }}>
-                {rows.map(([t, v]) => (
-                  <div key={t} style={{ display: 'flex', gap: '8px', alignItems: 'baseline', background: '#000', padding: '2px 10px' }}>
-                    <span style={{ color: '#ffffff', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(16px,2vw,24px)' }}>{t}</span>
-                    <span style={{ color: '#00e040', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(18px,2.1vw,25px)' }}>{v}</span>
-                  </div>
-                ))}
-              </div>
-
-            </div>
-          </div>
-          <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(255,200,0,0.9)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>▲ WALL ST RALLYING</div>
-          <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.04) 0px,rgba(0,0,0,0.04) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
-        </div>
-      )
-    }
-    // sceneIdx === 6: MARKET SURGING — crypto rally neon green scene (cryptorally.jpg)
-    if (sceneIdx === 6) {
-      const rows: [string, string][] = bigGainers.length > 0
-        ? [['S&P 500', fmtChg(spyVal ?? 2)], ...bigGainers.slice(0, 2)]
-        : spyVal != null && allSectors
-          ? [['S&P 500', fmtChg(spyVal)], ...allSectors.slice(-2).reverse().map(x => [x.s, fmtChg(x.v)] as [string, string])]
-          : [['S&P 500', '+2.0%'], ['XLK', '+3.1%'], ['NVDA', '+5.2%']]
-      return (
-        <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#010208' }}>
-          <div style={{ position: 'absolute', inset: 0 }}>
-            <img src="/loading/cryptorally.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', filter: 'contrast(1.5) brightness(0.55) saturate(0.45)' }} />
-            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, rgba(1,2,8,0) 55%, rgba(1,2,8,0.7) 72%, rgba(1,2,8,0.96) 88%, #010208 100%)' }} />
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,220,100,0.12)', mixBlendMode: 'screen' }} />
-          </div>
-          <div style={{ position: 'absolute', right: 0, top: 0, width: '26%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'right', alignItems: 'flex-end' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', alignSelf: 'flex-end', gap: '4px' }}>
-              <div style={{ color: '#fff', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(14px,2.2vw,28px)', lineHeight: 1, textTransform: 'uppercase', textShadow: '2px 2px 8px rgba(0,0,0,0.9)', background: '#000', padding: '2px 10px' }}>MARKET</div>
-              <div style={{ color: '#00ff88', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(18px,3vw,38px)', lineHeight: 1.05, textTransform: 'uppercase', textShadow: '0 0 20px rgba(0,255,100,0.7)', marginBottom: '8%', background: '#000', padding: '2px 10px' }}>SURGING</div>
-              <div style={{ width: '100%', height: '2px', background: 'rgba(0,255,100,0.7)', marginBottom: '8%' }} />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(4px,0.9vh,10px)', alignItems: 'flex-end' }}>
-                {rows.map(([t, v]) => (
-                  <div key={t} style={{ display: 'flex', gap: '8px', alignItems: 'baseline', background: '#000', padding: '2px 10px' }}>
-                    <span style={{ color: '#ffffff', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(16px,2vw,24px)' }}>{t}</span>
-                    <span style={{ color: '#00ff88', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(18px,2.1vw,25px)' }}>{v}</span>
-                  </div>
-                ))}
-              </div>
-
-            </div>
-          </div>
-          <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(0,255,100,0.9)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>▲ RISK ASSETS SURGING</div>
-          <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.04) 0px,rgba(0,0,0,0.04) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
-        </div>
-      )
-    }
-    // sceneIdx === 3: TRADING THE FLOOR — NYSE photo full bg, top gainer + loser
-    const rows3: [string, string][] = (() => {
-      const spyR: [string, string] = ['S&P 500', fmtChg(spyVal ?? 0.3)]
-      if (bigGainers.length > 0 || bigLosers.length > 0) {
-        const picks: [string, string][] = []
-        if (bigGainers[0]) picks.push(bigGainers[0])
-        if (bigLosers[0]) picks.push(bigLosers[0])
-        return [spyR, ...picks]
-      }
-      if (spyVal != null && allSectors && allSectors.length > 1) {
-        const top1 = allSectors[allSectors.length - 1]
-        const bot1 = allSectors[0]
-        return [spyR, [top1.s, fmtChg(top1.v)], [bot1.s, fmtChg(bot1.v)]]
-      }
-      return [spyR, ['XLU', '+1.1%'], ['XLE', '-0.8%']]
-    })()
     return (
-      <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#060400' }}>
-        {/* Full-screen image */}
-        <div style={{ position: 'absolute', inset: 0 }}>
-          <img src="/loading/nyse.jpg" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', filter: 'contrast(1.4) brightness(0.62) saturate(0.45)' }} />
-          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, rgba(6,4,0,0) 55%, rgba(6,4,0,0.7) 72%, rgba(6,4,0,0.96) 88%, #060400 100%)' }} />
-          <div style={{ position: 'absolute', inset: 0, background: 'rgba(255,140,0,0.15)', mixBlendMode: 'screen' }} />
-        </div>
-        {/* Narrow text panel — right 26% */}
-        <div style={{ position: 'absolute', right: 0, top: 0, width: '26%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'right', alignItems: 'flex-end' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', alignSelf: 'flex-end', gap: '4px' }}>
-            <div style={{ color: 'rgba(255,180,50,0.65)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(8px,1vw,11px)', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: '6%', background: '#000', padding: '2px 10px' }}>NEW YORK STOCK EXCHANGE</div>
-            <div style={{ color: '#fff', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(16px,2.6vw,34px)', lineHeight: 1, textTransform: 'uppercase', textShadow: '2px 2px 8px rgba(0,0,0,0.9)', background: '#000', padding: '2px 10px' }}>TRADING</div>
-            <div style={{ color: '#ffaa00', fontFamily: fnt, fontWeight: 900, fontSize: 'clamp(16px,2.6vw,34px)', lineHeight: 1.05, textTransform: 'uppercase', textShadow: '0 0 20px rgba(255,140,0,0.6)', marginBottom: '8%', background: '#000', padding: '2px 10px' }}>THE FLOOR</div>
-            <div style={{ width: '100%', height: '2px', background: 'rgba(255,140,0,0.7)', marginBottom: '8%' }} />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(4px,0.9vh,10px)', alignItems: 'flex-end' }}>
-              {rows3.map(([t, v]) => (
-                <div key={t} style={{ display: 'flex', gap: '8px', alignItems: 'baseline', background: '#000', padding: '2px 10px' }}>
-                  <span style={{ color: '#ffffff', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(16px,2vw,24px)' }}>{t}</span>
-                  <span style={{ color: v.startsWith('+') ? '#00e060' : '#e03535', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(18px,2.1vw,25px)' }}>{v}</span>
-                </div>
-              ))}
-            </div>
-
-          </div>
-        </div>
-        <div style={{ position: 'absolute', top: '4%', left: '2%', color: 'rgba(255,160,30,0.9)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: 'clamp(9px,1.1vw,13px)', letterSpacing: '0.08em' }}>NYSE · MARKET OPEN</div>
-        <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(0deg,rgba(0,0,0,0.04) 0px,rgba(0,0,0,0.04) 1px,transparent 1px,transparent 3px)', pointerEvents: 'none' }} />
-      </div>
+      <canvas
+        ref={weatherCanvasRef}
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }}
+      />
     )
-  }, [mktSnap, mktCtx, snapDriven, loadingArtIndex])
-
+  }, [])
   const [hoveredGradeIndex, setHoveredGradeIndex] = useState<number | null>(null)
   const [quickGradePopup, setQuickGradePopup] = useState<{
     id: string
@@ -1441,140 +1200,100 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   const fetchCurrentOptionPrices = async (trades: OptionsFlowData[]) => {
     const POLYGON_API_KEY: string = ''
-
     const pricesUpdate: Record<string, number> = {}
 
-    const failed: string[] = []
-
     // Filter out expired options before fetching prices
-    // Parse expiry as local date (append T12:00:00 to avoid UTC midnight shifting the date back a day in negative-offset timezones)
     const todayStr = new Date().toLocaleDateString('en-CA') // "YYYY-MM-DD" in local time
-
-    const activeTrades = trades.filter((trade) => {
-      return trade.expiry >= todayStr // string compare works perfectly for ISO date format
-    })
+    const activeTrades = trades.filter((trade) => trade.expiry >= todayStr)
 
     if (activeTrades.length === 0) {
       setOptionPricesFetching(false)
       setModeLoadingStep(null)
-
       return
     }
 
-    setOptionPricesFetching(true)
+    // Deduplicate: build unique option tickers so we never fetch the same contract twice
+    // (the same strike/expiry can appear many times in a full flow scan)
+    const uniqueContracts = new Map<string, string>() // optionTicker → underlying
+    for (const trade of activeTrades) {
+      const expiry = trade.expiry.replace(/-/g, '').slice(2)
+      const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
+      const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
+      const normalizedTicker = normalizeTickerForOptions(trade.underlying_ticker)
+      const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
+      if (!uniqueContracts.has(optionTicker)) {
+        uniqueContracts.set(optionTicker, trade.underlying_ticker)
+      }
+    }
 
-    setGradingProgress({ current: 0, total: activeTrades.length }) // Parallel batch processing for faster fetching
+    const uniqueTickers = Array.from(uniqueContracts.entries())
+    setOptionPricesFetching(true)
+    setGradingProgress({ current: 0, total: uniqueTickers.length })
 
     try {
-
-      const BATCH_SIZE = 15 // 15 contracts per batch
-
-      const MAX_CONCURRENT_BATCHES = 3 // Process 3 batches in parallel
-
-      const batches = []
-
-      for (let i = 0; i < activeTrades.length; i += BATCH_SIZE) {
-        batches.push(activeTrades.slice(i, i + BATCH_SIZE))
+      const BATCH_SIZE = 15
+      const batches: Array<[string, string][]> = []
+      for (let i = 0; i < uniqueTickers.length; i += BATCH_SIZE) {
+        batches.push(uniqueTickers.slice(i, i + BATCH_SIZE))
       }
 
       let processedCount = 0
 
-      // Process batches with controlled concurrency
-
-      const processBatch = async (batch: OptionsFlowData[], batchIndex: number) => {
-        const batchResults = await Promise.allSettled(
-          batch.map(async (trade, tradeIndex) => {
-            // Stagger within batch to avoid burst
-
-            await new Promise((resolve) => setTimeout(resolve, tradeIndex * 30))
-
+      // Sequential batches — avoids overloading the local proxy server
+      for (const batch of batches) {
+        await Promise.allSettled(
+          batch.map(async ([optionTicker, underlying], idx) => {
+            await new Promise((r) => setTimeout(r, idx * 50)) // stagger within batch
             try {
-              const expiry = trade.expiry.replace(/-/g, '').slice(2)
-
-              const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
-
-              const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
-
-              const normalizedTicker = normalizeTickerForOptions(trade.underlying_ticker)
-
-              const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
-
-              const snapshotUrl = `/api/polygon/v3/snapshot/options/${trade.underlying_ticker}/${optionTicker}?apikey=${POLYGON_API_KEY}`
-
-              const response = await fetch(snapshotUrl, {
-                signal: AbortSignal.timeout(5000),
-              })
+              const snapshotUrl = `/api/polygon/v3/snapshot/options/${underlying}/${optionTicker}?apikey=${POLYGON_API_KEY}`
+              const response = await fetch(snapshotUrl, { signal: AbortSignal.timeout(15000) })
 
               if (response.ok) {
                 const data = await response.json()
-
-                if (data.results && data.results.last_quote) {
+                if (data.results?.last_quote) {
                   const bid = data.results.last_quote.bid || 0
-
                   const ask = data.results.last_quote.ask || 0
-
-                  const currentPrice = (bid + ask) / 2
-
-                  if (currentPrice > 0) {
-                    pricesUpdate[optionTicker] = currentPrice
+                  const mid = (bid + ask) / 2
+                  if (mid > 0) {
+                    pricesUpdate[optionTicker] = mid
+                  } else if (data.results.last_trade?.price > 0) {
+                    pricesUpdate[optionTicker] = data.results.last_trade.price
                   }
+                } else if (data.results?.last_trade?.price > 0) {
+                  pricesUpdate[optionTicker] = data.results.last_trade.price
                 }
               } else if (response.status === 404) {
-                // Try historical endpoint for expired options
-
-                const expiryDate = new Date(trade.expiry)
-
-                const formattedExpiry = expiryDate.toISOString().split('T')[0]
-
-                const historicalUrl = `/api/polygon/v2/aggs/ticker/${optionTicker}/range/1/day/${formattedExpiry}/${formattedExpiry}?apikey=${POLYGON_API_KEY}`
-
-                const histResponse = await fetch(historicalUrl, {
-                  signal: AbortSignal.timeout(5000),
-                })
-
-                if (histResponse.ok) {
-                  const histData = await histResponse.json()
-
-                  if (histData.results && histData.results.length > 0) {
-                    const lastBar = histData.results[histData.results.length - 1]
-
-                    const currentPrice = lastBar.c // closing price
-
-                    if (currentPrice > 0) {
-                      pricesUpdate[optionTicker] = currentPrice
+                // Fallback: try last closing bar for recently-expired options
+                const expiryDate = activeTrades.find(t => {
+                  const exp = t.expiry.replace(/-/g, '').slice(2)
+                  const sf = String(Math.round(t.strike * 1000)).padStart(8, '0')
+                  const ot = t.type.toLowerCase() === 'call' ? 'C' : 'P'
+                  return `O:${normalizeTickerForOptions(t.underlying_ticker)}${exp}${ot}${sf}` === optionTicker
+                })?.expiry
+                if (expiryDate) {
+                  const d = new Date(expiryDate).toISOString().split('T')[0]
+                  const histResp = await fetch(
+                    `/api/polygon/v2/aggs/ticker/${optionTicker}/range/1/day/${d}/${d}?apikey=${POLYGON_API_KEY}`,
+                    { signal: AbortSignal.timeout(8000) }
+                  )
+                  if (histResp.ok) {
+                    const hd = await histResp.json()
+                    if (hd.results?.length > 0) {
+                      const price = hd.results[hd.results.length - 1].c
+                      if (price > 0) pricesUpdate[optionTicker] = price
                     }
                   }
                 }
               }
-            } catch (error) {
-              // Silent fail for network errors
-            }
+            } catch { /* silent — timeout or network error */ }
           })
         )
 
-        // Update progress only (no state update per batch to avoid re-renders)
         processedCount += batch.length
-
-        setGradingProgress({ current: processedCount, total: trades.length })
+        setGradingProgress({ current: processedCount, total: uniqueTickers.length })
       }
 
-      // Process batches with sliding window concurrency
-
-      for (let i = 0; i < batches.length; i += MAX_CONCURRENT_BATCHES) {
-        const concurrentBatches = batches.slice(i, i + MAX_CONCURRENT_BATCHES)
-
-        await Promise.allSettled(concurrentBatches.map((batch, idx) => processBatch(batch, i + idx)))
-
-        // Small delay before next round
-
-        if (i + MAX_CONCURRENT_BATCHES < batches.length) {
-          await new Promise((resolve) => setTimeout(resolve, 150))
-        }
-      }
-
-      // Single state update after ALL batches complete - prevents per-batch re-renders
       setCurrentOptionPrices((prev) => ({ ...prev, ...pricesUpdate }))
-
     } finally {
       setOptionPricesFetching(false)
       setGradingProgress(null)
@@ -2282,7 +2001,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     // 2. Contract Price Score (25 points max) - based on position P&L
 
     if (!currentPrice || currentPrice <= 0) {
-      // Return early with a neutral grade if price is unavailable (prices loading)
+      // Return early — option price not yet available
 
       return {
         grade: 'N/A',
@@ -3857,9 +3576,12 @@ Stock Reaction: ${scores.stockReaction}/15`
   ])
 
   // Memoize all grade calculations - massive performance boost for 100+ trades
-
+  // Skip computation entirely while option prices are still loading to avoid N/A flash
   const gradesCache = useMemo(() => {
     const cache = new Map<string, ReturnType<typeof calculatePositioningGrade> | ReturnType<typeof calculateLeapGrade>>()
+    // Skip while fetching OR while highlights/leap is on but prices haven't loaded yet
+    if (optionPricesFetching) return cache
+    if ((efiHighlightsActive || leapActive) && Object.keys(currentOptionPrices).length === 0) return cache
 
     filteredAndSortedData.forEach((trade) => {
       const tradeId = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_timestamp}`
@@ -3892,6 +3614,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     historicalStdDevs,
     leap52wkData,
     leapSeasonalData,
+    optionPricesFetching,
   ])
 
   // Helper function to get cached grade
@@ -6236,7 +5959,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                           setShowMobilePicksDropdown(false)
                           const newState = !leapActive
                           setLeapActive(newState)
-                          if (efiHighlightsActive) setEfiHighlightsActive(false)
+                          if (efiHighlightsActive) { setEfiHighlightsActive(false); setNotableFilterActive(false) }
                           if (newState) {
                             setModeLoadingStep({ mode: 'LEAP', step: 'Calculating Relative Strength...' })
                             await new Promise<void>(r => setTimeout(r, 0))
@@ -6300,6 +6023,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                             setModeLoadingStep(null)
                           } else {
                             setModeLoadingStep(null)
+                            setNotableFilterActive(false)
                           }
                         }}
                         style={{
@@ -6796,7 +6520,17 @@ Stock Reaction: ${scores.stockReaction}/15`
                   return (
                     <div style={{ position: 'relative' }}>
                       <button
-                        onClick={() => setCalOpen(v => !v)}
+                        ref={calBtnRef}
+                        onClick={() => {
+                          const rect = calBtnRef.current?.getBoundingClientRect()
+                          if (rect) {
+                            const popupW = 438
+                            // Align right edge of popup with right edge of button, then clamp to viewport
+                            const left = Math.max(8, Math.min(rect.right - popupW, window.innerWidth - popupW - 8))
+                            setCalRect({ top: rect.bottom + 4, left })
+                          }
+                          setCalOpen(v => !v)
+                        }}
                         style={{
                           height: 31, padding: '0 10px',
                           background: isRange ? '#0a0500' : '#000',
@@ -6808,32 +6542,35 @@ Stock Reaction: ${scores.stockReaction}/15`
                         }}
                       >{displayLabel} ▾</button>
 
-                      {calOpen && (
+                      {calOpen && calRect && (
                         <div
                           style={{
-                            position: 'absolute', top: 36, right: 0, zIndex: 9999,
+                            position: 'fixed',
+                            top: calRect.left !== undefined ? calRect.top : 0,
+                            left: calRect.left,
+                            zIndex: 99999,
                             background: '#0a0a0a', border: '1px solid rgba(255,133,0,0.45)',
-                            borderRadius: 10, padding: 16, width: 292,
+                            borderRadius: 15, padding: 24, width: 438,
                             boxShadow: '0 12px 48px rgba(0,0,0,0.9)',
                           }}
                           onMouseLeave={() => calPickStart && setCalHover(calPickStart)}
                         >
                           {/* Month nav */}
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 15 }}>
                             <button onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(y => y - 1) } else setCalMonth(m => m - 1) }}
-                              style={{ background: 'none', border: 'none', color: '#ff8500', cursor: 'pointer', fontSize: 18, padding: '0 6px', lineHeight: 1 }}>‹</button>
-                            <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, fontWeight: 800, color: '#fff', letterSpacing: '0.1em' }}>{monthNames[calMonth]} {calYear}</span>
+                              style={{ background: 'none', border: 'none', color: '#ff8500', cursor: 'pointer', fontSize: 27, padding: '0 9px', lineHeight: 1 }}>‹</button>
+                            <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 19, fontWeight: 800, color: '#fff', letterSpacing: '0.1em' }}>{monthNames[calMonth]} {calYear}</span>
                             <button onClick={() => { if (calMonth === 11) { setCalMonth(0); setCalYear(y => y + 1) } else setCalMonth(m => m + 1) }}
-                              style={{ background: 'none', border: 'none', color: '#ff8500', cursor: 'pointer', fontSize: 18, padding: '0 6px', lineHeight: 1 }}>›</button>
+                              style={{ background: 'none', border: 'none', color: '#ff8500', cursor: 'pointer', fontSize: 27, padding: '0 9px', lineHeight: 1 }}>›</button>
                           </div>
                           {/* Day headers */}
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2, marginBottom: 4 }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 3, marginBottom: 6 }}>
                             {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d, i) => (
-                              <div key={i} style={{ textAlign: 'center', fontSize: 10, color: '#444', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>{d}</div>
+                              <div key={i} style={{ textAlign: 'center', fontSize: 15, color: '#ff8500', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>{d}</div>
                             ))}
                           </div>
                           {/* Days grid */}
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2 }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 3 }}>
                             {Array.from({ length: firstDow }).map((_, i) => <div key={`e${i}`} />)}
                             {Array.from({ length: daysInMonth }).map((_, i) => {
                               const ds = toDs(calYear, calMonth, i + 1)
@@ -6846,10 +6583,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                                   onMouseEnter={() => calPickStart && setCalHover(ds)}
                                   onClick={() => !isFuture && handleDayClick(ds)}
                                   style={{
-                                    textAlign: 'center', fontSize: 12, fontWeight: edge ? 900 : 600,
-                                    fontFamily: 'JetBrains Mono, monospace', padding: '4px 0', borderRadius: 4,
+                                    textAlign: 'center', fontSize: 18, fontWeight: edge ? 900 : 600,
+                                    fontFamily: 'JetBrains Mono, monospace', padding: '6px 0', borderRadius: 6,
                                     cursor: isFuture ? 'default' : 'pointer',
-                                    color: isFuture ? '#222' : edge ? '#000' : isWkend ? '#333' : '#ccc',
+                                    color: isFuture ? '#333' : edge ? '#000' : isWkend ? '#888' : '#fff',
                                     background: edge ? '#ff8500' : highlighted ? 'rgba(255,133,0,0.22)' : 'transparent',
                                     userSelect: 'none',
                                     transition: 'background 0.08s',
@@ -6859,12 +6596,12 @@ Stock Reaction: ${scores.stockReaction}/15`
                             })}
                           </div>
                           {/* Footer */}
-                          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
-                            <span style={{ fontSize: 10, color: '#555', fontFamily: 'JetBrains Mono, monospace' }}>
+                          <div style={{ marginTop: 15, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12 }}>
+                            <span style={{ fontSize: 15, color: '#fff', fontFamily: 'JetBrains Mono, monospace' }}>
                               {calPickStart ? `start: ${calPickStart} — click end` : rangeStart && rangeEnd ? `${rangeStart} → ${rangeEnd}` : 'click start date'}
                             </span>
                             <button onClick={() => { onHistoricalDaysChange('1D'); setCalPickStart(null); setCalHover(null); setCalOpen(false) }}
-                              style={{ fontSize: 10, background: 'none', border: 'none', color: '#444', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace' }}>CLEAR</button>
+                              style={{ fontSize: 15, background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace' }}>CLEAR</button>
                           </div>
                         </div>
                       )}
@@ -7037,7 +6774,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                   onClick={async () => {
                     const newState = !leapActive
                     setLeapActive(newState)
-                    if (efiHighlightsActive) setEfiHighlightsActive(false)
+                    if (efiHighlightsActive) { setEfiHighlightsActive(false); setNotableFilterActive(false) }
                     if (newState) {
                       setModeLoadingStep({ mode: 'LEAP', step: 'Calculating Relative Strength...' })
                       await new Promise<void>(r => setTimeout(r, 0))
@@ -7061,7 +6798,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       setModeLoadingStep(null)
                     }
                   }}
-                  className={`toolbar-mode${leapActive ? ' toolbar-mode--active' : ''} flex items-center gap-1.5 font-bold uppercase transition-all duration-150 focus:outline-none`}
+                  className={`toolbar-mode${leapActive ? ' toolbar-mode--active' : ''} flex items-center gap-1.5 font-bold uppercase transition-all duration-150 focus:outline-none${(!data || data.length === 0 || loading || stockPricesLoading) ? ' opacity-40 cursor-not-allowed' : ''}`}
                   style={{
                     height: '35px',
                     padding: '0 15px',
@@ -7075,7 +6812,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     fontWeight: '700',
                     boxShadow: leapActive ? 'inset 0 1px 0 rgba(255,255,255,0.22), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 14px rgba(0,200,255,0.28)' : 'inset 0 1px 0 rgba(255,255,255,0.09), inset 0 -1px 0 rgba(0,0,0,0.4)',
                     color: '#00d4ff',
-                    cursor: 'pointer',
+                    cursor: (!data || data.length === 0 || loading || stockPricesLoading) ? 'not-allowed' : 'pointer',
                     transition: 'all 0.15s ease',
                   }}
                 >
@@ -7103,9 +6840,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                       setModeLoadingStep(null)
                     } else {
                       setModeLoadingStep(null)
+                      setNotableFilterActive(false)
                     }
                   }}
-                  className={`toolbar-mode${efiHighlightsActive ? ' toolbar-mode--active' : ''} flex items-center gap-1.5 font-bold uppercase transition-all duration-150 focus:outline-none`}
+                  className={`toolbar-mode${efiHighlightsActive ? ' toolbar-mode--active' : ''} flex items-center gap-1.5 font-bold uppercase transition-all duration-150 focus:outline-none${(!data || data.length === 0 || loading || stockPricesLoading) ? ' opacity-40 cursor-not-allowed' : ''}`}
                   style={{
                     height: '35px',
                     padding: '0 15px',
@@ -7119,7 +6857,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     fontWeight: '700',
                     boxShadow: efiHighlightsActive ? 'inset 0 1px 0 rgba(255,255,255,0.2), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 14px rgba(245,166,35,0.25)' : 'inset 0 1px 0 rgba(255,255,255,0.09), inset 0 -1px 0 rgba(0,0,0,0.4)',
                     color: '#f5a623',
-                    cursor: 'pointer',
+                    cursor: (!data || data.length === 0 || loading || stockPricesLoading) ? 'not-allowed' : 'pointer',
                     transition: 'all 0.15s ease',
                   }}
                 >
@@ -7896,7 +7634,7 @@ Stock Reaction: ${scores.stockReaction}/15`
               </div>
 
               {/* === LOADING ART PANEL — rendered after abstract bg so same zIndex wins (later in DOM = on top) === */}
-              <div key={loadingArtIndex} style={{ position: 'absolute', inset: 0, zIndex: 0, opacity: 0.72, animation: 'artFadeIn 1.4s ease-in-out', pointerEvents: 'none' }}>
+              <div key={0} style={{ position: 'absolute', inset: 0, zIndex: 0, opacity: 0.72, animation: 'artFadeIn 1.4s ease-in-out', pointerEvents: 'none' }}>
                 {LoadingScenePanel()}
               </div>
 
@@ -8417,7 +8155,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                             <div className="md:hidden flex flex-col items-center space-y-1">
                               <div className="flex items-center justify-center gap-2">
                                 {/* Quick Grade Pen Icon (Mobile) */}
-                                {!INDEX_TICKERS.has(trade.underlying_ticker) && (
+                                {!INDEX_TICKERS.has(trade.underlying_ticker) && !efiHighlightsActive && !leapActive && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleQuickGrade(trade, e) }}
                                     title={`Quick Grade (${trade.days_to_expiry <= 35 ? 'EFI' : 'LEAP'} logic)`}
@@ -8516,7 +8254,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                             })()}
                             <div className="flex items-center justify-center gap-2">
                               {/* Quick Grade Pen Icon (Desktop) */}
-                              {!INDEX_TICKERS.has(trade.underlying_ticker) && (
+                              {!INDEX_TICKERS.has(trade.underlying_ticker) && !efiHighlightsActive && !leapActive && (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); handleQuickGrade(trade, e) }}
                                   title={`Quick Grade (${trade.days_to_expiry <= 35 ? 'EFI' : 'LEAP'} logic)`}

@@ -16,6 +16,7 @@ interface Props {
     router: AppRouterInstance
     isSmallMobile: boolean
     hideOnInnerPages?: boolean
+    isAdmin?: boolean
 }
 
 /**
@@ -32,6 +33,7 @@ export default function NavigationMobileMenu({
     router,
     isSmallMobile,
     hideOnInnerPages = false,
+    isAdmin = false,
 }: Props) {
     const [isOpen, setIsOpen] = useState(false)
 
@@ -156,7 +158,8 @@ export default function NavigationMobileMenu({
                         style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}
                     >
                         {navLinks.map((link) => {
-                            const isLocked = link.path === '/analysis-suite' || link.path === '/ai-suite' || link.path === '/market-overview' || link.path === '/data-driven' || link.path === '/analytics' || link.path === '/dealers-workbench' || link.path === '/rrg-screener' || link.path === '/ai-trades'
+                            const LOCKED_MOBILE_PATHS = new Set(['/analysis-suite', '/ai-suite', '/market-overview', '/data-driven', '/analytics', '/dealers-workbench', '/rrg-screener', '/ai-trades'])
+                            const isLocked = !isAdmin && LOCKED_MOBILE_PATHS.has(link.path)
                             return isLocked ? (
                                 <div
                                     key={link.path}

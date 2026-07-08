@@ -365,6 +365,7 @@ export default function Navigation() {
               router={router}
               isSmallMobile={isSmallMobile}
               hideOnInnerPages={true}
+              isAdmin={isAdmin}
             />
 
             {/* Desktop Status and Auth */}
@@ -726,6 +727,7 @@ export default function Navigation() {
           isAuthenticated={isAuthenticated}
           isClient={isClient}
           router={router}
+          isAdmin={isAdmin}
         />
       )}
     </>

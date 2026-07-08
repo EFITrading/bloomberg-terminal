@@ -1612,20 +1612,16 @@ export default function OptionsFlowPage() {
                     doResolve({ trades, total, summary, market_info })
                     break
                   case 'error':
-
                     doResolve({ trades, total, summary, market_info })
                     break
                   case 'close':
                     doResolve({ trades, total, summary, market_info })
                     break
                 }
-              } catch (parseErr) {
-
-              }
+              } catch { /* ignore parse errors */ }
             }
 
-            es.onerror = (err) => {
-
+            es.onerror = () => {
               doResolve({ trades, total, summary, market_info })
             }
           })
@@ -1695,7 +1691,6 @@ export default function OptionsFlowPage() {
           const probeResult = await openSSE(0)
           if (cancelRef.current) return
           probeTotal = probeResult.total || 0
-
 
           // Now roll through ALL offsets 10 at a time
           const MAX_CONCURRENT = 10

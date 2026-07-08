@@ -855,6 +855,9 @@ function getAlgoTradingDays(timeframe: string): string[] {
         : timeframe === '1W' ? 5
           : Math.max(1, parseInt(timeframe) || 1)
   const cur = new Date(pstNow)
+  // Before market open (6:30 AM PST) today has no data yet — step back to previous session
+  const hourPST = cur.getHours() + cur.getMinutes() / 60
+  if (hourPST < 6.5) cur.setDate(cur.getDate() - 1)
   while (days.length < daysNeeded) {
     const dow = cur.getDay()
     const ds = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`
@@ -871,12 +874,64 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const [flowData, setFlowData] = useState<OptionsFlowData[]>([])
   const [error, setError] = useState('')
   const [isMobile, setIsMobile] = useState(false)
+
+  // ── Tab state ────────────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<'algoflow' | 'flowbias'>('algoflow')
+
+  // ── Flow Bias Scanner state ──────────────────────────────────────────────────
+  type BiasAgg = { ticker: string; bullCall: number; bearCall: number; bullPut: number; bearPut: number; total: number; callPremium: number; putPremium: number }
+  const [biasRRGData, setBiasRRGData] = useState<{ bullCalls: BiasAgg[]; bearCalls: BiasAgg[]; bullPuts: BiasAgg[]; bearPuts: BiasAgg[] } | null>(null)
+  const [biasRRGLoading, setBiasRRGLoading] = useState(false)
+  const [biasPCData, setBiasPCData] = useState<{ pc: BiasAgg[]; gamma: BiasAgg[] } | null>(null)
+  const [biasPCLoading, setBiasPCLoading] = useState(false)
+  const [biasSupportData, setBiasSupportData] = useState<{ bull: BiasAgg[]; bear: BiasAgg[] } | null>(null)
+  const [biasSupportLoading, setBiasSupportLoading] = useState(false)
+  const [biasDataStatus, setBiasDataStatus] = useState('')
+  const [rrgPopupTicker, setRrgPopupTicker] = useState<BiasAgg | null>(null)
+  const [rrgTransform, setRrgTransform] = useState({ tx: 0, ty: 0, k: 1 })
+  const rrgDragRef = useRef({ dragging: false, lastSvgX: 0, lastSvgY: 0 })
+  const rrgSvgRef = useRef<SVGSVGElement | null>(null)
+
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth <= 768)
     check()
     window.addEventListener('resize', check)
     return () => window.removeEventListener('resize', check)
   }, [])
+
+  useEffect(() => {
+    const el = rrgSvgRef.current
+    if (!el) return
+    // W=1755 H=875 PAD={t:32,r:32,b:44,l:52} → CW=1671 CH=799
+    const RRG_PL = 52, RRG_PT = 32, RRG_CW = 1671, RRG_CH = 799
+    const clamp = (tx: number, ty: number, k: number) => {
+      const k1 = Math.max(1, k)
+      return {
+        k: k1,
+        tx: Math.max((1 - k1) * (RRG_PL + RRG_CW), Math.min((1 - k1) * RRG_PL, tx)),
+        ty: Math.max((1 - k1) * (RRG_PT + RRG_CH), Math.min((1 - k1) * RRG_PT, ty)),
+      }
+    }
+    const handler = (e: WheelEvent) => {
+      e.preventDefault()
+      const rect = el.getBoundingClientRect()
+      const mx = (e.clientX - rect.left) * 1755 / rect.width
+      const my = (e.clientY - rect.top) * 875 / rect.height
+      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
+      setRrgTransform(t => {
+        const k2 = Math.max(1, Math.min(12, t.k * factor))
+        const raw = {
+          k: k2,
+          tx: mx - (mx - t.tx) * (k2 / t.k),
+          ty: my - (my - t.ty) * (k2 / t.k),
+        }
+        return clamp(raw.tx, raw.ty, raw.k)
+      })
+    }
+    el.addEventListener('wheel', handler, { passive: false })
+    return () => el.removeEventListener('wheel', handler)
+  }, [biasRRGData])
+
   // Ref to track accumulated trades synchronously across async SSE events
   // (React state updates are async so the complete handler can't read flowData reliably)
   const accumulatedTradesRef = useRef<OptionsFlowData[]>([])
@@ -1073,8 +1128,17 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     const algoFlowScore = (aggressiveCalls - aggressivePuts) / total
     const flowTrend: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = algoFlowScore > 0.25 ? 'BULLISH' : algoFlowScore < -0.25 ? 'BEARISH' : 'NEUTRAL'
 
-    // Build cumulative chart data (running total, so last point equals full-day totals)
-    const sortedBuckets = Array.from(buckets.entries()).sort((a, b) => a[0] - b[0])
+    // Build cumulative chart data — filter to regular market hours: 6:30 AM – 1:00 PM PST
+    // Use Intl to get PST hours reliably regardless of browser timezone
+    const sortedBuckets = Array.from(buckets.entries())
+      .sort((a, b) => a[0] - b[0])
+      .filter(([bucketUtc]) => {
+        const d = new Date(bucketUtc)
+        const pstStr = d.toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit', hour12: false })
+        const [hh, mm] = pstStr.split(':').map(Number)
+        const pstMinutes = hh * 60 + mm
+        return pstMinutes >= 390 && pstMinutes < 780 // 6:30 AM to 1:00 PM
+      })
     let cumCallsPlus = 0, cumCallsMinus = 0, cumPutsPlus = 0, cumPutsMinus = 0
     const chartData = sortedBuckets.map(([time, b]) => {
       cumCallsPlus += b.callsPlus
@@ -1368,7 +1432,9 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
 
   // Memoize chart data so button clicks don't recompute on unrelated re-renders
   const chartMemo = useMemo(() => {
-    if (!analysis?.chartData) return { visibleData: [] as any[], xInterval: 0, priceMin: 'auto' as any, priceMax: 'auto' as any }
+    if (!analysis?.chartData) {
+      return { visibleData: [] as any[], xInterval: 0, priceMin: 'auto' as any, priceMax: 'auto' as any }
+    }
 
     // When a filter is active, rebuild the time-series from the filtered trades
     // instead of using the pre-built chartData from the full analysis pass
@@ -1451,15 +1517,25 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
         minBuckets.set(bucket, b)
       }
       let cCp = 0, cCm = 0, cPp = 0, cPm = 0
-      activeChartData = Array.from(minBuckets.entries()).sort(([a], [b]) => a - b).map(([time, b]) => {
-        cCp += b.cp; cCm += b.cm; cPp += b.pp; cPm += b.pm
-        const d = new Date(time)
-        const timeLabel = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Los_Angeles' })
-        const netFlow = cCp - cCm + (cPp - cPm)
-        const bullishTotal = cCp + cPp
-        const bearishTotal = -(cCm + cPm)
-        return { time, timeLabel, callsPlus: cCp, callsMinus: cCm, putsPlus: cPp, putsMinus: cPm, netFlow, bullishTotal, bearishTotal, pcRatio: bullishTotal > 0 ? Math.abs(bearishTotal) / bullishTotal : 1 }
-      })
+      const MARKET_OPEN_MIN = 390  // 6:30 AM in PST minutes
+      const MARKET_CLOSE_MIN = 780  // 1:00 PM in PST minutes
+      activeChartData = Array.from(minBuckets.entries()).sort(([a], [b]) => a - b)
+        .filter(([time]) => {
+          const d = new Date(time)
+          const pstStr = d.toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit', hour12: false })
+          const [hh, mm] = pstStr.split(':').map(Number)
+          const pstMinutes = hh * 60 + mm
+          return pstMinutes >= MARKET_OPEN_MIN && pstMinutes < MARKET_CLOSE_MIN
+        })
+        .map(([time, b]) => {
+          cCp += b.cp; cCm += b.cm; cPp += b.pp; cPm += b.pm
+          const d = new Date(time)
+          const timeLabel = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Los_Angeles' })
+          const netFlow = cCp - cCm + (cPp - cPm)
+          const bullishTotal = cCp + cPp
+          const bearishTotal = -(cCm + cPm)
+          return { time, timeLabel, callsPlus: cCp, callsMinus: cCm, putsPlus: cPp, putsMinus: cPm, netFlow, bullishTotal, bearishTotal, pcRatio: bullishTotal > 0 ? Math.abs(bearishTotal) / bullishTotal : 1 }
+        })
     } else if (timeInterval === '30min') {
       // Downsample 5-min ←’ 30-min: take every 6th cumulative point
       activeChartData = activeChartData.filter((_: any, i: number) => i % 6 === 0 || i === activeChartData.length - 1)
@@ -1641,14 +1717,16 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               if (rowsToLoad.length >= requiredDayCount) break
             }
             if (rowsToLoad.length > 0) {
-              // Pass ticker filter to server for single/small-ticker scans "” server filters before
-              // building the response so wire transfer shrinks from 601k ←’ only matching trades
               const isMultiAll = displayLabel === 'ALL' || displayLabel === 'MAG7' || (displayLabel != null && actualTickers.includes(','))
               const tickersQS = isMultiAll ? '' : `?tickers=${encodeURIComponent(actualTickers)}`
+              // eslint-disable-next-line no-inner-declarations
+              if (false) { const dayPayloads2 = null; void dayPayloads2 } // dead: neutralize duplicate below "” server filters before
+              // building the response so wire transfer shrinks from 601k ←’ only matching trades
               const dayPayloads = await Promise.all(
                 rowsToLoad.map(async (rawDate) => {
                   const r = await fetch(`/api/flows/${encodeURIComponent(rawDate)}${tickersQS}`)
-                  return r.ok ? r.json() : null
+                  const json = r.ok ? await r.json() : null
+                  return json
                 })
               )
 
@@ -1714,7 +1792,9 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             }
           }
         }
-      } catch (err) { /* saved check failed */ }
+      } catch (err) {
+      }
+    } else {
     }
 
     setStreamStatus('Connecting...')
@@ -2264,6 +2344,114 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     }
   }
 
+  // ── Flow Bias Scanner helpers ────────────────────────────────────────────────
+  const aggregateFlowByTicker = (trades: OptionsFlowData[]) => {
+    const map = new Map<string, { ticker: string; bullCall: number; bearCall: number; bullPut: number; bearPut: number; total: number; callPremium: number; putPremium: number }>()
+    for (const t of trades) {
+      const sym = t.underlying_ticker
+      if (!map.has(sym)) map.set(sym, { ticker: sym, bullCall: 0, bearCall: 0, bullPut: 0, bearPut: 0, total: 0, callPremium: 0, putPremium: 0 })
+      const a = map.get(sym)!
+      const prem = t.total_premium || 0
+      const fs = (t as any).fill_style as string | undefined
+      const isCall = t.type?.toLowerCase() === 'call'
+      const isBull = !fs || fs === 'N/A' || fs === 'A' || fs === 'AA'
+      const isBear = fs === 'B' || fs === 'BB'
+      a.total += prem
+      if (isCall) { a.callPremium += prem; if (isBull) a.bullCall += prem; else if (isBear) a.bearCall += prem }
+      else { a.putPremium += prem; if (isBull) a.bullPut += prem; else if (isBear) a.bearPut += prem }
+    }
+    return Array.from(map.values())
+  }
+
+  const getBiasFlowData = async (): Promise<OptionsFlowData[]> => {
+    // 1. Use ALL-scan cache if available
+    if (allScanCacheRef.current?.flowData?.length) {
+      setBiasDataStatus(`Using cached scan (${allScanCacheRef.current.flowData.length} trades)`)
+      return allScanCacheRef.current.flowData
+    }
+    // 2. Load from DB
+    setBiasDataStatus('Loading from database...')
+    try {
+      const datesResp = await fetch('/api/flows/dates')
+      if (!datesResp.ok) throw new Error('No DB dates')
+      const dates: { date: string }[] = await datesResp.json()
+      if (!dates.length) throw new Error('No saved flow dates')
+      const sorted = [...dates].sort((a, b) => b.date.localeCompare(a.date))
+      const rowsToLoad = sorted.slice(0, 1).map(d => d.date)
+      const payloads = await Promise.all(rowsToLoad.map(async (rawDate) => {
+        const r = await fetch(`/api/flows/${encodeURIComponent(rawDate)}`)
+        return r.ok ? r.json() : null
+      }))
+      const combined: OptionsFlowData[] = []
+      for (const p of payloads) { if (Array.isArray(p?.data)) for (const t of p.data) combined.push(t) }
+      setBiasDataStatus(`Loaded ${combined.length} trades from DB`)
+      return combined
+    } catch (e) {
+      setBiasDataStatus('No cached data — run an ALL scan first')
+      return []
+    }
+  }
+
+  const runRRGScan = async () => {
+    setBiasRRGLoading(true); setBiasRRGData(null)
+    const trades = await getBiasFlowData()
+    if (!trades.length) { setBiasRRGLoading(false); return }
+    const aggs = aggregateFlowByTicker(trades)
+    const MIN_THRESHOLD = 0.35
+    const MIN_PREMIUM = 500_000
+    const result = { bullCalls: [] as typeof aggs, bearCalls: [] as typeof aggs, bullPuts: [] as typeof aggs, bearPuts: [] as typeof aggs }
+    for (const a of aggs) {
+      if (a.total < MIN_PREMIUM) continue
+      const bc = a.bullCall / a.total, cc = a.bearCall / a.total, bp = a.bullPut / a.total, cp = a.bearPut / a.total
+      const max = Math.max(bc, cc, bp, cp)
+      if (max < MIN_THRESHOLD) continue
+      if (max === bc) result.bullCalls.push(a)
+      else if (max === cc) result.bearCalls.push(a)
+      else if (max === bp) result.bullPuts.push(a)
+      else result.bearPuts.push(a)
+    }
+    for (const k of Object.keys(result) as (keyof typeof result)[]) result[k].sort((a, b) => b.total - a.total)
+    setBiasRRGData(result); setBiasRRGLoading(false)
+    setRrgTransform({ tx: 0, ty: 0, k: 1 })
+  }
+
+  const runPCGammaScan = async () => {
+    setBiasPCLoading(true); setBiasPCData(null)
+    const trades = await getBiasFlowData()
+    if (!trades.length) { setBiasPCLoading(false); return }
+    const aggs = aggregateFlowByTicker(trades)
+    const pcRows = aggs
+      .filter(a => a.total >= 1_000_000 && a.callPremium > 0)
+      .map(a => ({ ...a, pcRatio: a.putPremium / a.callPremium }))
+      .filter(a => a.pcRatio > 1.2 || a.pcRatio < 0.45)
+      .sort((a, b) => Math.abs(b.pcRatio - 1) - Math.abs(a.pcRatio - 1))
+      .slice(0, 30)
+    const gammaRows = aggs
+      .filter(a => a.total >= 5_000_000)
+      .map(a => ({ ...a, netGamma: (a.bullCall + a.bearPut) - (a.bearCall + a.bullPut) }))
+      .sort((a, b) => Math.abs(b.netGamma) - Math.abs(a.netGamma))
+      .slice(0, 30)
+    setBiasPCData({ pc: pcRows as any[], gamma: gammaRows as any[] }); setBiasPCLoading(false)
+  }
+
+  const runSupportiveScan = async () => {
+    setBiasSupportLoading(true); setBiasSupportData(null)
+    const trades = await getBiasFlowData()
+    if (!trades.length) { setBiasSupportLoading(false); return }
+    const aggs = aggregateFlowByTicker(trades)
+    const bull: typeof aggs = [], bear: typeof aggs = []
+    for (const a of aggs) {
+      if (a.total < 2_000_000) continue
+      const bullPct = (a.bullCall + a.bullPut) / a.total
+      const bearPct = (a.bearCall + a.bearPut) / a.total
+      if (bullPct >= 0.60) bull.push(a)
+      else if (bearPct >= 0.60) bear.push(a)
+    }
+    bull.sort((a, b) => ((b.bullCall + b.bullPut) / b.total) - ((a.bullCall + a.bullPut) / a.total))
+    bear.sort((a, b) => ((b.bearCall + b.bearPut) / b.total) - ((a.bearCall + a.bearPut) / a.total))
+    setBiasSupportData({ bull, bear }); setBiasSupportLoading(false)
+  }
+
   return (
     <div className="h-full bg-black flex flex-col" style={{ overflow: 'hidden' }}>
       {/* Mobile layout overrides */}
@@ -2364,6 +2552,14 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               >← BACK</button>
             )}
             <span style={{ color: '#ff8500', fontFamily: 'JetBrains Mono, monospace', fontSize: 13, fontWeight: 800, letterSpacing: '0.15em', flexShrink: 0 }}>ALGOFLOW</span>
+            {/* Tab switcher */}
+            <div style={{ display: 'flex', gap: 2, background: '#0a0a0a', border: '1px solid #222', borderRadius: 6, padding: 2, flexShrink: 0 }}>
+              {(['algoflow', 'flowbias'] as const).map(tab => (
+                <button key={tab} onClick={() => setActiveTab(tab)} style={{ height: 26, padding: '0 10px', background: activeTab === tab ? (tab === 'algoflow' ? 'linear-gradient(135deg,#ff8500,#ff6000)' : 'linear-gradient(135deg,#00ff88,#00cc66)') : 'transparent', color: activeTab === tab ? '#000' : (tab === 'algoflow' ? '#ff8500' : '#00ff88'), fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, letterSpacing: '0.1em', border: 'none', borderRadius: 4, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s' }}>
+                  {tab === 'algoflow' ? 'ALGOFLOW' : 'FLOW BIAS'}
+                </button>
+              ))}
+            </div>
             <input
               type="text"
               value={ticker}
@@ -2515,6 +2711,14 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             <span style={{ color: '#ff8500', fontFamily: 'JetBrains Mono, monospace', fontSize: 16, fontWeight: 800, letterSpacing: '0.18em' }}>ALGOFLOW INTELLIGENCE</span>
             <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>·</span>
             <span style={{ color: '#fff', fontFamily: 'JetBrains Mono, monospace', fontSize: 12, letterSpacing: '0.12em' }}>OPTIONS FLOW SCANNER</span>
+            {/* Desktop tab switcher */}
+            <div style={{ display: 'flex', gap: 3, background: '#0a0a0a', border: '1px solid #222', borderRadius: 8, padding: 3, marginLeft: 8 }}>
+              {(['algoflow', 'flowbias'] as const).map(tab => (
+                <button key={tab} onClick={() => setActiveTab(tab)} style={{ height: 30, padding: '0 16px', background: activeTab === tab ? (tab === 'algoflow' ? 'linear-gradient(135deg,#ff8500,#ff6000)' : 'linear-gradient(135deg,#00ff88,#00cc66)') : 'transparent', color: activeTab === tab ? '#000' : (tab === 'algoflow' ? '#ff8500' : '#00ff88'), fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 800, letterSpacing: '0.12em', border: activeTab === tab ? 'none' : `1px solid ${tab === 'algoflow' ? 'rgba(255,133,0,0.3)' : 'rgba(0,255,136,0.3)'}`, borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s' }}>
+                  {tab === 'algoflow' ? 'ALGOFLOW' : 'FLOW BIAS SCANNER'}
+                </button>
+              ))}
+            </div>
             {streamStatus && (
               <span style={{ color: '#22d3ee', fontFamily: 'JetBrains Mono, monospace', fontSize: 12, letterSpacing: '0.1em', marginLeft: 8 }}>{streamStatus}</span>
             )}
@@ -2761,8 +2965,8 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
         </div>
       ))} {/* end header "” hidden in embedded mode */}
 
-      {/* SCROLLABLE CONTENT */}
-      <div className="flex-1 overflow-y-auto min-h-0" style={{ padding: isMobile ? '8px 10px 80px' : '12px 20px 20px' }}>
+      {/* SCROLLABLE CONTENT — hidden when Flow Bias tab is active */}
+      <div className="flex-1 overflow-y-auto min-h-0" style={{ padding: isMobile ? '8px 10px 80px' : '12px 20px 20px', display: activeTab === 'flowbias' ? 'none' : undefined }}>
 
         {/* LOADING STATE - removed; analyzing indicator is now inside the ANALYZE button */}
 
@@ -2987,10 +3191,10 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                   {/* CENTER: legend (absolutely centered, hidden on mobile) */}
                   <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', display: isMobile ? 'none' : 'flex', alignItems: 'center', gap: 6 }}>
                     {chartViewMode === 'detailed' && [
-                      { color: '#00ff7f', label: 'CALLS', key: 'callsPlus' },
-                      { color: '#4da6ff', label: 'BEAR C', key: 'callsMinus' },
-                      { color: '#ffcc00', label: 'BULL P', key: 'putsPlus' },
-                      { color: '#ff2222', label: 'BEAR P', key: 'putsMinus' },
+                      { color: '#00ff7f', label: 'BULLISH CALLS', key: 'callsPlus' },
+                      { color: '#4da6ff', label: 'BEARISH CALLS', key: 'callsMinus' },
+                      { color: '#ffcc00', label: 'BULLISH PUTS', key: 'putsPlus' },
+                      { color: '#ff2222', label: 'BEARISH PUTS', key: 'putsMinus' },
                     ].map(({ color, label, key }) => (
                       <span key={key} onClick={() => toggleLine(key)} style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer', opacity: hiddenLines.has(key) ? 0.3 : 1, transition: 'opacity 0.15s' }}>
                         <svg width="16" height="4"><line x1="0" y1="2" x2="16" y2="2" stroke={color} strokeWidth="2.5" /></svg>
@@ -3680,6 +3884,215 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
         )}
 
       </div>{/* end scrollable content */}
+
+      {/* ── FLOW BIAS SCANNER TAB ── */}
+      {activeTab === 'flowbias' && (
+        <div style={{ flex: 1, overflow: 'hidden', background: '#060608', display: 'flex', flexDirection: 'column' }}>
+          <style>{`
+            @keyframes biasSpin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+            .rrg-dot:hover { r: 9; }
+          `}</style>
+
+          {/* STATUS BAR */}
+          <div style={{ padding: '8px 24px', background: '#0a0a0e', borderBottom: '1px solid #1a1a2e', display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
+            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: biasDataStatus ? '#ff8500' : '#333', letterSpacing: '0.12em' }}>
+              {biasDataStatus || 'FLOW BIAS SCANNER — Run scan to populate'}
+            </span>
+          </div>
+
+          {/* MAIN BODY: full-width RRG */}
+          <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
+
+            {/* ── RRG chart (full width) ── */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              {/* Header */}
+              <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 17, fontWeight: 900, color: '#fff', letterSpacing: '0.2em' }}>FLOW ROTATION GRAPH</span>
+                  <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#555', letterSpacing: '0.15em', padding: '2px 8px', border: '1px solid #222', borderRadius: 3 }}>RRG</span>
+                  <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: '#444', letterSpacing: '0.1em' }}>DOUBLE-CLICK DOT TO INSPECT</span>
+                  {([
+                    { col: '#00ff88', label: 'BULL CALLS' },
+                    { col: '#ff4444', label: 'BEAR CALLS' },
+                    { col: '#4da6ff', label: 'BULL PUTS' },
+                    { col: '#ffaa00', label: 'BEAR PUTS' },
+                  ] as { col: string; label: string }[]).map(({ col, label }) => (
+                    <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: col }} />
+                      <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: col, fontWeight: 700 }}>{label}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                  {(rrgTransform.k !== 1 || rrgTransform.tx !== 0 || rrgTransform.ty !== 0) && (
+                    <button onClick={() => setRrgTransform({ tx: 0, ty: 0, k: 1 })} style={{ height: 34, padding: '0 14px', background: 'rgba(255,255,255,0.06)', color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 800, letterSpacing: '0.12em', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, cursor: 'pointer' }}>RESET</button>
+                  )}
+                  <button onClick={runRRGScan} disabled={biasRRGLoading} style={{ height: 34, padding: '0 18px', background: biasRRGLoading ? '#111' : 'linear-gradient(135deg,#7c3aed,#4c1d95)', color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 800, letterSpacing: '0.12em', border: biasRRGLoading ? '1px solid #222' : '1px solid #7c3aed', borderRadius: 6, cursor: biasRRGLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {biasRRGLoading ? <><span style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid #fff', borderTopColor: 'transparent', borderRadius: '50%', animation: 'biasSpin 0.7s linear infinite' }} />SCANNING...</> : 'RUN SCAN'}
+                  </button>
+                </div>
+              </div>
+              {/* RRG body — fills remaining height */}
+              <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+                {biasRRGData ? (() => {
+                  const W = 1755, H = 875, PAD = { t: 32, r: 32, b: 44, l: 52 }
+                  const CW = W - PAD.l - PAD.r, CH = H - PAD.t - PAD.b
+                  const CX = PAD.l + CW / 2, CY = PAD.t + CH / 2
+                  const allTickers: Array<{ ticker: string; x: number; y: number; total: number; quad: string }> = []
+                  const allAggs = [...biasRRGData.bullCalls, ...biasRRGData.bearCalls, ...biasRRGData.bullPuts, ...biasRRGData.bearPuts]
+                  for (const a of allAggs) {
+                    const xVal = (a.callPremium - a.putPremium) / a.total
+                    const yVal = ((a.bullCall + a.bullPut) - (a.bearCall + a.bearPut)) / a.total
+                    const dominant = Math.max(a.bullCall / a.total, a.bearCall / a.total, a.bullPut / a.total, a.bearPut / a.total)
+                    const quad = dominant === a.bullCall / a.total ? 'BC' : dominant === a.bearCall / a.total ? 'CC' : dominant === a.bullPut / a.total ? 'BP' : 'CP'
+                    allTickers.push({ ticker: a.ticker, x: xVal, y: yVal, total: a.total, quad })
+                  }
+                  const toSVG = (x: number, y: number) => ({
+                    sx: CX + x * (CW / 2) * 0.88,
+                    sy: CY - y * (CH / 2) * 0.88,
+                  })
+                  const maxPrem = Math.max(...allTickers.map(t => t.total))
+                  const dotR = (total: number) => 4 + Math.sqrt(total / maxPrem) * 10
+                  const QUAD_COLORS: Record<string, string> = { BC: '#00ff88', CC: '#ff4444', BP: '#4da6ff', CP: '#ffaa00' }
+                  return (
+                    <svg
+                      ref={rrgSvgRef}
+                      viewBox={`0 0 ${W} ${H}`}
+                      width="100%" height="100%"
+                      style={{ display: 'block', cursor: rrgDragRef.current.dragging ? 'grabbing' : 'grab', userSelect: 'none' }}
+                      onMouseDown={e => {
+                        const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect()
+                        rrgDragRef.current = { dragging: true, lastSvgX: (e.clientX - rect.left) * W / rect.width, lastSvgY: (e.clientY - rect.top) * H / rect.height }
+                      }}
+                      onMouseMove={e => {
+                        if (!rrgDragRef.current.dragging) return
+                        const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect()
+                        const cx = (e.clientX - rect.left) * W / rect.width
+                        const cy = (e.clientY - rect.top) * H / rect.height
+                        const dx = cx - rrgDragRef.current.lastSvgX
+                        const dy = cy - rrgDragRef.current.lastSvgY
+                        rrgDragRef.current.lastSvgX = cx
+                        rrgDragRef.current.lastSvgY = cy
+                        setRrgTransform(t => {
+                          const newTx = t.tx + dx
+                          const newTy = t.ty + dy
+                          const minTx = (1 - t.k) * (PAD.l + CW)
+                          const maxTx = (1 - t.k) * PAD.l
+                          const minTy = (1 - t.k) * (PAD.t + CH)
+                          const maxTy = (1 - t.k) * PAD.t
+                          return {
+                            ...t,
+                            tx: Math.max(minTx, Math.min(maxTx, newTx)),
+                            ty: Math.max(minTy, Math.min(maxTy, newTy)),
+                          }
+                        })
+                      }}
+                      onMouseUp={() => { rrgDragRef.current.dragging = false }}
+                      onMouseLeave={() => { rrgDragRef.current.dragging = false }}
+                    >
+                      {/* Fixed: outer axis labels and chart border only */}
+                      <text x={PAD.l} y={H - 6} fontFamily="JetBrains Mono,monospace" fontSize={9} fill="#555" letterSpacing={1}>← PUTS HEAVY</text>
+                      <text x={PAD.l + CW - 80} y={H - 6} fontFamily="JetBrains Mono,monospace" fontSize={9} fill="#555" letterSpacing={1}>CALLS HEAVY →</text>
+                      <text x={10} y={PAD.t + 16} fontFamily="JetBrains Mono,monospace" fontSize={9} fill="#555" letterSpacing={1} transform={`rotate(-90,10,${CY})`} textAnchor="middle">BULLISH ↑</text>
+                      <rect x={PAD.l} y={PAD.t} width={CW} height={CH} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
+                      {/* Zoomable layer — backgrounds + grid + quadrant labels + dots, all clipped */}
+                      <defs>
+                        <clipPath id="rrg-bias-clip">
+                          <rect x={PAD.l} y={PAD.t} width={CW} height={CH} />
+                        </clipPath>
+                      </defs>
+                      <g clipPath="url(#rrg-bias-clip)">
+                        <g transform={`translate(${rrgTransform.tx},${rrgTransform.ty}) scale(${rrgTransform.k})`}>
+                          {/* Quadrant backgrounds */}
+                          <rect x={PAD.l} y={PAD.t} width={CW / 2} height={CH / 2} fill="rgba(77,166,255,0.04)" />
+                          <rect x={CX} y={PAD.t} width={CW / 2} height={CH / 2} fill="rgba(0,255,136,0.04)" />
+                          <rect x={PAD.l} y={CY} width={CW / 2} height={CH / 2} fill="rgba(255,170,0,0.04)" />
+                          <rect x={CX} y={CY} width={CW / 2} height={CH / 2} fill="rgba(255,68,68,0.04)" />
+                          {/* Grid lines */}
+                          {[-0.5, 0, 0.5].map(v => {
+                            const { sx } = toSVG(v, 0); const { sy } = toSVG(0, v)
+                            return <g key={v}>
+                              <line x1={sx} y1={PAD.t} x2={sx} y2={PAD.t + CH} stroke={v === 0 ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.05)'} strokeWidth={v === 0 ? 1.5 / rrgTransform.k : 1 / rrgTransform.k} strokeDasharray={v === 0 ? undefined : '3 6'} />
+                              <line x1={PAD.l} y1={sy} x2={PAD.l + CW} y2={sy} stroke={v === 0 ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.05)'} strokeWidth={v === 0 ? 1.5 / rrgTransform.k : 1 / rrgTransform.k} strokeDasharray={v === 0 ? undefined : '3 6'} />
+                            </g>
+                          })}
+                          {/* Quadrant labels — counter-scale so text stays readable */}
+                          <text x={PAD.l + 10} y={PAD.t + 20} fontFamily="JetBrains Mono,monospace" fontSize={11 / rrgTransform.k} fontWeight={800} fill="rgba(77,166,255,0.7)" letterSpacing={2}>BULL PUTS</text>
+                          <text x={CX + 10} y={PAD.t + 20} fontFamily="JetBrains Mono,monospace" fontSize={11 / rrgTransform.k} fontWeight={800} fill="rgba(0,255,136,0.7)" letterSpacing={2}>BULL CALLS</text>
+                          <text x={PAD.l + 10} y={PAD.t + CH - 10} fontFamily="JetBrains Mono,monospace" fontSize={11 / rrgTransform.k} fontWeight={800} fill="rgba(255,170,0,0.7)" letterSpacing={2}>BEAR PUTS</text>
+                          <text x={CX + 10} y={PAD.t + CH - 10} fontFamily="JetBrains Mono,monospace" fontSize={11 / rrgTransform.k} fontWeight={800} fill="rgba(255,68,68,0.7)" letterSpacing={2}>BEAR CALLS</text>
+                          {/* Dots */}
+                          {allTickers.map(t => {
+                            const { sx, sy } = toSVG(t.x, t.y)
+                            const r = dotR(t.total)
+                            const col = QUAD_COLORS[t.quad]
+                            const labelRight = sx < CX
+                            const agg = allAggs.find(a => a.ticker === t.ticker)
+                            return (
+                              <g key={t.ticker} style={{ cursor: 'pointer' }} onDoubleClick={() => agg && setRrgPopupTicker(agg)}>
+                                <circle cx={sx} cy={sy} r={(r + 4) / rrgTransform.k} fill="transparent" />
+                                <circle cx={sx} cy={sy} r={r / rrgTransform.k} fill={`${col}33`} stroke={col} strokeWidth={1.5 / rrgTransform.k} />
+                                <text x={sx + (labelRight ? (r + 3) / rrgTransform.k : -(r + 3) / rrgTransform.k)} y={sy + 4 / rrgTransform.k} textAnchor={labelRight ? 'start' : 'end'} fontFamily="JetBrains Mono,monospace" fontSize={10 / rrgTransform.k} fontWeight={700} fill="#fff" style={{ pointerEvents: 'none' }}>{t.ticker}</text>
+                              </g>
+                            )
+                          })}
+                        </g>
+                      </g>
+                    </svg>
+                  )
+                })() : (
+                  <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, color: '#2a2a3a', letterSpacing: '0.15em' }}>
+                      {biasRRGLoading ? 'COMPUTING ROTATION...' : 'RUN SCAN TO PLOT FLOW ROTATION GRAPH'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ── DOUBLE-CLICK POPUP OVERLAY ── */}
+            {rrgPopupTicker && (() => {
+              const p = rrgPopupTicker
+              const total = p.total || 1
+              const score = (p.bullCall + p.bullPut - p.bearCall - p.bearPut) / total
+              const dominant = Math.max(p.bullCall, p.bearCall, p.bullPut, p.bearPut)
+              const col = dominant === p.bullCall ? '#00ff88' : dominant === p.bearCall ? '#ff4444' : dominant === p.bullPut ? '#4da6ff' : '#ffaa00'
+              const quadLabel = dominant === p.bullCall ? 'BULL CALLS' : dominant === p.bearCall ? 'BEAR CALLS' : dominant === p.bullPut ? 'BULL PUTS' : 'BEAR PUTS'
+              return (
+                <div onClick={() => setRrgPopupTicker(null)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+                  <div onClick={e => e.stopPropagation()} style={{ background: '#0a0a10', border: `1px solid ${col}44`, borderRadius: 24, padding: '48px 56px', minWidth: 720, maxWidth: 920, boxShadow: `0 0 60px ${col}22` }}>
+                    {/* Header */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 36 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                        <div style={{ width: 18, height: 18, borderRadius: '50%', background: col, boxShadow: `0 0 14px ${col}` }} />
+                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 40, fontWeight: 900, color: '#fff', letterSpacing: '0.1em' }}>{p.ticker}</span>
+                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 18, fontWeight: 900, color: col, letterSpacing: '0.15em', padding: '6px 16px', border: `1px solid ${col}55`, borderRadius: 8 }}>{quadLabel}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 24, color: '#fff' }}>${(total / 1e6).toFixed(1)}M</span>
+                        <button onClick={() => setRrgPopupTicker(null)} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 24, fontWeight: 700, padding: '6px 18px', cursor: 'pointer' }}>✕</button>
+                      </div>
+                    </div>
+                    {/* 4 liquid boxes — 2× scaled via zoom */}
+                    <div style={{ display: 'flex', justifyContent: 'center' }}>
+                      <div style={{ display: 'inline-block', zoom: 2 }}>
+                        <FlowQuadrantGauge
+                          bullCall={p.bullCall} bearCall={p.bearCall}
+                          bullPut={p.bullPut} bearPut={p.bearPut}
+                          score={score} label={p.ticker}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+
+          </div>
+
+        </div>
+      )}
+
     </div>
   )
 }
