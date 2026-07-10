@@ -870,10 +870,10 @@ export default function OptionsFlowPage() {
     data_date: new Date().toISOString().split('T')[0],
     market_open: true,
   })
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [lastUpdate, setLastUpdate] = useState<string>('')
   const [selectedTicker, setSelectedTicker] = useState('')
-  const [streamingStatus, setStreamingStatus] = useState<string>('')
+  const [streamingStatus, setStreamingStatus] = useState<string>('Loading flow data from database...')
   const [streamingProgress, setStreamingProgress] = useState<{
     current: number
     total: number
@@ -978,6 +978,8 @@ export default function OptionsFlowPage() {
       liveTickerFilterRef.current = ''
       lastBatchTimeRef.current = null
       setData([])
+      setLoading(true)
+      setStreamingStatus('Loading flow data from database...')
 
       const getTradingDate = () => {
         const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
@@ -999,6 +1001,8 @@ export default function OptionsFlowPage() {
             let detail = errText.slice(0, 200)
             try { const j = JSON.parse(errText); detail = j.detail || j.error || detail } catch { }
             dbgLog(`ERROR ${res.status}: ${detail}`)
+            setLoading(false)
+            setStreamingStatus('')
             return
           }
           const result = await res.json()
@@ -1037,6 +1041,8 @@ export default function OptionsFlowPage() {
             dbgLog(`displayed=${displayTrades.length} showAll=${liveShowAllRef.current}`)
             setData(displayTrades)
             setLastUpdate(new Date().toLocaleTimeString())
+            setLoading(false)
+            setStreamingStatus('')
           })
 
           // Defer localStorage write - don't block the poll tick
@@ -1059,6 +1065,8 @@ export default function OptionsFlowPage() {
           }, 0)
         } catch (err) {
           dbgLog(`THREW: ${err instanceof Error ? err.message : String(err)}`)
+          setLoading(false)
+          setStreamingStatus('')
         }
       }
 
@@ -1120,9 +1128,9 @@ export default function OptionsFlowPage() {
       try {
         // Fetch saved dates from DB
         const datesResp = await fetch('/api/flows/dates')
-        if (!datesResp.ok || cancelled) return
+        if (!datesResp.ok || cancelled) { if (!cancelled) { setLoading(false); setStreamingStatus('') } return }
         const savedDates: { date: string }[] = await datesResp.json()
-        if (savedDates.length === 0 || cancelled) return
+        if (savedDates.length === 0 || cancelled) { if (!cancelled) { setLoading(false); setStreamingStatus('') } return }
 
         // Find the most recent saved date that is a real trading day
         const toDs = (raw: string) => new Date(raw).toISOString().split('T')[0]
@@ -1136,16 +1144,16 @@ export default function OptionsFlowPage() {
           .map(d => toDs(d.date))
           .sort((a, b) => b.localeCompare(a))
         const lastSavedDate = sortedDates.find(isTrading)
-        if (!lastSavedDate || cancelled) return
+        if (!lastSavedDate || cancelled) { if (!cancelled) { setLoading(false); setStreamingStatus('') } return }
 
         dbgLog(`[afterHours] loading saved flow for ${lastSavedDate}`)
 
         // Fetch that day's flow (no ticker filter — load all)
         const flowResp = await fetch(`/api/flows/${encodeURIComponent(lastSavedDate)}`)
-        if (!flowResp.ok || cancelled) return
+        if (!flowResp.ok || cancelled) { if (!cancelled) { setLoading(false); setStreamingStatus('') } return }
         const flowData = await flowResp.json()
         const trades: OptionsFlowData[] = Array.isArray(flowData.data) ? flowData.data : []
-        if (trades.length === 0 || cancelled) return
+        if (trades.length === 0 || cancelled) { if (!cancelled) { setLoading(false); setStreamingStatus('') } return }
 
         const computedSummary: OptionsFlowSummary = {
           total_trades: trades.length,
@@ -1169,6 +1177,8 @@ export default function OptionsFlowPage() {
         setSummary(computedSummary)
         setLastUpdate(`Last trading day: ${lastSavedDate}`)
         setMarketInfo({ status: 'LAST_TRADING_DAY', is_live: false, data_date: lastSavedDate, market_open: false })
+        setLoading(false)
+        setStreamingStatus('')
 
         // Schedule auto-hide 1 minute before next market open
         const msLeft = msUntilNextMarketOpen()
@@ -1183,6 +1193,8 @@ export default function OptionsFlowPage() {
         }, msLeft)
       } catch (err) {
         dbgLog(`[afterHours] error: ${err instanceof Error ? err.message : String(err)}`)
+        setLoading(false)
+        setStreamingStatus('')
       }
     }
 
@@ -2065,7 +2077,7 @@ export default function OptionsFlowPage() {
 
   if (showAlgoFlow) {
     return (
-      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10001, display: 'flex', flexDirection: 'column', background: '#000' }}>
+      <div style={{ position: 'fixed', top: 119, left: 0, right: 0, bottom: 0, zIndex: 999, display: 'flex', flexDirection: 'column', background: '#000' }}>
         <AlgoFlowScreener onBack={() => setShowAlgoFlow(false)} />
       </div>
     )

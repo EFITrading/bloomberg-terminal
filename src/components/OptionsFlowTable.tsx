@@ -521,12 +521,13 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [modeLoadingStep, setModeLoadingStep] = useState<{ mode: 'LEAP' | 'EFI'; step: string } | null>(null)
 
   // ---- Weather particle loading background ----
+  const [weatherCanvas, setWeatherCanvas] = useState<HTMLCanvasElement | null>(null)
   const weatherCanvasRef = React.useRef<HTMLCanvasElement>(null)
   const weatherModeRef = React.useRef(0)
 
   React.useEffect(() => {
     if (!loading) return
-    const canvas = weatherCanvasRef.current
+    const canvas = weatherCanvas
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
@@ -652,7 +653,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     const ro = new ResizeObserver(() => { canvas.width = W(); canvas.height = H(); init(weatherModeRef.current) })
     ro.observe(canvas)
     return () => { cancelAnimationFrame(raf); ro.disconnect() }
-  }, [loading])
+  }, [loading, weatherCanvas])
 
   React.useEffect(() => {
     if (!loading) return
@@ -741,7 +742,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const LoadingScenePanel = React.useCallback((): React.ReactElement => {
     return (
       <canvas
-        ref={weatherCanvasRef}
+        ref={(el) => { (weatherCanvasRef as React.MutableRefObject<HTMLCanvasElement | null>).current = el; setWeatherCanvas(el) }}
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }}
       />
     )
@@ -1056,30 +1057,35 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     return () => clearTimeout(debounceTimer)
   }, [data])
 
-  // Auto-refresh prices every 5 minutes (optimized)
-
+  // Auto-refresh prices every 5 minutes during market hours only.
+  // After hours: one-time fetch on load (handled by the debounced effect above), no interval.
   useEffect(() => {
     if (!data || data.length === 0) return
-    const interval = setInterval(
-      () => {
-        const INDEX_UNDERLYINGS = new Set(['SPXW', 'SPX', 'NDXP', 'NDX', 'RUTW', 'RUT', 'XSP'])
-        const uniqueTickers = [...new Set(data.map((trade) => trade.underlying_ticker))]
-          .filter(t => !INDEX_UNDERLYINGS.has(t.toUpperCase()))
 
-        // Only refresh prices
-
-        fetchCurrentPrices(uniqueTickers)
-      },
-      5 * 60 * 1000
-    ) // 5 minutes
-
-    return () => {
-      clearInterval(interval)
+    const marketOpen = (): boolean => {
+      const pst = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+      const dow = pst.getDay()
+      const h = pst.getHours(), m = pst.getMinutes()
+      return dow >= 1 && dow <= 5 && (h > 6 || (h === 6 && m >= 30)) && h < 13
     }
-  }, [data.length]) // Only re-setup when data length changes, not content
+
+    if (!marketOpen()) return // after hours — no interval needed
+
+    const interval = setInterval(() => {
+      if (!marketOpen()) return // stop refreshing if market closed mid-interval
+      const INDEX_UNDERLYINGS = new Set(['SPXW', 'SPX', 'NDXP', 'NDX', 'RUTW', 'RUT', 'XSP'])
+      const uniqueTickers = [...new Set(data.map((trade) => trade.underlying_ticker))]
+        .filter(t => !INDEX_UNDERLYINGS.has(t.toUpperCase()))
+      fetchCurrentPrices(uniqueTickers)
+    }, 5 * 60 * 1000)
+
+    return () => clearInterval(interval)
+  }, [data.length])
 
   // Fetch real 30-day stdDevs for all visible tickers (Price Action grading)
+  // Only runs when EFI Highlights or LEAP is active — no point fetching on plain page load
   useEffect(() => {
+    if (!efiHighlightsActive && !leapActive) return
     if (!data || data.length === 0) return
     const tickers = [...new Set(data.map((t) => t.underlying_ticker))]
     const missing = tickers.filter((t) => !historicalStdDevs.has(t))
@@ -1116,7 +1122,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
         setStdDevFailed((prev) => new Set(prev).add(ticker))
       }
     })
-  }, [data.length])
+  }, [data.length, efiHighlightsActive, leapActive])
 
   // Fetch historical ranges when EFI Highlights is active
 
@@ -6017,6 +6023,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                           if (newState) {
                             setLeapActive(false)
                             setModeLoadingStep({ mode: 'EFI', step: 'Calculating Relative Strength...' })
+                            await new Promise<void>(r => setTimeout(r, 0))
                             const efiTrades = filteredAndSortedData.filter(meetsEfiCriteria)
                             const rsData = await calculateRelativeStrength(efiTrades)
                             setRelativeStrengthData(rsData)
@@ -6834,6 +6841,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     if (newState) {
                       setLeapActive(false)
                       setModeLoadingStep({ mode: 'EFI', step: 'Calculating Relative Strength...' })
+                      await new Promise<void>(r => setTimeout(r, 0))
                       const efiTrades = filteredAndSortedData.filter(meetsEfiCriteria)
                       const rsData = await calculateRelativeStrength(efiTrades)
                       setRelativeStrengthData(rsData)

@@ -512,6 +512,7 @@ thead.col-thead {
         padding-left: 10px !important;
         padding-right: 10px !important;
     }
+
     .options-flow-table .md\:p-2 {
         padding-left: 6px !important;
         padding-right: 6px !important;
@@ -541,6 +542,7 @@ thead.col-thead {
     padding-left: 6px !important;
     padding-right: 6px !important;
 }
+
 .table-tablet .options-flow-table td .py-2 {
     padding-top: 2px !important;
     padding-bottom: 2px !important;
@@ -554,19 +556,26 @@ thead.col-thead {
         padding: 8px 10px !important;
         letter-spacing: 1px !important;
     }
+
     .options-flow-table td,
     .options-flow-table .p-2,
     .options-flow-table .md\:p-6 {
         padding: 4px 8px !important;
         font-size: 12px !important;
     }
+
     .options-flow-table .md\:text-xl,
     .options-flow-table .md\:text-lg,
-    .premium-text, .strike-cell, .vol-oi-display {
+    .premium-text,
+    .strike-cell,
+    .vol-oi-display {
         font-size: 12px !important;
     }
+
     /* Override hard-coded inline font sizes in VOL/OI cells */
-    .vol-oi-display span { font-size: 12px !important; }
+    .vol-oi-display span {
+        font-size: 12px !important;
+    }
 }
 
 @media (max-width: 1400px) {
@@ -575,18 +584,25 @@ thead.col-thead {
         padding: 7px 8px !important;
         letter-spacing: 0.6px !important;
     }
+
     .options-flow-table td,
     .options-flow-table .p-2,
     .options-flow-table .md\:p-6 {
         padding: 3px 6px !important;
         font-size: 11px !important;
     }
+
     .options-flow-table .md\:text-xl,
     .options-flow-table .md\:text-lg,
-    .premium-text, .strike-cell, .vol-oi-display {
+    .premium-text,
+    .strike-cell,
+    .vol-oi-display {
         font-size: 11px !important;
     }
-    .vol-oi-display span { font-size: 11px !important; }
+
+    .vol-oi-display span {
+        font-size: 11px !important;
+    }
 }
 
 /* ── Responsive table: tablet 768-1199px ── */
@@ -596,20 +612,25 @@ thead.col-thead {
         padding: 6px 8px !important;
         letter-spacing: 0.5px !important;
     }
+
     .options-flow-table td {
         font-size: 11px !important;
         padding: 4px 6px !important;
     }
+
     .options-flow-table .md\:p-6 {
         padding: 4px 6px !important;
     }
+
     /* Scale down large value text inside cells */
     .options-flow-table .md\:text-xl {
         font-size: 11px !important;
     }
+
     .options-flow-table .md\:text-lg {
         font-size: 11px !important;
     }
+
     /* Tighten premium/size badges */
     .premium-text,
     .strike-cell {
@@ -624,13 +645,16 @@ thead.col-thead {
         padding: 4px 5px !important;
         letter-spacing: 0.2px !important;
     }
+
     .options-flow-table td {
         font-size: 10px !important;
         padding: 3px 4px !important;
     }
+
     .options-flow-table .md\:p-6 {
         padding: 2px 4px !important;
     }
+
     .options-flow-table .md\:text-xl,
     .options-flow-table .md\:text-lg {
         font-size: 10px !important;

@@ -260,11 +260,14 @@ export async function GET(request: NextRequest) {
     if (stored && stored.history.length > 0) {
       const latestStored = stored.history[stored.history.length - 1].date
       if (latestStored >= today) {
-        return NextResponse.json({
-          history: stored.history,
-          generated: new Date().toISOString(),
-          source: 'db-cache',
-        })
+        return NextResponse.json(
+          {
+            history: stored.history,
+            generated: new Date().toISOString(),
+            source: 'db-cache',
+          },
+          { headers: { 'Cache-Control': 's-maxage=1800, stale-while-revalidate=600' } }
+        )
       }
     }
 
@@ -374,11 +377,14 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({
-      history: mergedHistory,
-      generated: new Date().toISOString(),
-      source: isIncremental ? 'db-incremental' : 'db-fresh',
-    })
+    return NextResponse.json(
+      {
+        history: mergedHistory,
+        generated: new Date().toISOString(),
+        source: isIncremental ? 'db-incremental' : 'db-fresh',
+      },
+      { headers: { 'Cache-Control': 's-maxage=1800, stale-while-revalidate=600' } }
+    )
   } catch (err: any) {
     console.error('[composite-history] ❌ Fatal error:', err)
     return NextResponse.json({ error: err.message || 'Failed' }, { status: 500 })

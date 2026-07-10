@@ -97,7 +97,9 @@ export async function GET(request: NextRequest) {
     if (!skipCache && cache.has(cacheKey)) {
       const cached = cache.get(cacheKey)!
       if (now - cached.timestamp < CACHE_DURATION) {
-        return NextResponse.json(cached.data)
+        return NextResponse.json(cached.data, {
+          headers: { 'Cache-Control': 's-maxage=600, stale-while-revalidate=120' },
+        })
       } else {
         cache.delete(cacheKey) // Remove expired cache
       }
@@ -184,15 +186,18 @@ export async function GET(request: NextRequest) {
 
     // Validate that we have actual data
     if (!data.results || !Array.isArray(data.results) || data.results.length === 0) {
-      return NextResponse.json({
-        ticker: symbol,
-        queryCount: 0,
-        resultsCount: 0,
-        adjusted: true,
-        results: [],
-        status: 'OK',
-        message: `No data available for ${symbol} in the requested timeframe`,
-      })
+      return NextResponse.json(
+        {
+          ticker: symbol,
+          queryCount: 0,
+          resultsCount: 0,
+          adjusted: true,
+          results: [],
+          status: 'OK',
+          message: `No data available for ${symbol} in the requested timeframe`,
+        },
+        { headers: { 'Cache-Control': 's-maxage=60, stale-while-revalidate=30' } }
+      )
     }
 
     // Fix: Since we requested DESC order, data is newest-first
@@ -231,7 +236,13 @@ export async function GET(request: NextRequest) {
       if (oldestKey) cache.delete(oldestKey)
     }
 
-    return NextResponse.json(finalResponse)
+    return NextResponse.json(finalResponse, {
+      headers: {
+        'Cache-Control': skipCache
+          ? 'no-store'
+          : 's-maxage=600, stale-while-revalidate=120',
+      },
+    })
   } catch (error) {
     let errorMessage = 'Failed to fetch historical data'
     let statusCode = 500

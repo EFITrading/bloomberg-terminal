@@ -891,9 +891,9 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const [rrgTransform, setRrgTransform] = useState({ tx: 0, ty: 0, k: 1 })
   const rrgDragRef = useRef({ dragging: false, lastSvgX: 0, lastSvgY: 0 })
   const rrgSvgRef = useRef<SVGSVGElement | null>(null)
-  const [rrgTickerMode, setRrgTickerMode] = useState<'all'|'mag7only'|'exmag7'|'etfonly'|'exetf'|'stockonly'>('all')
-  const [rrgUniqueness, setRrgUniqueness] = useState<number|null>(null)
-  const [rrgDropdownOpen, setRrgDropdownOpen] = useState<'ticker'|'time'|'unique'|null>(null)
+  const [rrgTickerMode, setRrgTickerMode] = useState<'all' | 'mag7only' | 'exmag7' | 'etfonly' | 'exetf' | 'stockonly'>('all')
+  const [rrgUniqueness, setRrgUniqueness] = useState<number | null>(null)
+  const [rrgDropdownOpen, setRrgDropdownOpen] = useState<'ticker' | 'time' | 'unique' | null>(null)
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth <= 768)
@@ -1067,6 +1067,9 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   // Ticker exclusion filters
   const [excludeMag7, setExcludeMag7] = useState(false)
   const [excludeEtf, setExcludeEtf] = useState(false)
+  const [excludeIndex, setExcludeIndex] = useState(false)
+
+  const INDEX_SET = new Set(['SPX', 'SPXW', 'NDX', 'NDXP', 'RUT', 'RUTW', 'VIX', 'VIXW', 'XSP', 'DJX', 'MXEA', 'MXEF'])
 
   const ETF_SET = new Set(['SPY', 'QQQ', 'IWM', 'DIA', 'SMH', 'VXX', 'UVXY', 'EFA', 'EEM', 'VTI', 'IEFA', 'AGG', 'LQD', 'HYG', 'XLF', 'XLE', 'XLK', 'XLV', 'XLI', 'XLU', 'XLP', 'XLY', 'XLB', 'XLRE', 'XLC', 'GLD', 'SLV', 'TLT', 'IEF', 'SHY', 'VTEB', 'VXUS', 'BND', 'BNDX', 'SQQQ', 'TQQQ', 'SPXL', 'SPXS', 'SPYG', 'SPYV', 'IVV', 'VOO', 'VEA', 'VWO', 'ARKK', 'ARKG', 'ARKW', 'ARKF', 'ARKQ', 'RSP', 'MDY', 'IJH', 'IJR', 'IWF', 'IWD', 'IWB', 'IWO', 'IWN', 'XBI', 'IBB', 'SOXX', 'HACK', 'BOTZ', 'ROBO', 'SKYY', 'CLOU', 'GDX', 'GDXJ', 'SIL', 'SILJ', 'IAU', 'SGOL', 'USO', 'UNG', 'PDBC', 'DBO', 'DBB', 'DBC', 'TBT', 'TMF', 'TMV', 'TLH', 'IEI', 'GOVT', 'FXI', 'KWEB', 'MCHI', 'ASHR', 'VGK', 'EWJ', 'EWZ', 'EWC', 'EWG', 'EWU', 'EURL', 'HEDJ', 'DBJP', 'DBEF'])
 
@@ -1217,7 +1220,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
 
   // Derived analysis that respects expiryFilter "” re-aggregates from filtered trades without re-running async analysis
   const displayAnalysis = useMemo(() => {
-    if (!analysis || (expiryFilter === 'all' && !excludeMag7 && !excludeEtf)) return analysis
+    if (!analysis || (expiryFilter === 'all' && !excludeMag7 && !excludeEtf && !excludeIndex)) return analysis
 
     const now = new Date()
     const todayPT = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
@@ -1233,6 +1236,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     let filtered: any[] = analysis.trades
     if (excludeMag7) filtered = filtered.filter((t: any) => !MAG7_TICKERS.includes(t.underlying_ticker))
     if (excludeEtf) filtered = filtered.filter((t: any) => !ETF_SET.has(t.underlying_ticker))
+    if (excludeIndex) filtered = filtered.filter((t: any) => !INDEX_SET.has(t.underlying_ticker?.toUpperCase()))
     if (expiryFilter === '45d') {
       const cutoff = new Date(todayPT)
       cutoff.setDate(cutoff.getDate() + 45)
@@ -1444,11 +1448,12 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     // When a filter is active, rebuild the time-series from the filtered trades
     // instead of using the pre-built chartData from the full analysis pass
     let activeChartData = analysis.chartData
-    const anyTickerFilter = excludeMag7 || excludeEtf
+    const anyTickerFilter = excludeMag7 || excludeEtf || excludeIndex
     if ((expiryFilter !== 'all' || anyTickerFilter) && displayAnalysis?.trades && displayAnalysis.trades.length > 0) {
       let filteredTrades = displayAnalysis.trades
       if (excludeMag7) filteredTrades = filteredTrades.filter((t: any) => !MAG7_TICKERS.includes(t.underlying_ticker))
       if (excludeEtf) filteredTrades = filteredTrades.filter((t: any) => !ETF_SET.has(t.underlying_ticker))
+      if (excludeIndex) filteredTrades = filteredTrades.filter((t: any) => !INDEX_SET.has(t.underlying_ticker?.toUpperCase()))
 
       // Rebuild intervalData using the same slot keys that are in the existing chartData
       const intervalData: Record<string, { callsPlus: number; callsMinus: number; putsPlus: number; putsMinus: number }> = {}
@@ -1580,7 +1585,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     const priceMin = priceLows.length ? Math.min(...priceLows) * 0.95 : 'auto'
     const priceMax = priceHighs.length ? Math.max(...priceHighs) * 1.05 : 'auto'
     return { visibleData, xInterval, priceMin, priceMax }
-  }, [analysis?.chartData, displayAnalysis?.trades, expiryFilter, excludeMag7, excludeEtf, chartDisplayDays, scanTimeframe, brushIndices])
+  }, [analysis?.chartData, displayAnalysis?.trades, expiryFilter, excludeMag7, excludeEtf, excludeIndex, chartDisplayDays, scanTimeframe, brushIndices])
 
   // Keep analysisRef in sync so wheel handler never needs to call setAnalysis
   useEffect(() => { analysisRef.current = analysis }, [analysis])
@@ -2576,11 +2581,9 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               <button onClick={onBack} style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12, fontWeight: 800, color: '#fff', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', flexShrink: 0 }}>← BACK</button>
             )}
             <div style={{ display: 'flex', gap: 2, background: '#0a0a0a', border: '1px solid #222', borderRadius: 6, padding: 2, flexShrink: 0 }}>
-              {(['algoflow', 'flowbias'] as const).map(tab => (
-                <button key={tab} onClick={() => setActiveTab(tab)} style={{ height: 26, padding: '0 10px', background: activeTab === tab ? (tab === 'algoflow' ? 'linear-gradient(135deg,#ff8500,#ff6000)' : 'linear-gradient(135deg,#00ff88,#00cc66)') : 'transparent', color: activeTab === tab ? '#000' : (tab === 'algoflow' ? '#ff8500' : '#00ff88'), fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, letterSpacing: '0.1em', border: 'none', borderRadius: 4, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s' }}>
-                  {tab === 'algoflow' ? 'ALGOFLOW' : 'FLOW BIAS'}
-                </button>
-              ))}
+              <button onClick={() => setActiveTab('algoflow')} style={{ height: 26, padding: '0 10px', background: 'linear-gradient(135deg,#ff8500,#ff6000)', color: '#000', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, letterSpacing: '0.1em', border: 'none', borderRadius: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                ALGOFLOW
+              </button>
             </div>
             {activeTab === 'flowbias' ? (
               <button onClick={runRRGScan} disabled={biasRRGLoading} style={{ height: 30, padding: '0 16px', background: biasRRGLoading ? '#333' : 'linear-gradient(135deg,#7c3aed,#4c1d95)', color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 800, letterSpacing: '0.1em', border: 'none', borderRadius: 6, cursor: biasRRGLoading ? 'not-allowed' : 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -2641,28 +2644,30 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             </div>
           )}
 
-          {/* Row 3: Filter pills (AlgoFlow) OR Dropdown filters (Flow Bias) */}
-          {activeTab === 'flowbias' ? (
+          {/* Row 3: Filter pills */}
+          {true ? (
             <div style={{ padding: '6px 14px 8px', display: 'flex', gap: 8, position: 'relative' }}>
               {rrgDropdownOpen && <div onClick={() => setRrgDropdownOpen(null)} style={{ position: 'fixed', inset: 0, zIndex: 98 }} />}
               {/* 1. TICKER FILTER */}
               {(() => {
                 const isActive = rrgTickerMode !== 'all'
-                const items: {id: 'mag7only'|'exmag7'|'etfonly'|'exetf'|'stockonly', label: string}[] = [
-                  {id:'mag7only',label:'MAG7 ONLY'},{id:'exmag7',label:'EXCLUDE MAG7'},
-                  {id:'etfonly',label:'ETF ONLY'},{id:'exetf',label:'EXCLUDE ETF'},{id:'stockonly',label:'STOCKS ONLY'},
+                const items: { id: 'mag7only' | 'exmag7' | 'etfonly' | 'exetf' | 'stockonly', label: string }[] = [
+                  { id: 'mag7only', label: 'MAG7 ONLY' }, { id: 'exmag7', label: 'EXCLUDE MAG7' },
+                  { id: 'etfonly', label: 'ETF ONLY' }, { id: 'exetf', label: 'EXCLUDE ETF' }, { id: 'stockonly', label: 'STOCKS ONLY' },
                 ]
                 return (
                   <div style={{ position: 'relative', zIndex: rrgDropdownOpen === 'ticker' ? 200 : 99 }}>
                     <button onClick={() => setRrgDropdownOpen(o => o === 'ticker' ? null : 'ticker')} style={{ height: 28, padding: '0 11px', background: isActive ? 'rgba(255,133,0,0.15)' : 'linear-gradient(180deg,rgba(255,255,255,0.1),rgba(0,0,0,0.4))', border: isActive ? '1px solid #ff8500' : '1px solid #555', borderRadius: 20, fontSize: 11, fontWeight: 800, color: isActive ? '#ff8500' : '#fff', cursor: 'pointer', letterSpacing: '0.5px', fontFamily: 'JetBrains Mono,monospace', whiteSpace: 'nowrap', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>TICKER {rrgDropdownOpen === 'ticker' ? '▲' : '▾'}
                     </button>
                     {rrgDropdownOpen === 'ticker' && (
-                      <div style={{ position: 'absolute', top: 'calc(100% + 5px)', left: 0, background: 'linear-gradient(180deg,#141428 0%,#080812 100%)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: 5, width: 'max-content', zIndex: 999, boxShadow: '0 16px 48px rgba(0,0,0,0.95),inset 0 1px 0 rgba(255,255,255,0.08)' }}>{items.map(item => { const active = rrgTickerMode === item.id; return (
+                      <div style={{ position: 'absolute', top: 'calc(100% + 5px)', left: 0, background: 'linear-gradient(180deg,#141428 0%,#080812 100%)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: 5, width: 'max-content', zIndex: 999, boxShadow: '0 16px 48px rgba(0,0,0,0.95),inset 0 1px 0 rgba(255,255,255,0.08)' }}>{items.map(item => {
+                        const active = rrgTickerMode === item.id; return (
                           <div key={item.id} onClick={() => { setRrgTickerMode(active ? 'all' : item.id); setRrgDropdownOpen(null) }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, cursor: 'pointer', background: active ? 'rgba(255,133,0,0.12)' : 'transparent' }}>
                             <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${active ? '#a78bfa' : 'rgba(255,255,255,0.3)'}`, background: active ? '#a78bfa' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{active && <span style={{ color: '#fff', fontSize: 11, fontWeight: 900 }}>✓</span>}</div>
                             <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 700, color: active ? '#a78bfa' : '#fff' }}>{item.label}</span>
                           </div>
-                        )})}
+                        )
+                      })}
                       </div>
                     )}
                   </div>
@@ -2671,7 +2676,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               {/* 2. TIME FILTER */}
               {(() => {
                 const isActive = expiryFilter !== 'all'
-                const items = [{id:'45d' as const,label:'45D OUT'},{id:'weekly' as const,label:'WEEKLIES'},{id:'0dte' as const,label:'0DTE'}]
+                const items = [{ id: '45d' as const, label: '45D OUT' }, { id: 'weekly' as const, label: 'WEEKLIES' }, { id: '0dte' as const, label: '0DTE' }]
                 return (
                   <div style={{ position: 'relative', zIndex: rrgDropdownOpen === 'time' ? 200 : 99 }}>
                     <button onClick={() => setRrgDropdownOpen(o => o === 'time' ? null : 'time')} style={{ height: 28, padding: '0 11px', background: isActive ? 'rgba(255,133,0,0.15)' : 'linear-gradient(180deg,rgba(255,255,255,0.1),rgba(0,0,0,0.4))', border: isActive ? '1px solid #ff8500' : '1px solid #555', borderRadius: 20, fontSize: 11, fontWeight: 800, color: isActive ? '#ff8500' : '#fff', cursor: 'pointer', letterSpacing: '0.5px', fontFamily: 'JetBrains Mono,monospace', whiteSpace: 'nowrap', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
@@ -2679,12 +2684,14 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                     </button>
                     {rrgDropdownOpen === 'time' && (
                       <div style={{ position: 'absolute', top: 'calc(100% + 5px)', left: 0, background: 'linear-gradient(180deg,#141428 0%,#080812 100%)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: 5, width: 'max-content', zIndex: 999, boxShadow: '0 16px 48px rgba(0,0,0,0.95),inset 0 1px 0 rgba(255,255,255,0.08)' }}>
-                        {items.map(item => { const active = expiryFilter === item.id; return (
-                          <div key={item.id} onClick={() => { setExpiryFilter(active ? 'all' : item.id); setRrgDropdownOpen(null) }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, cursor: 'pointer', background: active ? 'rgba(250,204,21,0.12)' : 'transparent' }}>
-                            <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${active ? '#facc15' : 'rgba(255,255,255,0.3)'}`, background: active ? '#facc15' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{active && <span style={{ color: '#000', fontSize: 11, fontWeight: 900 }}>✓</span>}</div>
-                            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 700, color: active ? '#facc15' : '#fff' }}>{item.label}</span>
-                          </div>
-                        )})}
+                        {items.map(item => {
+                          const active = expiryFilter === item.id; return (
+                            <div key={item.id} onClick={() => { setExpiryFilter(active ? 'all' : item.id); setRrgDropdownOpen(null) }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, cursor: 'pointer', background: active ? 'rgba(250,204,21,0.12)' : 'transparent' }}>
+                              <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${active ? '#facc15' : 'rgba(255,255,255,0.3)'}`, background: active ? '#facc15' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{active && <span style={{ color: '#000', fontSize: 11, fontWeight: 900 }}>✓</span>}</div>
+                              <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 700, color: active ? '#facc15' : '#fff' }}>{item.label}</span>
+                            </div>
+                          )
+                        })}
                       </div>
                     )}
                   </div>
@@ -2693,7 +2700,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               {/* 3. UNIQUENESS */}
               {(() => {
                 const isActive = rrgUniqueness !== null
-                const items = [{val:0.35,label:'35%+ AVG',col:'#60a5fa'},{val:0.45,label:'45%+ SUSPICIOUS',col:'#34d399'},{val:0.60,label:'60%+ ULTRA',col:'#f59e0b'},{val:0.70,label:'70%+ LEGENDARY',col:'#ef4444'}]
+                const items = [{ val: 0.35, label: '35%+ AVG', col: '#60a5fa' }, { val: 0.45, label: '45%+ SUSPICIOUS', col: '#34d399' }, { val: 0.60, label: '60%+ ULTRA', col: '#f59e0b' }, { val: 0.70, label: '70%+ LEGENDARY', col: '#ef4444' }]
                 return (
                   <div style={{ position: 'relative', zIndex: rrgDropdownOpen === 'unique' ? 200 : 99 }}>
                     <button onClick={() => setRrgDropdownOpen(o => o === 'unique' ? null : 'unique')} style={{ height: 28, padding: '0 11px', background: isActive ? 'rgba(255,133,0,0.15)' : 'linear-gradient(180deg,rgba(255,255,255,0.1),rgba(0,0,0,0.4))', border: isActive ? '1px solid #ff8500' : '1px solid #555', borderRadius: 20, fontSize: 11, fontWeight: 800, color: isActive ? '#ff8500' : '#fff', cursor: 'pointer', letterSpacing: '0.5px', fontFamily: 'JetBrains Mono,monospace', whiteSpace: 'nowrap', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
@@ -2701,12 +2708,14 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                     </button>
                     {rrgDropdownOpen === 'unique' && (
                       <div style={{ position: 'absolute', top: 'calc(100% + 5px)', left: 0, background: 'linear-gradient(180deg,#141428 0%,#080812 100%)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: 5, width: 'max-content', zIndex: 999, boxShadow: '0 16px 48px rgba(0,0,0,0.95),inset 0 1px 0 rgba(255,255,255,0.08)' }}>
-                        {items.map(item => { const active = rrgUniqueness === item.val; return (
-                          <div key={item.val} onClick={() => { setRrgUniqueness(active ? null : item.val); setRrgDropdownOpen(null) }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, cursor: 'pointer', background: active ? `${item.col}18` : 'transparent' }}>
-                            <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${active ? item.col : 'rgba(255,255,255,0.3)'}`, background: active ? item.col : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{active && <span style={{ color: item.val >= 0.45 ? '#000' : '#fff', fontSize: 11, fontWeight: 900 }}>✓</span>}</div>
-                            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 700, color: active ? item.col : '#fff' }}>{item.label}</span>
-                          </div>
-                        )})}
+                        {items.map(item => {
+                          const active = rrgUniqueness === item.val; return (
+                            <div key={item.val} onClick={() => { setRrgUniqueness(active ? null : item.val); setRrgDropdownOpen(null) }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, cursor: 'pointer', background: active ? `${item.col}18` : 'transparent' }}>
+                              <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${active ? item.col : 'rgba(255,255,255,0.3)'}`, background: active ? item.col : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{active && <span style={{ color: item.val >= 0.45 ? '#000' : '#fff', fontSize: 11, fontWeight: 900 }}>✓</span>}</div>
+                              <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 700, color: active ? item.col : '#fff' }}>{item.label}</span>
+                            </div>
+                          )
+                        })}
                       </div>
                     )}
                   </div>
@@ -2715,1448 +2724,1277 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             </div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 14px 8px', overflowX: 'auto', WebkitOverflowScrolling: 'touch' as any, msOverflowStyle: 'none' as any }}>
-            {/* All Tickers */}
-            <button
-              onClick={() => { setSearchTicker('ALL'); setIsAllScan(true); fetchTickerFlow('ALL') }}
-              disabled={loading}
-              style={{ flexShrink: 0, height: 28, padding: '0 11px', background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.2) 100%)', border: '1px solid #666', borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#d4d4d4', cursor: loading ? 'not-allowed' : 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: 'JetBrains Mono, monospace' }}
-            >ALL</button>
-            {/* Gamma Line + Bull/Bear pills "” single ticker only */}
-            {analysis && !isAllScan && (
-              <>
-                <button
-                  onClick={() => setShowGammaLine(v => !v)}
-                  style={{
-                    flexShrink: 0, height: 28, padding: '0 11px',
-                    background: showGammaLine ? 'linear-gradient(180deg,rgba(0,0,0,0.7) 0%,rgba(0,0,0,0.9) 100%)' : 'linear-gradient(180deg,rgba(20,20,20,0.9) 0%,rgba(0,0,0,1) 100%)',
-                    border: showGammaLine ? '1px solid #ff8500' : '1px solid rgba(255,133,0,0.4)',
-                    borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#ff8500',
-                    cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap',
-                    fontFamily: 'JetBrains Mono, monospace',
-                    boxShadow: showGammaLine ? '0 0 8px rgba(255,133,0,0.3),inset 0 0 6px rgba(0,0,0,0.6)' : undefined,
-                  }}
-                >GAMMA LINE</button>
-                <button
-                  onClick={() => setShowBullBear(v => !v)}
-                  style={{
-                    flexShrink: 0, height: 28, padding: '0 11px',
-                    background: showBullBear ? 'linear-gradient(180deg,rgba(0,0,0,0.7) 0%,rgba(0,0,0,0.9) 100%)' : 'linear-gradient(180deg,rgba(20,20,20,0.9) 0%,rgba(0,0,0,1) 100%)',
-                    border: showBullBear ? '1px solid #a78bfa' : '1px solid rgba(167,139,250,0.4)',
-                    borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#a78bfa',
-                    cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap',
-                    fontFamily: 'JetBrains Mono, monospace',
-                    boxShadow: showBullBear ? '0 0 8px rgba(167,139,250,0.3),inset 0 0 6px rgba(0,0,0,0.6)' : undefined,
-                  }}
-                >BULL/BEAR</button>
-              </>
-            )}
-            {([
-              { f: '45d', label: '45D', color: '#ffffff', borderColor: 'rgba(255,255,255,0.6)', glowColor: 'rgba(255,255,255,0.15)' },
-              { f: 'weekly', label: 'WEEKLY', color: '#facc15', borderColor: '#facc15', glowColor: 'rgba(250,204,21,0.25)' },
-              { f: '0dte', label: '0DTE', color: '#c084fc', borderColor: '#c084fc', glowColor: 'rgba(192,132,252,0.25)' },
-            ] as const).map(({ f, label, color, borderColor, glowColor }) => {
-              const active = expiryFilter === f
-              return (
-                <button key={f} onClick={() => setExpiryFilter(active ? 'all' : f)}
-                  style={{ flexShrink: 0, height: 28, padding: '0 11px', background: active ? `linear-gradient(180deg, ${glowColor} 0%, rgba(0,0,0,0.15) 100%)` : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.2) 100%)', border: active ? `1px solid ${borderColor}` : '1px solid #555', borderRadius: 20, fontSize: 11, fontWeight: 700, color: color, cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: 'JetBrains Mono, monospace' }}
-                >{label}</button>
-              )
-            })}
-            <button onClick={() => { setExcludeMag7(v => !v); setExcludeEtf(false) }}
-              style={{ flexShrink: 0, height: 28, padding: '0 11px', background: excludeMag7 ? 'rgba(251,146,60,0.18)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.2) 100%)', border: excludeMag7 ? '1px solid #fb923c' : '1px solid #555', borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#fb923c', cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: 'JetBrains Mono, monospace' }}
-            >MAG7</button>
-            <button onClick={() => { setExcludeEtf(v => !v); setExcludeMag7(false) }}
-              style={{ flexShrink: 0, height: 28, padding: '0 11px', background: excludeEtf ? 'rgba(52,211,153,0.18)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.2) 100%)', border: excludeEtf ? '1px solid #34d399' : '1px solid #555', borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#34d399', cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: 'JetBrains Mono, monospace' }}
-            >ETFs</button>
-            <button onClick={() => { const both = excludeMag7 && excludeEtf; setExcludeMag7(!both); setExcludeEtf(!both) }}
-              style={{ flexShrink: 0, height: 28, padding: '0 11px', background: (excludeMag7 && excludeEtf) ? 'rgba(96,165,250,0.18)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.2) 100%)', border: (excludeMag7 && excludeEtf) ? '1px solid #60a5fa' : '1px solid #555', borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#60a5fa', cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: 'JetBrains Mono, monospace' }}
-            >STOCKS</button>
-          </div>
+              {/* All Tickers */}
+              <button
+                onClick={() => { setSearchTicker('ALL'); setIsAllScan(true); fetchTickerFlow('ALL') }}
+                disabled={loading}
+                style={{ flexShrink: 0, height: 28, padding: '0 11px', background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.2) 100%)', border: '1px solid #666', borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#d4d4d4', cursor: loading ? 'not-allowed' : 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: 'JetBrains Mono, monospace' }}
+              >ALL</button>
+              {/* Gamma Line + Bull/Bear pills "” single ticker only */}
+              {analysis && !isAllScan && (
+                <>
+                  <button
+                    onClick={() => setShowGammaLine(v => !v)}
+                    style={{
+                      flexShrink: 0, height: 28, padding: '0 11px',
+                      background: showGammaLine ? 'linear-gradient(180deg,rgba(0,0,0,0.7) 0%,rgba(0,0,0,0.9) 100%)' : 'linear-gradient(180deg,rgba(20,20,20,0.9) 0%,rgba(0,0,0,1) 100%)',
+                      border: showGammaLine ? '1px solid #ff8500' : '1px solid rgba(255,133,0,0.4)',
+                      borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#ff8500',
+                      cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap',
+                      fontFamily: 'JetBrains Mono, monospace',
+                      boxShadow: showGammaLine ? '0 0 8px rgba(255,133,0,0.3),inset 0 0 6px rgba(0,0,0,0.6)' : undefined,
+                    }}
+                  >GAMMA LINE</button>
+                  <button
+                    onClick={() => setShowBullBear(v => !v)}
+                    style={{
+                      flexShrink: 0, height: 28, padding: '0 11px',
+                      background: showBullBear ? 'linear-gradient(180deg,rgba(0,0,0,0.7) 0%,rgba(0,0,0,0.9) 100%)' : 'linear-gradient(180deg,rgba(20,20,20,0.9) 0%,rgba(0,0,0,1) 100%)',
+                      border: showBullBear ? '1px solid #a78bfa' : '1px solid rgba(167,139,250,0.4)',
+                      borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#a78bfa',
+                      cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap',
+                      fontFamily: 'JetBrains Mono, monospace',
+                      boxShadow: showBullBear ? '0 0 8px rgba(167,139,250,0.3),inset 0 0 6px rgba(0,0,0,0.6)' : undefined,
+                    }}
+                  >BULL/BEAR</button>
+                </>
+              )}
+              {([
+                { f: '45d', label: '45D', color: '#ffffff', borderColor: 'rgba(255,255,255,0.6)', glowColor: 'rgba(255,255,255,0.15)' },
+                { f: 'weekly', label: 'WEEKLY', color: '#facc15', borderColor: '#facc15', glowColor: 'rgba(250,204,21,0.25)' },
+                { f: '0dte', label: '0DTE', color: '#c084fc', borderColor: '#c084fc', glowColor: 'rgba(192,132,252,0.25)' },
+              ] as const).map(({ f, label, color, borderColor, glowColor }) => {
+                const active = expiryFilter === f
+                return (
+                  <button key={f} onClick={() => setExpiryFilter(active ? 'all' : f)}
+                    style={{ flexShrink: 0, height: 28, padding: '0 11px', background: active ? `linear-gradient(180deg, ${glowColor} 0%, rgba(0,0,0,0.15) 100%)` : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.2) 100%)', border: active ? `1px solid ${borderColor}` : '1px solid #555', borderRadius: 20, fontSize: 11, fontWeight: 700, color: color, cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: 'JetBrains Mono, monospace' }}
+                  >{label}</button>
+                )
+              })}
+              <button onClick={() => { setExcludeMag7(v => !v); setExcludeEtf(false) }}
+                style={{ flexShrink: 0, height: 28, padding: '0 11px', background: excludeMag7 ? 'rgba(251,146,60,0.18)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.2) 100%)', border: excludeMag7 ? '1px solid #fb923c' : '1px solid #555', borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#fb923c', cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: 'JetBrains Mono, monospace' }}
+              >MAG7</button>
+              <button onClick={() => { setExcludeEtf(v => !v); setExcludeMag7(false) }}
+                style={{ flexShrink: 0, height: 28, padding: '0 11px', background: excludeEtf ? 'rgba(52,211,153,0.18)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.2) 100%)', border: excludeEtf ? '1px solid #34d399' : '1px solid #555', borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#34d399', cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: 'JetBrains Mono, monospace' }}
+              >ETFs</button>
+              <button onClick={() => { const both = excludeMag7 && excludeEtf; setExcludeMag7(!both); setExcludeEtf(!both) }}
+                style={{ flexShrink: 0, height: 28, padding: '0 11px', background: (excludeMag7 && excludeEtf) ? 'rgba(96,165,250,0.18)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.2) 100%)', border: (excludeMag7 && excludeEtf) ? '1px solid #60a5fa' : '1px solid #555', borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#60a5fa', cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: 'JetBrains Mono, monospace' }}
+              >STOCKS</button>
+              <button onClick={() => setExcludeIndex(v => !v)}
+                style={{ flexShrink: 0, height: 28, padding: '0 11px', background: excludeIndex ? 'rgba(167,139,250,0.18)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.2) 100%)', border: excludeIndex ? '1px solid #a78bfa' : '1px solid #555', borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#a78bfa', cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: 'JetBrains Mono, monospace' }}
+              >-INDEX</button>
+            </div>
           )}
         </div>
       ) : (
-        /* -- DESKTOP HEADER (unchanged) -- */
+        /* -- DESKTOP HEADER -- */
         <div style={{
-          background: 'linear-gradient(180deg, #0d0d0d 0%, #060606 100%)',
-          borderBottom: '1px solid rgba(255,255,255,0.1)',
-          padding: '10px 20px',
+          background: 'linear-gradient(180deg, #111 0%, #080808 100%)',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
+          padding: '7px 16px',
           flexShrink: 0,
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 16,
+          gap: 8,
+          flexWrap: 'nowrap',
+          overflowX: 'auto',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {onBack && (
-              <button
-                onClick={onBack}
-                style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12, fontWeight: 800, color: '#fff', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', letterSpacing: '0.08em', marginRight: 4 }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.15)')}
-                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.08)')}
-              >← BACK</button>
-            )}
-            <span style={{ color: '#ff8500', fontFamily: 'JetBrains Mono, monospace', fontSize: 16, fontWeight: 800, letterSpacing: '0.18em' }}>ALGOFLOW INTELLIGENCE</span>
-            <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>·</span>
-            <span style={{ color: '#fff', fontFamily: 'JetBrains Mono, monospace', fontSize: 12, letterSpacing: '0.12em' }}>OPTIONS FLOW SCANNER</span>
-            {/* Desktop tab switcher */}
-            <div style={{ display: 'flex', gap: 3, background: '#0a0a0a', border: '1px solid #222', borderRadius: 8, padding: 3, marginLeft: 8 }}>
-              {(['algoflow', 'flowbias'] as const).map(tab => (
-                <button key={tab} onClick={() => setActiveTab(tab)} style={{ height: 30, padding: '0 16px', background: activeTab === tab ? (tab === 'algoflow' ? 'linear-gradient(135deg,#ff8500,#ff6000)' : 'linear-gradient(135deg,#00ff88,#00cc66)') : 'transparent', color: activeTab === tab ? '#000' : (tab === 'algoflow' ? '#ff8500' : '#00ff88'), fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 800, letterSpacing: '0.12em', border: activeTab === tab ? 'none' : `1px solid ${tab === 'algoflow' ? 'rgba(255,133,0,0.3)' : 'rgba(0,255,136,0.3)'}`, borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s' }}>
-                  {tab === 'algoflow' ? 'ALGOFLOW' : 'FLOW BIAS SCANNER'}
-                </button>
-              ))}
-            </div>
-            {streamStatus && (
-              <span style={{ color: '#22d3ee', fontFamily: 'JetBrains Mono, monospace', fontSize: 12, letterSpacing: '0.1em', marginLeft: 8 }}>{streamStatus}</span>
-            )}
-            {error && (
-              <span style={{ color: '#ef4444', fontFamily: 'JetBrains Mono, monospace', fontSize: 12, letterSpacing: '0.1em', marginLeft: 8 }}>{error}</span>
-            )}
+          {/* Candy-black 3D glossy button style helper */}
+          <style>{`
+            .af-btn {
+              height: 32px;
+              padding: 0 14px;
+              background: linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 60%, #040404 100%);
+              border: 1px solid rgba(255,255,255,0.14);
+              border-top: 1px solid rgba(255,255,255,0.28);
+              border-radius: 6px;
+              box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), inset 0 -1px 0 rgba(0,0,0,0.7), 0 2px 4px rgba(0,0,0,0.9);
+              font-family: JetBrains Mono, monospace;
+              font-size: 14px;
+              font-weight: 800;
+              letter-spacing: 1px;
+              color: #ccc;
+              cursor: pointer;
+              white-space: nowrap;
+              transition: all 0.12s ease;
+              outline: none;
+              flex-shrink: 0;
+            }
+            .af-btn:hover { background: linear-gradient(180deg, #242424 0%, #111 60%, #060606 100%); color: #fff; border-top-color: rgba(255,255,255,0.38); }
+            .af-btn.af-active-orange { background: linear-gradient(180deg, #2a1500 0%, #150a00 60%, #0a0500 100%); border-color: #ff8500; border-top-color: #ffaa44; color: #ff8500; box-shadow: inset 0 1px 0 rgba(255,133,0,0.18), inset 0 -1px 0 rgba(0,0,0,0.7), 0 0 8px rgba(255,133,0,0.3); }
+            .af-btn.af-active-yellow { background: linear-gradient(180deg, #1a1400 0%, #0d0a00 60%, #060500 100%); border-color: #facc15; border-top-color: #ffe050; color: #facc15; box-shadow: inset 0 1px 0 rgba(250,204,21,0.15), inset 0 -1px 0 rgba(0,0,0,0.7), 0 0 8px rgba(250,204,21,0.25); }
+            .af-btn.af-active-purple { background: linear-gradient(180deg, #150d22 0%, #0a0614 60%, #050308 100%); border-color: #c084fc; border-top-color: #d8a0ff; color: #c084fc; box-shadow: inset 0 1px 0 rgba(192,132,252,0.15), inset 0 -1px 0 rgba(0,0,0,0.7), 0 0 8px rgba(192,132,252,0.25); }
+            .af-btn.af-active-green { background: linear-gradient(180deg, #001a0d 0%, #000e07 60%, #000603 100%); border-color: #34d399; border-top-color: #5cf0b8; color: #34d399; box-shadow: inset 0 1px 0 rgba(52,211,153,0.15), inset 0 -1px 0 rgba(0,0,0,0.7), 0 0 8px rgba(52,211,153,0.25); }
+            .af-btn.af-active-blue { background: linear-gradient(180deg, #001022 0%, #000a14 60%, #000508 100%); border-color: #60a5fa; border-top-color: #8ec4ff; color: #60a5fa; box-shadow: inset 0 1px 0 rgba(96,165,250,0.15), inset 0 -1px 0 rgba(0,0,0,0.7), 0 0 8px rgba(96,165,250,0.25); }
+            .af-btn.af-active-violet { background: linear-gradient(180deg, #100d1f 0%, #080612 60%, #040308 100%); border-color: #a78bfa; border-top-color: #c4aeff; color: #a78bfa; box-shadow: inset 0 1px 0 rgba(167,139,250,0.15), inset 0 -1px 0 rgba(0,0,0,0.7), 0 0 8px rgba(167,139,250,0.25); }
+            .af-btn.af-active-lime { background: linear-gradient(180deg, #0a1400 0%, #060a00 60%, #030500 100%); border-color: #84cc16; border-top-color: #aeff22; color: #84cc16; box-shadow: inset 0 1px 0 rgba(132,204,22,0.15), inset 0 -1px 0 rgba(0,0,0,0.7), 0 0 8px rgba(132,204,22,0.25); }
+            .af-btn.af-active-emerald { background: linear-gradient(180deg, #001a0a 0%, #000e06 60%, #000602 100%); border-color: #22c55e; border-top-color: #40ff80; color: #22c55e; box-shadow: inset 0 1px 0 rgba(34,197,94,0.15), inset 0 -1px 0 rgba(0,0,0,0.7), 0 0 8px rgba(34,197,94,0.3); }
+            .af-tab { height: 32px; padding: 0 14px; background: transparent; border: 1px solid transparent; border-radius: 6px; font-family: JetBrains Mono,monospace; font-size: 14px; font-weight: 800; letter-spacing: 1px; cursor: pointer; white-space: nowrap; transition: all 0.12s; flex-shrink: 0; }
+            .af-sep { width: 1px; height: 24px; background: rgba(255,255,255,0.1); flex-shrink: 0; margin: 0 2px; }
+          `}</style>
+
+          {/* BACK */}
+          {onBack && (
+            <button className="af-btn" onClick={onBack}>← BACK</button>
+          )}
+
+          {/* Tabs */}
+          <div style={{ display: 'flex', gap: 3, background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: 3, flexShrink: 0 }}>
+            <button className="af-tab" onClick={() => setActiveTab('algoflow')}
+              style={{ background: 'linear-gradient(180deg,#ff8500,#cc5500)', color: '#000', border: 'none' }}>
+              ALGOFLOW
+            </button>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {/* Gamma Line + Bull/Bear buttons "” single ticker only */}
-            {analysis && !isAllScan && (
-              <>
-                <button
-                  onClick={() => setShowGammaLine(v => !v)}
-                  className="toolbar-pill font-bold uppercase transition-all duration-150"
-                  title="Show cumulative gamma exposure from flow trades"
-                  style={{
-                    height: '31px', padding: '0 13px',
-                    background: showGammaLine ? 'linear-gradient(180deg,rgba(0,0,0,0.6) 0%,rgba(0,0,0,0.85) 55%,rgba(0,0,0,0.95) 100%)' : 'linear-gradient(180deg,rgba(20,20,20,0.9) 0%,rgba(8,8,8,0.95) 55%,rgba(0,0,0,1) 100%)',
-                    border: showGammaLine ? '1px solid #ff8500' : '1px solid rgba(255,133,0,0.45)',
-                    borderRadius: '20px', fontSize: '12px', letterSpacing: '1.2px', fontWeight: '700',
-                    boxShadow: showGammaLine ? 'inset 0 1px 0 rgba(255,255,255,0.12),inset 0 -1px 0 rgba(0,0,0,0.6),0 0 12px rgba(255,133,0,0.35),inset 0 0 8px rgba(0,0,0,0.5)' : 'inset 0 1px 0 rgba(255,255,255,0.06),inset 0 -1px 0 rgba(0,0,0,0.5)',
-                    outline: 'none', color: '#ff8500', cursor: 'pointer', transition: 'all 0.15s ease', whiteSpace: 'nowrap',
-                  }}
-                >GAMMA LINE</button>
-                <button
-                  onClick={() => setShowBullBear(v => !v)}
-                  className="toolbar-pill font-bold uppercase transition-all duration-150"
-                  title="Toggle Bull/Bear Ratio chart"
-                  style={{
-                    height: '31px', padding: '0 13px',
-                    background: showBullBear ? 'linear-gradient(180deg,rgba(0,0,0,0.6) 0%,rgba(0,0,0,0.85) 55%,rgba(0,0,0,0.95) 100%)' : 'linear-gradient(180deg,rgba(20,20,20,0.9) 0%,rgba(8,8,8,0.95) 55%,rgba(0,0,0,1) 100%)',
-                    border: showBullBear ? '1px solid #a78bfa' : '1px solid rgba(167,139,250,0.45)',
-                    borderRadius: '20px', fontSize: '12px', letterSpacing: '1.2px', fontWeight: '700',
-                    boxShadow: showBullBear ? 'inset 0 1px 0 rgba(255,255,255,0.12),inset 0 -1px 0 rgba(0,0,0,0.6),0 0 12px rgba(167,139,250,0.25),inset 0 0 8px rgba(0,0,0,0.5)' : 'inset 0 1px 0 rgba(255,255,255,0.06),inset 0 -1px 0 rgba(0,0,0,0.5)',
-                    outline: 'none', color: '#a78bfa', cursor: 'pointer', transition: 'all 0.15s ease', whiteSpace: 'nowrap',
-                  }}
-                >BULL/BEAR</button>
-              </>
-            )}
-            {/* Expiry filter buttons */}
-            {([
-              { f: '45d', label: '45D FILTER', color: '#ffffff', borderColor: 'rgba(255,255,255,0.6)', glowColor: 'rgba(255,255,255,0.15)', title: 'Show contracts expiring within 45 days' },
-              { f: 'weekly', label: 'WEEKLIES', color: '#facc15', borderColor: '#facc15', glowColor: 'rgba(250,204,21,0.25)', title: 'Show this-week expiries only' },
-              { f: '0dte', label: '0DTE', color: '#c084fc', borderColor: '#c084fc', glowColor: 'rgba(192,132,252,0.25)', title: 'Show 0DTE (today/next trading day) only' },
-            ] as const).map(({ f, label, color, borderColor, glowColor, title }) => {
-              const active = expiryFilter === f
-              return (
-                <button
-                  key={f}
-                  onClick={() => setExpiryFilter(active ? 'all' : f)}
-                  className="toolbar-pill font-bold uppercase transition-all duration-150"
-                  title={title}
-                  style={{
-                    height: '31px',
-                    padding: '0 13px',
-                    background: active ? `linear-gradient(180deg, ${glowColor} 0%, rgba(0,0,0,0.15) 100%)` : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
-                    border: active ? `1px solid ${borderColor}` : '1px solid #666',
-                    borderRadius: '20px',
-                    fontSize: '12px',
-                    letterSpacing: '1.2px',
-                    fontWeight: '700',
-                    boxShadow: active ? `inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 10px ${glowColor}` : 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.35)',
-                    outline: 'none',
-                    color: color,
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {label}
-                </button>
-              )
-            })}
-            {/* Ticker exclusion buttons */}
-            {([
-              { key: 'mag7', label: 'EXCLUDE MAG7', active: excludeMag7, toggle: () => { setExcludeMag7(v => !v); setExcludeEtf(false) }, color: '#fb923c', borderColor: '#fb923c', glowColor: 'rgba(251,146,60,0.25)', title: 'Exclude MAG7 tickers (AAPL, NVDA, MSFT, TSLA, AMZN, META, GOOGL)' },
-              { key: 'etf', label: 'EXCLUDE ETFs', active: excludeEtf, toggle: () => { setExcludeEtf(v => !v); setExcludeMag7(false) }, color: '#34d399', borderColor: '#34d399', glowColor: 'rgba(52,211,153,0.25)', title: 'Exclude all ETF tickers' },
-              { key: 'stocks', label: 'STOCKS ONLY', active: excludeMag7 && excludeEtf, toggle: () => { const both = excludeMag7 && excludeEtf; setExcludeMag7(!both); setExcludeEtf(!both) }, color: '#60a5fa', borderColor: '#60a5fa', glowColor: 'rgba(96,165,250,0.25)', title: 'Show stocks only "” exclude ETFs and MAG7' },
-            ] as const).map(({ key, label, active, toggle, color, borderColor, glowColor, title }) => (
-              <button
-                key={key}
-                onClick={toggle}
-                className="toolbar-pill font-bold uppercase transition-all duration-150"
-                title={title}
-                style={{
-                  height: '31px',
-                  padding: '0 13px',
-                  background: active ? `linear-gradient(180deg, ${glowColor} 0%, rgba(0,0,0,0.15) 100%)` : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
-                  border: active ? `1px solid ${borderColor}` : '1px solid #666',
-                  borderRadius: '20px',
-                  fontSize: '12px',
-                  letterSpacing: '1.2px',
-                  fontWeight: '700',
-                  boxShadow: active ? `inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 10px ${glowColor}` : 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.35)',
-                  outline: 'none',
-                  color: active ? '#ff8500' : '#ffffff',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {label}
-              </button>
-            ))}
-            <button
-              onClick={() => {
-                // Start scanning ALL tickers immediately without modifying the input field
-                setSearchTicker('ALL')
-                setIsAllScan(true)
-                fetchTickerFlow('ALL')
-              }}
-              className="toolbar-pill font-bold uppercase transition-all duration-150"
-              disabled={loading}
-              title="All Tickers"
-              style={{
-                height: '31px',
-                padding: '0 13px',
-                background: ticker === 'ALL' ? 'linear-gradient(180deg, rgba(255,133,0,0.22) 0%, rgba(255,133,0,0.06) 55%, rgba(0,0,0,0.2) 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
-                border: ticker === 'ALL' ? '1px solid #ff8500' : '1px solid #666',
-                borderRadius: '20px',
-                fontSize: '12px',
-                letterSpacing: '1.2px',
-                fontWeight: '700',
-                boxShadow: ticker === 'ALL' ? 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 10px rgba(255,133,0,0.22)' : 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.35)',
-                outline: 'none',
-                color: ticker === 'ALL' ? '#ffaa55' : '#d4d4d4',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              All Tickers
+
+          <div className="af-sep" />
+
+          {/* Expiry filters */}
+          <button className={`af-btn${expiryFilter === '45d' ? ' af-active-yellow' : ''}`} onClick={() => setExpiryFilter(expiryFilter === '45d' ? 'all' : '45d')} title="Contracts expiring within 45 days">45D</button>
+          <button className={`af-btn${expiryFilter === 'weekly' ? ' af-active-yellow' : ''}`} onClick={() => setExpiryFilter(expiryFilter === 'weekly' ? 'all' : 'weekly')} title="This-week expiries only">WEEKLIES</button>
+          <button className={`af-btn${expiryFilter === '0dte' ? ' af-active-purple' : ''}`} onClick={() => setExpiryFilter(expiryFilter === '0dte' ? 'all' : '0dte')} title="0DTE only">0DTE</button>
+
+          <div className="af-sep" />
+
+          {/* Exclusion filters */}
+          <button className={`af-btn${excludeMag7 ? ' af-active-orange' : ''}`} onClick={() => { setExcludeMag7(v => !v); setExcludeEtf(false) }} title="Exclude MAG7">EXCL MAG7</button>
+          <button className={`af-btn${excludeEtf ? ' af-active-green' : ''}`} onClick={() => { setExcludeEtf(v => !v); setExcludeMag7(false) }} title="Exclude ETFs">EXCL ETFs</button>
+          <button className={`af-btn${excludeIndex ? ' af-active-violet' : ''}`} onClick={() => setExcludeIndex((v: boolean) => !v)} title="Exclude SPX/NDX/RUT/VIX etc.">EXCL INDEX</button>
+          <button className={`af-btn${excludeMag7 && excludeEtf ? ' af-active-blue' : ''}`} onClick={() => { const both = excludeMag7 && excludeEtf; setExcludeMag7(!both); setExcludeEtf(!both) }} title="Stocks only">STOCKS ONLY</button>
+
+          <div className="af-sep" />
+
+          {/* Chart overlays — single ticker only */}
+          {analysis && !isAllScan && (<>
+            <button className={`af-btn${showGammaLine ? ' af-active-orange' : ''}`} onClick={() => setShowGammaLine(v => !v)} title="Cumulative gamma from flow">GAMMA</button>
+            <button className={`af-btn${showBullBear ? ' af-active-violet' : ''}`} onClick={() => setShowBullBear(v => !v)} title="Bull/Bear ratio">BULL/BEAR</button>
+            <div className="af-sep" />
+          </>)}
+
+          {/* ALL TICKERS */}
+          <button className={`af-btn${ticker === 'ALL' ? ' af-active-orange' : ''}`}
+            onClick={() => { setSearchTicker('ALL'); setIsAllScan(true); fetchTickerFlow('ALL') }}
+            disabled={loading} title="Scan all tickers">ALL TICKERS</button>
+
+          {/* ALL TICKERS LIVE */}
+          <button className={`af-btn${isAlgoLive && algoLiveTicker === 'ALL' ? ' af-active-emerald' : ''}`}
+            onClick={() => isAlgoLive && algoLiveTicker === 'ALL' ? stopAlgoLive() : startAlgoLive('ALL')}
+            title={isAlgoLive && algoLiveTicker === 'ALL' ? 'Stop live stream' : 'Stream all options live'}>
+            <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: isAlgoLive && algoLiveTicker === 'ALL' ? '#22c55e' : '#555', marginRight: 5, boxShadow: isAlgoLive && algoLiveTicker === 'ALL' ? '0 0 5px #22c55e' : 'none' }} />
+            {isAlgoLive && algoLiveTicker === 'ALL' ? 'STOP ALL LIVE' : '● ALL TICKERS LIVE'}
+          </button>
+
+          <div className="af-sep" />
+
+          {/* Ticker input */}
+          <input type="text" value={ticker} onChange={e => setTicker(e.target.value.toUpperCase())} onKeyPress={handleKeyPress} placeholder="TICKER"
+            disabled={loading}
+            style={{ height: 32, width: 110, padding: '0 10px', background: 'linear-gradient(180deg,#111 0%,#080808 100%)', border: '1px solid rgba(255,255,255,0.2)', borderTop: '1px solid rgba(255,255,255,0.3)', borderRadius: 6, color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, letterSpacing: '0.12em', outline: 'none', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.8)', flexShrink: 0 }} />
+
+          {/* Timeframe select */}
+          <select value={scanTimeframe} onChange={e => setScanTimeframe(e.target.value)} disabled={loading}
+            style={{ height: 32, padding: '0 8px', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 100%)', border: '1px solid rgba(255,255,255,0.14)', borderTop: '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: '#ccc', fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, outline: 'none', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06),inset 0 -1px 0 rgba(0,0,0,0.6)', flexShrink: 0 }}>
+            <option value="1D">TODAY</option>
+            <option value="2">2 DAYS</option>
+            <option value="3">3 DAYS</option>
+            <option value="4">4 DAYS</option>
+            <option value="5">5 DAYS</option>
+            <option value="7">7 DAYS</option>
+            <option value="10">10 DAYS</option>
+            <option value="14">14 DAYS</option>
+            <option value="20">20 DAYS</option>
+            <option value="30">30 DAYS</option>
+            <option value="45">45 DAYS</option>
+            <option value="60">60 DAYS</option>
+            <option value="90">90 DAYS</option>
+            <option value="126">126 DAYS</option>
+            <option value="189">189 DAYS</option>
+            <option value="252">252 DAYS</option>
+          </select>
+
+          {/* ANALYZE */}
+          <button onClick={handleSearch} disabled={loading || isAnalyzing || !ticker.trim()}
+            style={{ height: 32, padding: '0 18px', background: loading || isAnalyzing ? 'linear-gradient(180deg,#1a1a1a,#080808)' : 'linear-gradient(180deg,#ff9500 0%,#cc5500 60%,#992200 100%)', border: loading || isAnalyzing ? '1px solid #333' : '1px solid #ff6600', borderTop: loading || isAnalyzing ? '1px solid #444' : '1px solid #ffaa44', borderRadius: 6, color: loading || isAnalyzing ? '#555' : '#000', fontFamily: 'JetBrains Mono,monospace', fontSize: 15, fontWeight: 800, letterSpacing: '1.5px', cursor: loading || isAnalyzing || !ticker.trim() ? 'not-allowed' : 'pointer', boxShadow: loading || isAnalyzing ? 'none' : 'inset 0 1px 0 rgba(255,200,100,0.35),inset 0 -1px 0 rgba(0,0,0,0.6),0 2px 8px rgba(255,100,0,0.4)', display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap', flexShrink: 0, opacity: !ticker.trim() || loading || isAnalyzing ? 0.6 : 1 }}>
+            {isAnalyzing ? (<><div className="animate-spin" style={{ width: 10, height: 10, borderRadius: '50%', border: '2px solid #22d3ee', borderTopColor: 'transparent' }} />ANALYZING {flowData.length.toLocaleString()}</>) : loading ? 'SCANNING...' : 'ANALYZE'}
+          </button>
+
+          {/* Per-ticker LIVE */}
+          {ticker.trim() && ticker !== 'ALL' && (
+            <button className={`af-btn${isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? ' af-active-emerald' : ''}`}
+              onClick={() => isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? stopAlgoLive() : startAlgoLive(ticker.trim())}
+              title={`Stream ${ticker} options live`}>
+              <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? '#22c55e' : '#555', marginRight: 5 }} />
+              {isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? `STOP · ${algoLiveTradeCount}` : 'LIVE'}
             </button>
+          )}
 
-            {/* ALL TICKERS LIVE button */}
-            <button
-              onClick={() => isAlgoLive && algoLiveTicker === 'ALL' ? stopAlgoLive() : startAlgoLive('ALL')}
-              title={isAlgoLive && algoLiveTicker === 'ALL' ? 'Stop live stream' : 'Stream all option trades live from market open'}
-              style={{
-                height: '31px',
-                padding: '0 13px',
-                background: (isAlgoLive && algoLiveTicker === 'ALL') ? 'linear-gradient(180deg, rgba(34,197,94,0.22) 0%, rgba(16,185,129,0.06) 55%, rgba(0,0,0,0.2) 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
-                border: (isAlgoLive && algoLiveTicker === 'ALL') ? '1px solid #22c55e' : '1px solid #555',
-                borderRadius: '20px',
-                fontSize: '12px',
-                letterSpacing: '1.2px',
-                fontWeight: '700',
-                color: (isAlgoLive && algoLiveTicker === 'ALL') ? '#22c55e' : '#6b7280',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                transition: 'all 0.15s ease',
-                boxShadow: (isAlgoLive && algoLiveTicker === 'ALL') ? '0 0 10px rgba(34,197,94,0.25)' : 'none',
-                fontFamily: 'JetBrains Mono, monospace',
-              }}
-            >
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: (isAlgoLive && algoLiveTicker === 'ALL') ? '#22c55e' : '#4b5563', display: 'inline-block', marginRight: 6, boxShadow: (isAlgoLive && algoLiveTicker === 'ALL') ? '0 0 5px #22c55e' : 'none' }} />
-              {(isAlgoLive && algoLiveTicker === 'ALL') ? 'STOP ALL LIVE' : 'ALL TICKERS LIVE'}
-            </button>
-            <input
-              type="text"
-              value={ticker}
-              onChange={(e) => setTicker(e.target.value.toUpperCase())}
-              onKeyPress={handleKeyPress}
-              placeholder="TICKER"
-              style={{ width: 110, padding: '5px 10px', background: '#111', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', fontFamily: 'JetBrains Mono, monospace', fontSize: 16, fontWeight: 700, letterSpacing: '0.12em', outline: 'none' }}
-              disabled={loading}
-            />
+          {/* Status / error */}
+          {streamStatus && <span style={{ color: '#22d3ee', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, letterSpacing: '0.1em', flexShrink: 0 }}>{streamStatus}</span>}
+          {error && <span style={{ color: '#ef4444', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, flexShrink: 0 }}>{error}</span>}
+          {isAlgoLive && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: algoLiveConnected ? '#22c55e' : '#facc15', flexShrink: 0 }}>{algoLiveConnected ? '● LIVE' : '○ CONNECTING'}</span>}
 
-            <OptionsFlowScene visible={isAllScan && overlayActive} selectedTicker="ALL" streamingStatus={streamStatus} />
-
-            <select
-              value={scanTimeframe}
-              onChange={(e) => setScanTimeframe(e.target.value)}
-              style={{ padding: '5px 8px', background: '#111', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', fontFamily: 'JetBrains Mono, monospace', fontSize: 13, fontWeight: 700, letterSpacing: '0.1em', outline: 'none' }}
-              disabled={loading}
-            >
-              <option value="1D">TODAY</option>
-              <option value="2">2 DAYS</option>
-              <option value="3">3 DAYS</option>
-              <option value="4">4 DAYS</option>
-              <option value="5">5 DAYS</option>
-              <option value="7">7 DAYS</option>
-              <option value="10">10 DAYS</option>
-              <option value="14">14 DAYS</option>
-              <option value="20">20 DAYS</option>
-              <option value="30">30 DAYS</option>
-              <option value="45">45 DAYS</option>
-              <option value="60">60 DAYS</option>
-              <option value="90">90 DAYS</option>
-              <option value="126">126 DAYS</option>
-              <option value="189">189 DAYS</option>
-              <option value="252">252 DAYS</option>
-            </select>
-            <button
-              onClick={handleSearch}
-              disabled={loading || isAnalyzing || !ticker.trim()}
-              style={{ padding: '5px 20px', background: (loading || isAnalyzing) ? '#333' : 'linear-gradient(135deg, #ff8500, #ff6000)', color: (loading || isAnalyzing) ? '#fff' : '#000', fontFamily: 'JetBrains Mono, monospace', fontSize: 13, fontWeight: 800, letterSpacing: '0.15em', border: 'none', cursor: (loading || isAnalyzing) ? 'not-allowed' : 'pointer', opacity: (!ticker.trim() || loading || isAnalyzing) ? 0.7 : 1, transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}
-            >
-              {isAnalyzing
-                ? (<><div className="animate-spin" style={{ width: 12, height: 12, borderRadius: '50%', border: '2px solid #22d3ee', borderTopColor: 'transparent' }} />ANALYZING {flowData.length.toLocaleString()}</>)
-                : loading ? 'SCANNING...'
-                  : 'ANALYZE'
-              }
-            </button>
-
-            {/* Per-ticker LIVE toggle */}
-            {ticker.trim() && ticker !== 'ALL' && (
-              <button
-                onClick={() => isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? stopAlgoLive() : startAlgoLive(ticker.trim())}
-                title={isAlgoLive && algoLiveTicker === ticker ? `Stop live stream for ${ticker}` : `Stream ${ticker} options live`}
-                style={{
-                  padding: '5px 16px',
-                  background: (isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase())
-                    ? 'linear-gradient(135deg, rgba(34,197,94,0.22), rgba(16,185,129,0.08))'
-                    : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.25) 100%)',
-                  border: (isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase()) ? '1px solid #22c55e' : '1px solid #555',
-                  color: (isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase()) ? '#22c55e' : '#6b7280',
-                  fontFamily: 'JetBrains Mono, monospace',
-                  fontSize: 13,
-                  fontWeight: 800,
-                  letterSpacing: '0.12em',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 7,
-                  whiteSpace: 'nowrap',
-                  transition: 'all 0.15s ease',
-                  boxShadow: (isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase()) ? '0 0 10px rgba(34,197,94,0.2)' : 'none',
-                }}
-              >
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: (isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase()) ? '#22c55e' : '#4b5563', display: 'inline-block', boxShadow: (isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase()) ? '0 0 5px #22c55e' : 'none' }} />
-                {(isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase())
-                  ? `STOP LIVE · ${algoLiveTradeCount} trades`
-                  : 'LIVE'}
-              </button>
-            )}
-
-            {/* Live connected indicator */}
-            {isAlgoLive && (
-              <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: algoLiveConnected ? '#22c55e' : '#facc15', letterSpacing: '0.1em', whiteSpace: 'nowrap' }}>
-                {algoLiveConnected ? 'â— CONNECTED' : 'â—‹ CONNECTING...'}
-              </span>
-            )}
-          </div>
+          <OptionsFlowScene visible={isAllScan && overlayActive} selectedTicker="ALL" streamingStatus={streamStatus} />
         </div>
-      ))} {/* end header "” hidden in embedded mode */}
+      ))} {/* end header */}
 
-      {/* SCROLLABLE CONTENT — hidden when Flow Bias tab is active */}
-      <div className="flex-1 overflow-y-auto min-h-0" style={{ padding: isMobile ? '8px 10px 80px' : '12px 20px 20px', display: activeTab === 'flowbias' ? 'none' : undefined }}>
+      {/* Main content: flex row — left scrollable content | right RRG panel */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: 0, overflow: 'hidden', alignItems: 'stretch' }}>
 
-        {/* LOADING STATE - removed; analyzing indicator is now inside the ANALYZE button */}
+        {/* LEFT: scrollable content */}
+        <div className="flex-1 overflow-y-auto min-h-0" style={{ padding: isMobile ? '8px 10px 80px' : '12px 20px 20px', flex: 1, minWidth: 0 }}>
 
-        {/* Drill-down re-analysis overlay */}
-        {isAnalyzing && drilledTicker && analysis && (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(4px)' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18 }}>
-              <div className="animate-spin" style={{ width: 48, height: 48, borderRadius: '50%', border: '4px solid rgba(255,133,0,0.25)', borderTopColor: '#ff8500' }} />
-              <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 22, fontWeight: 900, color: '#ff8500', letterSpacing: '0.15em' }}>ANALYZING {drilledTicker}</div>
-              <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.1em' }}>{flowData.length} TRADES</div>
-            </div>
-          </div>
-        )}
-
-        {analysis && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-
-            {/* â”€â”€ ROW 2: METRICS + CHART SIDE BY SIDE (stacked on mobile) â”€â”€ */}
-            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 0, borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
-
-              {/* LEFT: Stats sidebar */}
-              <div className="algo-sidebar-inner" style={{
-                width: isMobile ? '100%' : 232,
-                flexShrink: 0,
-                borderRight: isMobile ? 'none' : '1px solid rgba(255,255,255,0.08)',
-                borderBottom: isMobile ? '1px solid rgba(255,255,255,0.1)' : 'none',
-                display: isMobile ? 'grid' : 'flex',
-                gridTemplateColumns: isMobile ? '1fr 1fr' : undefined,
-                flexDirection: isMobile ? undefined : 'column',
-                background: 'linear-gradient(170deg, rgba(12,12,22,0.98) 0%, rgba(6,6,14,0.99) 60%, rgba(8,8,18,0.98) 100%)',
-                boxShadow: 'inset -1px 0 0 rgba(255,255,255,0.04), inset 0 0 40px rgba(0,0,0,0.6)',
-              }}>
-                {/* AlgoFlow gauge */}
-                <div className="algo-sidebar-gauge" style={{
-                  gridColumn: isMobile ? '1 / -1' : undefined,
-                  padding: '0 0 8px',
-                  borderBottom: '1px solid rgba(255,255,255,0.07)',
-                  background: 'linear-gradient(180deg, rgba(255,255,255,0.025) 0%, transparent 100%)',
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
-                  position: 'relative',
-                  overflow: 'hidden',
-                }}>
-                  {/* Subtle radial glow behind gauge */}
-                  <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 200, height: 125, borderRadius: '50%', background: 'radial-gradient(ellipse at 50% 30%, rgba(255,133,0,0.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
-                  <FlowQuadrantGauge
-                    bullCall={displayAnalysis?.bullCallPremium ?? 0}
-                    bearCall={displayAnalysis?.bearCallPremium ?? 0}
-                    bullPut={displayAnalysis?.bullPutPremium ?? 0}
-                    bearPut={displayAnalysis?.bearPutPremium ?? 0}
-                    score={displayAnalysis?.algoFlowScore ?? 0}
-                    label="ALGOFLOW SCORE"
-                  />
-                </div>
-
-                {/* P/C + Execution "” compact single row on mobile, full panels on desktop */}
-                {isMobile ? (
-                  <div style={{ gridColumn: '1 / -1', borderBottom: '1px solid rgba(255,255,255,0.08)', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 0, flexWrap: 'nowrap', overflow: 'hidden', background: 'rgba(0,0,0,0.3)' }}>
-                    {([
-                      { label: 'B/B', value: analysis.callPutRatio.toFixed(2), color: analysis.callPutRatio > 1.2 ? '#10b981' : analysis.callPutRatio < 0.8 ? '#ef4444' : '#fff' },
-                      { label: 'Calls', value: fmtCompact(displayAnalysis?.totalCallPremium ?? 0), color: '#10b981' },
-                      { label: 'Puts', value: fmtCompact(displayAnalysis?.totalPutPremium ?? 0), color: '#ef4444' },
-                      { label: 'Sweeps', value: analysis.sweepCount.toLocaleString(), color: '#eab308' },
-                      { label: 'Blocks', value: analysis.blockCount.toLocaleString(), color: '#22d3ee' },
-                    ] as const).map((item, idx) => (
-                      <React.Fragment key={item.label}>
-                        {idx > 0 && <span style={{ color: 'rgba(255,255,255,0.35)', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, padding: '0 5px', flexShrink: 0 }}>·</span>}
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#ffffff', fontWeight: 600, flexShrink: 0 }}>{item.label}:</span>
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: item.color, fontWeight: 900, marginLeft: 3, flexShrink: 0 }}>{item.value}</span>
-                      </React.Fragment>
-                    ))}
-                  </div>
-                ) : (
-                  <>
-                    {/* P/C calls/puts bars */}
-                    <div style={{
-                      padding: '10px 14px',
-                      borderBottom: '1px solid rgba(255,255,255,0.06)',
-                      background: 'linear-gradient(180deg, rgba(255,255,255,0.018) 0%, transparent 100%)',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
-                        <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#ffffff', letterSpacing: '0.22em', fontWeight: 700 }}>BULL/BEAR RATIO</div>
-                        <div style={{
-                          fontFamily: 'JetBrains Mono,monospace',
-                          fontSize: 20,
-                          color: '#fff',
-                          fontWeight: 900,
-                          letterSpacing: '0.06em',
-                          background: 'rgba(255,255,255,0.07)',
-                          border: '1px solid rgba(255,255,255,0.12)',
-                          borderRadius: 4,
-                          padding: '1px 7px',
-                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
-                        }}>{analysis.callPutRatio.toFixed(2)}</div>
-                      </div>
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#10b981', fontWeight: 700, letterSpacing: '0.14em' }}>CALLS</span>
-                            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 15, color: '#10b981', fontWeight: 900 }}>{analysis.aggressiveCalls}</span>
-                          </div>
-                          <div style={{ height: 5, background: 'rgba(16,185,129,0.1)', borderRadius: 3, overflow: 'hidden', boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)' }}>
-                            <div style={{ height: '100%', background: 'linear-gradient(90deg, #059669, #10b981, #34d399)', borderRadius: 3, width: `${(analysis.aggressiveCalls / (analysis.aggressiveCalls + analysis.aggressivePuts || 1)) * 100}%`, boxShadow: '0 0 8px rgba(16,185,129,0.7), 0 0 2px rgba(52,211,153,0.5)' }} />
-                          </div>
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#ef4444', fontWeight: 700, letterSpacing: '0.14em' }}>PUTS</span>
-                            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 15, color: '#ef4444', fontWeight: 900 }}>{analysis.aggressivePuts}</span>
-                          </div>
-                          <div style={{ height: 5, background: 'rgba(239,68,68,0.1)', borderRadius: 3, overflow: 'hidden', boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)' }}>
-                            <div style={{ height: '100%', background: 'linear-gradient(90deg, #b91c1c, #ef4444, #f87171)', borderRadius: 3, width: `${(analysis.aggressivePuts / (analysis.aggressiveCalls + analysis.aggressivePuts || 1)) * 100}%`, boxShadow: '0 0 8px rgba(239,68,68,0.7), 0 0 2px rgba(248,113,113,0.5)' }} />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Sweeps vs Blocks */}
-                    <div style={{
-                      padding: '10px 14px',
-                      borderBottom: '1px solid rgba(255,255,255,0.06)',
-                      background: 'linear-gradient(180deg, rgba(255,255,255,0.018) 0%, transparent 100%)',
-                    }}>
-                      <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#ffffff', letterSpacing: '0.22em', fontWeight: 700, marginBottom: 9 }}>EXECUTION TYPE</div>
-                      <div style={{ display: 'flex', gap: 8, marginBottom: 9 }}>
-                        <div style={{
-                          flex: 1,
-                          background: 'linear-gradient(145deg, rgba(234,179,8,0.14) 0%, rgba(234,179,8,0.05) 60%, rgba(0,0,0,0.2) 100%)',
-                          border: '1px solid rgba(234,179,8,0.28)',
-                          padding: '8px 10px',
-                          borderRadius: 7,
-                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.3), 0 3px 10px rgba(0,0,0,0.5), 0 0 12px rgba(234,179,8,0.06)',
-                          position: 'relative',
-                          overflow: 'hidden',
-                        }}>
-                          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '40%', background: 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, transparent 100%)', borderRadius: '7px 7px 0 0', pointerEvents: 'none' }} />
-                          <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: analysis.sweepCount >= 100000 ? 20 : analysis.sweepCount >= 10000 ? 26 : analysis.sweepCount >= 1000 ? 30 : 36, fontWeight: 900, color: '#eab308', lineHeight: 1, textShadow: '0 0 14px rgba(234,179,8,0.6), 0 0 28px rgba(234,179,8,0.2)' }}>{analysis.sweepCount}</div>
-                          <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#eab308', letterSpacing: '0.18em', marginTop: 4, fontWeight: 700 }}>SWEEPS</div>
-                        </div>
-                        <div style={{
-                          flex: 1,
-                          background: 'linear-gradient(145deg, rgba(34,211,238,0.14) 0%, rgba(34,211,238,0.05) 60%, rgba(0,0,0,0.2) 100%)',
-                          border: '1px solid rgba(34,211,238,0.28)',
-                          padding: '8px 10px',
-                          borderRadius: 7,
-                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.3), 0 3px 10px rgba(0,0,0,0.5), 0 0 12px rgba(34,211,238,0.06)',
-                          position: 'relative',
-                          overflow: 'hidden',
-                        }}>
-                          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '40%', background: 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, transparent 100%)', borderRadius: '7px 7px 0 0', pointerEvents: 'none' }} />
-                          <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: analysis.blockCount >= 100000 ? 20 : analysis.blockCount >= 10000 ? 26 : analysis.blockCount >= 1000 ? 30 : 36, fontWeight: 900, color: '#22d3ee', lineHeight: 1, textShadow: '0 0 14px rgba(34,211,238,0.6), 0 0 28px rgba(34,211,238,0.2)' }}>{analysis.blockCount}</div>
-                          <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#22d3ee', letterSpacing: '0.18em', marginTop: 4, fontWeight: 700 }}>BLOCKS</div>
-                        </div>
-                      </div>
-                      {/* Sweep/Block ratio bar */}
-                      <div style={{ height: 5, background: 'rgba(255,255,255,0.05)', borderRadius: 4, display: 'flex', overflow: 'hidden', boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)' }}>
-                        <div style={{ height: '100%', background: 'linear-gradient(90deg, #a16207, #eab308)', width: `${(analysis.sweepCount / (analysis.sweepCount + analysis.blockCount || 1)) * 100}%`, boxShadow: '0 0 6px rgba(234,179,8,0.6)' }} />
-                        <div style={{ height: '100%', background: 'linear-gradient(90deg, #0891b2, #22d3ee)', flex: 1, boxShadow: '0 0 6px rgba(34,211,238,0.4)' }} />
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {/* Stacked metrics "” desktop only */}
-                {!isMobile && [{ label: 'CALLS PREM', value: formatCurrency(displayAnalysis?.totalCallPremium ?? 0), color: '#10b981', glow: 'rgba(16,185,129,0.35)', bg: 'rgba(16,185,129,0.04)' },
-                { label: 'PUTS PREM', value: formatCurrency(displayAnalysis?.totalPutPremium ?? 0), color: '#ef4444', glow: 'rgba(239,68,68,0.35)', bg: 'rgba(239,68,68,0.04)' },
-                { label: 'NET FLOW', value: formatCurrency(analysis.netFlow), color: analysis.netFlow >= 0 ? '#10b981' : '#ef4444', glow: analysis.netFlow >= 0 ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)', bg: analysis.netFlow >= 0 ? 'rgba(16,185,129,0.04)' : 'rgba(239,68,68,0.04)' },
-                { label: 'BULL/BEAR', value: analysis.callPutRatio.toFixed(2), color: '#e2e8f0', glow: 'rgba(255,255,255,0.15)', bg: 'transparent' },
-                ].map(({ label, value, color, glow, bg }) => (
-                  <div key={label} style={{
-                    padding: '7px 14px',
-                    borderBottom: '1px solid rgba(255,255,255,0.04)',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    background: bg,
-                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)',
-                  }}>
-                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#ffffff', letterSpacing: '0.18em', fontWeight: 700 }}>{label}</span>
-                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 22, fontWeight: 900, color, textShadow: `0 0 10px ${glow}` }}>{value}</span>
-                  </div>
-                ))}
+          {/* Drill-down re-analysis overlay */}
+          {isAnalyzing && drilledTicker && analysis && (
+            <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(4px)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18 }}>
+                <div className="animate-spin" style={{ width: 48, height: 48, borderRadius: '50%', border: '4px solid rgba(255,133,0,0.25)', borderTopColor: '#ff8500' }} />
+                <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 22, fontWeight: 900, color: '#ff8500', letterSpacing: '0.15em' }}>ANALYZING {drilledTicker}</div>
+                <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.1em' }}>{flowData.length} TRADES</div>
               </div>
+            </div>
+          )}
 
-              {/* RIGHT: Chart */}
-              <div style={{ flex: 1, minWidth: 0, width: isMobile ? '100%' : undefined }}>
-                {/* Chart toolbar "” desktop only; mobile controls overlaid inside chart */}
-                <div className="algo-chart-toolbar" style={{ padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: isMobile ? 'none' : 'flex', alignItems: 'center', position: 'relative', minHeight: 36, gap: 0 }}>
-                  {/* LEFT: ticker + FLOW + timeframe buttons */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                    {drilledTicker && (
-                      <button
-                        onClick={() => {
-                          if (!allScanCacheRef.current) return
-                          setDrilledTicker(null)
-                          setSearchTicker('ALL')
-                          setFlowData(allScanCacheRef.current.flowData)
-                          setAnalysis(allScanCacheRef.current.analysis)
-                        }}
-                        style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 800, letterSpacing: '0.1em', padding: '2px 10px', background: 'rgba(255,133,0,0.15)', border: '1px solid #ff8500', color: '#ff8500', cursor: 'pointer', borderRadius: 3, marginRight: 6 }}
-                      >← ALL</button>
+          {/* Main analysis layout — RRG stretches full height alongside scrollable left */}
+          {analysis && (
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 0 }}>
+              {/* LEFT: scrollable chart + table */}
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+                {/* â”€â”€ ROW 2: METRICS + CHART SIDE BY SIDE (stacked on mobile) â”€â”€ */}
+                <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 0, borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
+
+                  {/* LEFT: Stats sidebar */}
+                  <div className="algo-sidebar-inner" style={{
+                    width: isMobile ? '100%' : 232,
+                    flexShrink: 0,
+                    borderRight: isMobile ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                    borderBottom: isMobile ? '1px solid rgba(255,255,255,0.1)' : 'none',
+                    display: isMobile ? 'grid' : 'flex',
+                    gridTemplateColumns: isMobile ? '1fr 1fr' : undefined,
+                    flexDirection: isMobile ? undefined : 'column',
+                    background: 'linear-gradient(170deg, rgba(12,12,22,0.98) 0%, rgba(6,6,14,0.99) 60%, rgba(8,8,18,0.98) 100%)',
+                    boxShadow: 'inset -1px 0 0 rgba(255,255,255,0.04), inset 0 0 40px rgba(0,0,0,0.6)',
+                  }}>
+                    {/* AlgoFlow gauge */}
+                    <div className="algo-sidebar-gauge" style={{
+                      gridColumn: isMobile ? '1 / -1' : undefined,
+                      padding: '0 0 8px',
+                      borderBottom: '1px solid rgba(255,255,255,0.07)',
+                      background: 'linear-gradient(180deg, rgba(255,255,255,0.025) 0%, transparent 100%)',
+                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
+                      position: 'relative',
+                      overflow: 'hidden',
+                    }}>
+                      {/* Subtle radial glow behind gauge */}
+                      <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 200, height: 125, borderRadius: '50%', background: 'radial-gradient(ellipse at 50% 30%, rgba(255,133,0,0.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
+                      <FlowQuadrantGauge
+                        bullCall={displayAnalysis?.bullCallPremium ?? 0}
+                        bearCall={displayAnalysis?.bearCallPremium ?? 0}
+                        bullPut={displayAnalysis?.bullPutPremium ?? 0}
+                        bearPut={displayAnalysis?.bearPutPremium ?? 0}
+                        score={displayAnalysis?.algoFlowScore ?? 0}
+                        label="ALGOFLOW SCORE"
+                      />
+                    </div>
+
+                    {/* P/C + Execution "” compact single row on mobile, full panels on desktop */}
+                    {isMobile ? (
+                      <div style={{ gridColumn: '1 / -1', borderBottom: '1px solid rgba(255,255,255,0.08)', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 0, flexWrap: 'nowrap', overflow: 'hidden', background: 'rgba(0,0,0,0.3)' }}>
+                        {([
+                          { label: 'B/B', value: analysis.callPutRatio.toFixed(2), color: analysis.callPutRatio > 1.2 ? '#10b981' : analysis.callPutRatio < 0.8 ? '#ef4444' : '#fff' },
+                          { label: 'Calls', value: fmtCompact(displayAnalysis?.totalCallPremium ?? 0), color: '#10b981' },
+                          { label: 'Puts', value: fmtCompact(displayAnalysis?.totalPutPremium ?? 0), color: '#ef4444' },
+                          { label: 'Sweeps', value: analysis.sweepCount.toLocaleString(), color: '#eab308' },
+                          { label: 'Blocks', value: analysis.blockCount.toLocaleString(), color: '#22d3ee' },
+                        ] as const).map((item, idx) => (
+                          <React.Fragment key={item.label}>
+                            {idx > 0 && <span style={{ color: 'rgba(255,255,255,0.35)', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, padding: '0 5px', flexShrink: 0 }}>·</span>}
+                            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#ffffff', fontWeight: 600, flexShrink: 0 }}>{item.label}:</span>
+                            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: item.color, fontWeight: 900, marginLeft: 3, flexShrink: 0 }}>{item.value}</span>
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    ) : (
+                      <>
+                        {/* P/C calls/puts bars */}
+                        <div style={{
+                          padding: '10px 14px',
+                          borderBottom: '1px solid rgba(255,255,255,0.06)',
+                          background: 'linear-gradient(180deg, rgba(255,255,255,0.018) 0%, transparent 100%)',
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
+                            <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#ffffff', letterSpacing: '0.22em', fontWeight: 700 }}>BULL/BEAR RATIO</div>
+                            <div style={{
+                              fontFamily: 'JetBrains Mono,monospace',
+                              fontSize: 20,
+                              color: '#fff',
+                              fontWeight: 900,
+                              letterSpacing: '0.06em',
+                              background: 'rgba(255,255,255,0.07)',
+                              border: '1px solid rgba(255,255,255,0.12)',
+                              borderRadius: 4,
+                              padding: '1px 7px',
+                              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
+                            }}>{analysis.callPutRatio.toFixed(2)}</div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                                <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#10b981', fontWeight: 700, letterSpacing: '0.14em' }}>CALLS</span>
+                                <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 15, color: '#10b981', fontWeight: 900 }}>{analysis.aggressiveCalls}</span>
+                              </div>
+                              <div style={{ height: 5, background: 'rgba(16,185,129,0.1)', borderRadius: 3, overflow: 'hidden', boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)' }}>
+                                <div style={{ height: '100%', background: 'linear-gradient(90deg, #059669, #10b981, #34d399)', borderRadius: 3, width: `${(analysis.aggressiveCalls / (analysis.aggressiveCalls + analysis.aggressivePuts || 1)) * 100}%`, boxShadow: '0 0 8px rgba(16,185,129,0.7), 0 0 2px rgba(52,211,153,0.5)' }} />
+                              </div>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                                <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#ef4444', fontWeight: 700, letterSpacing: '0.14em' }}>PUTS</span>
+                                <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 15, color: '#ef4444', fontWeight: 900 }}>{analysis.aggressivePuts}</span>
+                              </div>
+                              <div style={{ height: 5, background: 'rgba(239,68,68,0.1)', borderRadius: 3, overflow: 'hidden', boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)' }}>
+                                <div style={{ height: '100%', background: 'linear-gradient(90deg, #b91c1c, #ef4444, #f87171)', borderRadius: 3, width: `${(analysis.aggressivePuts / (analysis.aggressiveCalls + analysis.aggressivePuts || 1)) * 100}%`, boxShadow: '0 0 8px rgba(239,68,68,0.7), 0 0 2px rgba(248,113,113,0.5)' }} />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Sweeps vs Blocks */}
+                        <div style={{
+                          padding: '10px 14px',
+                          borderBottom: '1px solid rgba(255,255,255,0.06)',
+                          background: 'linear-gradient(180deg, rgba(255,255,255,0.018) 0%, transparent 100%)',
+                        }}>
+                          <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#ffffff', letterSpacing: '0.22em', fontWeight: 700, marginBottom: 9 }}>EXECUTION TYPE</div>
+                          <div style={{ display: 'flex', gap: 8, marginBottom: 9 }}>
+                            <div style={{
+                              flex: 1,
+                              background: 'linear-gradient(145deg, rgba(234,179,8,0.14) 0%, rgba(234,179,8,0.05) 60%, rgba(0,0,0,0.2) 100%)',
+                              border: '1px solid rgba(234,179,8,0.28)',
+                              padding: '8px 10px',
+                              borderRadius: 7,
+                              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.3), 0 3px 10px rgba(0,0,0,0.5), 0 0 12px rgba(234,179,8,0.06)',
+                              position: 'relative',
+                              overflow: 'hidden',
+                            }}>
+                              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '40%', background: 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, transparent 100%)', borderRadius: '7px 7px 0 0', pointerEvents: 'none' }} />
+                              <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: analysis.sweepCount >= 100000 ? 20 : analysis.sweepCount >= 10000 ? 26 : analysis.sweepCount >= 1000 ? 30 : 36, fontWeight: 900, color: '#eab308', lineHeight: 1, textShadow: '0 0 14px rgba(234,179,8,0.6), 0 0 28px rgba(234,179,8,0.2)' }}>{analysis.sweepCount}</div>
+                              <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#eab308', letterSpacing: '0.18em', marginTop: 4, fontWeight: 700 }}>SWEEPS</div>
+                            </div>
+                            <div style={{
+                              flex: 1,
+                              background: 'linear-gradient(145deg, rgba(34,211,238,0.14) 0%, rgba(34,211,238,0.05) 60%, rgba(0,0,0,0.2) 100%)',
+                              border: '1px solid rgba(34,211,238,0.28)',
+                              padding: '8px 10px',
+                              borderRadius: 7,
+                              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.3), 0 3px 10px rgba(0,0,0,0.5), 0 0 12px rgba(34,211,238,0.06)',
+                              position: 'relative',
+                              overflow: 'hidden',
+                            }}>
+                              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '40%', background: 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, transparent 100%)', borderRadius: '7px 7px 0 0', pointerEvents: 'none' }} />
+                              <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: analysis.blockCount >= 100000 ? 20 : analysis.blockCount >= 10000 ? 26 : analysis.blockCount >= 1000 ? 30 : 36, fontWeight: 900, color: '#22d3ee', lineHeight: 1, textShadow: '0 0 14px rgba(34,211,238,0.6), 0 0 28px rgba(34,211,238,0.2)' }}>{analysis.blockCount}</div>
+                              <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#22d3ee', letterSpacing: '0.18em', marginTop: 4, fontWeight: 700 }}>BLOCKS</div>
+                            </div>
+                          </div>
+                          {/* Sweep/Block ratio bar */}
+                          <div style={{ height: 5, background: 'rgba(255,255,255,0.05)', borderRadius: 4, display: 'flex', overflow: 'hidden', boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)' }}>
+                            <div style={{ height: '100%', background: 'linear-gradient(90deg, #a16207, #eab308)', width: `${(analysis.sweepCount / (analysis.sweepCount + analysis.blockCount || 1)) * 100}%`, boxShadow: '0 0 6px rgba(234,179,8,0.6)' }} />
+                            <div style={{ height: '100%', background: 'linear-gradient(90deg, #0891b2, #22d3ee)', flex: 1, boxShadow: '0 0 6px rgba(34,211,238,0.4)' }} />
+                          </div>
+                        </div>
+                      </>
                     )}
-                    <span style={{ color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: isMobile ? 14 : 21, fontWeight: 900, letterSpacing: '0.1em', marginRight: 2 }}>{analysis.ticker}</span>
-                    {analysis.currentPrice > 0 && !isMobile && <span style={{ color: '#aaa', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 700, marginRight: 4 }}>${analysis.currentPrice.toFixed(2)}</span>}
-                    {!isMobile && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, letterSpacing: '0.12em', padding: '1px 6px', borderRadius: 2, marginRight: 10, background: displayAnalysis?.flowTrend === 'BULLISH' ? 'rgba(16,185,129,0.15)' : displayAnalysis?.flowTrend === 'BEARISH' ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.15)', color: displayAnalysis?.flowTrend === 'BULLISH' ? '#10b981' : displayAnalysis?.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308', border: `1px solid ${displayAnalysis?.flowTrend === 'BULLISH' ? '#10b981' : displayAnalysis?.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308'}` }}>{displayAnalysis?.flowTrend}</span>}
-                    {/* Interval buttons "” context-aware based on scan days */}
-                    {(() => {
-                      const sd = getScanDays(scanTimeframe)
-                      const opts = sd === 1
-                        ? [{ v: '1min' as const, label: '1MIN' }, { v: '5min' as const, label: '5MIN' }]
-                        : sd <= 5
-                          ? [{ v: '30min' as const, label: '30MIN' }, { v: '1hour' as const, label: '1H' }]
-                          : [{ v: '1day' as const, label: '1D' }]
-                      return opts.map(({ v, label }) => (
-                        <button key={v} onClick={() => { setTimeInterval(v); setBrushIndices(null) }}
-                          style={{ padding: '2px 8px', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, letterSpacing: '0.1em', border: `1px solid ${timeInterval === v ? 'rgba(255,133,0,0.6)' : 'rgba(255,255,255,0.15)'}`, background: 'linear-gradient(180deg,#1a1a1a 0%,#0a0a0a 50%,#050505 100%)', boxShadow: timeInterval === v ? 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6)' : 'inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.5)', color: timeInterval === v ? '#ff8500' : '#ffffff', cursor: 'pointer' }}>{label}</button>
-                      ))
-                    })()}
-                    {brushIndices && (
-                      <button onClick={() => setBrushIndices(null)} style={{ padding: '2px 8px', fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, border: '1px solid rgba(255,255,255,0.3)', background: 'transparent', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', letterSpacing: '0.08em' }}>RESET</button>
-                    )}
-                  </div>
-                  {/* CENTER: legend (absolutely centered, hidden on mobile) */}
-                  <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', display: isMobile ? 'none' : 'flex', alignItems: 'center', gap: 6 }}>
-                    {chartViewMode === 'detailed' && [
-                      { color: '#00ff7f', label: 'BULLISH CALLS', key: 'callsPlus' },
-                      { color: '#4da6ff', label: 'BEARISH CALLS', key: 'callsMinus' },
-                      { color: '#ffcc00', label: 'BULLISH PUTS', key: 'putsPlus' },
-                      { color: '#ff2222', label: 'BEARISH PUTS', key: 'putsMinus' },
-                    ].map(({ color, label, key }) => (
-                      <span key={key} onClick={() => toggleLine(key)} style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer', opacity: hiddenLines.has(key) ? 0.3 : 1, transition: 'opacity 0.15s' }}>
-                        <svg width="16" height="4"><line x1="0" y1="2" x2="16" y2="2" stroke={color} strokeWidth="2.5" /></svg>
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, color, fontWeight: 700, letterSpacing: '0.03em' }}>{label}</span>
-                      </span>
-                    ))}
-                    {chartViewMode === 'simplified' && [
-                      { color: '#00ff7f', label: 'BULLISH', key: 'bullishTotal' },
-                      { color: '#ff2222', label: 'BEARISH', key: 'bearishTotal' },
-                    ].map(({ color, label, key }) => (
-                      <span key={key} onClick={() => toggleLine(key)} style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer', opacity: hiddenLines.has(key) ? 0.3 : 1, transition: 'opacity 0.15s' }}>
-                        <svg width="16" height="4"><line x1="0" y1="2" x2="16" y2="2" stroke={color} strokeWidth="2.5" /></svg>
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, color, fontWeight: 700, letterSpacing: '0.03em' }}>{label}</span>
-                      </span>
-                    ))}
-                    {chartViewMode === 'net' && (
-                      <span onClick={() => toggleLine('netFlow')} style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer', opacity: hiddenLines.has('netFlow') ? 0.3 : 1, transition: 'opacity 0.15s' }}>
-                        <svg width="24" height="4"><line x1="0" y1="2" x2="11" y2="2" stroke="#00ff7f" strokeWidth="2.5" /><line x1="13" y1="2" x2="24" y2="2" stroke="#ff2222" strokeWidth="2.5" /></svg>
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, color: '#fff', fontWeight: 700, letterSpacing: '0.03em' }}>NET FLOW</span>
-                      </span>
-                    )}
-                  </div>
-                  {/* RIGHT: mode buttons */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 3 : 4, marginLeft: 'auto', flexShrink: 0 }}>
-                    {([['detailed', 'ALL'], ['simplified', 'BULL/BEAR'], ['net', 'NET']] as const).map(([mode, label]) => (
-                      <button key={mode} onClick={() => setChartViewMode(mode)} style={{ padding: isMobile ? '2px 6px' : '3px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: isMobile ? 11 : 13, fontWeight: 800, letterSpacing: '0.08em', border: `1px solid ${chartViewMode === mode ? 'rgba(255,133,0,0.6)' : 'rgba(255,255,255,0.15)'}`, background: 'linear-gradient(180deg,#1a1a1a 0%,#0a0a0a 50%,#050505 100%)', boxShadow: chartViewMode === mode ? 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6), 0 0 8px rgba(255,133,0,0.15)' : 'inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.5)', color: chartViewMode === mode ? '#ff8500' : '#ffffff', cursor: 'pointer', whiteSpace: 'nowrap' }}>{label}</button>
+
+                    {/* Stacked metrics "” desktop only */}
+                    {!isMobile && [{ label: 'CALLS PREM', value: formatCurrency(displayAnalysis?.totalCallPremium ?? 0), color: '#10b981', glow: 'rgba(16,185,129,0.35)', bg: 'rgba(16,185,129,0.04)' },
+                    { label: 'PUTS PREM', value: formatCurrency(displayAnalysis?.totalPutPremium ?? 0), color: '#ef4444', glow: 'rgba(239,68,68,0.35)', bg: 'rgba(239,68,68,0.04)' },
+                    { label: 'NET FLOW', value: formatCurrency(analysis.netFlow), color: analysis.netFlow >= 0 ? '#10b981' : '#ef4444', glow: analysis.netFlow >= 0 ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)', bg: analysis.netFlow >= 0 ? 'rgba(16,185,129,0.04)' : 'rgba(239,68,68,0.04)' },
+                    { label: 'BULL/BEAR', value: analysis.callPutRatio.toFixed(2), color: '#e2e8f0', glow: 'rgba(255,255,255,0.15)', bg: 'transparent' },
+                    ].map(({ label, value, color, glow, bg }) => (
+                      <div key={label} style={{
+                        padding: '7px 14px',
+                        borderBottom: '1px solid rgba(255,255,255,0.04)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        background: bg,
+                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)',
+                      }}>
+                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#ffffff', letterSpacing: '0.18em', fontWeight: 700 }}>{label}</span>
+                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 22, fontWeight: 900, color, textShadow: `0 0 10px ${glow}` }}>{value}</span>
+                      </div>
                     ))}
                   </div>
-                </div>
-                {/* Chart body "” height auto-sizes to content: main chart + visible sub-panels */}
-                <div ref={chartDivRef} style={{
-                  padding: 0,
-                  background: 'linear-gradient(180deg, #0e0e0e 0%, #070707 4%, #000 100%)',
-                  minWidth: 0,
-                  position: 'relative',
-                  overflow: 'hidden',
-                  cursor: chartDragRef.current.dragging ? 'grabbing' : 'grab',
-                  userSelect: 'none',
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                }}
-                  onMouseDown={(e) => {
-                    const data = analysisRef.current?.chartData
-                    if (!data) return
-                    const len = data.length
-                    const cur = brushIndices ?? { start: 0, end: len - 1 }
-                    chartDragRef.current = { dragging: true, startX: e.clientX, startIndices: { ...cur } }
-                  }}
-                  onMouseMove={(e) => {
-                    if (!chartDragRef.current.dragging) return
-                    const clientX = e.clientX
-                    // RAF throttle "” only compute once per frame
-                    if (dragMoveRafRef.current) cancelAnimationFrame(dragMoveRafRef.current)
-                    dragMoveRafRef.current = requestAnimationFrame(() => {
-                      dragMoveRafRef.current = null
-                      const data = analysisRef.current?.chartData
-                      if (!data) return
-                      const len = data.length
-                      if (len < 2) return
-                      const width = chartDivRef.current?.clientWidth ?? 800
-                      const { startX, startIndices } = chartDragRef.current
-                      const range = startIndices.end - startIndices.start
-                      const pxPerPoint = width / Math.max(1, range)
-                      const deltaPoints = Math.round((startX - clientX) / pxPerPoint)
-                      const newStart = Math.max(0, Math.min(startIndices.start + deltaPoints, len - range - 1))
-                      const newEnd = newStart + range
-                      if (newEnd < len) setBrushIndices({ start: newStart, end: newEnd })
-                    })
-                  }}
-                  onMouseUp={() => { chartDragRef.current.dragging = false; if (dragMoveRafRef.current) { cancelAnimationFrame(dragMoveRafRef.current); dragMoveRafRef.current = null } }}
-                  onMouseLeave={() => { chartDragRef.current.dragging = false; if (dragMoveRafRef.current) { cancelAnimationFrame(dragMoveRafRef.current); dragMoveRafRef.current = null } }}
-                >
-                  {/* Mobile overlay controls "” ticker + timeframe + view mode */}
-                  {isMobile && (
-                    <div style={{ position: 'absolute', top: 6, left: 6, right: 6, zIndex: 10, display: 'flex', alignItems: 'center', gap: 3, pointerEvents: 'none' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 3, pointerEvents: 'auto' }}>
+
+                  {/* RIGHT: Chart — fills remaining left column */}
+                  <div style={{ flex: 1, minWidth: 0, width: isMobile ? '100%' : undefined }}>
+                    {/* Chart toolbar "” desktop only; mobile controls overlaid inside chart */}
+                    <div className="algo-chart-toolbar" style={{ padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: isMobile ? 'none' : 'flex', alignItems: 'center', position: 'relative', minHeight: 36, gap: 0 }}>
+                      {/* LEFT: ticker + FLOW + timeframe buttons */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                         {drilledTicker && (
-                          <button onClick={() => { if (!allScanCacheRef.current) return; setDrilledTicker(null); setSearchTicker('ALL'); setFlowData(allScanCacheRef.current.flowData); setAnalysis(allScanCacheRef.current.analysis) }} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, padding: '2px 6px', background: 'rgba(255,133,0,0.85)', border: '1px solid #ff8500', color: '#000', cursor: 'pointer', borderRadius: 3 }}>← ALL</button>
+                          <button
+                            onClick={() => {
+                              if (!allScanCacheRef.current) return
+                              setDrilledTicker(null)
+                              setSearchTicker('ALL')
+                              setFlowData(allScanCacheRef.current.flowData)
+                              setAnalysis(allScanCacheRef.current.analysis)
+                            }}
+                            style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 800, letterSpacing: '0.1em', padding: '2px 10px', background: 'rgba(255,133,0,0.15)', border: '1px solid #ff8500', color: '#ff8500', cursor: 'pointer', borderRadius: 3, marginRight: 6 }}
+                          >← ALL</button>
                         )}
-                        <span style={{ color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 900, letterSpacing: '0.1em', background: 'rgba(0,0,0,0.6)', padding: '1px 5px', borderRadius: 3 }}>{analysis.ticker}</span>
+                        <span style={{ color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: isMobile ? 14 : 21, fontWeight: 900, letterSpacing: '0.1em', marginRight: 2 }}>{analysis.ticker}</span>
+                        {analysis.currentPrice > 0 && !isMobile && <span style={{ color: '#aaa', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 700, marginRight: 4 }}>${analysis.currentPrice.toFixed(2)}</span>}
+                        {!isMobile && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, letterSpacing: '0.12em', padding: '1px 6px', borderRadius: 2, marginRight: 10, background: displayAnalysis?.flowTrend === 'BULLISH' ? 'rgba(16,185,129,0.15)' : displayAnalysis?.flowTrend === 'BEARISH' ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.15)', color: displayAnalysis?.flowTrend === 'BULLISH' ? '#10b981' : displayAnalysis?.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308', border: `1px solid ${displayAnalysis?.flowTrend === 'BULLISH' ? '#10b981' : displayAnalysis?.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308'}` }}>{displayAnalysis?.flowTrend}</span>}
+                        {/* Interval buttons "” context-aware based on scan days */}
                         {(() => {
                           const sd = getScanDays(scanTimeframe)
                           const opts = sd === 1
                             ? [{ v: '1min' as const, label: '1MIN' }, { v: '5min' as const, label: '5MIN' }]
                             : sd <= 5
-                              ? [{ v: '30min' as const, label: '30M' }, { v: '1hour' as const, label: '1H' }]
+                              ? [{ v: '30min' as const, label: '30MIN' }, { v: '1hour' as const, label: '1H' }]
                               : [{ v: '1day' as const, label: '1D' }]
                           return opts.map(({ v, label }) => (
                             <button key={v} onClick={() => { setTimeInterval(v); setBrushIndices(null) }}
-                              style={{ padding: '2px 5px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, border: '1px solid rgba(255,165,0,0.7)', background: timeInterval === v ? '#ff8500' : 'rgba(0,0,0,0.65)', color: timeInterval === v ? '#000' : '#ff8500', cursor: 'pointer', borderRadius: 2 }}>{label}</button>
+                              style={{ padding: '2px 8px', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, letterSpacing: '0.1em', border: `1px solid ${timeInterval === v ? 'rgba(255,133,0,0.6)' : 'rgba(255,255,255,0.15)'}`, background: 'linear-gradient(180deg,#1a1a1a 0%,#0a0a0a 50%,#050505 100%)', boxShadow: timeInterval === v ? 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6)' : 'inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.5)', color: timeInterval === v ? '#ff8500' : '#ffffff', cursor: 'pointer' }}>{label}</button>
                           ))
                         })()}
                         {brushIndices && (
-                          <button onClick={() => setBrushIndices(null)} style={{ padding: '2px 6px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, border: '1px solid rgba(255,255,255,0.4)', background: 'rgba(0,0,0,0.65)', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', borderRadius: 2 }}>RESET</button>
+                          <button onClick={() => setBrushIndices(null)} style={{ padding: '2px 8px', fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, border: '1px solid rgba(255,255,255,0.3)', background: 'transparent', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', letterSpacing: '0.08em' }}>RESET</button>
                         )}
                       </div>
-                    </div>
-                  )}
-                  {/* Mobile overlay controls — one clean row: Ticker | Timeframe | ALL | BULL/BEAR | NET */}
-                  {isMobile && (
-                    <div style={{ position: 'absolute', top: 6, left: 6, right: 6, zIndex: 10, display: 'flex', alignItems: 'center', gap: 0, background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '2px 6px', pointerEvents: 'auto' }}>
-                      {drilledTicker && (
-                        <button onClick={() => { if (!allScanCacheRef.current) return; setDrilledTicker(null); setSearchTicker('ALL'); setFlowData(allScanCacheRef.current.flowData); setAnalysis(allScanCacheRef.current.analysis) }} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, padding: '2px 5px 4px', background: 'none', border: 'none', color: '#ff8500', cursor: 'pointer', borderBottom: '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>← ALL</button>
-                      )}
-                      <span style={{ color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 900, letterSpacing: '0.1em', padding: '0 4px' }}>{analysis.ticker}</span>
-                      <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 9, fontFamily: 'JetBrains Mono,monospace', padding: '0 4px', userSelect: 'none' }}>|</span>
-                      {(() => {
-                        const sd = getScanDays(scanTimeframe)
-                        const opts = sd === 1
-                          ? [{ v: '1min' as const, label: '1MIN' }, { v: '5min' as const, label: '5MIN' }]
-                          : sd <= 5
-                            ? [{ v: '30min' as const, label: '30M' }, { v: '1hour' as const, label: '1H' }]
-                            : [{ v: '1day' as const, label: '1D' }]
-                        return opts.map(({ v, label }) => (
-                          <button key={v} onClick={() => { setTimeInterval(v); setBrushIndices(null) }}
-                            style={{ padding: '2px 5px 4px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, border: 'none', background: 'none', color: timeInterval === v ? '#ff8500' : '#ffffff', cursor: 'pointer', whiteSpace: 'nowrap', borderBottom: timeInterval === v ? '2px solid #ff8500' : '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>{label}</button>
-                        ))
-                      })()}
-                      {brushIndices && (
-                        <button onClick={() => setBrushIndices(null)} style={{ padding: '2px 5px 4px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, border: 'none', background: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', borderBottom: '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>RESET</button>
-                      )}
-                      <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 9, fontFamily: 'JetBrains Mono,monospace', padding: '0 4px', userSelect: 'none' }}>|</span>
-                      {([['detailed', 'ALL'], ['simplified', 'BULL/BEAR'], ['net', 'NET']] as const).map(([mode, lbl]) => (
-                        <button key={mode} onClick={() => setChartViewMode(mode)} style={{ padding: '2px 5px 4px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, border: 'none', background: 'none', color: chartViewMode === mode ? '#ff8500' : '#ffffff', cursor: 'pointer', whiteSpace: 'nowrap', borderBottom: chartViewMode === mode ? '2px solid #ff8500' : '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>{lbl}</button>
-                      ))}
-                    </div>
-                  )}
-                  {/* Glossy top-edge sheen */}
-                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 32, background: 'linear-gradient(180deg, rgba(255,255,255,0.035) 0%, transparent 100%)', pointerEvents: 'none', zIndex: 2 }} />
-                  <div ref={mainChartWrapRef} style={{ height: isMobile ? (showBullBear ? 400 : 494) : (embeddedMode ? 440 : (showBullBear ? 445 : 569)), flexShrink: 0, overflow: 'hidden', borderBottom: showBullBear ? '2px solid rgba(167,139,250,0.55)' : 'none' }}>
-                    <ResponsiveContainer width="100%" height="100%" debounce={16}>
-                      <ComposedChart data={chartMemo.visibleData} margin={{ top: 10, right: 0, bottom: 0, left: 30 }}>
-                        <XAxis dataKey="timeLabel" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#ffffff', fontSize: isMobile ? 11 : 17, fontWeight: 700 }} height={isMobile ? 22 : 34} interval={Math.max(0, Math.floor(chartMemo.visibleData.length / (isMobile ? 3 : 6)) - 1)} padding={{ left: 10, right: 10 }}
-                          tickFormatter={(label: string) => {
-                            if (chartDisplayDays <= 1) return label.includes('/') ? label.replace(/^\d+\/\d+\/\d+ /, '') : label
-                            else if (chartDisplayDays <= 5) return label.replace(/\/\d{4} /, ' ')
-                            else return label.replace(/\/(\d{4}) .*/, (_, yr) => `/${yr.slice(-2)}`)
-                          }}
-                        />
-                        <YAxis yAxisId="flow" orientation="right" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#ffffff', fontSize: 18, fontWeight: 'bold' }} width={82}
-                          tickFormatter={(value) => {
-                            const absValue = Math.abs(value)
-                            const sign = value < 0 ? '-' : ''
-                            if (absValue >= 1_000_000_000) return `${sign}$${(absValue / 1_000_000_000).toFixed(2)}B`
-                            if (absValue >= 1_000_000) return `${sign}$${Math.round(absValue / 1_000_000)}M`
-                            if (absValue >= 1_000) return `${sign}$${Math.round(absValue / 1_000)}K`
-                            return `${sign}$${absValue}`
-                          }}
-                        />
-                        <YAxis yAxisId="price" orientation="right" hide={true}
-                          domain={[chartMemo.priceMin, chartMemo.priceMax]}
-                        />
-                        <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.2)', fontWeight: 'bold', fontSize: '13px' }} labelStyle={{ color: '#fff', fontWeight: 'bold' }}
-                          formatter={(value: any) => {
-                            const num = Number(value); const absNum = Math.abs(num); const sign = num < 0 ? '-' : ''
-                            if (absNum >= 1_000_000_000) return `${sign}$${(absNum / 1_000_000_000).toFixed(2)}B`
-                            if (absNum >= 1_000_000) return `${sign}$${(absNum / 1_000_000).toFixed(2)}M`
-                            if (absNum >= 1_000) return `${sign}$${(absNum / 1_000).toFixed(1)}K`
-                            return `${sign}$${absNum.toLocaleString()}`
-                          }}
-                        />
-                        {chartViewMode === 'detailed' ? (<>
-                          <Line type="linear" yAxisId="flow" dataKey="callsPlus" stroke="#00ff7f" strokeWidth={3} name="BULLISH CALLS" dot={false} hide={hiddenLines.has('callsPlus')} />
-                          <Line type="linear" yAxisId="flow" dataKey="callsMinus" stroke="#4da6ff" strokeWidth={3} name="BEARISH CALLS" dot={false} hide={hiddenLines.has('callsMinus')} />
-                          <Line type="linear" yAxisId="flow" dataKey="putsPlus" stroke="#ffcc00" strokeWidth={3} name="BULLISH PUTS" dot={false} hide={hiddenLines.has('putsPlus')} />
-                          <Line type="linear" yAxisId="flow" dataKey="putsMinus" stroke="#ff2222" strokeWidth={3} name="BEARISH PUTS" dot={false} hide={hiddenLines.has('putsMinus')} />
-                        </>) : chartViewMode === 'simplified' ? (<>
-                          <Line type="linear" yAxisId="flow" dataKey="bullishTotal" stroke="#00ff7f" strokeWidth={3} name="BULLISH FLOW" dot={false} hide={hiddenLines.has('bullishTotal')} />
-                          <Line type="linear" yAxisId="flow" dataKey="bearishTotal" stroke="#ff2222" strokeWidth={3} name="BEARISH FLOW" dot={false} hide={hiddenLines.has('bearishTotal')} />
-                        </>) : (() => {
-                          const nfVals = chartMemo.visibleData.map((d: any) => d.netFlow ?? 0)
-                          const nfMax = nfVals.length ? Math.max(...nfVals) : 1
-                          const nfMin = nfVals.length ? Math.min(...nfVals) : -1
-                          const nfRange = nfMax - nfMin || 1
-                          // hard stop fraction: where zero sits between min and max (top=0%, bottom=100%)
-                          const zeroFrac = ((nfMax - 0) / nfRange) * 100
-                          const zeroStop = `${Math.max(0, Math.min(100, zeroFrac)).toFixed(2)}%`
-                          return (<>
-                            <defs>
-                              <linearGradient id="netFlowColorGrad" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset={zeroStop} stopColor="#00ff00" />
-                                <stop offset={zeroStop} stopColor="#ff2222" />
-                              </linearGradient>
-                            </defs>
-                            <Line type="linear" yAxisId="flow" dataKey="netFlow" stroke="url(#netFlowColorGrad)" strokeWidth={3} name="NET FLOW" dot={false} hide={hiddenLines.has('netFlow')} />
-                          </>)
-                        })()}
-                        <Line type="monotone" yAxisId="price" dataKey="stockClose" stroke="transparent" strokeWidth={0} name="PRICE" dot={false} legendType="none" />
-                        <Customized component={CandlestickLayer} visibleData={chartMemo.visibleData} />
-                      </ComposedChart>
-                    </ResponsiveContainer>
-                  </div>
-
-                  {/* P/C Ratio sub-panel "” toggleable */}
-                  {showBullBear && (() => {
-                    const pcData = chartMemo.visibleData
-                    const pcVals = pcData.map((d: any) => d.pcRatio ?? 1)
-                    const pcMin = pcVals.length ? Math.min(...pcVals) : 0
-                    const pcMax = pcVals.length ? Math.max(...pcVals) : 2
-                    const pcPad = (pcMax - pcMin) * 0.1 || 0.1
-                    const lastPc = pcVals.length ? pcVals[pcVals.length - 1] : 1
-                    const pcCol = lastPc > 1.1 ? '#ef4444' : lastPc < 0.9 ? '#10b981' : '#eab308'
-                    return (
-                      <div ref={pcPanelRef} style={{ borderTop: '2px solid rgba(167,139,250,0.55)', background: '#06040f', flexShrink: 0, overflow: 'hidden' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 82px 0 30px' }}>
-                          <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, color: '#a78bfa', letterSpacing: '0.18em' }}>BULL/BEAR RATIO</span>
-                        </div>
-                        <ResponsiveContainer width="100%" height={isMobile ? 70 : 100} debounce={50}>
-                          <LineChart data={pcData} margin={{ top: 6, right: 0, bottom: 0, left: 30 }}>
-                            <XAxis dataKey="timeLabel" hide />
-                            <YAxis orientation="right" stroke="#ffffff" width={82}
-                              domain={[Math.max(0, parseFloat((pcMin - pcPad).toFixed(3))), parseFloat((pcMax + pcPad).toFixed(3))]}
-                              ticks={(() => {
-                                const lo = Math.max(0, pcMin - pcPad), hi = pcMax + pcPad
-                                const n = 4, step = (hi - lo) / n
-                                const base = Array.from({ length: n + 1 }, (_, i) => lo + i * step)
-                                const ci = base.reduce((b, t, i) => Math.abs(t - lastPc) < Math.abs(base[b] - lastPc) ? i : b, 0)
-                                base[ci] = lastPc
-                                return base
-                              })()}
-                              tick={(props: any) => {
-                                const { x, y, payload } = props
-                                const isLast = Math.abs(payload.value - lastPc) < 1e-9
-                                const txt = isLast ? lastPc.toFixed(2) : payload.value.toFixed(2)
-                                return (
-                                  <g>
-                                    {isLast && <rect x={x} y={y - 9} width={82} height={18} fill="#000" />}
-                                    <text x={x + 5} y={y + 4} textAnchor="start" fill={isLast ? pcCol : '#fff'} fontSize={isLast ? 16 : 13} fontWeight={isLast ? 800 : 700} fontFamily="JetBrains Mono, monospace">{txt}</text>
-                                  </g>
-                                )
-                              }}
-                            />
-                            <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.2)', fontSize: 12 }} labelStyle={{ color: '#fff' }}
-                              formatter={(v: any) => [Number(v).toFixed(3), 'BULL/BEAR']}
-                            />
-                            <ReferenceLine y={1} stroke="rgba(167,139,250,0.35)" strokeDasharray="4 4" />
-                            <Line type="monotone" dataKey="pcRatio" stroke="#a78bfa" strokeWidth={2} dot={false} name="BULL/BEAR"
-                              activeDot={{ r: 4, fill: '#a78bfa', stroke: '#fff', strokeWidth: 1 }}
-                            />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
-                    )
-                  })()}{/* end P/C sub-panel */}
-
-                </div>{/* end chart body */}
-
-                {/* Gamma Line panel "” outside fixed-height chart body so it's never clipped */}
-                {showGammaLine && !isAllScan && (() => {
-                  const lastGamma = gammaLineData.length ? gammaLineData[gammaLineData.length - 1].cumGamma : 0
-                  const gammaColor = lastGamma > 0 ? '#10b981' : lastGamma < 0 ? '#ef4444' : '#888'
-                  const fmtGamma = (v: number) => {
-                    const abs = Math.abs(v), sign = v < 0 ? '-' : v > 0 ? '+' : ''
-                    if (abs >= 1000) return `${sign}${(abs / 1000).toFixed(2)}K`
-                    return `${sign}${abs.toFixed(3)}`
-                  }
-                  // Tight Y domain: 10% padding above/below actual data range
-                  const gammaVals = gammaLineData.map(d => d.cumGamma)
-                  const gMin = gammaVals.length ? Math.min(...gammaVals) : 0
-                  const gMax = gammaVals.length ? Math.max(...gammaVals) : 0
-                  const gRange = gMax - gMin || Math.abs(gMax) * 0.2 || 1
-                  const gDomMin = gMin - gRange * 0.1
-                  const gDomMax = gMax + gRange * 0.1
-                  // Gradient: green above 0, red below 0 "” hard stop at zero fraction
-                  const totalRange = gDomMax - gDomMin
-                  const zeroFrac = totalRange > 0 ? ((gDomMax - 0) / totalRange) * 100 : 50
-                  const zeroStop = `${Math.max(0, Math.min(100, zeroFrac)).toFixed(1)}%`
-                  return (
-                    <div style={{ borderTop: '2px solid rgba(16,185,129,0.4)', background: 'linear-gradient(180deg, rgba(16,185,129,0.012) 0%, transparent 100%)', flexShrink: 0, overflow: 'hidden' }}>
-                      {/* Header "” title + spinner only, value lives on the Y axis */}
-                      <div style={{ padding: '6px 14px 4px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#ff8500', letterSpacing: '0.22em', fontWeight: 700 }}>GAMMA EXPOSURE</div>
-                          {gammaLoading && <div style={{ width: 8, height: 8, borderRadius: '50%', border: '2px solid #ff8500', borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite' }} />}
-                        </div>
-                      </div>
-                      {/* Chart */}
-                      {!gammaLoading && gammaLineData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height={isMobile ? 80 : 120} debounce={50}>
-                          <LineChart data={gammaLineData} margin={{ top: 4, right: 0, bottom: 0, left: 30 }}>
-                            <defs>
-                              <linearGradient id="gammaStroke" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset={zeroStop} stopColor="#10b981" />
-                                <stop offset={zeroStop} stopColor="#ef4444" />
-                              </linearGradient>
-                            </defs>
-                            <XAxis dataKey="timeLabel" hide />
-                            <YAxis orientation="right" stroke="#ffffff" width={82}
-                              domain={[gDomMin, gDomMax]}
-                              ticks={(() => {
-                                const n = 4
-                                const step = (gDomMax - gDomMin) / n
-                                const base = Array.from({ length: n + 1 }, (_, i) => gDomMin + i * step)
-                                // swap the closest base tick with lastGamma so it appears in axis
-                                const ci = base.reduce((b, t, i) => Math.abs(t - lastGamma) < Math.abs(base[b] - lastGamma) ? i : b, 0)
-                                base[ci] = lastGamma
-                                return base
-                              })()}
-                              tick={(props: any) => {
-                                const { x, y, payload } = props
-                                const isLast = Math.abs(payload.value - lastGamma) < 1e-9
-                                const txt = isLast ? fmtGamma(lastGamma) : (() => { const abs = Math.abs(payload.value), s = payload.value < 0 ? '-' : ''; return abs >= 1000 ? `${s}${(abs / 1000).toFixed(2)}K` : `${s}${abs.toFixed(3)}` })()
-                                return (
-                                  <g>
-                                    {isLast && <rect x={x} y={y - 9} width={82} height={18} fill="#000" />}
-                                    <text x={x + 5} y={y + 4} textAnchor="start" fill={isLast ? '#ff8500' : '#fff'} fontSize={isLast ? 16 : 13} fontWeight={isLast ? 800 : 700} fontFamily="JetBrains Mono, monospace">{txt}</text>
-                                  </g>
-                                )
-                              }}
-                            />
-                            <Tooltip
-                              contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,133,0,0.5)', fontSize: 12 }}
-                              labelStyle={{ color: '#ff8500', fontWeight: 700 }}
-                              formatter={(v: any) => [fmtGamma(Number(v)), 'CUM GAMMA']}
-                            />
-                            <ReferenceLine y={0} stroke="rgba(255,255,255,0.2)" strokeDasharray="4 4" />
-                            <Line
-                              type="monotone" dataKey="cumGamma"
-                              stroke="url(#gammaStroke)"
-                              strokeWidth={2.5} dot={false} name="GAMMA"
-                              activeDot={{ r: 4, fill: '#ff8500', stroke: '#fff', strokeWidth: 1 }}
-                            />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      ) : !gammaLoading ? (
-                        <div style={{ height: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: 'rgba(255,133,0,0.5)', letterSpacing: '0.1em' }}>NO GAMMA DATA "” CONTRACT NOT IN SNAPSHOT</div>
-                      ) : null}
-                    </div>
-                  )
-                })()}
-
-              </div>{/* end chart column */}
-            </div>{/* end ROW 2 */}
-
-            {/* â”€â”€ ROW 3: TRADES TABLE + EFI CHART "” hidden in embedded mode â”€â”€ */}
-            <div style={{ borderTop: '1px solid rgba(255,255,255,0.15)', display: embeddedMode ? 'none' : 'flex', marginTop: isMobile ? -20 : 0 }}>
-
-              {/* Left: Trades table */}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ padding: '5px 14px', background: 'linear-gradient(90deg,#0a0a0a,#111)', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#fff', letterSpacing: '0.15em' }}></span>
-                  {(selectedStrike !== null || selectedExpiry !== null) && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      {selectedStrike !== null && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#22d3ee' }}>STRIKE: ${selectedStrike}</span>}
-                      {selectedExpiry !== null && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#22d3ee' }}>EXPIRY: {selectedExpiry.split('T')[0]}</span>}
-                      <button onClick={() => { setSelectedStrike(null); setSelectedExpiry(null); }} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#fff', background: 'none', border: 'none', cursor: 'pointer' }}>âœ• CLEAR</button>
-                    </div>
-                  )}
-                </div>
-                <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: isMobile ? '60vh' : 680, WebkitOverflowScrolling: 'touch' as any }}>
-                  <table className="algo-trades-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead style={{ background: '#0a0a0a', position: 'sticky', top: 0, zIndex: 10, borderBottom: '1px solid rgba(255,255,255,0.2)' }}>
-                      <tr>
-                        {isMobile ? (
-                          [
-                            { key: 'underlying_ticker', label: 'SYMBOL' },
-                            { key: 'strike', label: 'STRIKE' },
-                            { key: 'total_premium', label: 'SIZE' },
-                            { key: null, label: 'EXPIRY' },
-                            { key: null, label: 'SPOT' },
-                          ].map(({ key, label }) => (
-                            <th key={label}
-                              onClick={key ? () => { if (sortColumn === key) { setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc') } else { setSortColumn(key); setSortDirection('desc') } } : undefined}
-                              style={{ textAlign: 'left', padding: '4px 5px', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, color: sortColumn === key ? '#fff' : '#ff8500', letterSpacing: '0.08em', fontWeight: 800, cursor: key ? 'pointer' : 'default', whiteSpace: 'nowrap' }}
-                            >
-                              {label}{key && sortColumn === key ? (sortDirection === 'asc' ? ' ←‘' : ' ←“') : ''}
-                            </th>
-                          ))
-                        ) : (
-                          [
-                            { key: 'trade_timestamp', label: 'TIME' },
-                            { key: 'underlying_ticker', label: 'SYM' },
-                            { key: null, label: 'TYPE' },
-                            { key: 'strike', label: 'STRIKE' },
-                            { key: 'trade_size', label: 'PURCHASE' },
-                            { key: 'total_premium', label: 'PREMIUM' },
-                            { key: null, label: 'SPOT' },
-                            { key: null, label: 'EXPIRY' },
-                            { key: null, label: 'VOL/OI' },
-                            { key: null, label: getScanDays(scanTimeframe) > 1 ? 'OI CHANGE' : 'LIVE OI' },
-                            { key: null, label: 'STYLE' },
-                          ].map(({ key, label }) => (
-                            <th key={label}
-                              onClick={key ? () => { if (sortColumn === key) { setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc') } else { setSortColumn(key); setSortDirection('desc') } } : undefined}
-                              style={{ textAlign: 'left', padding: '6px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 22, color: sortColumn === key ? '#fff' : '#ff8500', letterSpacing: '0.12em', fontWeight: 800, cursor: key ? 'pointer' : 'default', whiteSpace: 'nowrap' }}
-                            >
-                              {label}{key && sortColumn === key ? (sortDirection === 'asc' ? ' ←‘' : ' ←“') : ''}
-                            </th>
-                          ))
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(() => {
-                        let tradesToDisplay = displayAnalysis?.trades || flowData
-                        if (selectedStrike !== null) tradesToDisplay = tradesToDisplay.filter(t => t.strike === selectedStrike)
-                        if (selectedExpiry !== null) tradesToDisplay = tradesToDisplay.filter(t => t.expiry === selectedExpiry)
-                        if (excludeMag7) tradesToDisplay = tradesToDisplay.filter(t => !MAG7_TICKERS.includes(t.underlying_ticker))
-                        if (excludeEtf) tradesToDisplay = tradesToDisplay.filter(t => !ETF_SET.has(t.underlying_ticker))
-                        // Expiry range filters
-                        if (expiryFilter !== 'all') {
-                          const now = new Date()
-                          // LA trading day (PT)
-                          const todayPT = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-                          const dow = todayPT.getDay() // 0=Sun,1=Mon,...,5=Fri,6=Sat
-                          // Current trading day date string in PT
-                          const tradingDate = todayPT.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }) // YYYY-MM-DD
-                          if (expiryFilter === '45d') {
-                            const cutoff = new Date(todayPT)
-                            cutoff.setDate(cutoff.getDate() + 45)
-                            const cutoffStr = cutoff.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
-                            tradesToDisplay = tradesToDisplay.filter(t => {
-                              const expStr = t.expiry.includes('T') ? t.expiry.split('T')[0] : t.expiry
-                              return expStr >= tradingDate && expStr <= cutoffStr
-                            })
-                          } else if (expiryFilter === 'weekly') {
-                            // Week = Mon"“Fri. If today is Fri (5) or Sat (6), point to next week's Friday.
-                            const daysToFriday = dow <= 5 ? 5 - dow : 6 // 0=Sun←’5, 1=Mon←’4, ..., 5=Fri←’0, 6=Sat←’6(next Fri)
-                            const thisFriday = new Date(todayPT)
-                            thisFriday.setDate(todayPT.getDate() + daysToFriday)
-                            // Week start = Monday of same week
-                            const weekStart = new Date(thisFriday)
-                            weekStart.setDate(thisFriday.getDate() - 4) // Mon
-                            const weekStartStr = weekStart.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
-                            const weekEndStr = thisFriday.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
-                            tradesToDisplay = tradesToDisplay.filter(t => {
-                              const expStr = t.expiry.includes('T') ? t.expiry.split('T')[0] : t.expiry
-                              return expStr >= weekStartStr && expStr <= weekEndStr
-                            })
-                          } else if (expiryFilter === '0dte') {
-                            // For MWF stocks (MAG7 + ETFs): Mon/Wed/Fri expiries are valid 0DTE
-                            // For others: Friday-only
-                            // Rule: show contracts expiring on today's date. If today is after 4pm PT
-                            // (or Sat/Sun), advance to next trading day.
-                            let odteDate = new Date(todayPT)
-                            const hourPT = todayPT.getHours()
-                            // After market close (>=16) or weekend, roll to next trading day
-                            if (hourPT >= 16 || dow === 0 || dow === 6) {
-                              do {
-                                odteDate.setDate(odteDate.getDate() + 1)
-                                const d = odteDate.getDay()
-                                if (d !== 0 && d !== 6) break
-                              } while (true)
-                            }
-                            const odteDateStr = odteDate.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
-                            tradesToDisplay = tradesToDisplay.filter(t => {
-                              const expStr = t.expiry.includes('T') ? t.expiry.split('T')[0] : t.expiry
-                              return expStr === odteDateStr
-                            })
-                          }
-                        }
-                        const sortedTrades = [...tradesToDisplay].sort((a: any, b: any) => {
-                          let aVal = a[sortColumn]; let bVal = b[sortColumn]
-                          if (sortColumn === 'trade_timestamp') { aVal = new Date(aVal).getTime(); bVal = new Date(bVal).getTime() }
-                          return sortDirection === 'asc' ? (aVal > bVal ? 1 : -1) : (aVal < bVal ? 1 : -1)
-                        })
-                        const paginatedTrades = sortedTrades.slice((currentPage - 1) * TRADES_PER_PAGE, currentPage * TRADES_PER_PAGE)
-                        const fillColors: Record<string, string> = { A: '#10b981', B: '#ef4444', AA: '#6ee7b7', BB: '#fca5a5', 'N/A': 'rgba(255,255,255,0.2)' }
-                        const styleColors: Record<string, string> = { SWEEP: 'rgb(255,215,0)', BLOCK: 'rgb(0,153,255)', MINI: 'rgb(0,255,94)', 'MULTI-LEG': 'rgb(168,85,247)' }
-
-                        // Use memoized OI computation (tradeOIMemo) "” avoids rerunning on every render
-                        const { isMultiDay, liveOIMap, baseOIMap, multiDayOIChange, lastDayVolumeMap, lastDayOISnapshotMap } = tradeOIMemo
-
-                        return paginatedTrades.map((trade, idx) => {
-                          const day = new Date(trade.trade_timestamp).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
-                          const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`
-                          const contractDayKey = `${contractKey}_${day}`
-                          const originalOI = baseOIMap.get(contractDayKey) ?? trade.open_interest ?? 0
-                          const liveOI = liveOIMap.get(contractDayKey) ?? originalOI
-                          const oiChange = isMultiDay ? (multiDayOIChange.get(contractKey) ?? 0) : (liveOI - originalOI)
-                          const displayVolume = isMultiDay ? lastDayVolumeMap.get(contractKey) : trade.volume
-                          const displayOISnapshot = isMultiDay ? lastDayOISnapshotMap.get(contractKey) : trade.open_interest
-                          const rowBg = idx % 2 === 0 ? 'rgba(255,255,255,0.01)' : 'transparent'
-                          const styleBadge = (
-                            <span style={{
-                              fontFamily: 'JetBrains Mono,monospace', fontSize: 9, fontWeight: 800,
-                              padding: '2px 5px', borderRadius: '9999px', display: 'inline-block', letterSpacing: '0.05em',
-                              ...(trade.trade_type === 'SWEEP' ? { background: 'linear-gradient(180deg,#1e1e1e,#000)', color: '#FFD700', border: '1px solid rgba(255,215,0,0.6)' }
-                                : trade.trade_type === 'BLOCK' ? { background: 'linear-gradient(180deg,#1e1e1e,#000)', color: '#00e5ff', border: '1px solid rgba(0,229,255,0.5)' }
-                                  : trade.trade_type === 'MULTI-LEG' ? { background: 'linear-gradient(180deg,#3b1d6e,#1e0a3c)', color: '#d8b4fe', border: '1px solid rgba(168,85,247,0.5)' }
-                                    : { background: 'linear-gradient(180deg,#14532d,#052e16)', color: '#86efac', border: '1px solid rgba(134,239,172,0.4)' })
-                            }}>{trade.trade_type || 'MINI'}</span>
-                          )
-                          if (isMobile) {
-                            const timeStr = scanTimeframe !== '1D'
-                              ? new Date(trade.trade_timestamp).toLocaleString('en-US', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/Los_Angeles' })
-                              : new Date(trade.trade_timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Los_Angeles' })
-                            return (
-                              <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', background: rowBg }}
-                                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
-                                onMouseLeave={e => (e.currentTarget.style.background = rowBg)}
-                              >
-                                {/* Col 1: SYM + TIME */}
-                                <td style={{ padding: '4px 5px', verticalAlign: 'middle' }}>
-                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-                                    <span
-                                      style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 900, color: allScanCacheRef.current ? '#ffcc44' : '#fff', cursor: allScanCacheRef.current ? 'pointer' : 'default', background: 'linear-gradient(180deg,#1e1e1e,#000)', border: '1px solid rgba(255,255,255,0.25)', padding: '1px 4px' }}
-                                      onDoubleClick={() => {
-                                        if (!allScanCacheRef.current) return
-                                        const t = trade.underlying_ticker
-                                        setDrilledTicker(t); setSearchTicker(t)
-                                        const filtered = allScanCacheRef.current.flowData.filter(x => x.underlying_ticker === t)
-                                        setFlowData(filtered); setIsAnalyzing(true)
-                                        setTimeout(() => performAnalysis(filtered, t), 0)
-                                      }}
-                                    >{trade.underlying_ticker}</span>
-                                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: 'rgba(255,255,255,0.5)' }}>{timeStr}</span>
-                                  </div>
-                                </td>
-                                {/* Col 2: STRIKE + TYPE */}
-                                <td style={{ padding: '4px 5px', verticalAlign: 'middle' }}>
-                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-                                    <button onClick={() => setSelectedStrike(selectedStrike === trade.strike ? null : trade.strike)} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 700, color: selectedStrike === trade.strike ? '#22d3ee' : '#fff', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>${trade.strike}</button>
-                                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, color: trade.type === 'call' ? '#00cc00' : '#ff0000' }}>{trade.type.toUpperCase()}</span>
-                                  </div>
-                                </td>
-                                {/* Col 3: SIZE@PRICE FILL + PREMIUM */}
-                                <td style={{ padding: '4px 5px', verticalAlign: 'middle' }}>
-                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-                                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#fff', whiteSpace: 'nowrap' }}>
-                                      {trade.trade_size.toLocaleString()}@${trade.premium_per_contract.toFixed(2)}{' '}
-                                      <span style={{ fontWeight: 800, color: fillColors[trade.fill_style || 'N/A'] }}>{trade.fill_style || 'N/A'}</span>
-                                    </span>
-                                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#00cc00', fontWeight: 700 }}>${trade.total_premium.toLocaleString()}</span>
-                                  </div>
-                                </td>
-                                {/* Col 4: EXPIRY + STYLE */}
-                                <td style={{ padding: '4px 5px', verticalAlign: 'middle' }}>
-                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3 }}>
-                                    <button onClick={() => setSelectedExpiry(selectedExpiry === trade.expiry ? null : trade.expiry)} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: selectedExpiry === trade.expiry ? '#22d3ee' : '#fff', background: 'none', border: 'none', cursor: 'pointer', padding: 0, whiteSpace: 'nowrap' }}>{trade.expiry.split('T')[0]}</button>
-                                    {styleBadge}
-                                  </div>
-                                </td>
-                                {/* Col 5: SPOT + VOL/OI */}
-                                <td style={{ padding: '4px 5px', verticalAlign: 'middle' }}>
-                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-                                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#fff', whiteSpace: 'nowrap' }}>
-                                      ${trade.spot_price != null ? Number(trade.spot_price).toFixed(2) : 'N/A'}
-                                    </span>
-                                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: 'rgb(0,153,255)', whiteSpace: 'nowrap' }}>
-                                      {displayVolume?.toLocaleString() || 'N/A'}<span style={{ color: 'rgba(255,255,255,0.3)', margin: '0 2px' }}>/</span><span style={{ color: 'rgb(0,255,94)' }}>{displayOISnapshot?.toLocaleString() || 'N/A'}</span>
-                                    </span>
-                                  </div>
-                                </td>
-                              </tr>
-                            )
-                          }
-                          return (
-                            <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: rowBg }}
-                              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
-                              onMouseLeave={e => (e.currentTarget.style.background = rowBg)}
-                            >
-                              <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, color: '#fff', whiteSpace: 'nowrap' }}>
-                                {scanTimeframe !== '1D'
-                                  ? new Date(trade.trade_timestamp).toLocaleString('en-US', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/Los_Angeles' })
-                                  : new Date(trade.trade_timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/Los_Angeles' })}
-                              </td>
-                              <td
-                                style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 23, color: allScanCacheRef.current ? '#ffcc44' : '#fff', fontWeight: 900, cursor: allScanCacheRef.current ? 'pointer' : 'default', userSelect: 'none' }}
-                                title={allScanCacheRef.current ? `Double-click to drill into ${trade.underlying_ticker}` : undefined}
-                                onDoubleClick={() => {
-                                  if (!allScanCacheRef.current) return
-                                  const t = trade.underlying_ticker
-                                  setDrilledTicker(t); setSearchTicker(t)
-                                  const filtered = allScanCacheRef.current.flowData.filter(x => x.underlying_ticker === t)
-                                  setFlowData(filtered); setIsAnalyzing(true)
-                                  setTimeout(() => performAnalysis(filtered, t), 0)
-                                }}
-                              >{trade.underlying_ticker}</td>
-                              <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, fontWeight: 800, color: trade.type === 'call' ? '#00cc00' : '#ff0000' }}>{trade.type.toUpperCase()}</td>
-                              <td style={{ padding: '5px 10px' }}>
-                                <button onClick={() => setSelectedStrike(selectedStrike === trade.strike ? null : trade.strike)} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 21, fontWeight: 700, color: selectedStrike === trade.strike ? '#22d3ee' : '#fff', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>${trade.strike}</button>
-                              </td>
-                              <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, color: '#fff', whiteSpace: 'nowrap' }}>
-                                {trade.trade_size.toLocaleString()}@${trade.premium_per_contract.toFixed(2)}<span style={{ marginLeft: 5, fontWeight: 800, color: fillColors[trade.fill_style || 'N/A'] }}>{trade.fill_style || 'N/A'}</span>
-                              </td>
-                              <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, color: '#00cc00', fontWeight: 700 }}>${trade.total_premium.toLocaleString()}</td>
-                              <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, color: '#fff', whiteSpace: 'nowrap' }}>
-                                ${trade.spot_price != null ? Number(trade.spot_price).toFixed(2) : 'N/A'}
-                                {analysis?.currentPrice && <span style={{ color: 'rgba(255,255,255,0.4)', margin: '0 5px' }}>"º</span>}
-                                {analysis?.currentPrice && <span style={{ color: '#22d3ee' }}>${analysis.currentPrice.toFixed(2)}</span>}
-                              </td>
-                              <td style={{ padding: '5px 10px' }}>
-                                <button onClick={() => setSelectedExpiry(selectedExpiry === trade.expiry ? null : trade.expiry)} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 21, color: selectedExpiry === trade.expiry ? '#22d3ee' : '#ffffff', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>{trade.expiry.split('T')[0]}</button>
-                              </td>
-                              <td style={{ padding: '5px 10px', whiteSpace: 'nowrap' }}>
-                                <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 20, color: 'rgb(0,153,255)' }}>{displayVolume?.toLocaleString() || 'N/A'}</span>
-                                <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 20, color: 'rgba(255,255,255,0.35)', margin: '0 4px' }}>/</span>
-                                <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 20, color: 'rgb(0,255,94)' }}>{displayOISnapshot?.toLocaleString() || 'N/A'}</span>
-                              </td>
-                              <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, color: '#eab308', fontWeight: 700 }}>
-                                {isMultiDay
-                                  ? <span style={{ color: oiChange > 0 ? '#00cc00' : oiChange < 0 ? '#ff0000' : 'rgba(255,255,255,0.3)', fontWeight: 700 }}>{oiChange > 0 ? '+' : ''}{oiChange.toLocaleString()}</span>
-                                  : <>{liveOI.toLocaleString()} <span style={{ color: oiChange > 0 ? '#00cc00' : oiChange < 0 ? '#ff0000' : 'rgba(255,255,255,0.3)', fontSize: 20 }}>({oiChange > 0 ? '+' : ''}{oiChange})</span></>}
-                              </td>
-                              <td style={{ padding: '5px 10px' }}>
-                                <span style={{
-                                  fontFamily: 'JetBrains Mono,monospace', fontSize: 15, fontWeight: 800,
-                                  padding: '3px 12px', borderRadius: '9999px', display: 'inline-block', letterSpacing: '0.05em',
-                                  ...(trade.trade_type === 'SWEEP' ? { backgroundColor: '#000000', backgroundImage: 'linear-gradient(180deg,#1e1e1e 0%,#000 50%,#111 100%)', color: '#FFD700', border: '1px solid rgba(255,215,0,0.6)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15),inset 0 -1px 0 rgba(0,0,0,0.8)' }
-                                    : trade.trade_type === 'BLOCK' ? { backgroundColor: '#000000', backgroundImage: 'linear-gradient(180deg,#1e1e1e 0%,#000 50%,#111 100%)', color: '#00e5ff', border: '1px solid rgba(0,229,255,0.5)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15),inset 0 -1px 0 rgba(0,0,0,0.8)' }
-                                      : trade.trade_type === 'MULTI-LEG' ? { backgroundColor: '#1e0a3c', backgroundImage: 'linear-gradient(180deg,#3b1d6e 0%,#1e0a3c 50%,#2d1555 100%)', color: '#d8b4fe', border: '1px solid rgba(168,85,247,0.5)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15),inset 0 -1px 0 rgba(0,0,0,0.8)' }
-                                        : { backgroundColor: '#052e16', backgroundImage: 'linear-gradient(180deg,#14532d 0%,#052e16 50%,#0f3d22 100%)', color: '#86efac', border: '1px solid rgba(134,239,172,0.4)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15),inset 0 -1px 0 rgba(0,0,0,0.8)' })
-                                }}>{trade.trade_type || 'MINI'}</span>
-                              </td>
-                            </tr>
-                          )
-                        })
-                      })()}
-                    </tbody>
-                  </table>
-                </div>
-                {/* PAGINATION */}
-                {(() => {
-                  const tradesToDisplay = analysis?.trades || flowData
-                  const totalPages = Math.ceil(tradesToDisplay.length / TRADES_PER_PAGE)
-                  if (totalPages > 1) {
-                    return (
-                      <div style={{ padding: '6px 14px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#fff' }}>
-                          {(currentPage - 1) * TRADES_PER_PAGE + 1}"“{Math.min(currentPage * TRADES_PER_PAGE, tradesToDisplay.length)} OF {tradesToDisplay.length}
-                        </span>
-                        <div style={{ display: 'flex', gap: 4 }}>
-                          <button onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} disabled={currentPage === 1} style={{ padding: '2px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 800, background: '#fff', color: '#000', border: 'none', cursor: currentPage === 1 ? 'not-allowed' : 'pointer', opacity: currentPage === 1 ? 0.3 : 1 }}>PREV</button>
-                          {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                            let p = i + 1
-                            if (totalPages > 5) { if (currentPage <= 3) p = i + 1; else if (currentPage >= totalPages - 2) p = totalPages - 4 + i; else p = currentPage - 2 + i }
-                            return <button key={p} onClick={() => setCurrentPage(p)} style={{ padding: '2px 8px', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 800, background: currentPage === p ? '#22d3ee' : 'transparent', color: currentPage === p ? '#000' : 'rgba(255,255,255,0.5)', border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer' }}>{p}</button>
-                          })}
-                          <button onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))} disabled={currentPage === totalPages} style={{ padding: '2px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 800, background: '#fff', color: '#000', border: 'none', cursor: currentPage === totalPages ? 'not-allowed' : 'pointer', opacity: currentPage === totalPages ? 0.3 : 1 }}>NEXT</button>
-                        </div>
-                      </div>
-                    )
-                  }
-                  return null
-                })()}
-                {flowData.length === 0 && (
-                  <div style={{ padding: 40, textAlign: 'center', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, color: '#fff', letterSpacing: '0.1em' }}>
-                    NO TRADES FOUND. SEARCH FOR A TICKER TO SEE ALGOFLOW TRADES.
-                  </div>
-                )}
-              </div>{/* end left table column */}
-
-              {/* Right: EFI Chart "” hidden on mobile */}
-              {!isMobile && (
-                <div style={{ width: '38%', flexShrink: 0, borderLeft: '1px solid rgba(255,255,255,0.15)', background: '#000', overflow: 'hidden' }}>
-                  <div style={{ width: '100%', height: '100%' }}>
-                    <style>{`
-                    button[title*='Watchlist'], button[title*='watchlist'], button[title*='favorite'],
-                    button[title*='star'], button[title*='multi chart'], button[title*='Multi Chart'],
-                    button[title*='Chart Layout'] { display: none !important; }
-                    button[title='Candles'], button[title='Line'],
-                    button[title*='Switch to'] { display: none !important; }
-                  `}</style>
-                    <TradingViewChart
-                      symbol={searchTicker || 'SPY'}
-                      initialTimeframe="1d"
-                      height={700}
-                      lwToolbarPosition="left"
-                      lwNavyButtonTheme={true}
-                      disableSidebarAutoScan={true}
-                      hideDesktopSidebar={true}
-                      compactToolbar={true}
-                      onSymbolChange={(s) => setSearchTicker(s)}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* end ROW 3 */}
-            </div>
-
-          </div>
-        )}
-
-        {/* NO RESULTS STATE */}
-        {!loading && !isAnalyzing && !analysis && searchTicker && (
-          <div style={{ padding: 40, textAlign: 'center', border: '1px solid rgba(255,255,255,0.15)' }}>
-            <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, color: '#fff', fontWeight: 700, letterSpacing: '0.1em' }}>
-              NO FLOW DATA FOUND FOR {searchTicker}
-            </div>
-            <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#fff', marginTop: 6, letterSpacing: '0.08em' }}>
-              TRY A DIFFERENT TICKER OR CHECK IF THE MARKET IS OPEN
-            </div>
-          </div>
-        )}
-
-      </div>{/* end scrollable content */}
-
-      {/* ── FLOW BIAS SCANNER TAB ── */}
-      {activeTab === 'flowbias' && (
-        <div style={{ flex: 1, overflow: 'hidden', background: '#060608', display: 'flex', flexDirection: 'column' }}>
-          <style>{`
-            @keyframes biasSpin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
-            .rrg-dot:hover { r: 9; }
-          `}</style>
-
-          {/* STATUS BAR — hidden on mobile to save space */}
-          {!isMobile && (
-          <div style={{ padding: '8px 24px', background: '#0a0a0e', borderBottom: '1px solid #1a1a2e', display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
-            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: biasDataStatus ? '#ff8500' : '#333', letterSpacing: '0.12em' }}>
-              {biasDataStatus || 'FLOW BIAS SCANNER — Run scan to populate'}
-            </span>
-          </div>
-          )}
-
-          {/* MAIN BODY: full-width RRG */}
-          <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
-
-            {/* ── RRG chart (full width) ── */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              {/* RRG body — fills remaining height */}
-              <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-                {/* Overlay: refresh reset at top center */}
-                {(rrgTransform.k !== 1 || rrgTransform.tx !== 0 || rrgTransform.ty !== 0) && (
-                  <button onClick={() => setRrgTransform({ tx: 0, ty: 0, k: 1 })} style={{ position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 10, height: 26, padding: '0 12px', background: 'rgba(10,10,20,0.85)', color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, letterSpacing: '0.1em', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 20, cursor: 'pointer', backdropFilter: 'blur(4px)' }}>↺ RESET</button>
-                )}
-                {biasRRGData ? (() => {
-                  const W = 1755, H = isMobile ? 1750 : 875, PAD = { t: 32, r: 32, b: 44, l: 52 }
-                  const CW = W - PAD.l - PAD.r, CH = H - PAD.t - PAD.b
-                  const CX = PAD.l + CW / 2, CY = PAD.t + CH / 2
-                  const allTickers: Array<{ ticker: string; x: number; y: number; total: number; quad: string }> = []
-                  const allAggs = [...biasRRGData.bullCalls, ...biasRRGData.bearCalls, ...biasRRGData.bullPuts, ...biasRRGData.bearPuts]
-                  for (const a of allAggs) {
-                    const xVal = (a.callPremium - a.putPremium) / a.total
-                    const yVal = ((a.bullCall + a.bullPut) - (a.bearCall + a.bearPut)) / a.total
-                    const dominant = Math.max(a.bullCall / a.total, a.bearCall / a.total, a.bullPut / a.total, a.bearPut / a.total)
-                    const quad = dominant === a.bullCall / a.total ? 'BC' : dominant === a.bearCall / a.total ? 'CC' : dominant === a.bullPut / a.total ? 'BP' : 'CP'
-                    allTickers.push({ ticker: a.ticker, x: xVal, y: yVal, total: a.total, quad })
-                  }
-                  const toSVG = (x: number, y: number) => ({
-                    sx: CX + x * (CW / 2) * 0.96,
-                    sy: CY - y * (CH / 2) * 0.96,
-                  })
-                  const maxPrem = Math.max(...allTickers.map(t => t.total))
-                  const dotR = (total: number) => 4 + Math.sqrt(total / maxPrem) * 10
-                  const QUAD_COLORS: Record<string, string> = { BC: '#00ff88', CC: '#ff4444', BP: '#4da6ff', CP: '#ffaa00' }
-                  return (
-                    <svg
-                      ref={rrgSvgRef}
-                      viewBox={`0 0 ${W} ${H}`}
-                      width="100%" height="100%"
-                      preserveAspectRatio={isMobile ? 'none' : 'xMidYMid meet'}
-                      style={{ display: 'block', cursor: rrgDragRef.current.dragging ? 'grabbing' : 'grab', userSelect: 'none' }}
-                      onMouseDown={e => {
-                        const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect()
-                        rrgDragRef.current = { dragging: true, lastSvgX: (e.clientX - rect.left) * W / rect.width, lastSvgY: (e.clientY - rect.top) * H / rect.height }
-                      }}
-                      onMouseMove={e => {
-                        if (!rrgDragRef.current.dragging) return
-                        const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect()
-                        const cx = (e.clientX - rect.left) * W / rect.width
-                        const cy = (e.clientY - rect.top) * H / rect.height
-                        const dx = cx - rrgDragRef.current.lastSvgX
-                        const dy = cy - rrgDragRef.current.lastSvgY
-                        rrgDragRef.current.lastSvgX = cx
-                        rrgDragRef.current.lastSvgY = cy
-                        setRrgTransform(t => {
-                          const newTx = t.tx + dx
-                          const newTy = t.ty + dy
-                          const minTx = (1 - t.k) * (PAD.l + CW)
-                          const maxTx = (1 - t.k) * PAD.l
-                          const minTy = (1 - t.k) * (PAD.t + CH)
-                          const maxTy = (1 - t.k) * PAD.t
-                          return {
-                            ...t,
-                            tx: Math.max(minTx, Math.min(maxTx, newTx)),
-                            ty: Math.max(minTy, Math.min(maxTy, newTy)),
-                          }
-                        })
-                      }}
-                      onMouseUp={() => { rrgDragRef.current.dragging = false }}
-                      onMouseLeave={() => { rrgDragRef.current.dragging = false }}
-                    >
-                      <defs>
-                        {/* Dark glossy background gradient */}
-                        <radialGradient id="rrg-bg" cx="50%" cy="35%" r="70%">
-                          <stop offset="0%" stopColor="#0d1420" />
-                          <stop offset="60%" stopColor="#060810" />
-                          <stop offset="100%" stopColor="#020305" />
-                        </radialGradient>
-                        {/* Gloss overlay */}
-                        <linearGradient id="rrg-gloss" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="rgba(255,255,255,0.04)" />
-                          <stop offset="45%" stopColor="rgba(255,255,255,0.01)" />
-                          <stop offset="100%" stopColor="rgba(0,0,0,0.08)" />
-                        </linearGradient>
-                        {/* 3D glossy bubble gradients per quadrant color */}
-                        {[['bc','#00ff88'],['cc','#ff4444'],['bp','#4da6ff'],['cp','#ffaa00']].map(([id, col]) => (
-                          <radialGradient key={id} id={`rg-${id}`} cx="35%" cy="28%" r="65%">
-                            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.55" />
-                            <stop offset="35%" stopColor={col} stopOpacity="0.9" />
-                            <stop offset="100%" stopColor={col} stopOpacity="0.55" />
-                          </radialGradient>
+                      {/* CENTER: legend (absolutely centered, hidden on mobile) */}
+                      <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', display: isMobile ? 'none' : 'flex', alignItems: 'center', gap: 6 }}>
+                        {chartViewMode === 'detailed' && [
+                          { color: '#00ff7f', label: 'BULLISH CALLS', key: 'callsPlus' },
+                          { color: '#4da6ff', label: 'BEARISH CALLS', key: 'callsMinus' },
+                          { color: '#ffcc00', label: 'BULLISH PUTS', key: 'putsPlus' },
+                          { color: '#ff2222', label: 'BEARISH PUTS', key: 'putsMinus' },
+                        ].map(({ color, label, key }) => (
+                          <span key={key} onClick={() => toggleLine(key)} style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer', opacity: hiddenLines.has(key) ? 0.3 : 1, transition: 'opacity 0.15s' }}>
+                            <svg width="16" height="4"><line x1="0" y1="2" x2="16" y2="2" stroke={color} strokeWidth="2.5" /></svg>
+                            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, color, fontWeight: 700, letterSpacing: '0.03em' }}>{label}</span>
+                          </span>
                         ))}
-                        <clipPath id="rrg-bias-clip">
-                          <rect x={PAD.l} y={PAD.t} width={CW} height={CH} />
-                        </clipPath>
-                      </defs>
-                      {/* Background fill */}
-                      <rect x={PAD.l} y={PAD.t} width={CW} height={CH} fill="url(#rrg-bg)" />
-                      <rect x={PAD.l} y={PAD.t} width={CW} height={CH} fill="url(#rrg-gloss)" />
-                      {/* Fixed outer axis labels & ticks - colored by quadrant */}
-                      {([-1,-0.5,0,0.5,1]).map(v => {
-                        const { sx } = toSVG(v, 0)
-                        const col = v > 0 ? '#00ff88' : v < 0 ? '#4da6ff' : 'rgba(255,255,255,0.5)'
-                        return <g key={`xt-${v}`}>
-                          <line x1={sx} y1={PAD.t + CH} x2={sx} y2={PAD.t + CH + 5} stroke={col} strokeWidth={1} />
-                          <text x={sx} y={PAD.t + CH + 16} textAnchor="middle" fontFamily="JetBrains Mono,monospace" fontSize={9} fill={col} fontWeight={700}>{v > 0 ? `+${v}` : v}</text>
-                        </g>
-                      })}
-                      {([-1,-0.5,0,0.5,1]).map(v => {
-                        const { sy } = toSVG(0, v)
-                        const col = v > 0 ? '#00ff88' : v < 0 ? '#ff4444' : 'rgba(255,255,255,0.5)'
-                        return <g key={`yt-${v}`}>
-                          <line x1={PAD.l - 5} y1={sy} x2={PAD.l} y2={sy} stroke={col} strokeWidth={1} />
-                          <text x={PAD.l - 8} y={sy + 3} textAnchor="end" fontFamily="JetBrains Mono,monospace" fontSize={9} fill={col} fontWeight={700}>{v > 0 ? `+${v}` : v}</text>
-                        </g>
-                      })}
-                      <rect x={PAD.l} y={PAD.t} width={CW} height={CH} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
-                      {/* Zoomable layer — clipped (backgrounds, grid, dots) */}
-                      <g clipPath="url(#rrg-bias-clip)">
-                        <g transform={`translate(${rrgTransform.tx},${rrgTransform.ty}) scale(${rrgTransform.k})`}>
-                          {/* Quadrant backgrounds */}
-                          <rect x={PAD.l} y={PAD.t} width={CW / 2} height={CH / 2} fill="rgba(77,166,255,0.05)" />
-                          <rect x={CX} y={PAD.t} width={CW / 2} height={CH / 2} fill="rgba(0,255,136,0.05)" />
-                          <rect x={PAD.l} y={CY} width={CW / 2} height={CH / 2} fill="rgba(255,170,0,0.05)" />
-                          <rect x={CX} y={CY} width={CW / 2} height={CH / 2} fill="rgba(255,68,68,0.05)" />
-                          {/* Grid lines */}
-                          {[-0.5, 0, 0.5].map(v => {
-                            const { sx } = toSVG(v, 0); const { sy } = toSVG(0, v)
-                            return <g key={v}>
-                              <line x1={sx} y1={PAD.t} x2={sx} y2={PAD.t + CH} stroke={v === 0 ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.06)'} strokeWidth={v === 0 ? 1.5 / rrgTransform.k : 1 / rrgTransform.k} strokeDasharray={v === 0 ? undefined : '4 8'} />
-                              <line x1={PAD.l} y1={sy} x2={PAD.l + CW} y2={sy} stroke={v === 0 ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.06)'} strokeWidth={v === 0 ? 1.5 / rrgTransform.k : 1 / rrgTransform.k} strokeDasharray={v === 0 ? undefined : '4 8'} />
-                            </g>
-                          })}
-                          {/* Dots — 3D glossy */}
-                          {allTickers.map(t => {
-                            const { sx, sy } = toSVG(t.x, t.y)
-                            const r = dotR(t.total)
-                            const gradId = t.quad === 'BC' ? 'rg-bc' : t.quad === 'CC' ? 'rg-cc' : t.quad === 'BP' ? 'rg-bp' : 'rg-cp'
-                            const col = QUAD_COLORS[t.quad]
-                            const labelRight = sx < CX
-                            const agg = allAggs.find(a => a.ticker === t.ticker)
-                            return (
-                              <g key={t.ticker} style={{ cursor: 'pointer' }} onDoubleClick={() => agg && setRrgPopupTicker(agg)}>
-                                <circle cx={sx} cy={sy} r={(r + 5) / rrgTransform.k} fill="transparent" />
-                                {/* Shadow */}
-                                <circle cx={sx + 1.5 / rrgTransform.k} cy={sy + 1.5 / rrgTransform.k} r={r / rrgTransform.k} fill="rgba(0,0,0,0.5)" />
-                                {/* 3D glossy fill */}
-                                <circle cx={sx} cy={sy} r={r / rrgTransform.k} fill={`url(#${gradId})`} stroke={col} strokeWidth={1.2 / rrgTransform.k} />
-                                <text x={sx + (labelRight ? (r + 6) / rrgTransform.k : -(r + 6) / rrgTransform.k)} y={sy + 5 / rrgTransform.k} textAnchor={labelRight ? 'start' : 'end'} fontFamily="JetBrains Mono,monospace" fontSize={(isMobile ? 60 : 20) / rrgTransform.k} fontWeight={800} fill="#fff" style={{ pointerEvents: 'none' }}>{t.ticker}</text>
-                              </g>
-                            )
-                          })}
-                        </g>
-                      </g>
-                      {/* Quadrant labels — fixed at chart corners, no transform, never clip */}
-                      {[{x:PAD.l+14,y:PAD.t+22,col:'#4da6ff',label:'▲ BULL PUTS'},{x:CX+14,y:PAD.t+22,col:'#00ff88',label:'▲ BULL CALLS'},{x:PAD.l+14,y:PAD.t+CH-8,col:'#ffaa00',label:'▼ BEAR PUTS'},{x:CX+14,y:PAD.t+CH-8,col:'#ff4444',label:'▼ BEAR CALLS'}].map(({x,y,col,label}) => (
-                        <text key={label} x={x} y={y} fontFamily="JetBrains Mono,monospace" fontSize={13} fontWeight={900} fill={col} letterSpacing={2}>{label}</text>
-                      ))}
-                    </svg>
-                  )
-                })() : (
-                  <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, color: '#2a2a3a', letterSpacing: '0.15em' }}>
-                      {biasRRGLoading ? 'COMPUTING ROTATION...' : 'RUN SCAN TO PLOT FLOW ROTATION GRAPH'}
-                    </span>
-                  </div>
-                )}
+                        {chartViewMode === 'simplified' && [
+                          { color: '#00ff7f', label: 'BULLISH', key: 'bullishTotal' },
+                          { color: '#ff2222', label: 'BEARISH', key: 'bearishTotal' },
+                        ].map(({ color, label, key }) => (
+                          <span key={key} onClick={() => toggleLine(key)} style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer', opacity: hiddenLines.has(key) ? 0.3 : 1, transition: 'opacity 0.15s' }}>
+                            <svg width="16" height="4"><line x1="0" y1="2" x2="16" y2="2" stroke={color} strokeWidth="2.5" /></svg>
+                            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, color, fontWeight: 700, letterSpacing: '0.03em' }}>{label}</span>
+                          </span>
+                        ))}
+                        {chartViewMode === 'net' && (
+                          <span onClick={() => toggleLine('netFlow')} style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer', opacity: hiddenLines.has('netFlow') ? 0.3 : 1, transition: 'opacity 0.15s' }}>
+                            <svg width="24" height="4"><line x1="0" y1="2" x2="11" y2="2" stroke="#00ff7f" strokeWidth="2.5" /><line x1="13" y1="2" x2="24" y2="2" stroke="#ff2222" strokeWidth="2.5" /></svg>
+                            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, color: '#fff', fontWeight: 700, letterSpacing: '0.03em' }}>NET FLOW</span>
+                          </span>
+                        )}
+                      </div>
+                      {/* RIGHT: mode buttons */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 3 : 4, marginLeft: 'auto', flexShrink: 0 }}>
+                        {([['detailed', 'ALL'], ['simplified', 'BULL/BEAR'], ['net', 'NET']] as const).map(([mode, label]) => (
+                          <button key={mode} onClick={() => setChartViewMode(mode)} style={{ padding: isMobile ? '2px 6px' : '3px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: isMobile ? 11 : 13, fontWeight: 800, letterSpacing: '0.08em', border: `1px solid ${chartViewMode === mode ? 'rgba(255,133,0,0.6)' : 'rgba(255,255,255,0.15)'}`, background: 'linear-gradient(180deg,#1a1a1a 0%,#0a0a0a 50%,#050505 100%)', boxShadow: chartViewMode === mode ? 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6), 0 0 8px rgba(255,133,0,0.15)' : 'inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.5)', color: chartViewMode === mode ? '#ff8500' : '#ffffff', cursor: 'pointer', whiteSpace: 'nowrap' }}>{label}</button>
+                        ))}
+                      </div>
+                    </div>
+                    {/* Chart body "” height auto-sizes to content: main chart + visible sub-panels */}
+                    <div ref={chartDivRef} style={{
+                      padding: 0,
+                      background: 'linear-gradient(180deg, #0e0e0e 0%, #070707 4%, #000 100%)',
+                      minWidth: 0,
+                      position: 'relative',
+                      overflow: 'hidden',
+                      cursor: chartDragRef.current.dragging ? 'grabbing' : 'grab',
+                      userSelect: 'none',
+                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                    }}
+                      onMouseDown={(e) => {
+                        const data = analysisRef.current?.chartData
+                        if (!data) return
+                        const len = data.length
+                        const cur = brushIndices ?? { start: 0, end: len - 1 }
+                        chartDragRef.current = { dragging: true, startX: e.clientX, startIndices: { ...cur } }
+                      }}
+                      onMouseMove={(e) => {
+                        if (!chartDragRef.current.dragging) return
+                        const clientX = e.clientX
+                        // RAF throttle "” only compute once per frame
+                        if (dragMoveRafRef.current) cancelAnimationFrame(dragMoveRafRef.current)
+                        dragMoveRafRef.current = requestAnimationFrame(() => {
+                          dragMoveRafRef.current = null
+                          const data = analysisRef.current?.chartData
+                          if (!data) return
+                          const len = data.length
+                          if (len < 2) return
+                          const width = chartDivRef.current?.clientWidth ?? 800
+                          const { startX, startIndices } = chartDragRef.current
+                          const range = startIndices.end - startIndices.start
+                          const pxPerPoint = width / Math.max(1, range)
+                          const deltaPoints = Math.round((startX - clientX) / pxPerPoint)
+                          const newStart = Math.max(0, Math.min(startIndices.start + deltaPoints, len - range - 1))
+                          const newEnd = newStart + range
+                          if (newEnd < len) setBrushIndices({ start: newStart, end: newEnd })
+                        })
+                      }}
+                      onMouseUp={() => { chartDragRef.current.dragging = false; if (dragMoveRafRef.current) { cancelAnimationFrame(dragMoveRafRef.current); dragMoveRafRef.current = null } }}
+                      onMouseLeave={() => { chartDragRef.current.dragging = false; if (dragMoveRafRef.current) { cancelAnimationFrame(dragMoveRafRef.current); dragMoveRafRef.current = null } }}
+                    >
+                      {/* Mobile overlay controls "” ticker + timeframe + view mode */}
+                      {isMobile && (
+                        <div style={{ position: 'absolute', top: 6, left: 6, right: 6, zIndex: 10, display: 'flex', alignItems: 'center', gap: 3, pointerEvents: 'none' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 3, pointerEvents: 'auto' }}>
+                            {drilledTicker && (
+                              <button onClick={() => { if (!allScanCacheRef.current) return; setDrilledTicker(null); setSearchTicker('ALL'); setFlowData(allScanCacheRef.current.flowData); setAnalysis(allScanCacheRef.current.analysis) }} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, padding: '2px 6px', background: 'rgba(255,133,0,0.85)', border: '1px solid #ff8500', color: '#000', cursor: 'pointer', borderRadius: 3 }}>← ALL</button>
+                            )}
+                            <span style={{ color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 900, letterSpacing: '0.1em', background: 'rgba(0,0,0,0.6)', padding: '1px 5px', borderRadius: 3 }}>{analysis.ticker}</span>
+                            {(() => {
+                              const sd = getScanDays(scanTimeframe)
+                              const opts = sd === 1
+                                ? [{ v: '1min' as const, label: '1MIN' }, { v: '5min' as const, label: '5MIN' }]
+                                : sd <= 5
+                                  ? [{ v: '30min' as const, label: '30M' }, { v: '1hour' as const, label: '1H' }]
+                                  : [{ v: '1day' as const, label: '1D' }]
+                              return opts.map(({ v, label }) => (
+                                <button key={v} onClick={() => { setTimeInterval(v); setBrushIndices(null) }}
+                                  style={{ padding: '2px 5px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, border: '1px solid rgba(255,165,0,0.7)', background: timeInterval === v ? '#ff8500' : 'rgba(0,0,0,0.65)', color: timeInterval === v ? '#000' : '#ff8500', cursor: 'pointer', borderRadius: 2 }}>{label}</button>
+                              ))
+                            })()}
+                            {brushIndices && (
+                              <button onClick={() => setBrushIndices(null)} style={{ padding: '2px 6px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, border: '1px solid rgba(255,255,255,0.4)', background: 'rgba(0,0,0,0.65)', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', borderRadius: 2 }}>RESET</button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {/* Mobile overlay controls — one clean row: Ticker | Timeframe | ALL | BULL/BEAR | NET */}
+                      {isMobile && (
+                        <div style={{ position: 'absolute', top: 6, left: 6, right: 6, zIndex: 10, display: 'flex', alignItems: 'center', gap: 0, background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '2px 6px', pointerEvents: 'auto' }}>
+                          {drilledTicker && (
+                            <button onClick={() => { if (!allScanCacheRef.current) return; setDrilledTicker(null); setSearchTicker('ALL'); setFlowData(allScanCacheRef.current.flowData); setAnalysis(allScanCacheRef.current.analysis) }} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, padding: '2px 5px 4px', background: 'none', border: 'none', color: '#ff8500', cursor: 'pointer', borderBottom: '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>← ALL</button>
+                          )}
+                          <span style={{ color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 900, letterSpacing: '0.1em', padding: '0 4px' }}>{analysis.ticker}</span>
+                          <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 9, fontFamily: 'JetBrains Mono,monospace', padding: '0 4px', userSelect: 'none' }}>|</span>
+                          {(() => {
+                            const sd = getScanDays(scanTimeframe)
+                            const opts = sd === 1
+                              ? [{ v: '1min' as const, label: '1MIN' }, { v: '5min' as const, label: '5MIN' }]
+                              : sd <= 5
+                                ? [{ v: '30min' as const, label: '30M' }, { v: '1hour' as const, label: '1H' }]
+                                : [{ v: '1day' as const, label: '1D' }]
+                            return opts.map(({ v, label }) => (
+                              <button key={v} onClick={() => { setTimeInterval(v); setBrushIndices(null) }}
+                                style={{ padding: '2px 5px 4px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, border: 'none', background: 'none', color: timeInterval === v ? '#ff8500' : '#ffffff', cursor: 'pointer', whiteSpace: 'nowrap', borderBottom: timeInterval === v ? '2px solid #ff8500' : '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>{label}</button>
+                            ))
+                          })()}
+                          {brushIndices && (
+                            <button onClick={() => setBrushIndices(null)} style={{ padding: '2px 5px 4px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, border: 'none', background: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', borderBottom: '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>RESET</button>
+                          )}
+                          <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 9, fontFamily: 'JetBrains Mono,monospace', padding: '0 4px', userSelect: 'none' }}>|</span>
+                          {([['detailed', 'ALL'], ['simplified', 'BULL/BEAR'], ['net', 'NET']] as const).map(([mode, lbl]) => (
+                            <button key={mode} onClick={() => setChartViewMode(mode)} style={{ padding: '2px 5px 4px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, border: 'none', background: 'none', color: chartViewMode === mode ? '#ff8500' : '#ffffff', cursor: 'pointer', whiteSpace: 'nowrap', borderBottom: chartViewMode === mode ? '2px solid #ff8500' : '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>{lbl}</button>
+                          ))}
+                        </div>
+                      )}
+                      {/* Glossy top-edge sheen */}
+                      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 32, background: 'linear-gradient(180deg, rgba(255,255,255,0.035) 0%, transparent 100%)', pointerEvents: 'none', zIndex: 2 }} />
+                      <div ref={mainChartWrapRef} style={{ height: isMobile ? (showBullBear ? 400 : 494) : (embeddedMode ? 440 : (showBullBear ? 445 : 569)), flexShrink: 0, overflow: 'hidden', borderBottom: showBullBear ? '2px solid rgba(167,139,250,0.55)' : 'none' }}>
+                        <ResponsiveContainer width="100%" height="100%" debounce={16}>
+                          <ComposedChart data={chartMemo.visibleData} margin={{ top: 10, right: 0, bottom: 0, left: 30 }}>
+                            <XAxis dataKey="timeLabel" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#ffffff', fontSize: isMobile ? 11 : 17, fontWeight: 700 }} height={isMobile ? 22 : 34} interval={Math.max(0, Math.floor(chartMemo.visibleData.length / (isMobile ? 3 : 6)) - 1)} padding={{ left: 10, right: 10 }}
+                              tickFormatter={(label: string) => {
+                                if (chartDisplayDays <= 1) return label.includes('/') ? label.replace(/^\d+\/\d+\/\d+ /, '') : label
+                                else if (chartDisplayDays <= 5) return label.replace(/\/\d{4} /, ' ')
+                                else return label.replace(/\/(\d{4}) .*/, (_, yr) => `/${yr.slice(-2)}`)
+                              }}
+                            />
+                            <YAxis yAxisId="flow" orientation="right" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#ffffff', fontSize: 18, fontWeight: 'bold' }} width={82}
+                              tickFormatter={(value) => {
+                                const absValue = Math.abs(value)
+                                const sign = value < 0 ? '-' : ''
+                                if (absValue >= 1_000_000_000) return `${sign}$${(absValue / 1_000_000_000).toFixed(2)}B`
+                                if (absValue >= 1_000_000) return `${sign}$${Math.round(absValue / 1_000_000)}M`
+                                if (absValue >= 1_000) return `${sign}$${Math.round(absValue / 1_000)}K`
+                                return `${sign}$${absValue}`
+                              }}
+                            />
+                            <YAxis yAxisId="price" orientation="right" hide={true}
+                              domain={[chartMemo.priceMin, chartMemo.priceMax]}
+                            />
+                            <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.2)', fontWeight: 'bold', fontSize: '13px' }} labelStyle={{ color: '#fff', fontWeight: 'bold' }}
+                              formatter={(value: any) => {
+                                const num = Number(value); const absNum = Math.abs(num); const sign = num < 0 ? '-' : ''
+                                if (absNum >= 1_000_000_000) return `${sign}$${(absNum / 1_000_000_000).toFixed(2)}B`
+                                if (absNum >= 1_000_000) return `${sign}$${(absNum / 1_000_000).toFixed(2)}M`
+                                if (absNum >= 1_000) return `${sign}$${(absNum / 1_000).toFixed(1)}K`
+                                return `${sign}$${absNum.toLocaleString()}`
+                              }}
+                            />
+                            {chartViewMode === 'detailed' ? (<>
+                              <Line type="linear" yAxisId="flow" dataKey="callsPlus" stroke="#00ff7f" strokeWidth={3} name="BULLISH CALLS" dot={false} hide={hiddenLines.has('callsPlus')} />
+                              <Line type="linear" yAxisId="flow" dataKey="callsMinus" stroke="#4da6ff" strokeWidth={3} name="BEARISH CALLS" dot={false} hide={hiddenLines.has('callsMinus')} />
+                              <Line type="linear" yAxisId="flow" dataKey="putsPlus" stroke="#ffcc00" strokeWidth={3} name="BULLISH PUTS" dot={false} hide={hiddenLines.has('putsPlus')} />
+                              <Line type="linear" yAxisId="flow" dataKey="putsMinus" stroke="#ff2222" strokeWidth={3} name="BEARISH PUTS" dot={false} hide={hiddenLines.has('putsMinus')} />
+                            </>) : chartViewMode === 'simplified' ? (<>
+                              <Line type="linear" yAxisId="flow" dataKey="bullishTotal" stroke="#00ff7f" strokeWidth={3} name="BULLISH FLOW" dot={false} hide={hiddenLines.has('bullishTotal')} />
+                              <Line type="linear" yAxisId="flow" dataKey="bearishTotal" stroke="#ff2222" strokeWidth={3} name="BEARISH FLOW" dot={false} hide={hiddenLines.has('bearishTotal')} />
+                            </>) : (() => {
+                              const nfVals = chartMemo.visibleData.map((d: any) => d.netFlow ?? 0)
+                              const nfMax = nfVals.length ? Math.max(...nfVals) : 1
+                              const nfMin = nfVals.length ? Math.min(...nfVals) : -1
+                              const nfRange = nfMax - nfMin || 1
+                              // hard stop fraction: where zero sits between min and max (top=0%, bottom=100%)
+                              const zeroFrac = ((nfMax - 0) / nfRange) * 100
+                              const zeroStop = `${Math.max(0, Math.min(100, zeroFrac)).toFixed(2)}%`
+                              return (<>
+                                <defs>
+                                  <linearGradient id="netFlowColorGrad" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset={zeroStop} stopColor="#00ff00" />
+                                    <stop offset={zeroStop} stopColor="#ff2222" />
+                                  </linearGradient>
+                                </defs>
+                                <Line type="linear" yAxisId="flow" dataKey="netFlow" stroke="url(#netFlowColorGrad)" strokeWidth={3} name="NET FLOW" dot={false} hide={hiddenLines.has('netFlow')} />
+                              </>)
+                            })()}
+                            <Line type="monotone" yAxisId="price" dataKey="stockClose" stroke="transparent" strokeWidth={0} name="PRICE" dot={false} legendType="none" />
+                            <Customized component={CandlestickLayer} visibleData={chartMemo.visibleData} />
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                      </div>
+
+                      {/* P/C Ratio sub-panel "” toggleable */}
+                      {showBullBear && (() => {
+                        const pcData = chartMemo.visibleData
+                        const pcVals = pcData.map((d: any) => d.pcRatio ?? 1)
+                        const pcMin = pcVals.length ? Math.min(...pcVals) : 0
+                        const pcMax = pcVals.length ? Math.max(...pcVals) : 2
+                        const pcPad = (pcMax - pcMin) * 0.1 || 0.1
+                        const lastPc = pcVals.length ? pcVals[pcVals.length - 1] : 1
+                        const pcCol = lastPc > 1.1 ? '#ef4444' : lastPc < 0.9 ? '#10b981' : '#eab308'
+                        return (
+                          <div ref={pcPanelRef} style={{ borderTop: '2px solid rgba(167,139,250,0.55)', background: '#06040f', flexShrink: 0, overflow: 'hidden' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 82px 0 30px' }}>
+                              <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, color: '#a78bfa', letterSpacing: '0.18em' }}>BULL/BEAR RATIO</span>
+                            </div>
+                            <ResponsiveContainer width="100%" height={isMobile ? 70 : 100} debounce={50}>
+                              <LineChart data={pcData} margin={{ top: 6, right: 0, bottom: 0, left: 30 }}>
+                                <XAxis dataKey="timeLabel" hide />
+                                <YAxis orientation="right" stroke="#ffffff" width={82}
+                                  domain={[Math.max(0, parseFloat((pcMin - pcPad).toFixed(3))), parseFloat((pcMax + pcPad).toFixed(3))]}
+                                  ticks={(() => {
+                                    const lo = Math.max(0, pcMin - pcPad), hi = pcMax + pcPad
+                                    const n = 4, step = (hi - lo) / n
+                                    const base = Array.from({ length: n + 1 }, (_, i) => lo + i * step)
+                                    const ci = base.reduce((b, t, i) => Math.abs(t - lastPc) < Math.abs(base[b] - lastPc) ? i : b, 0)
+                                    base[ci] = lastPc
+                                    return base
+                                  })()}
+                                  tick={(props: any) => {
+                                    const { x, y, payload } = props
+                                    const isLast = Math.abs(payload.value - lastPc) < 1e-9
+                                    const txt = isLast ? lastPc.toFixed(2) : payload.value.toFixed(2)
+                                    return (
+                                      <g>
+                                        {isLast && <rect x={x} y={y - 9} width={82} height={18} fill="#000" />}
+                                        <text x={x + 5} y={y + 4} textAnchor="start" fill={isLast ? pcCol : '#fff'} fontSize={isLast ? 16 : 13} fontWeight={isLast ? 800 : 700} fontFamily="JetBrains Mono, monospace">{txt}</text>
+                                      </g>
+                                    )
+                                  }}
+                                />
+                                <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.2)', fontSize: 12 }} labelStyle={{ color: '#fff' }}
+                                  formatter={(v: any) => [Number(v).toFixed(3), 'BULL/BEAR']}
+                                />
+                                <ReferenceLine y={1} stroke="rgba(167,139,250,0.35)" strokeDasharray="4 4" />
+                                <Line type="monotone" dataKey="pcRatio" stroke="#a78bfa" strokeWidth={2} dot={false} name="BULL/BEAR"
+                                  activeDot={{ r: 4, fill: '#a78bfa', stroke: '#fff', strokeWidth: 1 }}
+                                />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </div>
+                        )
+                      })()}{/* end P/C sub-panel */}
+
+                    </div>{/* end chart body */}
+
+                    {/* Gamma Line panel "” outside fixed-height chart body so it's never clipped */}
+                    {showGammaLine && !isAllScan && (() => {
+                      const lastGamma = gammaLineData.length ? gammaLineData[gammaLineData.length - 1].cumGamma : 0
+                      const gammaColor = lastGamma > 0 ? '#10b981' : lastGamma < 0 ? '#ef4444' : '#888'
+                      const fmtGamma = (v: number) => {
+                        const abs = Math.abs(v), sign = v < 0 ? '-' : v > 0 ? '+' : ''
+                        if (abs >= 1000) return `${sign}${(abs / 1000).toFixed(2)}K`
+                        return `${sign}${abs.toFixed(3)}`
+                      }
+                      // Tight Y domain: 10% padding above/below actual data range
+                      const gammaVals = gammaLineData.map(d => d.cumGamma)
+                      const gMin = gammaVals.length ? Math.min(...gammaVals) : 0
+                      const gMax = gammaVals.length ? Math.max(...gammaVals) : 0
+                      const gRange = gMax - gMin || Math.abs(gMax) * 0.2 || 1
+                      const gDomMin = gMin - gRange * 0.1
+                      const gDomMax = gMax + gRange * 0.1
+                      // Gradient: green above 0, red below 0 "” hard stop at zero fraction
+                      const totalRange = gDomMax - gDomMin
+                      const zeroFrac = totalRange > 0 ? ((gDomMax - 0) / totalRange) * 100 : 50
+                      const zeroStop = `${Math.max(0, Math.min(100, zeroFrac)).toFixed(1)}%`
+                      return (
+                        <div style={{ borderTop: '2px solid rgba(16,185,129,0.4)', background: 'linear-gradient(180deg, rgba(16,185,129,0.012) 0%, transparent 100%)', flexShrink: 0, overflow: 'hidden' }}>
+                          {/* Header "” title + spinner only, value lives on the Y axis */}
+                          <div style={{ padding: '6px 14px 4px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#ff8500', letterSpacing: '0.22em', fontWeight: 700 }}>GAMMA EXPOSURE</div>
+                              {gammaLoading && <div style={{ width: 8, height: 8, borderRadius: '50%', border: '2px solid #ff8500', borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite' }} />}
+                            </div>
+                          </div>
+                          {/* Chart */}
+                          {!gammaLoading && gammaLineData.length > 0 ? (
+                            <ResponsiveContainer width="100%" height={isMobile ? 80 : 120} debounce={50}>
+                              <LineChart data={gammaLineData} margin={{ top: 4, right: 0, bottom: 0, left: 30 }}>
+                                <defs>
+                                  <linearGradient id="gammaStroke" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset={zeroStop} stopColor="#10b981" />
+                                    <stop offset={zeroStop} stopColor="#ef4444" />
+                                  </linearGradient>
+                                </defs>
+                                <XAxis dataKey="timeLabel" hide />
+                                <YAxis orientation="right" stroke="#ffffff" width={82}
+                                  domain={[gDomMin, gDomMax]}
+                                  ticks={(() => {
+                                    const n = 4
+                                    const step = (gDomMax - gDomMin) / n
+                                    const base = Array.from({ length: n + 1 }, (_, i) => gDomMin + i * step)
+                                    // swap the closest base tick with lastGamma so it appears in axis
+                                    const ci = base.reduce((b, t, i) => Math.abs(t - lastGamma) < Math.abs(base[b] - lastGamma) ? i : b, 0)
+                                    base[ci] = lastGamma
+                                    return base
+                                  })()}
+                                  tick={(props: any) => {
+                                    const { x, y, payload } = props
+                                    const isLast = Math.abs(payload.value - lastGamma) < 1e-9
+                                    const txt = isLast ? fmtGamma(lastGamma) : (() => { const abs = Math.abs(payload.value), s = payload.value < 0 ? '-' : ''; return abs >= 1000 ? `${s}${(abs / 1000).toFixed(2)}K` : `${s}${abs.toFixed(3)}` })()
+                                    return (
+                                      <g>
+                                        {isLast && <rect x={x} y={y - 9} width={82} height={18} fill="#000" />}
+                                        <text x={x + 5} y={y + 4} textAnchor="start" fill={isLast ? '#ff8500' : '#fff'} fontSize={isLast ? 16 : 13} fontWeight={isLast ? 800 : 700} fontFamily="JetBrains Mono, monospace">{txt}</text>
+                                      </g>
+                                    )
+                                  }}
+                                />
+                                <Tooltip
+                                  contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,133,0,0.5)', fontSize: 12 }}
+                                  labelStyle={{ color: '#ff8500', fontWeight: 700 }}
+                                  formatter={(v: any) => [fmtGamma(Number(v)), 'CUM GAMMA']}
+                                />
+                                <ReferenceLine y={0} stroke="rgba(255,255,255,0.2)" strokeDasharray="4 4" />
+                                <Line
+                                  type="monotone" dataKey="cumGamma"
+                                  stroke="url(#gammaStroke)"
+                                  strokeWidth={2.5} dot={false} name="GAMMA"
+                                  activeDot={{ r: 4, fill: '#ff8500', stroke: '#fff', strokeWidth: 1 }}
+                                />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          ) : !gammaLoading ? (
+                            <div style={{ height: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: 'rgba(255,133,0,0.5)', letterSpacing: '0.1em' }}>NO GAMMA DATA "” CONTRACT NOT IN SNAPSHOT</div>
+                          ) : null}
+                        </div>
+                      )
+                    })()}
+
+                  </div>{/* end chart column */}
+                </div>{/* end ROW 2 */}
+
+                {/* â”€â”€ ROW 3: TRADES TABLE + EFI CHART "” hidden in embedded mode â”€â”€ */}
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.15)', display: embeddedMode ? 'none' : 'flex', marginTop: isMobile ? -20 : 0 }}>
+
+                  {/* Left: Trades table — fills remaining left column */}
+                  <div style={{ flex: 1, minWidth: 0, width: isMobile ? '100%' : undefined }}>
+                    <div style={{ padding: '5px 14px', background: 'linear-gradient(90deg,#0a0a0a,#111)', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#fff', letterSpacing: '0.15em' }}></span>
+                      {(selectedStrike !== null || selectedExpiry !== null) && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          {selectedStrike !== null && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#22d3ee' }}>STRIKE: ${selectedStrike}</span>}
+                          {selectedExpiry !== null && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#22d3ee' }}>EXPIRY: {selectedExpiry.split('T')[0]}</span>}
+                          <button onClick={() => { setSelectedStrike(null); setSelectedExpiry(null); }} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#fff', background: 'none', border: 'none', cursor: 'pointer' }}>âœ• CLEAR</button>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: isMobile ? '60vh' : 680, WebkitOverflowScrolling: 'touch' as any }}>
+                      <table className="algo-trades-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead style={{ background: '#0a0a0a', position: 'sticky', top: 0, zIndex: 10, borderBottom: '1px solid rgba(255,255,255,0.2)' }}>
+                          <tr>
+                            {isMobile ? (
+                              [
+                                { key: 'underlying_ticker', label: 'SYMBOL' },
+                                { key: 'strike', label: 'STRIKE' },
+                                { key: 'total_premium', label: 'SIZE' },
+                                { key: null, label: 'EXPIRY' },
+                                { key: null, label: 'SPOT' },
+                              ].map(({ key, label }) => (
+                                <th key={label}
+                                  onClick={key ? () => { if (sortColumn === key) { setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc') } else { setSortColumn(key); setSortDirection('desc') } } : undefined}
+                                  style={{ textAlign: 'left', padding: '4px 5px', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, color: sortColumn === key ? '#fff' : '#ff8500', letterSpacing: '0.08em', fontWeight: 800, cursor: key ? 'pointer' : 'default', whiteSpace: 'nowrap' }}
+                                >
+                                  {label}{key && sortColumn === key ? (sortDirection === 'asc' ? ' ←‘' : ' ←“') : ''}
+                                </th>
+                              ))
+                            ) : (
+                              [
+                                { key: 'trade_timestamp', label: 'TIME' },
+                                { key: 'underlying_ticker', label: 'SYM' },
+                                { key: null, label: 'TYPE' },
+                                { key: 'strike', label: 'STRIKE' },
+                                { key: 'trade_size', label: 'PURCHASE' },
+                                { key: 'total_premium', label: 'PREMIUM' },
+                                { key: null, label: 'SPOT' },
+                                { key: null, label: 'EXPIRY' },
+                                { key: null, label: 'VOL/OI' },
+                                { key: null, label: getScanDays(scanTimeframe) > 1 ? 'OI CHANGE' : 'LIVE OI' },
+                                { key: null, label: 'STYLE' },
+                              ].map(({ key, label }) => (
+                                <th key={label}
+                                  onClick={key ? () => { if (sortColumn === key) { setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc') } else { setSortColumn(key); setSortDirection('desc') } } : undefined}
+                                  style={{ textAlign: 'left', padding: '6px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 22, color: sortColumn === key ? '#fff' : '#ff8500', letterSpacing: '0.12em', fontWeight: 800, cursor: key ? 'pointer' : 'default', whiteSpace: 'nowrap' }}
+                                >
+                                  {label}{key && sortColumn === key ? (sortDirection === 'asc' ? ' ←‘' : ' ←“') : ''}
+                                </th>
+                              ))
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(() => {
+                            let tradesToDisplay = displayAnalysis?.trades || flowData
+                            if (selectedStrike !== null) tradesToDisplay = tradesToDisplay.filter(t => t.strike === selectedStrike)
+                            if (selectedExpiry !== null) tradesToDisplay = tradesToDisplay.filter(t => t.expiry === selectedExpiry)
+                            if (excludeMag7) tradesToDisplay = tradesToDisplay.filter(t => !MAG7_TICKERS.includes(t.underlying_ticker))
+                            if (excludeEtf) tradesToDisplay = tradesToDisplay.filter(t => !ETF_SET.has(t.underlying_ticker))
+                            // Expiry range filters
+                            if (expiryFilter !== 'all') {
+                              const now = new Date()
+                              // LA trading day (PT)
+                              const todayPT = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+                              const dow = todayPT.getDay() // 0=Sun,1=Mon,...,5=Fri,6=Sat
+                              // Current trading day date string in PT
+                              const tradingDate = todayPT.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }) // YYYY-MM-DD
+                              if (expiryFilter === '45d') {
+                                const cutoff = new Date(todayPT)
+                                cutoff.setDate(cutoff.getDate() + 45)
+                                const cutoffStr = cutoff.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+                                tradesToDisplay = tradesToDisplay.filter(t => {
+                                  const expStr = t.expiry.includes('T') ? t.expiry.split('T')[0] : t.expiry
+                                  return expStr >= tradingDate && expStr <= cutoffStr
+                                })
+                              } else if (expiryFilter === 'weekly') {
+                                // Week = Mon"“Fri. If today is Fri (5) or Sat (6), point to next week's Friday.
+                                const daysToFriday = dow <= 5 ? 5 - dow : 6 // 0=Sun←’5, 1=Mon←’4, ..., 5=Fri←’0, 6=Sat←’6(next Fri)
+                                const thisFriday = new Date(todayPT)
+                                thisFriday.setDate(todayPT.getDate() + daysToFriday)
+                                // Week start = Monday of same week
+                                const weekStart = new Date(thisFriday)
+                                weekStart.setDate(thisFriday.getDate() - 4) // Mon
+                                const weekStartStr = weekStart.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+                                const weekEndStr = thisFriday.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+                                tradesToDisplay = tradesToDisplay.filter(t => {
+                                  const expStr = t.expiry.includes('T') ? t.expiry.split('T')[0] : t.expiry
+                                  return expStr >= weekStartStr && expStr <= weekEndStr
+                                })
+                              } else if (expiryFilter === '0dte') {
+                                // For MWF stocks (MAG7 + ETFs): Mon/Wed/Fri expiries are valid 0DTE
+                                // For others: Friday-only
+                                // Rule: show contracts expiring on today's date. If today is after 4pm PT
+                                // (or Sat/Sun), advance to next trading day.
+                                let odteDate = new Date(todayPT)
+                                const hourPT = todayPT.getHours()
+                                // After market close (>=16) or weekend, roll to next trading day
+                                if (hourPT >= 16 || dow === 0 || dow === 6) {
+                                  do {
+                                    odteDate.setDate(odteDate.getDate() + 1)
+                                    const d = odteDate.getDay()
+                                    if (d !== 0 && d !== 6) break
+                                  } while (true)
+                                }
+                                const odteDateStr = odteDate.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+                                tradesToDisplay = tradesToDisplay.filter(t => {
+                                  const expStr = t.expiry.includes('T') ? t.expiry.split('T')[0] : t.expiry
+                                  return expStr === odteDateStr
+                                })
+                              }
+                            }
+                            const sortedTrades = [...tradesToDisplay].sort((a: any, b: any) => {
+                              let aVal = a[sortColumn]; let bVal = b[sortColumn]
+                              if (sortColumn === 'trade_timestamp') { aVal = new Date(aVal).getTime(); bVal = new Date(bVal).getTime() }
+                              return sortDirection === 'asc' ? (aVal > bVal ? 1 : -1) : (aVal < bVal ? 1 : -1)
+                            })
+                            const paginatedTrades = sortedTrades.slice((currentPage - 1) * TRADES_PER_PAGE, currentPage * TRADES_PER_PAGE)
+                            const fillColors: Record<string, string> = { A: '#10b981', B: '#ef4444', AA: '#6ee7b7', BB: '#fca5a5', 'N/A': 'rgba(255,255,255,0.2)' }
+                            const styleColors: Record<string, string> = { SWEEP: 'rgb(255,215,0)', BLOCK: 'rgb(0,153,255)', MINI: 'rgb(0,255,94)', 'MULTI-LEG': 'rgb(168,85,247)' }
+
+                            // Use memoized OI computation (tradeOIMemo) "” avoids rerunning on every render
+                            const { isMultiDay, liveOIMap, baseOIMap, multiDayOIChange, lastDayVolumeMap, lastDayOISnapshotMap } = tradeOIMemo
+
+                            return paginatedTrades.map((trade, idx) => {
+                              const day = new Date(trade.trade_timestamp).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+                              const contractKey = `${trade.underlying_ticker}_${trade.strike}_${trade.type}_${trade.expiry}`
+                              const contractDayKey = `${contractKey}_${day}`
+                              const originalOI = baseOIMap.get(contractDayKey) ?? trade.open_interest ?? 0
+                              const liveOI = liveOIMap.get(contractDayKey) ?? originalOI
+                              const oiChange = isMultiDay ? (multiDayOIChange.get(contractKey) ?? 0) : (liveOI - originalOI)
+                              const displayVolume = isMultiDay ? lastDayVolumeMap.get(contractKey) : trade.volume
+                              const displayOISnapshot = isMultiDay ? lastDayOISnapshotMap.get(contractKey) : trade.open_interest
+                              const rowBg = idx % 2 === 0 ? 'rgba(255,255,255,0.01)' : 'transparent'
+                              const styleBadge = (
+                                <span style={{
+                                  fontFamily: 'JetBrains Mono,monospace', fontSize: 9, fontWeight: 800,
+                                  padding: '2px 5px', borderRadius: '9999px', display: 'inline-block', letterSpacing: '0.05em',
+                                  ...(trade.trade_type === 'SWEEP' ? { background: 'linear-gradient(180deg,#1e1e1e,#000)', color: '#FFD700', border: '1px solid rgba(255,215,0,0.6)' }
+                                    : trade.trade_type === 'BLOCK' ? { background: 'linear-gradient(180deg,#1e1e1e,#000)', color: '#00e5ff', border: '1px solid rgba(0,229,255,0.5)' }
+                                      : trade.trade_type === 'MULTI-LEG' ? { background: 'linear-gradient(180deg,#3b1d6e,#1e0a3c)', color: '#d8b4fe', border: '1px solid rgba(168,85,247,0.5)' }
+                                        : { background: 'linear-gradient(180deg,#14532d,#052e16)', color: '#86efac', border: '1px solid rgba(134,239,172,0.4)' })
+                                }}>{trade.trade_type || 'MINI'}</span>
+                              )
+                              if (isMobile) {
+                                const timeStr = scanTimeframe !== '1D'
+                                  ? new Date(trade.trade_timestamp).toLocaleString('en-US', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/Los_Angeles' })
+                                  : new Date(trade.trade_timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Los_Angeles' })
+                                return (
+                                  <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', background: rowBg }}
+                                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                                    onMouseLeave={e => (e.currentTarget.style.background = rowBg)}
+                                  >
+                                    {/* Col 1: SYM + TIME */}
+                                    <td style={{ padding: '4px 5px', verticalAlign: 'middle' }}>
+                                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                                        <span
+                                          style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 900, color: allScanCacheRef.current ? '#ffcc44' : '#fff', cursor: allScanCacheRef.current ? 'pointer' : 'default', background: 'linear-gradient(180deg,#1e1e1e,#000)', border: '1px solid rgba(255,255,255,0.25)', padding: '1px 4px' }}
+                                          onDoubleClick={() => {
+                                            if (!allScanCacheRef.current) return
+                                            const t = trade.underlying_ticker
+                                            setDrilledTicker(t); setSearchTicker(t)
+                                            const filtered = allScanCacheRef.current.flowData.filter(x => x.underlying_ticker === t)
+                                            setFlowData(filtered); setIsAnalyzing(true)
+                                            setTimeout(() => performAnalysis(filtered, t), 0)
+                                          }}
+                                        >{trade.underlying_ticker}</span>
+                                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: 'rgba(255,255,255,0.5)' }}>{timeStr}</span>
+                                      </div>
+                                    </td>
+                                    {/* Col 2: STRIKE + TYPE */}
+                                    <td style={{ padding: '4px 5px', verticalAlign: 'middle' }}>
+                                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                                        <button onClick={() => setSelectedStrike(selectedStrike === trade.strike ? null : trade.strike)} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 700, color: selectedStrike === trade.strike ? '#22d3ee' : '#fff', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>${trade.strike}</button>
+                                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, color: trade.type === 'call' ? '#00cc00' : '#ff0000' }}>{trade.type.toUpperCase()}</span>
+                                      </div>
+                                    </td>
+                                    {/* Col 3: SIZE@PRICE FILL + PREMIUM */}
+                                    <td style={{ padding: '4px 5px', verticalAlign: 'middle' }}>
+                                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#fff', whiteSpace: 'nowrap' }}>
+                                          {trade.trade_size.toLocaleString()}@${trade.premium_per_contract.toFixed(2)}{' '}
+                                          <span style={{ fontWeight: 800, color: fillColors[trade.fill_style || 'N/A'] }}>{trade.fill_style || 'N/A'}</span>
+                                        </span>
+                                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#00cc00', fontWeight: 700 }}>${trade.total_premium.toLocaleString()}</span>
+                                      </div>
+                                    </td>
+                                    {/* Col 4: EXPIRY + STYLE */}
+                                    <td style={{ padding: '4px 5px', verticalAlign: 'middle' }}>
+                                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3 }}>
+                                        <button onClick={() => setSelectedExpiry(selectedExpiry === trade.expiry ? null : trade.expiry)} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: selectedExpiry === trade.expiry ? '#22d3ee' : '#fff', background: 'none', border: 'none', cursor: 'pointer', padding: 0, whiteSpace: 'nowrap' }}>{trade.expiry.split('T')[0]}</button>
+                                        {styleBadge}
+                                      </div>
+                                    </td>
+                                    {/* Col 5: SPOT + VOL/OI */}
+                                    <td style={{ padding: '4px 5px', verticalAlign: 'middle' }}>
+                                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#fff', whiteSpace: 'nowrap' }}>
+                                          ${trade.spot_price != null ? Number(trade.spot_price).toFixed(2) : 'N/A'}
+                                        </span>
+                                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: 'rgb(0,153,255)', whiteSpace: 'nowrap' }}>
+                                          {displayVolume?.toLocaleString() || 'N/A'}<span style={{ color: 'rgba(255,255,255,0.3)', margin: '0 2px' }}>/</span><span style={{ color: 'rgb(0,255,94)' }}>{displayOISnapshot?.toLocaleString() || 'N/A'}</span>
+                                        </span>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )
+                              }
+                              return (
+                                <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: rowBg }}
+                                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                                  onMouseLeave={e => (e.currentTarget.style.background = rowBg)}
+                                >
+                                  <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, color: '#fff', whiteSpace: 'nowrap' }}>
+                                    {scanTimeframe !== '1D'
+                                      ? new Date(trade.trade_timestamp).toLocaleString('en-US', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/Los_Angeles' })
+                                      : new Date(trade.trade_timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/Los_Angeles' })}
+                                  </td>
+                                  <td
+                                    style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 23, color: allScanCacheRef.current ? '#ffcc44' : '#fff', fontWeight: 900, cursor: allScanCacheRef.current ? 'pointer' : 'default', userSelect: 'none' }}
+                                    title={allScanCacheRef.current ? `Double-click to drill into ${trade.underlying_ticker}` : undefined}
+                                    onDoubleClick={() => {
+                                      if (!allScanCacheRef.current) return
+                                      const t = trade.underlying_ticker
+                                      setDrilledTicker(t); setSearchTicker(t)
+                                      const filtered = allScanCacheRef.current.flowData.filter(x => x.underlying_ticker === t)
+                                      setFlowData(filtered); setIsAnalyzing(true)
+                                      setTimeout(() => performAnalysis(filtered, t), 0)
+                                    }}
+                                  >{trade.underlying_ticker}</td>
+                                  <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, fontWeight: 800, color: trade.type === 'call' ? '#00cc00' : '#ff0000' }}>{trade.type.toUpperCase()}</td>
+                                  <td style={{ padding: '5px 10px' }}>
+                                    <button onClick={() => setSelectedStrike(selectedStrike === trade.strike ? null : trade.strike)} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 21, fontWeight: 700, color: selectedStrike === trade.strike ? '#22d3ee' : '#fff', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>${trade.strike}</button>
+                                  </td>
+                                  <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, color: '#fff', whiteSpace: 'nowrap' }}>
+                                    {trade.trade_size.toLocaleString()}@${trade.premium_per_contract.toFixed(2)}<span style={{ marginLeft: 5, fontWeight: 800, color: fillColors[trade.fill_style || 'N/A'] }}>{trade.fill_style || 'N/A'}</span>
+                                  </td>
+                                  <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, color: '#00cc00', fontWeight: 700 }}>${trade.total_premium.toLocaleString()}</td>
+                                  <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, color: '#fff', whiteSpace: 'nowrap' }}>
+                                    ${trade.spot_price != null ? Number(trade.spot_price).toFixed(2) : 'N/A'}
+                                    {analysis?.currentPrice && <span style={{ color: 'rgba(255,255,255,0.4)', margin: '0 5px' }}>"º</span>}
+                                    {analysis?.currentPrice && <span style={{ color: '#22d3ee' }}>${analysis.currentPrice.toFixed(2)}</span>}
+                                  </td>
+                                  <td style={{ padding: '5px 10px' }}>
+                                    <button onClick={() => setSelectedExpiry(selectedExpiry === trade.expiry ? null : trade.expiry)} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 21, color: selectedExpiry === trade.expiry ? '#22d3ee' : '#ffffff', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>{trade.expiry.split('T')[0]}</button>
+                                  </td>
+                                  <td style={{ padding: '5px 10px', whiteSpace: 'nowrap' }}>
+                                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 20, color: 'rgb(0,153,255)' }}>{displayVolume?.toLocaleString() || 'N/A'}</span>
+                                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 20, color: 'rgba(255,255,255,0.35)', margin: '0 4px' }}>/</span>
+                                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 20, color: 'rgb(0,255,94)' }}>{displayOISnapshot?.toLocaleString() || 'N/A'}</span>
+                                  </td>
+                                  <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, color: '#eab308', fontWeight: 700 }}>
+                                    {isMultiDay
+                                      ? <span style={{ color: oiChange > 0 ? '#00cc00' : oiChange < 0 ? '#ff0000' : 'rgba(255,255,255,0.3)', fontWeight: 700 }}>{oiChange > 0 ? '+' : ''}{oiChange.toLocaleString()}</span>
+                                      : <>{liveOI.toLocaleString()} <span style={{ color: oiChange > 0 ? '#00cc00' : oiChange < 0 ? '#ff0000' : 'rgba(255,255,255,0.3)', fontSize: 20 }}>({oiChange > 0 ? '+' : ''}{oiChange})</span></>}
+                                  </td>
+                                  <td style={{ padding: '5px 10px' }}>
+                                    <span style={{
+                                      fontFamily: 'JetBrains Mono,monospace', fontSize: 15, fontWeight: 800,
+                                      padding: '3px 12px', borderRadius: '9999px', display: 'inline-block', letterSpacing: '0.05em',
+                                      ...(trade.trade_type === 'SWEEP' ? { backgroundColor: '#000000', backgroundImage: 'linear-gradient(180deg,#1e1e1e 0%,#000 50%,#111 100%)', color: '#FFD700', border: '1px solid rgba(255,215,0,0.6)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15),inset 0 -1px 0 rgba(0,0,0,0.8)' }
+                                        : trade.trade_type === 'BLOCK' ? { backgroundColor: '#000000', backgroundImage: 'linear-gradient(180deg,#1e1e1e 0%,#000 50%,#111 100%)', color: '#00e5ff', border: '1px solid rgba(0,229,255,0.5)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15),inset 0 -1px 0 rgba(0,0,0,0.8)' }
+                                          : trade.trade_type === 'MULTI-LEG' ? { backgroundColor: '#1e0a3c', backgroundImage: 'linear-gradient(180deg,#3b1d6e 0%,#1e0a3c 50%,#2d1555 100%)', color: '#d8b4fe', border: '1px solid rgba(168,85,247,0.5)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15),inset 0 -1px 0 rgba(0,0,0,0.8)' }
+                                            : { backgroundColor: '#052e16', backgroundImage: 'linear-gradient(180deg,#14532d 0%,#052e16 50%,#0f3d22 100%)', color: '#86efac', border: '1px solid rgba(134,239,172,0.4)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15),inset 0 -1px 0 rgba(0,0,0,0.8)' })
+                                    }}>{trade.trade_type || 'MINI'}</span>
+                                  </td>
+                                </tr>
+                              )
+                            })
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+                    {/* PAGINATION */}
+                    {(() => {
+                      const tradesToDisplay = analysis?.trades || flowData
+                      const totalPages = Math.ceil(tradesToDisplay.length / TRADES_PER_PAGE)
+                      if (totalPages > 1) {
+                        return (
+                          <div style={{ padding: '6px 14px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#fff' }}>
+                              {(currentPage - 1) * TRADES_PER_PAGE + 1}"“{Math.min(currentPage * TRADES_PER_PAGE, tradesToDisplay.length)} OF {tradesToDisplay.length}
+                            </span>
+                            <div style={{ display: 'flex', gap: 4 }}>
+                              <button onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} disabled={currentPage === 1} style={{ padding: '2px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 800, background: '#fff', color: '#000', border: 'none', cursor: currentPage === 1 ? 'not-allowed' : 'pointer', opacity: currentPage === 1 ? 0.3 : 1 }}>PREV</button>
+                              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                let p = i + 1
+                                if (totalPages > 5) { if (currentPage <= 3) p = i + 1; else if (currentPage >= totalPages - 2) p = totalPages - 4 + i; else p = currentPage - 2 + i }
+                                return <button key={p} onClick={() => setCurrentPage(p)} style={{ padding: '2px 8px', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 800, background: currentPage === p ? '#22d3ee' : 'transparent', color: currentPage === p ? '#000' : 'rgba(255,255,255,0.5)', border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer' }}>{p}</button>
+                              })}
+                              <button onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))} disabled={currentPage === totalPages} style={{ padding: '2px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 800, background: '#fff', color: '#000', border: 'none', cursor: currentPage === totalPages ? 'not-allowed' : 'pointer', opacity: currentPage === totalPages ? 0.3 : 1 }}>NEXT</button>
+                            </div>
+                          </div>
+                        )
+                      }
+                      return null
+                    })()}
+                    {flowData.length === 0 && (
+                      <div style={{ padding: 40, textAlign: 'center', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, color: '#fff', letterSpacing: '0.1em' }}>
+                        NO TRADES FOUND. SEARCH FOR A TICKER TO SEE ALGOFLOW TRADES.
+                      </div>
+                    )}
+                  </div>{/* end left table column */}
+
+                  {/* end ROW 3 */}
+                </div>
+
+              </div>{/* end left column */}
+
+            </div>
+          )}{/* end analysis block */}
+
+          {/* NO RESULTS STATE */}
+          {!loading && !isAnalyzing && !analysis && searchTicker && (
+            <div style={{ padding: 40, textAlign: 'center', border: '1px solid rgba(255,255,255,0.15)', flex: 1 }}>
+              <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, color: '#fff', fontWeight: 700, letterSpacing: '0.1em' }}>
+                NO FLOW DATA FOUND FOR {searchTicker}
+              </div>
+              <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#fff', marginTop: 6, letterSpacing: '0.08em' }}>
+                TRY A DIFFERENT TICKER OR CHECK IF THE MARKET IS OPEN
               </div>
             </div>
+          )}
 
-            {/* ── DOUBLE-CLICK POPUP OVERLAY ── */}
+        </div>{/* end left scrollable */}
+        {/* RIGHT: RRG Panel */}
+        {!isMobile && (
+          <div style={{ width: '40%', flexShrink: 0, borderLeft: '1px solid rgba(255,255,255,0.1)', background: '#060608', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {/* Header + filters */}
+            <div style={{ padding: '5px 10px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
+              <button onClick={runRRGScan} disabled={biasRRGLoading} style={{ height: 24, padding: '0 10px', background: biasRRGLoading ? '#1a1a1a' : 'linear-gradient(135deg,#7c3aed,#4c1d95)', color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, letterSpacing: '0.08em', border: 'none', borderRadius: 4, cursor: biasRRGLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                {biasRRGLoading ? <><span style={{ display: 'inline-block', width: 7, height: 7, border: '2px solid #fff', borderTopColor: 'transparent', borderRadius: '50%', animation: 'biasSpin 0.7s linear infinite' }} />...</> : 'RUN SCAN'}
+              </button>
+
+              {/* Separator */}
+              <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />
+
+              {/* Ticker mode filter pills */}
+              {([
+                { id: 'all', label: 'ALL' },
+                { id: 'mag7only', label: 'MAG7' },
+                { id: 'exmag7', label: '-MAG7' },
+                { id: 'etfonly', label: 'ETF' },
+                { id: 'exetf', label: '-ETF' },
+                { id: 'stockonly', label: 'STOCKS' },
+              ] as const).map(({ id, label }) => (
+                <button key={id} onClick={() => setRrgTickerMode(id === 'all' ? 'all' : id)}
+                  style={{ height: 36, padding: '0 14px', background: rrgTickerMode === id ? 'linear-gradient(180deg,#2a1500,#0a0500)' : 'linear-gradient(180deg,#1c1c1c,#0a0a0a)', border: rrgTickerMode === id ? '1px solid #ff8500' : '1px solid rgba(255,255,255,0.14)', borderTop: rrgTickerMode === id ? '1px solid #ffaa44' : '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: rrgTickerMode === id ? '#ff8500' : '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, boxShadow: rrgTickerMode === id ? 'inset 0 1px 0 rgba(255,133,0,0.18),0 0 8px rgba(255,133,0,0.25)' : 'inset 0 1px 0 rgba(255,255,255,0.08),inset 0 -1px 0 rgba(0,0,0,0.7)' }}>
+                  {label}
+                </button>
+              ))}
+
+              {/* Separator */}
+              <div style={{ width: 1, height: 22, background: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />
+
+              {/* Expiry filter pills */}
+              {([
+                { id: 'all', label: 'ALL EXP' },
+                { id: '45d', label: '45D' },
+                { id: 'weekly', label: 'WKL' },
+                { id: '0dte', label: '0DTE' },
+              ] as const).map(({ id, label }) => (
+                <button key={id} onClick={() => setExpiryFilter(id === 'all' ? 'all' : id)}
+                  style={{ height: 36, padding: '0 14px', background: expiryFilter === id ? 'linear-gradient(180deg,#1a1400,#060500)' : 'linear-gradient(180deg,#1c1c1c,#0a0a0a)', border: expiryFilter === id ? '1px solid #facc15' : '1px solid rgba(255,255,255,0.14)', borderTop: expiryFilter === id ? '1px solid #ffe050' : '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: expiryFilter === id ? '#facc15' : '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, boxShadow: expiryFilter === id ? 'inset 0 1px 0 rgba(250,204,21,0.15),0 0 8px rgba(250,204,21,0.2)' : 'inset 0 1px 0 rgba(255,255,255,0.08),inset 0 -1px 0 rgba(0,0,0,0.7)' }}>
+                  {label}
+                </button>
+              ))}
+
+              {/* Separator */}
+              <div style={{ width: 1, height: 22, background: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />
+
+              {/* Uniqueness toggle — cycles through correct threshold values */}
+              <button onClick={() => setRrgUniqueness(v => v === null ? 0.35 : v === 0.35 ? 0.45 : v === 0.45 ? 0.60 : v === 0.60 ? 0.70 : null)}
+                style={{ height: 36, padding: '0 14px', background: rrgUniqueness !== null ? 'linear-gradient(180deg,#001022,#000508)' : 'linear-gradient(180deg,#1c1c1c,#0a0a0a)', border: rrgUniqueness !== null ? '1px solid #60a5fa' : '1px solid rgba(255,255,255,0.14)', borderTop: rrgUniqueness !== null ? '1px solid #8ec4ff' : '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: rrgUniqueness !== null ? '#60a5fa' : '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, boxShadow: rrgUniqueness !== null ? 'inset 0 1px 0 rgba(96,165,250,0.15),0 0 8px rgba(96,165,250,0.2)' : 'inset 0 1px 0 rgba(255,255,255,0.08),inset 0 -1px 0 rgba(0,0,0,0.7)' }}>
+                {rrgUniqueness !== null ? `UNIQ ${Math.round(rrgUniqueness * 100)}%` : 'UNIQUE'}
+              </button>
+
+              {/* Reset zoom */}
+              {(rrgTransform.k !== 1 || rrgTransform.tx !== 0 || rrgTransform.ty !== 0) && (
+                <button onClick={() => setRrgTransform({ tx: 0, ty: 0, k: 1 })} style={{ height: 36, padding: '0 14px', background: 'linear-gradient(180deg,#1c1c1c,#0a0a0a)', border: '1px solid rgba(255,255,255,0.14)', borderTop: '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 800, cursor: 'pointer', marginLeft: 'auto', flexShrink: 0, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08),inset 0 -1px 0 rgba(0,0,0,0.7)' }}>↺</button>
+              )}
+
+              {biasDataStatus && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: '#ff8500', letterSpacing: '0.08em', flexShrink: 0 }}>{biasDataStatus}</span>}
+            </div>
+            {/* RRG chart */}
+            <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+              {biasRRGData ? (() => {
+                const W = 1755, H = 875, PAD = { t: 32, r: 32, b: 44, l: 52 }
+                const CW = W - PAD.l - PAD.r, CH = H - PAD.t - PAD.b
+                const CX = PAD.l + CW / 2, CY = PAD.t + CH / 2
+                const allTickers: Array<{ ticker: string; x: number; y: number; total: number; quad: string }> = []
+                const allAggs = [...biasRRGData.bullCalls, ...biasRRGData.bearCalls, ...biasRRGData.bullPuts, ...biasRRGData.bearPuts]
+                const uniqThreshold = rrgUniqueness ?? 0.35
+                for (const a of allAggs) {
+                  const dominant = Math.max(a.bullCall / a.total, a.bearCall / a.total, a.bullPut / a.total, a.bearPut / a.total)
+                  if (dominant < uniqThreshold) continue  // apply uniqueness filter live
+                  const xVal = (a.callPremium - a.putPremium) / a.total
+                  const yVal = ((a.bullCall + a.bullPut) - (a.bearCall + a.bearPut)) / a.total
+                  const quad = dominant === a.bullCall / a.total ? 'BC' : dominant === a.bearCall / a.total ? 'CC' : dominant === a.bullPut / a.total ? 'BP' : 'CP'
+                  allTickers.push({ ticker: a.ticker, x: xVal, y: yVal, total: a.total, quad })
+                }
+                const toSVG = (x: number, y: number) => ({ sx: CX + x * (CW / 2) * 0.96, sy: CY - y * (CH / 2) * 0.96 })
+                const maxPrem = Math.max(...allTickers.map(t => t.total), 1)
+                const dotR = (total: number) => 4 + Math.sqrt(total / maxPrem) * 10
+                const QUAD_COLORS: Record<string, string> = { BC: '#00ff88', CC: '#ff4444', BP: '#4da6ff', CP: '#ffaa00' }
+                return (
+                  <svg ref={rrgSvgRef} viewBox={`0 0 ${W} ${H}`} width="100%" height="100%" preserveAspectRatio="none"
+                    style={{ display: 'block', cursor: rrgDragRef.current.dragging ? 'grabbing' : 'grab', userSelect: 'none' }}
+                    onMouseDown={e => { const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect(); rrgDragRef.current = { dragging: true, lastSvgX: (e.clientX - rect.left) * W / rect.width, lastSvgY: (e.clientY - rect.top) * H / rect.height } }}
+                    onMouseMove={e => {
+                      if (!rrgDragRef.current.dragging) return
+                      const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect()
+                      const cx2 = (e.clientX - rect.left) * W / rect.width, cy2 = (e.clientY - rect.top) * H / rect.height
+                      const dx = cx2 - rrgDragRef.current.lastSvgX, dy = cy2 - rrgDragRef.current.lastSvgY
+                      rrgDragRef.current.lastSvgX = cx2; rrgDragRef.current.lastSvgY = cy2
+                      setRrgTransform(t => {
+                        const minTx = (1 - t.k) * (PAD.l + CW), maxTx = (1 - t.k) * PAD.l
+                        const minTy = (1 - t.k) * (PAD.t + CH), maxTy = (1 - t.k) * PAD.t
+                        return { ...t, tx: Math.max(minTx, Math.min(maxTx, t.tx + dx)), ty: Math.max(minTy, Math.min(maxTy, t.ty + dy)) }
+                      })
+                    }}
+                    onMouseUp={() => { rrgDragRef.current.dragging = false }}
+                    onMouseLeave={() => { rrgDragRef.current.dragging = false }}
+                  >
+                    <defs>
+                      <radialGradient id="rrg-bg2" cx="50%" cy="35%" r="70%">
+                        <stop offset="0%" stopColor="#0d1420" /><stop offset="60%" stopColor="#060810" /><stop offset="100%" stopColor="#020305" />
+                      </radialGradient>
+                      <linearGradient id="rrg-gloss2" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="rgba(255,255,255,0.04)" /><stop offset="45%" stopColor="rgba(255,255,255,0.01)" /><stop offset="100%" stopColor="rgba(0,0,0,0.08)" />
+                      </linearGradient>
+                      {[['bc2', '#00ff88'], ['cc2', '#ff4444'], ['bp2', '#4da6ff'], ['cp2', '#ffaa00']].map(([id, col]) => (
+                        <radialGradient key={id} id={`rg-${id}`} cx="35%" cy="28%" r="65%">
+                          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.55" /><stop offset="35%" stopColor={col} stopOpacity="0.9" /><stop offset="100%" stopColor={col} stopOpacity="0.55" />
+                        </radialGradient>
+                      ))}
+                      <clipPath id="rrg-bias-clip2"><rect x={PAD.l} y={PAD.t} width={CW} height={CH} /></clipPath>
+                      <filter id="rrg-txt-shadow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feDropShadow dx="0" dy="0" stdDeviation="3" floodColor="#000" floodOpacity="1" />
+                      </filter>
+                    </defs>
+                    <rect x={PAD.l} y={PAD.t} width={CW} height={CH} fill="url(#rrg-bg2)" />
+                    <rect x={PAD.l} y={PAD.t} width={CW} height={CH} fill="url(#rrg-gloss2)" />
+                    {([-1, -0.5, 0, 0.5, 1]).map(v => { const { sx } = toSVG(v, 0); const col = v > 0 ? '#00ff88' : v < 0 ? '#4da6ff' : 'rgba(255,255,255,0.5)'; return <g key={`xt2-${v}`}><line x1={sx} y1={PAD.t + CH} x2={sx} y2={PAD.t + CH + 5} stroke={col} strokeWidth={1} /><text x={sx} y={PAD.t + CH + 22} textAnchor="middle" fontFamily="JetBrains Mono,monospace" fontSize={14} fill={col} fontWeight={800} filter="url(#rrg-txt-shadow)">{v > 0 ? `+${v}` : v}</text></g> })}
+                    {([-1, -0.5, 0, 0.5, 1]).map(v => { const { sy } = toSVG(0, v); const col = v > 0 ? '#00ff88' : v < 0 ? '#ff4444' : 'rgba(255,255,255,0.5)'; return <g key={`yt2-${v}`}><line x1={PAD.l - 5} y1={sy} x2={PAD.l} y2={sy} stroke={col} strokeWidth={1} /><text x={PAD.l - 10} y={sy + 5} textAnchor="end" fontFamily="JetBrains Mono,monospace" fontSize={14} fill={col} fontWeight={800} filter="url(#rrg-txt-shadow)">{v > 0 ? `+${v}` : v}</text></g> })}
+                    <rect x={PAD.l} y={PAD.t} width={CW} height={CH} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
+                    <g clipPath="url(#rrg-bias-clip2)">
+                      <g transform={`translate(${rrgTransform.tx},${rrgTransform.ty}) scale(${rrgTransform.k})`}>
+                        <rect x={PAD.l} y={PAD.t} width={CW / 2} height={CH / 2} fill="rgba(77,166,255,0.05)" />
+                        <rect x={CX} y={PAD.t} width={CW / 2} height={CH / 2} fill="rgba(0,255,136,0.05)" />
+                        <rect x={PAD.l} y={CY} width={CW / 2} height={CH / 2} fill="rgba(255,170,0,0.05)" />
+                        <rect x={CX} y={CY} width={CW / 2} height={CH / 2} fill="rgba(255,68,68,0.05)" />
+                        {[-0.5, 0, 0.5].map(v => { const { sx } = toSVG(v, 0); const { sy } = toSVG(0, v); return <g key={v}><line x1={sx} y1={PAD.t} x2={sx} y2={PAD.t + CH} stroke={v === 0 ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.06)'} strokeWidth={(v === 0 ? 1.5 : 1) / rrgTransform.k} strokeDasharray={v === 0 ? undefined : '4 8'} /><line x1={PAD.l} y1={sy} x2={PAD.l + CW} y2={sy} stroke={v === 0 ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.06)'} strokeWidth={(v === 0 ? 1.5 : 1) / rrgTransform.k} strokeDasharray={v === 0 ? undefined : '4 8'} /></g> })}
+                        {allTickers.map(t => {
+                          const { sx, sy } = toSVG(t.x, t.y)
+                          const r = dotR(t.total)
+                          const gradId = t.quad === 'BC' ? 'rg-bc2' : t.quad === 'CC' ? 'rg-cc2' : t.quad === 'BP' ? 'rg-bp2' : 'rg-cp2'
+                          const col = QUAD_COLORS[t.quad]
+                          const labelRight = sx < CX
+                          const agg = allAggs.find(a => a.ticker === t.ticker)
+                          return (
+                            <g key={t.ticker} style={{ cursor: 'pointer' }} onDoubleClick={() => agg && setRrgPopupTicker(agg)}>
+                              <circle cx={sx} cy={sy} r={(r + 5) / rrgTransform.k} fill="transparent" />
+                              <circle cx={sx + 1.5 / rrgTransform.k} cy={sy + 1.5 / rrgTransform.k} r={r / rrgTransform.k} fill="rgba(0,0,0,0.5)" />
+                              <circle cx={sx} cy={sy} r={r / rrgTransform.k} fill={`url(#${gradId})`} stroke={col} strokeWidth={1.2 / rrgTransform.k} />
+                              <text x={sx + (labelRight ? (r + 6) / rrgTransform.k : -(r + 6) / rrgTransform.k)} y={sy + 5 / rrgTransform.k} textAnchor={labelRight ? 'start' : 'end'} fontFamily="JetBrains Mono,monospace" fontSize={28 / rrgTransform.k} fontWeight={900} fill={col} filter="url(#rrg-txt-shadow)" style={{ pointerEvents: 'none' }}>{t.ticker}</text>
+                            </g>
+                          )
+                        })}
+                      </g>
+                    </g>
+                    {[{ x: PAD.l + 14, y: PAD.t + 22, col: '#4da6ff', label: '▲ BULL PUTS' }, { x: CX + 14, y: PAD.t + 22, col: '#00ff88', label: '▲ BULL CALLS' }, { x: PAD.l + 14, y: PAD.t + CH - 8, col: '#ffaa00', label: '▼ BEAR PUTS' }, { x: CX + 14, y: PAD.t + CH - 8, col: '#ff4444', label: '▼ BEAR CALLS' }].map(({ x, y, col, label }) => (
+                      <text key={label} x={x} y={y} fontFamily="JetBrains Mono,monospace" fontSize={13} fontWeight={900} fill={col} letterSpacing={2}>{label}</text>
+                    ))}
+                  </svg>
+                )
+              })() : (
+                <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
+                  <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, color: '#2a2a3a', letterSpacing: '0.15em' }}>
+                    {biasRRGLoading ? 'COMPUTING ROTATION...' : 'CLICK RUN SCAN TO PLOT FLOW ROTATION'}
+                  </span>
+                </div>
+              )}
+            </div>
+            {/* Double-click popup */}
             {rrgPopupTicker && (() => {
               const p = rrgPopupTicker
               const total = p.total || 1
@@ -4165,40 +4003,29 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               const col = dominant === p.bullCall ? '#00ff88' : dominant === p.bearCall ? '#ff4444' : dominant === p.bullPut ? '#4da6ff' : '#ffaa00'
               const quadLabel = dominant === p.bullCall ? 'BULL CALLS' : dominant === p.bearCall ? 'BEAR CALLS' : dominant === p.bullPut ? 'BULL PUTS' : 'BEAR PUTS'
               return (
-                <div onClick={() => setRrgPopupTicker(null)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-                  <div onClick={e => e.stopPropagation()} style={{ background: '#0a0a10', border: `1px solid ${col}44`, borderRadius: 24, padding: '48px 56px', minWidth: 720, maxWidth: 920, boxShadow: `0 0 60px ${col}22` }}>
-                    {/* Header */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 36 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                        <div style={{ width: 18, height: 18, borderRadius: '50%', background: col, boxShadow: `0 0 14px ${col}` }} />
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 40, fontWeight: 900, color: '#fff', letterSpacing: '0.1em' }}>{p.ticker}</span>
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 18, fontWeight: 900, color: col, letterSpacing: '0.15em', padding: '6px 16px', border: `1px solid ${col}55`, borderRadius: 8 }}>{quadLabel}</span>
+                <div onClick={() => setRrgPopupTicker(null)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+                  <div onClick={e => e.stopPropagation()} style={{ background: '#0a0a10', border: `1px solid ${col}44`, borderRadius: 16, padding: '32px 40px', minWidth: 400, maxWidth: '90%', boxShadow: `0 0 60px ${col}22` }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{ width: 14, height: 14, borderRadius: '50%', background: col, boxShadow: `0 0 10px ${col}` }} />
+                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 28, fontWeight: 900, color: '#fff' }}>{p.ticker}</span>
+                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 900, color: col, padding: '4px 12px', border: `1px solid ${col}55`, borderRadius: 6 }}>{quadLabel}</span>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 24, color: '#fff' }}>${(total / 1e6).toFixed(1)}M</span>
-                        <button onClick={() => setRrgPopupTicker(null)} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 24, fontWeight: 700, padding: '6px 18px', cursor: 'pointer' }}>✕</button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 18, color: '#fff' }}>${(total / 1e6).toFixed(1)}M</span>
+                        <button onClick={() => setRrgPopupTicker(null)} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 18, fontWeight: 700, padding: '4px 14px', cursor: 'pointer' }}>✕</button>
                       </div>
                     </div>
-                    {/* 4 liquid boxes — 2× scaled via zoom */}
                     <div style={{ display: 'flex', justifyContent: 'center' }}>
-                      <div style={{ display: 'inline-block', zoom: 2 }}>
-                        <FlowQuadrantGauge
-                          bullCall={p.bullCall} bearCall={p.bearCall}
-                          bullPut={p.bullPut} bearPut={p.bearPut}
-                          score={score} label={p.ticker}
-                        />
-                      </div>
+                      <FlowQuadrantGauge bullCall={p.bullCall} bearCall={p.bearCall} bullPut={p.bullPut} bearPut={p.bearPut} score={score} label={p.ticker} />
                     </div>
                   </div>
                 </div>
               )
             })()}
-
           </div>
-
-        </div>
-      )}
-
+        )}
+      </div>{/* end main content row */}
     </div>
   )
 }

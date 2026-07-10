@@ -246,5 +246,7 @@ export async function GET(request: NextRequest) {
     const symbols = holdings.slice(0, limit)
     holdingsCache.set(cacheKey, { symbols, ts: Date.now() })
 
-    return NextResponse.json({ symbols, etf, count: symbols.length, source: 'static' })
+    return NextResponse.json({ symbols, etf, count: symbols.length, source: 'static' }, {
+        headers: { 'Cache-Control': 's-maxage=3600, stale-while-revalidate=600' },
+    })
 }

@@ -4,6 +4,7 @@ type Props = {
     visible: boolean
     selectedTicker?: string
     streamingStatus?: string | null
+    fill?: boolean // when true: position:absolute (fills parent) instead of position:fixed (fills viewport)
 }
 
 const EFI_LOADING_QUOTES = [
@@ -41,7 +42,7 @@ const EFI_LOADING_QUOTES = [
     { text: 'Discipline is the bridge between goals and accomplishment.', author: 'Jim Rohn' },
 ]
 
-export default function OptionsFlowScene({ visible, selectedTicker, streamingStatus }: Props) {
+export default function OptionsFlowScene({ visible, selectedTicker, streamingStatus, fill }: Props) {
     const [quoteIndex, setQuoteIndex] = useState(() => Math.floor(Math.random() * EFI_LOADING_QUOTES.length))
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const modeRef = useRef(Math.floor(Math.random() * 3))
@@ -187,7 +188,7 @@ export default function OptionsFlowScene({ visible, selectedTicker, streamingSta
     const quote = EFI_LOADING_QUOTES[quoteIndex % EFI_LOADING_QUOTES.length]
 
     return (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 60, background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+        <div style={{ position: fill ? 'absolute' : 'fixed', inset: 0, zIndex: 60, background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
             <style>{`@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}} @keyframes scenePulse{0%,100%{opacity:1}50%{opacity:0.8}}`}</style>
             {/* Weather canvas background */}
             <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }} />

@@ -2,6 +2,7 @@
 
 import { RefreshCw } from 'lucide-react'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import OptionsFlowScene from '@/components/loading/OptionsFlowScene'
 import ClusterCardMobileTimeframe from './ClusterCardMobileTimeframe'
 import DealerClusterMobileTowerToggle from './DealerClusterMobileTowerToggle'
 import { useClusterCardMobile } from './useClusterCardMobile'
@@ -1013,39 +1014,16 @@ export default function DealerClusterScreener() {
            LOADING SCREEN
           ════════════════════════════════════════════════════════ */}
       {isAnyLoading && (
-        <div style={{ background: '#000', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 24px', minHeight: isMobile ? 'calc(100vh - 160px)' : 400 }}>
-          <RefreshCw style={{ width: isMobile ? 35 : 45, height: isMobile ? 35 : 45, color: '#ff6600', marginBottom: 24 }} className="animate-spin" />
-          <p style={{ color: '#ff6600', fontFamily: 'monospace', fontSize: isMobile ? 16 : 23, fontWeight: 900, letterSpacing: '0.25em', textTransform: 'uppercase', marginBottom: 24, textAlign: 'center' }}>
-            {premiumLoading ? 'Validating Premium Flow' : 'Scanning GEX Clusters'}
-          </p>
-          {/* Progress bar */}
-          <div style={{ width: isMobile ? '90%' : 288, marginBottom: 8 }}>
-            <div style={{ width: '100%', height: 2, background: '#111', overflow: 'hidden', borderRadius: 1 }}>
-              <div style={{
-                height: '100%',
-                background: premiumLoading ? '#ffb400' : '#ff6600',
-                width: premiumLoading
-                  ? `${premiumProgress.total > 0 ? Math.round((premiumProgress.current / premiumProgress.total) * 100) : 0}%`
-                  : `${scanProgress.total > 0 ? Math.round((scanProgress.current / scanProgress.total) * 100) : 0}%`,
-                transition: 'width 0.25s ease',
-              }} />
+        <div style={{ position: 'relative', minHeight: isMobile ? 'calc(100vh - 160px)' : 400 }}>
+          <OptionsFlowScene visible={true} selectedTicker={premiumLoading ? 'VALIDATING' : 'GEX'} streamingStatus={premiumLoading ? 'Validating Premium Flow...' : 'Scanning GEX Clusters...'} fill />
+          {/* Progress bar overlay on top of weather canvas */}
+          <div style={{ position: 'absolute', bottom: '20%', left: '50%', transform: 'translateX(-50%)', width: isMobile ? '90%' : 320, zIndex: 65 }}>
+            <div style={{ width: '100%', height: 2, background: 'rgba(255,255,255,0.1)', overflow: 'hidden', borderRadius: 1 }}>
+              <div style={{ height: '100%', background: premiumLoading ? '#ffb400' : '#ff6600', width: premiumLoading ? `${premiumProgress.total > 0 ? Math.round((premiumProgress.current / premiumProgress.total) * 100) : 0}%` : `${scanProgress.total > 0 ? Math.round((scanProgress.current / scanProgress.total) * 100) : 0}%`, transition: 'width 0.25s ease' }} />
             </div>
-            <p style={{ color: premiumLoading ? '#ffb400' : '#ff6600', fontFamily: 'monospace', fontSize: 16, fontWeight: 700, textAlign: 'right', marginTop: 6 }}>
-              {premiumLoading
-                ? `${premiumProgress.current} / ${premiumProgress.total}`
-                : `${scanProgress.current} / ${scanProgress.total}`}
+            <p style={{ color: premiumLoading ? '#ffb400' : '#ff6600', fontFamily: 'monospace', fontSize: 14, fontWeight: 700, textAlign: 'right', marginTop: 4 }}>
+              {premiumLoading ? `${premiumProgress.current} / ${premiumProgress.total}` : `${scanProgress.current} / ${scanProgress.total}`}
             </p>
-          </div>
-          {/* Quote */}
-          <div style={{ maxWidth: isMobile ? '100%' : 480, textAlign: 'center', marginTop: 24, padding: '0 8px' }}>
-            <p style={{ color: '#fff', fontSize: isMobile ? 16 : 20, fontWeight: 600, lineHeight: 1.6, textShadow: '0 0 20px rgba(255,255,255,0.12)' }}>
-              &ldquo;{loadingQuoteRef.current.body}&rdquo;
-            </p>
-            {loadingQuoteRef.current.author && (
-              <p style={{ color: 'rgba(255,255,255,0.35)', fontFamily: 'monospace', fontSize: isMobile ? 14 : 16, marginTop: 10 }}>
-                {loadingQuoteRef.current.author}
-              </p>
-            )}
           </div>
         </div>
       )}

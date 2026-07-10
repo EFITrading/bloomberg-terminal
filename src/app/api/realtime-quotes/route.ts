@@ -89,8 +89,8 @@ export async function GET(request: NextRequest) {
       // Handle client disconnect
       request.signal.addEventListener('abort', cleanup)
 
-      // Auto-cleanup after 1 hour to prevent memory leaks
-      setTimeout(cleanup, 60 * 60 * 1000)
+      // Auto-cleanup after 5 minutes to prevent runaway function cost
+      setTimeout(cleanup, 5 * 60 * 1000)
     },
   })
 

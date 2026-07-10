@@ -334,7 +334,7 @@ export async function GET() {
           sq(cur.vix, fp.vix, 35) +
           sq(cur.tlt, fp.tlt, 25) +
           sq(cur.xle, fp.xle, 40)) /
-          6
+        6
       )
       return Math.max(0, Math.min(99, Math.round((1 - dist) * 100)))
     }
@@ -491,7 +491,7 @@ export async function GET() {
         uup3M,
         bkln3M,
       },
-    })
+    }, { headers: { 'Cache-Control': 's-maxage=900, stale-while-revalidate=180' } })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }

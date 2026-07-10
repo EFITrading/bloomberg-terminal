@@ -68,7 +68,9 @@ export async function GET() {
         tickers: (a.tickers as string[]) || [],
       }))
 
-    return NextResponse.json({ sectors, movers, headlines })
+    return NextResponse.json({ sectors, movers, headlines }, {
+      headers: { 'Cache-Control': 's-maxage=300, stale-while-revalidate=60' },
+    })
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error'
     return NextResponse.json({ error: msg }, { status: 500 })

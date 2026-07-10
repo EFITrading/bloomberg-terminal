@@ -1171,17 +1171,17 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
     return () => clearInterval(id)
   }, [fetchNews, searchTicker])
 
-  // Breaking news tab always uses global feed (no ticker)
-  useEffect(() => {
-    fetchGeneralNews()
-    const id = setInterval(fetchGeneralNews, 5 * 60 * 1000)
-    return () => clearInterval(id)
-  }, [fetchGeneralNews])
+  // Breaking news auto-scan disabled — removed to prevent background API calls
+  // useEffect(() => {
+  //   fetchGeneralNews()
+  //   const id = setInterval(fetchGeneralNews, 5 * 60 * 1000)
+  //   return () => clearInterval(id)
+  // }, [fetchGeneralNews])
 
-  // ── Auto-scan historical breaking news on mount ─────────────────────────
-  useEffect(() => {
-    fetchHistoricalBreaking()
-  }, [fetchHistoricalBreaking])
+  // Auto-scan historical breaking news disabled
+  // useEffect(() => {
+  //   fetchHistoricalBreaking()
+  // }, [fetchHistoricalBreaking])
 
   // ── Auto-scan mover charts whenever articles load ─────────────────────────
   useEffect(() => {
