@@ -4,6 +4,8 @@ import { gunzip, gzip } from 'zlib'
 import { PrismaClient } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
 
+import { getCachedFullDay, invalidateFullDay, setCachedFullDay } from '@/lib/redis'
+
 const gzipAsync = promisify(gzip)
 const gunzipAsync = promisify(gunzip)
 
@@ -15,10 +17,18 @@ export const runtime = 'nodejs'
 // to prevent connection exhaustion under concurrent 30s polls.
 const globalForDirect = globalThis as unknown as { directPrisma: PrismaClient | undefined }
 
+// connection_limit=1 — each Vercel lambda holds at most 1 direct Postgres connection
+function buildDirectUrl(): string {
+    const base = process.env.POSTGRES_URL ?? ''
+    if (!base) return base
+    const sep = base.includes('?') ? '&' : '?'
+    return `${base}${sep}connection_limit=1&pool_timeout=20`
+}
+
 const directPrisma =
     globalForDirect.directPrisma ??
     new PrismaClient({
-        datasources: { db: { url: process.env.POSTGRES_URL } },
+        datasources: { db: { url: buildDirectUrl() } },
         log: ['error'],
     })
 
@@ -50,14 +60,19 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ trades, tradeCount: trades.length, batchTime: latestTime, incremental: true })
         }
 
-        // Initial full-day load — direct connection has no 5MB limit, use large pages for speed
+        // Initial full-day load — check Redis cache first (saves Postgres under concurrent load)
+        const cached = await getCachedFullDay(tradingDate)
+        if (cached) {
+            return NextResponse.json({ ...cached, fromCache: true })
+        }
+
+        // Cache miss — load from Postgres (direct connection, no 5MB Accelerate limit)
         const PAGE_SIZE = 40
         const total = await directPrisma.flowBatch.count({ where: { tradingDate } })
         if (total === 0) return NextResponse.json({ trades: [], tradeCount: 0 })
 
         const pageCount = Math.ceil(total / PAGE_SIZE)
-        const allTrades: unknown[] = new Array(total * 50) // pre-alloc rough estimate
-        allTrades.length = 0
+        const allTrades: unknown[] = []
         let latestBatchTime: Date | undefined
 
         // Fetch 10 pages in parallel, loop until done
@@ -82,7 +97,16 @@ export async function GET(request: NextRequest) {
             }
         }
 
-        return NextResponse.json({ trades: allTrades, tradeCount: allTrades.length, batchTime: latestBatchTime })
+        const payload = {
+            trades: allTrades,
+            tradeCount: allTrades.length,
+            batchTime: latestBatchTime?.toISOString() ?? new Date().toISOString(),
+        }
+
+        // Populate cache for next 30s — fire-and-forget, don't block the response
+        setCachedFullDay(tradingDate, payload).catch(() => {})
+
+        return NextResponse.json(payload)
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error)
         console.error('[FlowBatch GET] Error:', msg)
@@ -116,6 +140,9 @@ export async function POST(request: NextRequest) {
         }
 
         await directPrisma.flowBatch.createMany({ data: batches })
+
+        // Invalidate the full-day cache so next poll gets fresh data including these trades
+        await invalidateFullDay(tradingDate)
 
         return NextResponse.json({ success: true, chunks: batches.length, tradeCount: trades.length })
     } catch (error) {
