@@ -5,7 +5,7 @@
         "buildCommand": "npm install && npx prisma generate"
     },
     "deploy": {
-        "startCommand": "node --max-old-space-size=2048 collector/collector.mjs",
+        "startCommand": "node --max-old-space-size=2048 collector.mjs",
         "restartPolicyType": "ON_FAILURE",
         "restartPolicyMaxRetries": 10
     }
