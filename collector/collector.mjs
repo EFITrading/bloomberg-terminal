@@ -4,7 +4,7 @@
  * Persistent Node.js WebSocket stream to wss://socket.polygon.io/options
  * Runs market open (9:30 AM ET) → market close (4:00 PM ET)
  * Buffers + enriches trades every 1 second
- * Upserts cumulative trades to Postgres (FlowBatch table) every 5 minutes
+ * Saves new trades to Postgres (FlowBatch table) every 5 seconds
  */
 
 import WebSocket from 'ws'
@@ -80,12 +80,70 @@ function parseOCCTicker(sym) {
     return { underlying, expiry, type: cp === 'C' ? 'call' : 'put', strike }
 }
 
-// ── Trade classifier ──────────────────────────────────────────────────────────
-function classifyTrade(size, conditions) {
-    if (conditions.includes(41)) return 'MULTI-LEG'
-    if (size >= 250) return 'BLOCK'
-    if (size < 10) return 'MINI'
-    return 'SWEEP'
+// ── Trade classifier (group-based, mirrors browser classifyLiveBatch) ────────
+// Applied to each 1-second batch so sweep detection works across fills.
+function classifyBatch(trades) {
+    // Step 1: MULTI-LEG — same underlying within 100ms, 2-4 legs ≥100 contracts each,
+    //         different strikes/types/expiries, combined premium ≥$25k
+    const mlGroups = new Map()
+    for (const t of trades) {
+        const bucket = Math.floor(new Date(t.trade_timestamp).getTime() / 100) * 100
+        const key = `${t.underlying_ticker}_${bucket}`
+        if (!mlGroups.has(key)) mlGroups.set(key, [])
+        mlGroups.get(key).push(t)
+    }
+    const multiLegIds = new Set()
+    for (const [, group] of mlGroups) {
+        if (group.length < 2 || group.length > 4) continue
+        const strikes = new Set(group.map(t => t.strike))
+        const types = new Set(group.map(t => t.type))
+        const expiries = new Set(group.map(t => t.expiry))
+        const hasMultiStructure = strikes.size >= 2 || types.size >= 2 || expiries.size >= 2
+        const allBig = group.every(t => t.trade_size >= 100)
+        const totalPrem = group.reduce((s, t) => s + t.total_premium, 0)
+        if (hasMultiStructure && allBig && totalPrem >= 25000) {
+            for (const t of group) multiLegIds.add(`${t.ticker}_${t.trade_timestamp}`)
+        }
+    }
+
+    // Step 2: SWEEP — same contract within a 3-second window across 2+ different exchanges
+    const sweepGroups = new Map()
+    for (const t of trades) {
+        if (multiLegIds.has(`${t.ticker}_${t.trade_timestamp}`)) continue
+        const win = Math.floor(new Date(t.trade_timestamp).getTime() / 3000) * 3000
+        const key = `${t.underlying_ticker}_${t.strike}_${t.type}_${t.expiry}_${win}`
+        if (!sweepGroups.has(key)) sweepGroups.set(key, [])
+        sweepGroups.get(key).push(t)
+    }
+    const consumedIds = new Set()
+    const swept = []
+    for (const [, group] of sweepGroups) {
+        const exchanges = new Set(group.map(t => t.exchange_id))
+        if (exchanges.size < 2) continue  // single exchange — not a sweep
+        for (const t of group) consumedIds.add(`${t.ticker}_${t.trade_timestamp}`)
+        const totalSize = group.reduce((s, t) => s + t.trade_size, 0)
+        const totalPrem = group.reduce((s, t) => s + t.total_premium, 0)
+        const weightedPrice = totalSize > 0 ? totalPrem / (totalSize * 100) : group[0].premium_per_contract
+        swept.push({
+            ...group[0],
+            trade_size: totalSize,
+            premium_per_contract: weightedPrice,
+            total_premium: totalPrem,
+            trade_type: 'SWEEP',
+            exchange_name: `MULTI-EXCHANGE (${group.length} fills, ${exchanges.size} exchanges)`,
+        })
+    }
+
+    // Step 3: BLOCK (≥250 contracts, single exchange) or MINI (everything else)
+    const result = [...swept]
+    for (const t of trades) {
+        const id = `${t.ticker}_${t.trade_timestamp}`
+        if (consumedIds.has(id)) continue
+        if (multiLegIds.has(id)) result.push({ ...t, trade_type: 'MULTI-LEG' })
+        else if (t.trade_size >= 250) result.push({ ...t, trade_type: 'BLOCK' })
+        else result.push({ ...t, trade_type: 'MINI' })
+    }
+    return result
 }
 
 // ── Index underlying map ──────────────────────────────────────────────────────
@@ -273,7 +331,7 @@ function startStream() {
                         total_premium: totalPremium,
                         spot_price: 0,
                         exchange_id: msg.x,
-                        trade_type: classifyTrade(msg.s, msg.c || []),
+                        trade_type: 'MINI',  // placeholder — classifyBatch overrides in flush
                         trade_timestamp: new Date(msg.t).toISOString(),
                         days_to_expiry: Math.max(0, Math.round((new Date(parsed.expiry) - Date.now()) / 86_400_000)),
                     })
@@ -324,20 +382,36 @@ function startCollecting() {
     rawBuffer = []
     liveOIMap.clear()
 
-    // Delete any stale/corrupt records from today before starting fresh
+    // Only delete today's records if they are stale (last save >10 min ago).
+    // A mid-day restart (crash/redeploy) must NOT wipe live data — resume instead.
     const tradingDate = getTradingDate()
-    prisma.flowBatch.deleteMany({ where: { tradingDate } })
-        .then(r => r.count > 0 && console.log(`[INIT] Cleared ${r.count} stale records for ${tradingDate}`))
-        .catch(err => console.warn('[INIT] Could not clear stale records:', err.message))
+    prisma.flowBatch.findFirst({ where: { tradingDate }, orderBy: { batchTime: 'desc' }, select: { batchTime: true, id: true } })
+        .then(last => {
+            if (!last) {
+                console.log(`[INIT] No existing records for ${tradingDate} — fresh start`)
+                return
+            }
+            const ageMs = Date.now() - new Date(last.batchTime).getTime()
+            if (ageMs > 10 * 60 * 1000) {
+                // Last save was >10 minutes ago — collector was dead, safe to clear stale data
+                return prisma.flowBatch.deleteMany({ where: { tradingDate } })
+                    .then(r => console.log(`[INIT] Cleared ${r.count} stale records (last save ${Math.round(ageMs / 60000)}min ago)`))
+            } else {
+                // Recent data exists — mid-day restart, resume without wiping
+                console.log(`[INIT] Resuming mid-day — last save ${Math.round(ageMs / 1000)}s ago, keeping existing records`)
+            }
+        })
+        .catch(err => console.warn('[INIT] Stale check failed:', err.message))
 
     startStream()
 
-    // 1-second flush: classify + enrich + apply live OI + push to allTrades
+    // 1-second flush: group-classify + enrich + apply live OI + push to pendingTrades
     flushTimer = setInterval(async () => {
         if (rawBuffer.length === 0) return
         const batch = rawBuffer.splice(0)
         try {
-            const enriched = await enrichBatch(batch)
+            const classified = classifyBatch(batch)  // group-based, same logic as browser
+            const enriched = await enrichBatch(classified)
             const withOI = applyLiveOI(enriched)
             const filtered = withOI.filter(t => t.trade_type !== 'MINI' && t.total_premium >= 10000)
             pendingTrades.push(...filtered)

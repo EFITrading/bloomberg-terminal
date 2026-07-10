@@ -11,10 +11,20 @@ export const runtime = 'nodejs'
 
 // Use the direct DB URL (bypasses Prisma Accelerate's 5MB response limit)
 // The `data` column is a blob — it must never go through the Accelerate proxy
-const directPrisma = new PrismaClient({
-    datasources: { db: { url: process.env.POSTGRES_URL } },
-    log: ['error'],
-})
+// Singleton pattern (mirrors src/lib/prisma.ts) — reuses the instance across hot reloads
+// to prevent connection exhaustion under concurrent 30s polls.
+const globalForDirect = globalThis as unknown as { directPrisma: PrismaClient | undefined }
+
+const directPrisma =
+    globalForDirect.directPrisma ??
+    new PrismaClient({
+        datasources: { db: { url: process.env.POSTGRES_URL } },
+        log: ['error'],
+    })
+
+if (process.env.NODE_ENV !== 'production') {
+    globalForDirect.directPrisma = directPrisma
+}
 
 export async function GET(request: NextRequest) {
     try {
