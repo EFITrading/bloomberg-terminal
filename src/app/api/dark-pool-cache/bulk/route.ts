@@ -1,9 +1,5 @@
 import { NextResponse } from 'next/server'
-import { PrismaClient } from '@prisma/client'
-
-const globalForPrisma = global as unknown as { prismaDPBulk: PrismaClient }
-const prisma = globalForPrisma.prismaDPBulk ?? new PrismaClient()
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prismaDPBulk = prisma
+import { prisma } from '@/lib/prisma'
 
 // GET /api/dark-pool-cache/bulk
 // Returns all cached ticker rows in a single query.

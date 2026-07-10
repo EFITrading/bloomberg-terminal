@@ -207,6 +207,8 @@ export default function FlowTrackingPanel({
   leapSeasonalData,
   algoFlowTrades,
   algoFlowTicker,
+  parentOptionPrices,
+  parentStockPrices,
 }: {
   onClose?: () => void
   relativeStrengthData?: Map<string, number>
@@ -229,6 +231,8 @@ export default function FlowTrackingPanel({
   leapSeasonalData?: Map<string, { inSweetSpot: boolean; inPainPoint: boolean }>
   algoFlowTrades?: OptionsFlowData[]
   algoFlowTicker?: string
+  parentOptionPrices?: Record<string, number>
+  parentStockPrices?: Record<string, number>
 } = {}) {
   const [isMounted, setIsMounted] = useState(false)
   const [chartSymbol, setChartSymbol] = useState('SPY')
@@ -253,6 +257,13 @@ export default function FlowTrackingPanel({
   })
   const [currentOptionPrices, setCurrentOptionPrices] = useState<Record<string, number>>({})
   const [currentStockPrices, setCurrentStockPrices] = useState<Record<string, number>>({})
+  // Prefer parent-provided prices so grades match the flow table exactly
+  const effectiveOptionPrices = parentOptionPrices && Object.keys(parentOptionPrices).length > 0
+    ? { ...currentOptionPrices, ...parentOptionPrices }
+    : currentOptionPrices
+  const effectiveStockPrices = parentStockPrices && Object.keys(parentStockPrices).length > 0
+    ? { ...currentStockPrices, ...parentStockPrices }
+    : currentStockPrices
   const [ownStdDevs, setOwnStdDevs] = useState<Map<string, number>>(new Map())
   const [ownStdDevFailed, setOwnStdDevFailed] = useState<Set<string>>(new Set())
   const [ownDealerZones, setOwnDealerZones] = useState<
@@ -1068,7 +1079,7 @@ export default function FlowTrackingPanel({
                     const strikeFormatted = String(Math.round(flow.strike * 1000)).padStart(8, '0')
                     const optionType = flow.type.toLowerCase() === 'call' ? 'C' : 'P'
                     const optionTicker = `O:${normalizeTickerForOptions(flow.underlying_ticker)}${expiry}${optionType}${strikeFormatted}`
-                    const currentPrice = currentOptionPrices[optionTicker]
+                    const currentPrice = effectiveOptionPrices[optionTicker]
                     const entryPrice = (flow as any).originalPrice || flow.premium_per_contract
 
                     // Type filter
@@ -1088,8 +1099,8 @@ export default function FlowTrackingPanel({
                       const flowWithOriginalPrice = { ...flow, premium_per_contract: entryPrice }
                       const result = calculateFlowGrade(
                         flowWithOriginalPrice,
-                        currentOptionPrices,
-                        currentStockPrices,
+                        effectiveOptionPrices,
+                        effectiveStockPrices,
                         emptyRS,
                         defaultStdDevs,
                         comboMap
@@ -1127,9 +1138,9 @@ export default function FlowTrackingPanel({
                     if (flowTrackingFilters.gradeSort !== 'NONE') {
                       const gradeOrder: Record<string, number> = { 'A+': 0, 'A': 1, 'A-': 2, 'B+': 3, 'B': 4, 'B-': 5, 'C+': 6, 'C': 7, 'C-': 8, 'D+': 9, 'D': 10, 'D-': 11, 'F': 12, 'N/A': 13 }
                       const ep = (a as any).originalPrice || a.premium_per_contract
-                      const grA = calculateFlowGrade({ ...a, premium_per_contract: ep }, currentOptionPrices, currentStockPrices, emptyRS, defaultStdDevs, comboMap).grade
+                      const grA = calculateFlowGrade({ ...a, premium_per_contract: ep }, effectiveOptionPrices, effectiveStockPrices, emptyRS, defaultStdDevs, comboMap).grade
                       const ep2 = (b as any).originalPrice || b.premium_per_contract
-                      const grB = calculateFlowGrade({ ...b, premium_per_contract: ep2 }, currentOptionPrices, currentStockPrices, emptyRS, defaultStdDevs, comboMap).grade
+                      const grB = calculateFlowGrade({ ...b, premium_per_contract: ep2 }, effectiveOptionPrices, effectiveStockPrices, emptyRS, defaultStdDevs, comboMap).grade
                       const diff = (gradeOrder[grA] ?? 13) - (gradeOrder[grB] ?? 13)
                       return flowTrackingFilters.gradeSort === 'HIGH' ? diff : -diff
                     }
@@ -1144,7 +1155,7 @@ export default function FlowTrackingPanel({
                     const strikeFormatted = String(Math.round(flow.strike * 1000)).padStart(8, '0')
                     const optionType = flow.type.toLowerCase() === 'call' ? 'C' : 'P'
                     const optionTicker = `O:${normalizeTickerForOptions(flow.underlying_ticker)}${expiry}${optionType}${strikeFormatted}`
-                    const currentPrice = currentOptionPrices[optionTicker]
+                    const currentPrice = effectiveOptionPrices[optionTicker]
                     const entryPrice = (flow as any).originalPrice || flow.premium_per_contract
                     const fillStyle = flow.fill_style || ''
                     const isSoldToOpen = fillStyle === 'B' || fillStyle === 'BB'
@@ -1162,16 +1173,16 @@ export default function FlowTrackingPanel({
                     const liveGrade = isLeapTrade && leapRsData && leap52wkData && leapSeasonalData
                       ? calculateLeapGradeShared(
                         flowWithOriginalPrice,
-                        currentOptionPrices,
-                        currentStockPrices,
+                        effectiveOptionPrices,
+                        effectiveStockPrices,
                         leapRsData,
                         leap52wkData,
                         leapSeasonalData
                       )
                       : calculateFlowGrade(
                         flowWithOriginalPrice,
-                        currentOptionPrices,
-                        currentStockPrices,
+                        effectiveOptionPrices,
+                        effectiveStockPrices,
                         emptyRS,
                         defaultStdDevs,
                         comboMap
@@ -1191,7 +1202,7 @@ export default function FlowTrackingPanel({
                     const rzT1 = rzSigma > 0 ? bsStrikeForProbFTP(flow.spot_price, rzSigma, rzLiveDTE, 80, rzTargetUp) : null
                     const rzT2 = rzSigma > 0 ? bsStrikeForProbFTP(flow.spot_price, rzSigma, rzLiveDTE, 90, rzTargetUp) : null
                     const rzTargetColor = rzTargetUp ? '#00ff88' : '#ff4466'
-                    const rzStockNow = currentStockPrices[flow.underlying_ticker]
+                    const rzStockNow = effectiveStockPrices[flow.underlying_ticker]
                     const rzFlowStock = (flow as any).originalStockPrice || flow.spot_price
                     const isThisFlowSwiped = swipedFlowId === flowId
                     const swipeOffset = isThisFlowSwiped ? Math.min(0, touchCurrent - touchStart) : 0
@@ -2067,7 +2078,7 @@ export default function FlowTrackingPanel({
                                 const strikeStr = String(Math.round(flow.strike * 1000)).padStart(8, '0')
                                 const optType = flow.type.toLowerCase() === 'call' ? 'C' : 'P'
                                 const optTicker = `O:${normalizeTickerForOptions(flow.underlying_ticker)}${expStr}${optType}${strikeStr}`
-                                const curPrice = currentOptionPrices[optTicker]
+                                const curPrice = effectiveOptionPrices[optTicker]
                                 const liveBuyPrice = curPrice && curPrice > 0 ? curPrice : ep
                                 let pctChange = 0, priceHigher = false
                                 if (curPrice && curPrice > 0) {
@@ -2077,7 +2088,7 @@ export default function FlowTrackingPanel({
                                 }
                                 const liveGrade = calculateFlowGrade(
                                   { ...flow, premium_per_contract: ep },
-                                  currentOptionPrices, currentStockPrices, wlRS, wlStdDevs, wlComboMap
+                                  effectiveOptionPrices, effectiveStockPrices, wlRS, wlStdDevs, wlComboMap
                                 )
                                 const accentColor = flow.type === 'call' ? '#00ff88' : '#ff3333'
                                 const fsColor = fillStyle === 'A' || fillStyle === 'AA' ? '#00ff88' : fillStyle === 'B' || fillStyle === 'BB' ? '#ff4466' : '#ff8500'
@@ -2109,8 +2120,8 @@ export default function FlowTrackingPanel({
                                         <span style={{ display: 'flex', alignItems: 'center', gap: '3px', flexShrink: 0 }}>
                                           <span style={{ fontSize: '17px', color: '#ffffff', fontWeight: 700 }}>${flow.spot_price.toFixed(1)}</span>
                                           <span style={{ fontSize: '15px', color: '#ffffff', fontWeight: 700 }}>{'>'}</span>
-                                          <span style={{ fontSize: '17px', fontWeight: 700, color: currentStockPrices[flow.underlying_ticker] ? (currentStockPrices[flow.underlying_ticker] >= flow.spot_price ? '#00ff88' : '#ff4466') : '#ffffff' }}>
-                                            {currentStockPrices[flow.underlying_ticker] ? `$${currentStockPrices[flow.underlying_ticker].toFixed(1)}` : '—'}
+                                          <span style={{ fontSize: '17px', fontWeight: 700, color: effectiveStockPrices[flow.underlying_ticker] ? (effectiveStockPrices[flow.underlying_ticker] >= flow.spot_price ? '#00ff88' : '#ff4466') : '#ffffff' }}>
+                                            {effectiveStockPrices[flow.underlying_ticker] ? `$${effectiveStockPrices[flow.underlying_ticker].toFixed(1)}` : '—'}
                                           </span>
                                         </span>
                                       )}

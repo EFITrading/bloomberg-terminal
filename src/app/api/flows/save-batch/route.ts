@@ -19,10 +19,27 @@ const globalForDirect = globalThis as unknown as { directPrisma: PrismaClient | 
 
 // connection_limit=1 — each Vercel lambda holds at most 1 direct Postgres connection
 function buildDirectUrl(): string {
-    const base = process.env.POSTGRES_URL ?? ''
-    if (!base) return base
-    const sep = base.includes('?') ? '&' : '?'
-    return `${base}${sep}connection_limit=1&pool_timeout=20`
+    const isAccelerate = (url: string) =>
+        url.startsWith('prisma+postgres://') ||
+        url.includes('accelerate.prisma-data.net') ||
+        url.includes('accelerate.prisma.io')
+
+    const candidates = [
+        process.env.POSTGRES_URL,
+        process.env.DATABASE_PRIVATE_URL,
+        process.env.DATABASE_PUBLIC_URL,
+        process.env.DATABASE_URL,
+        process.env.POSTGRES_PRISMA_DATABASE_URL,
+    ]
+    for (const url of candidates) {
+        if (url && !isAccelerate(url)) {
+            const sep = url.includes('?') ? '&' : '?'
+            return url + sep + 'connection_limit=1&pool_timeout=20'
+        }
+    }
+    const fallback = candidates.find(Boolean) ?? ''
+    const sep = fallback.includes('?') ? '&' : '?'
+    return fallback + sep + 'connection_limit=1&pool_timeout=20'
 }
 
 const directPrisma =
@@ -104,7 +121,7 @@ export async function GET(request: NextRequest) {
         }
 
         // Populate cache for next 30s — fire-and-forget, don't block the response
-        setCachedFullDay(tradingDate, payload).catch(() => {})
+        setCachedFullDay(tradingDate, payload).catch(() => { })
 
         return NextResponse.json(payload)
     } catch (error) {

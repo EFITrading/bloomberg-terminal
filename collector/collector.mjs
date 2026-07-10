@@ -22,7 +22,11 @@ if (!POLYGON_API_KEY) { console.error('[FATAL] POLYGON_API_KEY not set'); proces
 // Railway is a persistent process and doesn't need connection pooling
 const directUrl = process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_DATABASE_URL
 if (!directUrl) { console.error('[FATAL] No Postgres URL set (POSTGRES_URL or POSTGRES_PRISMA_DATABASE_URL)'); process.exit(1) }
-process.env.POSTGRES_PRISMA_DATABASE_URL = directUrl
+
+// Cap to 2 connections — collector is sequential, never needs more than 1 active
+// at a time. Frees up ~8 connections for Vercel lambdas on the shared 25-conn pool.
+const collectorUrl = directUrl + (directUrl.includes('?') ? '&' : '?') + 'connection_limit=2&pool_timeout=10'
+process.env.POSTGRES_PRISMA_DATABASE_URL = collectorUrl
 
 const prisma = new PrismaClient()
 
@@ -318,7 +322,7 @@ function startStream() {
                     const parsed = parseOCCTicker(msg.sym)
                     if (!parsed) continue
                     const totalPremium = msg.p * msg.s * 100
-                    if (totalPremium < 1000) continue  // drop sub-$1k
+                    if (totalPremium < 50000) continue  // drop sub-$50k — only save significant flow
                     rawBuffer.push({
                         ticker: msg.sym,
                         underlying: parsed.underlying,

@@ -65,11 +65,15 @@ export default function Navigation() {
 
     const checkAuth = () => {
       const cookies = document.cookie.split(';')
+      const levelCookie = cookies.find((cookie) => cookie.trim().startsWith('efi-level='))
+      const cookieVal = levelCookie?.split('=')[1]?.trim()
+      // Fallback: legacy sessions may still have readable efi-auth
       const authCookie = cookies.find((cookie) => cookie.trim().startsWith('efi-auth='))
-      const cookieVal = authCookie?.split('=')[1]?.trim()
-      const isAuth = cookieVal === 'authenticated' || cookieVal === 'admin'
+      const authVal = authCookie?.split('=')[1]?.trim()
+      const level = cookieVal ?? (authVal === 'admin' ? 'admin' : authVal === 'authenticated' ? 'user' : undefined)
+      const isAuth = level === 'admin' || level === 'user'
       setIsAuthenticated(!!isAuth)
-      setIsAdmin(cookieVal === 'admin')
+      setIsAdmin(level === 'admin')
     }
 
     checkAuth()

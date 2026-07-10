@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { PrismaClient } from '@prisma/client'
-
-const globalForPrisma = global as unknown as { prismaCH: PrismaClient }
-const prisma = globalForPrisma.prismaCH ?? new PrismaClient()
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prismaCH = prisma
+import { prisma } from '@/lib/prisma'
 
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY!
 

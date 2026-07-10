@@ -917,122 +917,58 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   // Fetch current prices using the direct API call that works (anti-flicker)
 
   const fetchCurrentPrices = async (tickers: string[]) => {
-    const uniqueTickers = [...new Set(tickers)]
+    const INDEX_UNDERLYINGS = new Set(['SPXW', 'SPX', 'NDXP', 'NDX', 'RUTW', 'RUT', 'XSP'])
+    const TICKER_RESTORE_MAP: Record<string, string> = { BRKB: 'BRK.B', BRKA: 'BRK.A' }
 
-    if (uniqueTickers.length === 0) {
-      return
-    }
+    const uniqueTickers = [...new Set(tickers)].filter(t => !INDEX_UNDERLYINGS.has(t.toUpperCase()))
+    if (uniqueTickers.length === 0) return
 
-    // Set all tickers to loading state initially
-
+    // Mark all as loading
     const initialLoadingState: Record<string, boolean> = {}
-
-    uniqueTickers.forEach((ticker) => {
-      initialLoadingState[ticker] = true
-    })
-
+    uniqueTickers.forEach((t) => { initialLoadingState[t] = true })
     setPriceLoadingState((prev) => ({ ...prev, ...initialLoadingState }))
 
-    // OPTIMIZED PARALLEL BATCH PROCESSING with rate limit respect
+    const allPricesUpdate: Record<string, number> = {}
 
-    const BATCH_SIZE = 15 // Process 15 tickers per batch (increased from 3)
-
-    const BATCH_DELAY = 200 // 200ms between batches (5 req/sec limit)
-
-    const MAX_CONCURRENT_BATCHES = 3 // Process 3 batches in parallel
-
-    // Split tickers into batches
-
-    const batches = []
-
+    // Bulk snapshot: up to 250 tickers per request, all batches fired in parallel
+    const BATCH_SIZE = 250
+    const batches: string[][] = []
     for (let i = 0; i < uniqueTickers.length; i += BATCH_SIZE) {
       batches.push(uniqueTickers.slice(i, i + BATCH_SIZE))
     }
 
-    // Shared accumulator for all price updates
-
-    const allPricesUpdate: Record<string, number> = {}
-
-    // Process batches with sliding window concurrency
-
-    const processBatch = async (batch: string[], batchIndex: number) => {
-      const batchPricesUpdate: Record<string, number> = {}
-
-      const batchLoadingUpdate: Record<string, boolean> = {}
-
-      const batchPromises = batch.map(async (ticker, tickerIndex) => {
-        // Stagger requests within batch to avoid burst
-
-        await new Promise((resolve) => setTimeout(resolve, tickerIndex * 50))
-
+    await Promise.allSettled(
+      batches.map(async (batch, batchIdx) => {
+        const polygonTickers = batch.map(t => TICKER_RESTORE_MAP[t] ?? t)
         try {
-          // Some tickers have dots stripped in OCC format but need them restored for Polygon
-          const TICKER_RESTORE_MAP: Record<string, string> = { BRKB: 'BRK.B', BRKA: 'BRK.A' }
-          const polygonTicker = TICKER_RESTORE_MAP[ticker] ?? ticker
-          const response = await fetch(
-            `/api/polygon/v2/snapshot/locale/us/markets/stocks/tickers/${polygonTicker}?apikey=${POLYGON_API_KEY}`,
-
-            {
-              method: 'GET',
-
-              headers: { Accept: 'application/json' },
-
-              signal: AbortSignal.timeout(8000),
-            }
-          )
-
+          const url = `/api/polygon/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${polygonTickers.join(',')}&apikey=${POLYGON_API_KEY}`
+          const response = await fetch(url, { signal: AbortSignal.timeout(10000) })
           if (response.ok) {
             const data = await response.json()
-
-            if (data.status === 'OK' && data.ticker) {
-              const lastTradePrice = data.ticker.lastTrade?.p
-
-              const prevDayClose = data.ticker.prevDay?.c
-
-              const price = lastTradePrice || prevDayClose
-
-              if (price && price > 0) {
-                batchPricesUpdate[ticker] = price
-
-                allPricesUpdate[ticker] = price
-              }
+            const results: any[] = data.tickers ?? []
+            for (const r of results) {
+              const rawTicker = r.ticker
+              const internalTicker = Object.entries(TICKER_RESTORE_MAP).find(([, v]) => v === rawTicker)?.[0] ?? rawTicker
+              const price = r.lastTrade?.p || r.prevDay?.c
+              if (price && price > 0) allPricesUpdate[internalTicker] = price
             }
           }
-        } catch {
-          // silent
+        } catch { /* silent */ }
+
+        // Clear loading state for this batch
+        const loadingUpdate: Record<string, boolean> = {}
+        batch.forEach(t => { loadingUpdate[t] = false })
+        setPriceLoadingState((prev) => ({ ...prev, ...loadingUpdate }))
+
+        // Partial update per batch so prices appear as they land
+        const batchPrices: Record<string, number> = {}
+        batch.forEach(t => { if (allPricesUpdate[t]) batchPrices[t] = allPricesUpdate[t] })
+        if (Object.keys(batchPrices).length > 0) {
+          setCurrentPrices((prev) => ({ ...prev, ...batchPrices }))
         }
-
-        batchLoadingUpdate[ticker] = false
       })
+    )
 
-      await Promise.allSettled(batchPromises)
-
-      // Update UI after each batch completes
-
-      setPriceLoadingState((prev) => ({ ...prev, ...batchLoadingUpdate }))
-
-      setCurrentPrices((prev) => {
-        const changed = Object.keys(batchPricesUpdate).some((k) => prev[k] !== batchPricesUpdate[k])
-        if (!changed) return prev
-        return { ...prev, ...batchPricesUpdate }
-      })
-    }
-
-    // Process batches with controlled concurrency
-
-    for (let i = 0; i < batches.length; i += MAX_CONCURRENT_BATCHES) {
-      const concurrentBatches = batches.slice(i, i + MAX_CONCURRENT_BATCHES)
-
-      const batchPromises = concurrentBatches.map((batch, idx) => processBatch(batch, i + idx))
-
-      await Promise.allSettled(batchPromises)
-
-      // Delay before next round of concurrent batches
-
-      if (i + MAX_CONCURRENT_BATCHES < batches.length) {
-        await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY))
-      }
-    }
   }
 
   // Fetch current prices when data changes (debounced)
@@ -1045,12 +981,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     // Debounce API calls to prevent excessive requests
 
     const debounceTimer = setTimeout(() => {
-      // Index option underlyings (SPXW, SPX, NDX, RUTW etc.) always 404 on the
-      // stocks snapshot endpoint — Polygon requires an Indices plan for these.
-      // Skip them entirely to avoid wasted requests and console noise.
-      const INDEX_UNDERLYINGS = new Set(['SPXW', 'SPX', 'NDXP', 'NDX', 'RUTW', 'RUT', 'XSP'])
       const tickers = [...new Set(data.map((trade) => trade.underlying_ticker))]
-        .filter(t => !INDEX_UNDERLYINGS.has(t.toUpperCase()))
       if (tickers.length > 0) fetchCurrentPrices(tickers)
     }, 500) // 500ms debounce
 
@@ -1073,9 +1004,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
     const interval = setInterval(() => {
       if (!marketOpen()) return // stop refreshing if market closed mid-interval
-      const INDEX_UNDERLYINGS = new Set(['SPXW', 'SPX', 'NDXP', 'NDX', 'RUTW', 'RUT', 'XSP'])
       const uniqueTickers = [...new Set(data.map((trade) => trade.underlying_ticker))]
-        .filter(t => !INDEX_UNDERLYINGS.has(t.toUpperCase()))
       fetchCurrentPrices(uniqueTickers)
     }, 5 * 60 * 1000)
 
@@ -1091,37 +1020,46 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     const missing = tickers.filter((t) => !historicalStdDevs.has(t))
     if (missing.length === 0) return
     const STDDEV_API_KEY: string = ''
-    missing.forEach(async (ticker, idx) => {
-      await new Promise((r) => setTimeout(r, idx * 100))
-      try {
-        const end = new Date().toISOString().split('T')[0]
-        const start = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
-        const res = await fetch(
-          `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${start}/${end}?adjusted=true&sort=asc&limit=30&apiKey=${STDDEV_API_KEY}`,
-          { signal: AbortSignal.timeout(8000) }
-        )
-        if (res.ok) {
-          const json = await res.json()
-          if (json.results && json.results.length > 1) {
-            const returns: number[] = []
-            for (let i = 1; i < json.results.length; i++) {
-              const prev = json.results[i - 1].c
-              const curr = json.results[i].c
-              returns.push(((curr - prev) / prev) * 100)
-            }
-            const mean = returns.reduce((a, b) => a + b, 0) / returns.length
-            const variance = returns.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / returns.length
-            setHistoricalStdDevs((prev) => new Map(prev).set(ticker, Math.sqrt(variance)))
-          } else {
-            setStdDevFailed((prev) => new Set(prev).add(ticker))
-          }
-        } else {
-          setStdDevFailed((prev) => new Set(prev).add(ticker))
+    const end = new Date().toISOString().split('T')[0]
+    const start = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
+
+    // Controlled concurrency — 50 parallel at a time to avoid overwhelming the proxy
+    const CONCURRENCY = 50
+      ; (async () => {
+        for (let i = 0; i < missing.length; i += CONCURRENCY) {
+          const batch = missing.slice(i, i + CONCURRENCY)
+          await Promise.allSettled(
+            batch.map(async (ticker) => {
+              try {
+                const res = await fetch(
+                  `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${start}/${end}?adjusted=true&sort=asc&limit=30&apiKey=${STDDEV_API_KEY}`,
+                  { signal: AbortSignal.timeout(8000) }
+                )
+                if (res.ok) {
+                  const json = await res.json()
+                  if (json.results && json.results.length > 1) {
+                    const returns: number[] = []
+                    for (let i = 1; i < json.results.length; i++) {
+                      const prev = json.results[i - 1].c
+                      const curr = json.results[i].c
+                      returns.push(((curr - prev) / prev) * 100)
+                    }
+                    const mean = returns.reduce((a, b) => a + b, 0) / returns.length
+                    const variance = returns.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / returns.length
+                    setHistoricalStdDevs((prev) => new Map(prev).set(ticker, Math.sqrt(variance)))
+                  } else {
+                    setStdDevFailed((prev) => new Set(prev).add(ticker))
+                  }
+                } else {
+                  setStdDevFailed((prev) => new Set(prev).add(ticker))
+                }
+              } catch {
+                setStdDevFailed((prev) => new Set(prev).add(ticker))
+              }
+            })
+          )
         }
-      } catch {
-        setStdDevFailed((prev) => new Set(prev).add(ticker))
-      }
-    })
+      })()
   }, [data.length, efiHighlightsActive, leapActive])
 
   // Fetch historical ranges when EFI Highlights is active
@@ -1219,7 +1157,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     }
 
     // Deduplicate: build unique option tickers so we never fetch the same contract twice
-    // (the same strike/expiry can appear many times in a full flow scan)
     const uniqueContracts = new Map<string, string>() // optionTicker → underlying
     for (const trade of activeTrades) {
       const expiry = trade.expiry.replace(/-/g, '').slice(2)
@@ -1232,72 +1169,42 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       }
     }
 
-    const uniqueTickers = Array.from(uniqueContracts.entries())
+    const uniqueTickers = Array.from(uniqueContracts.keys())
     setOptionPricesFetching(true)
     setGradingProgress({ current: 0, total: uniqueTickers.length })
 
+    // Bulk snapshot: up to 250 tickers per request, all batches fired in parallel
+    const BATCH_SIZE = 250
+    const batches: string[][] = []
+    for (let i = 0; i < uniqueTickers.length; i += BATCH_SIZE) {
+      batches.push(uniqueTickers.slice(i, i + BATCH_SIZE))
+    }
+
+    const _t0 = performance.now()
     try {
-      const BATCH_SIZE = 15
-      const batches: Array<[string, string][]> = []
-      for (let i = 0; i < uniqueTickers.length; i += BATCH_SIZE) {
-        batches.push(uniqueTickers.slice(i, i + BATCH_SIZE))
-      }
-
-      let processedCount = 0
-
-      // Sequential batches — avoids overloading the local proxy server
-      for (const batch of batches) {
-        await Promise.allSettled(
-          batch.map(async ([optionTicker, underlying], idx) => {
-            await new Promise((r) => setTimeout(r, idx * 50)) // stagger within batch
-            try {
-              const snapshotUrl = `/api/polygon/v3/snapshot/options/${underlying}/${optionTicker}?apikey=${POLYGON_API_KEY}`
-              const response = await fetch(snapshotUrl, { signal: AbortSignal.timeout(15000) })
-
-              if (response.ok) {
-                const data = await response.json()
-                if (data.results?.last_quote) {
-                  const bid = data.results.last_quote.bid || 0
-                  const ask = data.results.last_quote.ask || 0
-                  const mid = (bid + ask) / 2
-                  if (mid > 0) {
-                    pricesUpdate[optionTicker] = mid
-                  } else if (data.results.last_trade?.price > 0) {
-                    pricesUpdate[optionTicker] = data.results.last_trade.price
-                  }
-                } else if (data.results?.last_trade?.price > 0) {
-                  pricesUpdate[optionTicker] = data.results.last_trade.price
-                }
-              } else if (response.status === 404) {
-                // Fallback: try last closing bar for recently-expired options
-                const expiryDate = activeTrades.find(t => {
-                  const exp = t.expiry.replace(/-/g, '').slice(2)
-                  const sf = String(Math.round(t.strike * 1000)).padStart(8, '0')
-                  const ot = t.type.toLowerCase() === 'call' ? 'C' : 'P'
-                  return `O:${normalizeTickerForOptions(t.underlying_ticker)}${exp}${ot}${sf}` === optionTicker
-                })?.expiry
-                if (expiryDate) {
-                  const d = new Date(expiryDate).toISOString().split('T')[0]
-                  const histResp = await fetch(
-                    `/api/polygon/v2/aggs/ticker/${optionTicker}/range/1/day/${d}/${d}?apikey=${POLYGON_API_KEY}`,
-                    { signal: AbortSignal.timeout(8000) }
-                  )
-                  if (histResp.ok) {
-                    const hd = await histResp.json()
-                    if (hd.results?.length > 0) {
-                      const price = hd.results[hd.results.length - 1].c
-                      if (price > 0) pricesUpdate[optionTicker] = price
-                    }
-                  }
-                }
+      await Promise.allSettled(
+        batches.map(async (batch, batchIdx) => {
+          try {
+            const tickerList = batch.join(',')
+            const url = `/api/polygon/v3/snapshot?ticker.any_of=${encodeURIComponent(tickerList)}&limit=250&apikey=${POLYGON_API_KEY}`
+            const response = await fetch(url, { signal: AbortSignal.timeout(15000) })
+            if (response.ok) {
+              const data = await response.json()
+              const results: any[] = data.results ?? []
+              for (const r of results) {
+                const ticker = r.details?.ticker ?? r.ticker
+                if (!ticker) continue
+                const bid = r.last_quote?.bid ?? 0
+                const ask = r.last_quote?.ask ?? 0
+                const mid = (bid + ask) / 2
+                if (mid > 0) pricesUpdate[ticker] = mid
+                else if ((r.last_trade?.price ?? 0) > 0) pricesUpdate[ticker] = r.last_trade.price
               }
-            } catch { /* silent — timeout or network error */ }
-          })
-        )
-
-        processedCount += batch.length
-        setGradingProgress({ current: processedCount, total: uniqueTickers.length })
-      }
+            }
+          } catch { /* silent */ }
+          setGradingProgress((prev) => prev ? { current: Math.min(prev.current + batch.length, prev.total), total: prev.total } : null)
+        })
+      )
 
       setCurrentOptionPrices((prev) => ({ ...prev, ...pricesUpdate }))
     } finally {
@@ -1620,67 +1527,69 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
     const tickers = [...new Set(trades.map((t) => t.underlying_ticker))]
 
-    // Batch process tickers
+    // Determine the common date range from the earliest trade across all tickers
+    const earliestOverall = new Date(
+      Math.min(...trades.map((t) => new Date(t.trade_timestamp).getTime()))
+    )
+    const commonEndDate = new Date(earliestOverall)
+    commonEndDate.setDate(commonEndDate.getDate() - 1)
+    const commonStartDate = new Date(earliestOverall)
+    commonStartDate.setDate(commonStartDate.getDate() - 5)
+    const commonEndStr = commonEndDate.toISOString().split('T')[0]
+    const commonStartStr = commonStartDate.toISOString().split('T')[0]
 
-    const BATCH_SIZE = 20
+    // Fetch SPY once for all tickers
+    let spyData: any = null
+    try {
+      const spyRes = await fetch(
+        `/api/polygon/v2/aggs/ticker/SPY/range/1/day/${commonStartStr}/${commonEndStr}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`,
+        { signal: AbortSignal.timeout(5000) }
+      )
+      if (spyRes.ok) spyData = await spyRes.json()
+    } catch { /* silent */ }
 
-    for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
-      const batch = tickers.slice(i, i + BATCH_SIZE)
-
-      await Promise.all(
-        batch.map(async (ticker, idx) => {
-          await new Promise((resolve) => setTimeout(resolve, idx * 50)) // Stagger requests
-
+    // Controlled concurrency — 50 parallel at a time
+    const RS_CONCURRENCY = 50
+    for (let i = 0; i < tickers.length; i += RS_CONCURRENCY) {
+      await Promise.allSettled(
+        tickers.slice(i, i + RS_CONCURRENCY).map(async (ticker) => {
           try {
-            // Get trades for this ticker to determine date range
-
             const tickerTrades = trades.filter((t) => t.underlying_ticker === ticker)
-
             if (tickerTrades.length === 0) return
-
-            // Use earliest trade timestamp to determine lookback period
 
             const earliestTrade = new Date(
               Math.min(...tickerTrades.map((t) => new Date(t.trade_timestamp).getTime()))
             )
-
-            // Fetch 1-3 days before earliest trade
-
             const endDate = new Date(earliestTrade)
-
-            endDate.setDate(endDate.getDate() - 1) // 1 day before trade
-
+            endDate.setDate(endDate.getDate() - 1)
             const startDate = new Date(earliestTrade)
-
-            startDate.setDate(startDate.getDate() - 5) // 5 days to ensure we get 3 trading days
-
+            startDate.setDate(startDate.getDate() - 5)
             const endStr = endDate.toISOString().split('T')[0]
-
             const startStr = startDate.toISOString().split('T')[0]
 
-            // Fetch stock data
-
-            const stockUrl = `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
-
-            const spyUrl = `/api/polygon/v2/aggs/ticker/SPY/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`
-
-            const [stockRes, spyRes] = await Promise.all([
-              fetch(stockUrl, { signal: AbortSignal.timeout(5000) }),
-
-              fetch(spyUrl, { signal: AbortSignal.timeout(5000) }),
-            ])
-
-            if (!stockRes.ok || !spyRes.ok) return
-
+            const stockRes = await fetch(
+              `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`,
+              { signal: AbortSignal.timeout(5000) }
+            )
+            if (!stockRes.ok) return
             const stockData = await stockRes.json()
 
-            const spyData = await spyRes.json()
+            // Use pre-fetched SPY data if date range matches, otherwise fetch per-ticker SPY
+            let resolvedSpyData = spyData
+            if (!resolvedSpyData || startStr !== commonStartStr) {
+              const spyRes = await fetch(
+                `/api/polygon/v2/aggs/ticker/SPY/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`,
+                { signal: AbortSignal.timeout(5000) }
+              )
+              if (!spyRes.ok) return
+              resolvedSpyData = await spyRes.json()
+            }
 
             if (
               stockData.results &&
-              spyData.results &&
+              resolvedSpyData?.results &&
               stockData.results.length >= 2 &&
-              spyData.results.length >= 2
+              resolvedSpyData.results.length >= 2
             ) {
               // Calculate % change over last 1-3 days
 
@@ -1690,9 +1599,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
               const stockChange = ((stockNew - stockOld) / stockOld) * 100
 
-              const spyOld = spyData.results[0].c
+              const spyOld = resolvedSpyData.results[0].c
 
-              const spyNew = spyData.results[spyData.results.length - 1].c
+              const spyNew = resolvedSpyData.results[resolvedSpyData.results.length - 1].c
 
               const spyChange = ((spyNew - spyOld) / spyOld) * 100
 
@@ -1727,9 +1636,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
                 setHistoricalStdDevs((prev) => new Map(prev).set(ticker, stdDev))
               }
             }
-          } catch (error) {
-            // Silent fail
-          }
+          } catch (error) { /* silent */ }
         })
       )
     }
@@ -1750,6 +1657,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     const startDate = new Date(today)
     startDate.setDate(startDate.getDate() - 38) // 38 calendar days to cover 21+ trading days
     const startStr = startDate.toISOString().split('T')[0]
+
+    const _lt0 = performance.now()
 
     // Fetch SPY once
     let spyResults: Array<{ c: number }> = []
@@ -1777,12 +1686,12 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     const spy13d = pctChange(spyResults, Math.min(13, spyResults.length - 1))
     const spy21d = pctChange(spyResults, Math.min(21, spyResults.length - 1))
 
-    const BATCH_SIZE = 20
+    // Controlled concurrency — 50 parallel, no stagger
+    const BATCH_SIZE = 50
     for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
       const batch = tickers.slice(i, i + BATCH_SIZE)
       await Promise.all(
-        batch.map(async (ticker, idx) => {
-          await new Promise((resolve) => setTimeout(resolve, idx * 50))
+        batch.map(async (ticker) => {
           try {
             const stockRes = await fetch(
               `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`,
@@ -1802,20 +1711,20 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
               rs13d: stock13d !== null && spy13d !== null ? stock13d - spy13d : 0,
               rs21d: stock21d !== null && spy21d !== null ? stock21d - spy21d : 0,
             })
-          } catch {
-            // silent fail
-          }
+          } catch { /* silent */ }
         })
       )
     }
 
+    void _lt0
     return rsMap
   }
 
   // Fetch 52-week high/low for a set of tickers (for LEAP bonus scoring)
   const fetchLeap52wkData = async (tickers: string[]): Promise<Map<string, { high52: number; low52: number }>> => {
     const result = new Map<string, { high52: number; low52: number }>()
-    const BATCH_SIZE = 5
+    const _t0 = performance.now()
+    const BATCH_SIZE = 25  // was 5 — proxy handles 25 concurrent fine
     for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
       const batch = tickers.slice(i, i + BATCH_SIZE)
       await Promise.allSettled(
@@ -1836,9 +1745,10 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
         })
       )
       if (i + BATCH_SIZE < tickers.length) {
-        await new Promise(r => setTimeout(r, 200))
+        // no delay — parallel batches don't need staggering
       }
     }
+    void _t0
     return result
   }
 
@@ -1848,7 +1758,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     tickers: string[]
   ): Promise<Map<string, { inSweetSpot: boolean; inPainPoint: boolean }>> => {
     const result = new Map<string, { inSweetSpot: boolean; inPainPoint: boolean }>()
-
+    const _t0 = performance.now()
     const tickersToScan = [...new Set(tickers)]
 
     // Helper: day-of-year for a Date
@@ -1858,7 +1768,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       return Math.floor(diff / (1000 * 60 * 60 * 24))
     }
 
-    const SEASONAL_BATCH_SIZE = 3
+    const SEASONAL_BATCH_SIZE = 10  // was 3 — 15yr data is large but proxy handles 10 fine
     for (let bi = 0; bi < tickersToScan.length; bi += SEASONAL_BATCH_SIZE) {
       const batch = tickersToScan.slice(bi, bi + SEASONAL_BATCH_SIZE)
       await Promise.allSettled(
@@ -1920,9 +1830,10 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
         })
       )
       if (bi + SEASONAL_BATCH_SIZE < tickersToScan.length) {
-        await new Promise(r => setTimeout(r, 300))
+        // no delay — remove artificial wait
       }
     }
+    void _t0
     return result
   }
 
@@ -1958,6 +1869,11 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       stockReaction: number
     }
   } => {
+    // ETFs and index products — skip grading, return N/A
+    if (ETF_INDEX_EXCLUSIONS.has(trade.underlying_ticker.toUpperCase())) {
+      return { grade: 'N/A', score: 0, color: '#9ca3af', breakdown: 'ETF/Index — not graded', stdDevError: false, scores: { expiration: 0, contractPrice: 0, relativeStrength: 0, combo: 0, priceAction: 0, volumeOI: 0, stockReaction: 0 } }
+    }
+
     // Get option ticker for current price lookup
 
     const expiry = trade.expiry.replace(/-/g, '').slice(2)
@@ -2262,6 +2178,10 @@ Stock Reaction: ${scores.stockReaction}/15`
       seasonalBonus: number
     }
   } => {
+    // ETFs and index products — skip grading, return N/A
+    if (ETF_INDEX_EXCLUSIONS.has(trade.underlying_ticker.toUpperCase())) {
+      return { grade: 'N/A', score: 0, color: '#9ca3af', breakdown: 'ETF/Index — not graded', stdDevError: false, scores: { contractPrice: 0, relativeStrength: 0, volumeOI: 0, stockReaction: 0, bonus52w: 0, seasonalBonus: 0 } }
+    }
     const expiry = trade.expiry.replace(/-/g, '').slice(2)
     const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
     const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
@@ -2458,7 +2378,20 @@ Stock Reaction: ${scores.stockReaction}/15`
   }
 
   // LEAP criteria checker
+  // ETFs and index products that should not be graded or qualify for LEAP/EFI picks
+  const ETF_INDEX_EXCLUSIONS = new Set([
+    'SPY', 'QQQ', 'IWM', 'DIA', 'MDY', 'RSP', 'VOO', 'VTI', 'VXX', 'UVXY', 'SVIX',
+    'XLF', 'XLK', 'XLE', 'XLV', 'XLI', 'XLU', 'XLP', 'XLY', 'XLB', 'XLRE', 'XLC',
+    'SMH', 'SOXX', 'IBB', 'XBI', 'GDX', 'GDXJ', 'SLV', 'GLD', 'TLT', 'HYG', 'LQD',
+    'EEM', 'EFA', 'FXI', 'EWZ', 'EWY', 'EWG', 'KWEB', 'ARKK', 'SQQQ', 'TQQQ',
+    'SPXL', 'SPXS', 'SOXL', 'SOXS', 'LABU', 'TNA', 'NUGT', 'JDST', 'IBIT',
+    'MSTR', 'BITO', 'KOLD', 'USO', 'UCO', 'KRE', 'XHB', 'XOP', 'XME', 'XRT',
+    'SPX', 'SPXW', 'NDX', 'NDXP', 'RUT', 'RUTW', 'VIX', 'VIXW', 'XSP',
+  ])
+
   const meetsLeapCriteria = (trade: OptionsFlowData): boolean => {
+    // Exclude ETFs and index products — not suitable for LEAP picks
+    if (ETF_INDEX_EXCLUSIONS.has(trade.underlying_ticker.toUpperCase())) return false
     // 1. Expiry: 30·180 days
     if (trade.days_to_expiry < 30 || trade.days_to_expiry > 180) return false
     // 2. Premium: $250k·$2m
@@ -2473,6 +2406,8 @@ Stock Reaction: ${scores.stockReaction}/15`
   // EFI Highlights criteria checker
 
   const meetsEfiCriteria = (trade: OptionsFlowData): boolean => {
+    // Exclude ETFs and index products
+    if (ETF_INDEX_EXCLUSIONS.has(trade.underlying_ticker.toUpperCase())) return false
     // 1. Check expiration (0-35 trading days)
 
     if (trade.days_to_expiry < 0 || trade.days_to_expiry > 35) {
@@ -2776,6 +2711,7 @@ Stock Reaction: ${scores.stockReaction}/15`
   }
 
   const addToFlowTracking = async (trade: OptionsFlowData) => {
+    const flowId = generateFlowId(trade)
     // Store original data with timestamp - only current price and grade will update
     const gradeResult = leapActive
       ? calculateLeapGrade(trade, comboTradeMap)
@@ -2802,17 +2738,15 @@ Stock Reaction: ${scores.stockReaction}/15`
 
     setTrackedFlows(newTrackedFlows)
 
-    localStorage.setItem('flowTrackingWatchlist', JSON.stringify(newTrackedFlows))
+    try {
+      localStorage.setItem('flowTrackingWatchlist', JSON.stringify(newTrackedFlows))
+    } catch (e) {
+      console.error('[FlowTracking] localStorage write failed:', e)
+    }
     window.dispatchEvent(new CustomEvent('flowWatchlistUpdated', { detail: { flows: newTrackedFlows } }))
 
-    // Generate flow ID for chart data
-
-    const flowId = generateFlowId(trade)
-
     // Fetch chart data for this flow with default 1D timeframe
-
     fetchStockChartDataForFlow(flowId, trade.underlying_ticker, '1D')
-
     fetchOptionPremiumDataForFlow(flowId, trade, '1D')
   }
 
@@ -3731,21 +3665,19 @@ Stock Reaction: ${scores.stockReaction}/15`
   ])
 
   // Fetch current option prices when EFI Highlights or LEAP is ON
-
+  // For LEAP: option prices are fetched inside the button handler (after RS+52wk+seasonal)
+  // so we only auto-fetch here for EFI Highlights and for data refreshes while already active.
   useEffect(() => {
     if ((efiHighlightsActive || leapActive) && filteredAndSortedData.length > 0) {
-      // Include active mode in hash so LEAP and EFI each trigger their own independent fetch
+      // Skip auto-fetch for LEAP when the loading screen is active — button handler does it
+      if (leapActive && modeLoadingStep !== null) return
       const activeMode = leapActive ? 'LEAP' : 'EFI'
       const datasetHash = `${activeMode}-${data.length}-${data
         .slice(0, 5)
         .map((d) => d.underlying_ticker)
         .join('-')}`
-
-      // Only fetch if we haven't fetched for this dataset + mode combination yet
-
       if (datasetHash !== pricesFetchedForDataset) {
         fetchCurrentOptionPrices(filteredAndSortedData)
-
         setPricesFetchedForDataset(datasetHash)
       }
     }
@@ -5962,28 +5894,27 @@ Stock Reaction: ${scores.stockReaction}/15`
                       {/* Leap Picks */}
                       <button
                         onClick={async () => {
+                          console.log(`[LEAP-DROPDOWN] CLICK — leapActive=${leapActive} filteredCount=${filteredAndSortedData.length}`)
+                          if (modeLoadingStep !== null) return // already loading — ignore click
                           setShowMobilePicksDropdown(false)
                           const newState = !leapActive
                           setLeapActive(newState)
                           if (efiHighlightsActive) { setEfiHighlightsActive(false); setNotableFilterActive(false) }
                           if (newState) {
-                            setModeLoadingStep({ mode: 'LEAP', step: 'Calculating Relative Strength...' })
+                            const _t0 = performance.now()
+                            setModeLoadingStep({ mode: 'LEAP', step: 'Analyzing LEAP Trades...' })
                             await new Promise<void>(r => setTimeout(r, 0))
-                            const rsData = await calculateLeapRS(filteredAndSortedData)
-                            setLeapRsData(rsData)
                             const leapQualified = filteredAndSortedData.filter(meetsLeapCriteria)
                             const tickers = [...new Set(leapQualified.map(t => t.underlying_ticker))]
-                            setModeLoadingStep({ mode: 'LEAP', step: 'Fetching 52-Week Ranges...' })
-                            await new Promise<void>(r => setTimeout(r, 0))
-                            const [wkData, seasonData] = await Promise.all([
+                            const [rsData, wkData, seasonData] = await Promise.all([
+                              calculateLeapRS(leapQualified),
                               fetchLeap52wkData(tickers),
-                              (async () => {
-                                setModeLoadingStep({ mode: 'LEAP', step: 'Analyzing Seasonality...' })
-                                return fetchLeapSeasonalData(tickers)
-                              })(),
+                              fetchLeapSeasonalData(tickers),
                             ])
+                            setLeapRsData(rsData)
                             setLeap52wkData(wkData)
                             setLeapSeasonalData(seasonData)
+                            await fetchCurrentOptionPrices(leapQualified)
                             setModeLoadingStep(null)
                           } else {
                             setModeLoadingStep(null)
@@ -6779,33 +6710,34 @@ Stock Reaction: ${scores.stockReaction}/15`
                 {/* LEAP Toggle */}
                 <button
                   onClick={async () => {
+                    console.log(`[LEAP-DESKTOP] CLICK — leapActive=${leapActive} filteredCount=${filteredAndSortedData.length}`)
+                    if (modeLoadingStep !== null) return // already loading — ignore click
                     const newState = !leapActive
                     setLeapActive(newState)
                     if (efiHighlightsActive) { setEfiHighlightsActive(false); setNotableFilterActive(false) }
                     if (newState) {
-                      setModeLoadingStep({ mode: 'LEAP', step: 'Calculating Relative Strength...' })
+                      const _t0 = performance.now()
+                      setModeLoadingStep({ mode: 'LEAP', step: 'Analyzing LEAP Trades...' })
                       await new Promise<void>(r => setTimeout(r, 0))
-                      const rsData = await calculateLeapRS(filteredAndSortedData)
-                      setLeapRsData(rsData)
                       const leapQualified = filteredAndSortedData.filter(meetsLeapCriteria)
                       const tickers = [...new Set(leapQualified.map(t => t.underlying_ticker))]
-                      setModeLoadingStep({ mode: 'LEAP', step: 'Fetching 52-Week Ranges...' })
-                      await new Promise<void>(r => setTimeout(r, 0))
-                      const [wkData, seasonData] = await Promise.all([
+                      const [rsData, wkData, seasonData] = await Promise.all([
+                        calculateLeapRS(leapQualified),
                         fetchLeap52wkData(tickers),
-                        (async () => {
-                          setModeLoadingStep({ mode: 'LEAP', step: 'Analyzing Seasonality...' })
-                          return fetchLeapSeasonalData(tickers)
-                        })(),
+                        fetchLeapSeasonalData(tickers),
                       ])
+                      setLeapRsData(rsData)
                       setLeap52wkData(wkData)
                       setLeapSeasonalData(seasonData)
+                      // Fetch option prices before clearing loading — keeps single loading screen
+                      await fetchCurrentOptionPrices(leapQualified)
                       setModeLoadingStep(null)
                     } else {
                       setModeLoadingStep(null)
                     }
                   }}
-                  className={`toolbar-mode${leapActive ? ' toolbar-mode--active' : ''} flex items-center gap-1.5 font-bold uppercase transition-all duration-150 focus:outline-none${(!data || data.length === 0 || loading || stockPricesLoading) ? ' opacity-40 cursor-not-allowed' : ''}`}
+                  disabled={modeLoadingStep !== null}
+                  className={`toolbar-mode${leapActive ? ' toolbar-mode--active' : ''} flex items-center gap-1.5 font-bold uppercase transition-all duration-150 focus:outline-none${(modeLoadingStep !== null || !data || data.length === 0 || loading || stockPricesLoading) ? ' opacity-40 cursor-not-allowed' : ''}`}
                   style={{
                     height: '35px',
                     padding: '0 15px',
@@ -6880,34 +6812,6 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                   {/* Status badge removed: showing ON/OFF text was disabled */}
                 </button>
-
-                {/* Live display filter toggle — $50K+ default vs show all */}
-                {isLiveMode && onToggleLiveShowAll && (
-                  <button
-                    onClick={onToggleLiveShowAll}
-                    title={liveShowAll ? 'Currently showing all trades — click to show $50K+ only' : 'Currently showing $50K+ only — click to show all trades'}
-                    style={{
-                      height: '35px',
-                      padding: '0 13px',
-                      background: liveShowAll
-                        ? 'linear-gradient(180deg, rgba(251,191,36,0.22) 0%, rgba(245,158,11,0.07) 55%, rgba(0,0,0,0.2) 100%)'
-                        : 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
-                      border: liveShowAll ? '1px solid #f59e0b' : '1px solid #374151',
-                      borderRadius: '7px',
-                      fontSize: '11px',
-                      letterSpacing: '1.2px',
-                      fontWeight: '700',
-                      color: liveShowAll ? '#fbbf24' : '#6b7280',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                      boxShadow: liveShowAll ? '0 0 10px rgba(251,191,36,0.2)' : 'none',
-                    }}
-                  >
-                    {liveShowAll ? 'SHOW ALL' : '$50K+'}
-                  </button>
-                )}
-
-
 
                 {/* Grading Progress — now shown in fullscreen overlay, hidden from header */}
 
@@ -8193,11 +8097,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                                 </button>
 
                                 <button
-                                  onClick={() =>
-                                    isInFlowTracking(trade)
-                                      ? removeFromFlowTracking(trade)
-                                      : addToFlowTracking(trade)
-                                  }
+                                  onClick={() => {
+                                    const tracked = isInFlowTracking(trade)
+                                    tracked ? removeFromFlowTracking(trade) : addToFlowTracking(trade)
+                                  }}
                                   className="text-white hover:text-orange-400 transition-colors"
                                   title={
                                     isInFlowTracking(trade)
@@ -8221,7 +8124,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                     : { color: '#d1d5db' }
                                 }
                               >
-                                {formatTime(trade.trade_timestamp)}
+                                {formatTimeWithSeconds(trade.trade_timestamp)}
                               </div>
                             </div>
 
@@ -8231,7 +8134,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                               className="hidden md:block"
                               style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : {}}
                             >
-                              {notableFilterActive ? formatTime(trade.trade_timestamp) : formatTime(trade.trade_timestamp)}
+                              {notableFilterActive ? formatTimeWithSeconds(trade.trade_timestamp) : formatTimeWithSeconds(trade.trade_timestamp)}
                             </div>
                           </td>
 
@@ -8295,11 +8198,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                               </button>
 
                               <button
-                                onClick={() =>
-                                  isInFlowTracking(trade)
-                                    ? removeFromFlowTracking(trade)
-                                    : addToFlowTracking(trade)
-                                }
+                                onClick={() => {
+                                  const tracked = isInFlowTracking(trade)
+                                  tracked ? removeFromFlowTracking(trade) : addToFlowTracking(trade)
+                                }}
                                 className="text-white hover:text-orange-400 transition-colors"
                                 title={
                                   isInFlowTracking(trade)
@@ -10841,6 +10743,8 @@ Stock Reaction: ${scores.stockReaction}/15`
             leapRsData={leapRsData}
             leap52wkData={leap52wkData}
             leapSeasonalData={leapSeasonalData}
+            parentOptionPrices={currentOptionPrices}
+            parentStockPrices={currentPrices}
           />
         </div>
       )}
@@ -10869,6 +10773,8 @@ Stock Reaction: ${scores.stockReaction}/15`
             leapRsData={leapRsData}
             leap52wkData={leap52wkData}
             leapSeasonalData={leapSeasonalData}
+            parentOptionPrices={currentOptionPrices}
+            parentStockPrices={currentPrices}
           />
         </div>
       )}

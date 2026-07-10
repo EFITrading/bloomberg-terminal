@@ -889,11 +889,63 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const [biasDataStatus, setBiasDataStatus] = useState('')
   const [rrgPopupTicker, setRrgPopupTicker] = useState<BiasAgg | null>(null)
   const [rrgTransform, setRrgTransform] = useState({ tx: 0, ty: 0, k: 1 })
-  const rrgDragRef = useRef({ dragging: false, lastSvgX: 0, lastSvgY: 0 })
+  const rrgDragRef = useRef({ dragging: false, mouseDownActive: false, lastSvgX: 0, lastSvgY: 0 })
   const rrgSvgRef = useRef<SVGSVGElement | null>(null)
   const [rrgTickerMode, setRrgTickerMode] = useState<'all' | 'mag7only' | 'exmag7' | 'etfonly' | 'exetf' | 'stockonly'>('all')
   const [rrgUniqueness, setRrgUniqueness] = useState<number | null>(null)
   const [rrgDropdownOpen, setRrgDropdownOpen] = useState<'ticker' | 'time' | 'unique' | null>(null)
+  const [showRegime, setShowRegime] = useState(false)
+  const [showRegimeGrouping, setShowRegimeGrouping] = useState(false)
+
+  // Industry map for Regime detection
+  const RRG_INDUSTRY: Record<string, string> = {
+    // Semiconductors
+    NVDA: 'Semi', AMD: 'Semi', INTC: 'Semi', MU: 'Semi', AVGO: 'Semi', TSM: 'Semi',
+    QCOM: 'Semi', TXN: 'Semi', AMAT: 'Semi', LRCX: 'Semi', KLAC: 'Semi', MRVL: 'Semi',
+    ASML: 'Semi', ON: 'Semi', SMCI: 'Semi', MCHP: 'Semi', ADI: 'Semi', SWKS: 'Semi',
+    MPWR: 'Semi', COHR: 'Semi', WOLF: 'Semi', ALGM: 'Semi', MTSI: 'Semi', AMBA: 'Semi',
+    // Big Tech / Mega Cap
+    AAPL: 'BigTech', MSFT: 'BigTech', GOOGL: 'BigTech', GOOG: 'BigTech', AMZN: 'BigTech', META: 'BigTech',
+    // AI / Cloud Software
+    NVDL: 'AI', CRWV: 'AI', PLTR: 'AI',
+    NOW: 'CloudSaaS', CRM: 'CloudSaaS', SNOW: 'CloudSaaS', DDOG: 'CloudSaaS',
+    OKTA: 'CloudSaaS', ZS: 'CloudSaaS', HUBS: 'CloudSaaS', MDB: 'CloudSaaS',
+    GTLB: 'CloudSaaS', DOCN: 'CloudSaaS', DBX: 'CloudSaaS', PATH: 'CloudSaaS', BILL: 'CloudSaaS',
+    // Cybersecurity
+    CRWD: 'Cyber', PANW: 'Cyber', FTNT: 'Cyber', S: 'Cyber', NET: 'Cyber',
+    // EV / Auto
+    TSLA: 'EV', RIVN: 'EV', F: 'Auto', GM: 'Auto',
+    // Pharma / Biotech
+    LLY: 'Pharma', MRK: 'Pharma', PFE: 'Pharma', JNJ: 'Pharma', ABBV: 'Pharma', AZN: 'Pharma',
+    MRNA: 'Biotech', REGN: 'Biotech', VRTX: 'Biotech', BIIB: 'Biotech', ALNY: 'Biotech',
+    INCY: 'Biotech', RARE: 'Biotech', NKTR: 'Biotech',
+    // Banks / Finance
+    JPM: 'Banks', BAC: 'Banks', WFC: 'Banks', C: 'Banks', GS: 'Banks', MS: 'Banks',
+    USB: 'Banks', KRE: 'Banks',
+    // Insurance / Financial
+    AXP: 'Finance', V: 'Payments', MA: 'Payments', COF: 'Finance', PGR: 'Insurance',
+    // Energy
+    XOM: 'Energy', CVX: 'Energy', COP: 'Energy', OXY: 'Energy', DVN: 'Energy',
+    SLB: 'Energy', HAL: 'Energy', EOG: 'Energy', FANG: 'Energy',
+    // Retail
+    WMT: 'Retail', COST: 'Retail', TGT: 'Retail', HD: 'Retail', LOW: 'Retail',
+    AMZN2: 'Retail',
+    // Consumer / Restaurants
+    MCD: 'Consumer', SBUX: 'Consumer', CMG: 'Consumer', YUM: 'Consumer',
+    // Airlines
+    DAL: 'Airlines', UAL: 'Airlines', AAL: 'Airlines', LUV: 'Airlines',
+    // Defense
+    RTX: 'Defense', LMT: 'Defense', BA: 'Defense', NOC: 'Defense', GD: 'Defense',
+    // Telecom
+    T: 'Telecom', VZ: 'Telecom', TMUS: 'Telecom',
+    // Streaming / Entertainment
+    NFLX: 'Streaming', DIS: 'Streaming', SPOT: 'Streaming',
+    // Crypto-adjacent
+    COIN: 'Crypto', MSTR: 'Crypto', MARA: 'Crypto', RIOT: 'Crypto', IBIT: 'Crypto',
+    // Industrial
+    CAT: 'Industrial', DE: 'Industrial', EME: 'Industrial', PWR: 'Industrial',
+    ETN: 'Industrial', HON: 'Industrial', GE: 'Industrial',
+  }
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth <= 768)
@@ -2080,7 +2132,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     bullCall: number; bearCall: number; bullPut: number; bearPut: number; score: number; label: string
   }) => {
     const total = bullCall + bearCall + bullPut + bearPut || 1
-    const W = isMobile ? 60 : 68, H = isMobile ? 60 : 50, amp = 3
+    const W = isMobile ? 60 : 136, H = isMobile ? 60 : 100, amp = isMobile ? 3 : 6
     const quads = isMobile
       ? [
         { id: 'bc', lbl: 'BULL CALLS', val: bullCall, color: '#10b981', x: 2, y: 5 },
@@ -2090,16 +2142,16 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       ]
       : [
         { id: 'bc', lbl: 'BULL CALLS', val: bullCall, color: '#10b981', x: 2, y: 4 },
-        { id: 'rc', lbl: 'BEAR CALLS', val: bearCall, color: '#ef4444', x: 90, y: 4 },
-        { id: 'bp', lbl: 'BULL PUTS', val: bullPut, color: '#3b82f6', x: 2, y: 66 },
-        { id: 'rp', lbl: 'BEAR PUTS', val: bearPut, color: '#f97316', x: 90, y: 66 },
+        { id: 'rc', lbl: 'BEAR CALLS', val: bearCall, color: '#ef4444', x: 142, y: 4 },
+        { id: 'bp', lbl: 'BULL PUTS', val: bullPut, color: '#3b82f6', x: 2, y: 110 },
+        { id: 'rp', lbl: 'BEAR PUTS', val: bearPut, color: '#f97316', x: 142, y: 110 },
       ]
     const speeds = [2.0, 2.6, 1.8, 2.3]
     const absScore = Math.abs(score)
     const scoreColor = absScore < 0.2 ? '#eab308' : score > 0 ? '#10b981' : '#ef4444'
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: isMobile ? '6px 4px 2px' : '10px 4px 4px', width: '100%' }}>
-        <svg width={isMobile ? '100%' : '200'} {...(isMobile ? {} : { height: '148' })} viewBox={isMobile ? '0 0 302 70' : '0 0 160 118'} style={{ overflow: 'visible' }}>
+        <svg width={isMobile ? '100%' : '290'} {...(isMobile ? {} : { height: '220' })} viewBox={isMobile ? '0 0 302 70' : '0 0 280 218'} style={{ overflow: 'visible' }}>
           <style>{`
             @keyframes fqw0{from{transform:translateX(0px)}to{transform:translateX(-${W}px)}}
             @keyframes fqw1{from{transform:translateX(0px)}to{transform:translateX(-${W}px)}}
@@ -2133,8 +2185,8 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                     </>
                   )}
                 </g>
-                <text x={q.x + W / 2} y={q.y + 11} textAnchor="middle" fill="#ffffff" fontSize="8.5" fontFamily="JetBrains Mono,monospace" fontWeight="700" letterSpacing="0.5">{q.lbl}</text>
-                <text x={q.x + W / 2} y={q.y + H - 5} textAnchor="middle" fill="#ffffff" fontSize="14" fontFamily="JetBrains Mono,monospace" fontWeight="800">{(fill * 100).toFixed(0)}%</text>
+                <text x={q.x + W / 2} y={q.y + 20} textAnchor="middle" fill="#ffffff" fontSize={isMobile ? '8.5' : '16'} fontFamily="JetBrains Mono,monospace" fontWeight="700" letterSpacing="0.5">{q.lbl}</text>
+                <text x={q.x + W / 2} y={q.y + H - 10} textAnchor="middle" fill="#ffffff" fontSize={isMobile ? '14' : '28'} fontFamily="JetBrains Mono,monospace" fontWeight="800">{(fill * 100).toFixed(0)}%</text>
               </g>
             )
           })}
@@ -2174,18 +2226,18 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               </>
             )
           })()}
-          {/* Center neutral circle "” desktop only */}
+          {/* Center neutral circle - desktop only */}
           {!isMobile && (
             <>
-              <circle cx={80} cy={59} r={15} fill="rgba(4,4,12,0.92)" stroke="rgba(255,255,255,0.13)" strokeWidth="1" />
-              <text x={80} y={54} textAnchor="middle" dominantBaseline="middle" fill="#ffffff" fontSize="7.5" fontFamily="JetBrains Mono,monospace" fontWeight="700">NEU</text>
-              <text x={80} y={66} textAnchor="middle" dominantBaseline="middle" fill={scoreColor} fontSize="9" fontFamily="JetBrains Mono,monospace" fontWeight="800">{score.toFixed(2)}</text>
+              <circle cx={140} cy={109} r={22} fill="rgba(4,4,12,0.92)" stroke="rgba(255,255,255,0.13)" strokeWidth="1" />
+              <text x={140} y={103} textAnchor="middle" dominantBaseline="middle" fill="#ffffff" fontSize="11" fontFamily="JetBrains Mono,monospace" fontWeight="700">NEU</text>
+              <text x={140} y={118} textAnchor="middle" dominantBaseline="middle" fill={scoreColor} fontSize="14" fontFamily="JetBrains Mono,monospace" fontWeight="800">{score.toFixed(2)}</text>
             </>
           )}
         </svg>
         {isMobile
           ? null
-          : <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 800, color: '#ff8500', letterSpacing: '0.22em', marginTop: 10 }}>{label}</div>
+          : null
         }
       </div>
     )
@@ -3847,17 +3899,13 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               {/* Separator */}
               <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />
 
-              {/* Ticker mode filter pills */}
+              {/* Regime filters */}
               {([
-                { id: 'all', label: 'ALL' },
-                { id: 'mag7only', label: 'MAG7' },
-                { id: 'exmag7', label: '-MAG7' },
-                { id: 'etfonly', label: 'ETF' },
-                { id: 'exetf', label: '-ETF' },
-                { id: 'stockonly', label: 'STOCKS' },
-              ] as const).map(({ id, label }) => (
-                <button key={id} onClick={() => setRrgTickerMode(id === 'all' ? 'all' : id)}
-                  style={{ height: 36, padding: '0 14px', background: rrgTickerMode === id ? 'linear-gradient(180deg,#2a1500,#0a0500)' : 'linear-gradient(180deg,#1c1c1c,#0a0a0a)', border: rrgTickerMode === id ? '1px solid #ff8500' : '1px solid rgba(255,255,255,0.14)', borderTop: rrgTickerMode === id ? '1px solid #ffaa44' : '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: rrgTickerMode === id ? '#ff8500' : '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, boxShadow: rrgTickerMode === id ? 'inset 0 1px 0 rgba(255,133,0,0.18),0 0 8px rgba(255,133,0,0.25)' : 'inset 0 1px 0 rgba(255,255,255,0.08),inset 0 -1px 0 rgba(0,0,0,0.7)' }}>
+                { id: 'regime' as const, label: 'REGIME', active: showRegime, set: () => setShowRegime(v => !v), color: '#a78bfa' },
+                { id: 'grouping' as const, label: 'REGIME GROUPING', active: showRegimeGrouping, set: () => setShowRegimeGrouping(v => !v), color: '#94a3b8' },
+              ]).map(({ id, label, active, set, color }) => (
+                <button key={id} onClick={set}
+                  style={{ height: 36, padding: '0 14px', background: active ? `linear-gradient(180deg,rgba(167,139,250,0.18),rgba(0,0,0,0.4))` : 'linear-gradient(180deg,#1c1c1c,#0a0a0a)', border: active ? `1px solid ${color}` : '1px solid rgba(255,255,255,0.14)', borderTop: active ? `1px solid ${color}99` : '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: active ? color : '#aaa', fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, boxShadow: active ? `0 0 10px ${color}44` : 'inset 0 1px 0 rgba(255,255,255,0.08)' }}>
                   {label}
                 </button>
               ))}
@@ -3918,12 +3966,15 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                 return (
                   <svg ref={rrgSvgRef} viewBox={`0 0 ${W} ${H}`} width="100%" height="100%" preserveAspectRatio="none"
                     style={{ display: 'block', cursor: rrgDragRef.current.dragging ? 'grabbing' : 'grab', userSelect: 'none' }}
-                    onMouseDown={e => { const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect(); rrgDragRef.current = { dragging: true, lastSvgX: (e.clientX - rect.left) * W / rect.width, lastSvgY: (e.clientY - rect.top) * H / rect.height } }}
+                    onMouseDown={e => { const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect(); rrgDragRef.current = { dragging: false, mouseDownActive: true, lastSvgX: (e.clientX - rect.left) * W / rect.width, lastSvgY: (e.clientY - rect.top) * H / rect.height } }}
                     onMouseMove={e => {
-                      if (!rrgDragRef.current.dragging) return
+                      if (!rrgDragRef.current.mouseDownActive) return
                       const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect()
                       const cx2 = (e.clientX - rect.left) * W / rect.width, cy2 = (e.clientY - rect.top) * H / rect.height
                       const dx = cx2 - rrgDragRef.current.lastSvgX, dy = cy2 - rrgDragRef.current.lastSvgY
+                      // Only start dragging after moving >4px — prevents double-click from drifting
+                      if (!rrgDragRef.current.dragging && Math.sqrt(dx * dx + dy * dy) < 4) return
+                      rrgDragRef.current.dragging = true
                       rrgDragRef.current.lastSvgX = cx2; rrgDragRef.current.lastSvgY = cy2
                       setRrgTransform(t => {
                         const minTx = (1 - t.k) * (PAD.l + CW), maxTx = (1 - t.k) * PAD.l
@@ -3931,8 +3982,8 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                         return { ...t, tx: Math.max(minTx, Math.min(maxTx, t.tx + dx)), ty: Math.max(minTy, Math.min(maxTy, t.ty + dy)) }
                       })
                     }}
-                    onMouseUp={() => { rrgDragRef.current.dragging = false }}
-                    onMouseLeave={() => { rrgDragRef.current.dragging = false }}
+                    onMouseUp={() => { rrgDragRef.current.dragging = false; rrgDragRef.current.mouseDownActive = false }}
+                    onMouseLeave={() => { rrgDragRef.current.dragging = false; rrgDragRef.current.mouseDownActive = false }}
                   >
                     <defs>
                       <radialGradient id="rrg-bg2" cx="50%" cy="35%" r="70%">
@@ -3940,6 +3991,27 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       </radialGradient>
                       <linearGradient id="rrg-gloss2" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="rgba(255,255,255,0.04)" /><stop offset="45%" stopColor="rgba(255,255,255,0.01)" /><stop offset="100%" stopColor="rgba(0,0,0,0.08)" />
+                      </linearGradient>
+                      {/* Quadrant diagonal gradients — same style as market overview RRG */}
+                      <linearGradient id="rrg-q-bp" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#000000" stopOpacity="1" />
+                        <stop offset="50%" stopColor="#004a4a" stopOpacity="1" />
+                        <stop offset="100%" stopColor="#000000" stopOpacity="1" />
+                      </linearGradient>
+                      <linearGradient id="rrg-q-bc" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#000000" stopOpacity="1" />
+                        <stop offset="50%" stopColor="#004a00" stopOpacity="1" />
+                        <stop offset="100%" stopColor="#000000" stopOpacity="1" />
+                      </linearGradient>
+                      <linearGradient id="rrg-q-cp" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#000000" stopOpacity="1" />
+                        <stop offset="50%" stopColor="#4a2500" stopOpacity="1" />
+                        <stop offset="100%" stopColor="#000000" stopOpacity="1" />
+                      </linearGradient>
+                      <linearGradient id="rrg-q-cc" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#000000" stopOpacity="1" />
+                        <stop offset="50%" stopColor="#4a0000" stopOpacity="1" />
+                        <stop offset="100%" stopColor="#000000" stopOpacity="1" />
                       </linearGradient>
                       {[['bc2', '#00ff88'], ['cc2', '#ff4444'], ['bp2', '#4da6ff'], ['cp2', '#ffaa00']].map(([id, col]) => (
                         <radialGradient key={id} id={`rg-${id}`} cx="35%" cy="28%" r="65%">
@@ -3958,32 +4030,171 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                     <rect x={PAD.l} y={PAD.t} width={CW} height={CH} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
                     <g clipPath="url(#rrg-bias-clip2)">
                       <g transform={`translate(${rrgTransform.tx},${rrgTransform.ty}) scale(${rrgTransform.k})`}>
-                        <rect x={PAD.l} y={PAD.t} width={CW / 2} height={CH / 2} fill="rgba(77,166,255,0.05)" />
-                        <rect x={CX} y={PAD.t} width={CW / 2} height={CH / 2} fill="rgba(0,255,136,0.05)" />
-                        <rect x={PAD.l} y={CY} width={CW / 2} height={CH / 2} fill="rgba(255,170,0,0.05)" />
-                        <rect x={CX} y={CY} width={CW / 2} height={CH / 2} fill="rgba(255,68,68,0.05)" />
+                        <rect x={PAD.l} y={PAD.t} width={CW / 2} height={CH / 2} fill="url(#rrg-q-bp)" />
+                        <rect x={CX} y={PAD.t} width={CW / 2} height={CH / 2} fill="url(#rrg-q-bc)" />
+                        <rect x={PAD.l} y={CY} width={CW / 2} height={CH / 2} fill="url(#rrg-q-cp)" />
+                        <rect x={CX} y={CY} width={CW / 2} height={CH / 2} fill="url(#rrg-q-cc)" />
                         {[-0.5, 0, 0.5].map(v => { const { sx } = toSVG(v, 0); const { sy } = toSVG(0, v); return <g key={v}><line x1={sx} y1={PAD.t} x2={sx} y2={PAD.t + CH} stroke={v === 0 ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.06)'} strokeWidth={(v === 0 ? 1.5 : 1) / rrgTransform.k} strokeDasharray={v === 0 ? undefined : '4 8'} /><line x1={PAD.l} y1={sy} x2={PAD.l + CW} y2={sy} stroke={v === 0 ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.06)'} strokeWidth={(v === 0 ? 1.5 : 1) / rrgTransform.k} strokeDasharray={v === 0 ? undefined : '4 8'} /></g> })}
-                        {allTickers.map(t => {
-                          const { sx, sy } = toSVG(t.x, t.y)
-                          const r = dotR(t.total)
-                          const gradId = t.quad === 'BC' ? 'rg-bc2' : t.quad === 'CC' ? 'rg-cc2' : t.quad === 'BP' ? 'rg-bp2' : 'rg-cp2'
-                          const col = QUAD_COLORS[t.quad]
-                          const labelRight = sx < CX
-                          const agg = allAggs.find(a => a.ticker === t.ticker)
-                          return (
-                            <g key={t.ticker} style={{ cursor: 'pointer' }} onDoubleClick={() => agg && setRrgPopupTicker(agg)}>
-                              <circle cx={sx} cy={sy} r={(r + 5) / rrgTransform.k} fill="transparent" />
-                              <circle cx={sx + 1.5 / rrgTransform.k} cy={sy + 1.5 / rrgTransform.k} r={r / rrgTransform.k} fill="rgba(0,0,0,0.5)" />
-                              <circle cx={sx} cy={sy} r={r / rrgTransform.k} fill={`url(#${gradId})`} stroke={col} strokeWidth={1.2 / rrgTransform.k} />
-                              <text x={sx + (labelRight ? (r + 6) / rrgTransform.k : -(r + 6) / rrgTransform.k)} y={sy + 5 / rrgTransform.k} textAnchor={labelRight ? 'start' : 'end'} fontFamily="JetBrains Mono,monospace" fontSize={28 / rrgTransform.k} fontWeight={900} fill={col} filter="url(#rrg-txt-shadow)" style={{ pointerEvents: 'none' }}>{t.ticker}</text>
-                            </g>
-                          )
-                        })}
+                        {(() => {
+                          // Pre-compute all dot positions for overlap detection
+                          const tickerPositions = allTickers.map(t => {
+                            const { sx, sy } = toSVG(t.x, t.y)
+                            const r = dotR(t.total)
+                            const labelRight = sx < CX
+                            const lx = sx + (labelRight ? (r + 5) / rrgTransform.k : -(r + 5) / rrgTransform.k)
+                            return { t, sx, sy, r, lx, labelRight, lyOffset: 0 }
+                          })
+                          // Simple vertical offset: if two labels have similar lx and sy, push one up and one down
+                          const fontSize = 22 / rrgTransform.k
+                          const lineH = fontSize * 1.1
+                          for (let i = 0; i < tickerPositions.length; i++) {
+                            for (let j = i + 1; j < tickerPositions.length; j++) {
+                              const a = tickerPositions[i], b = tickerPositions[j]
+                              const xOverlap = Math.abs(a.lx - b.lx) < fontSize * 4
+                              const yOverlap = Math.abs((a.sy + a.lyOffset) - (b.sy + b.lyOffset)) < lineH
+                              if (xOverlap && yOverlap) {
+                                a.lyOffset -= lineH * 0.5
+                                b.lyOffset += lineH * 0.5
+                              }
+                            }
+                          }
+                          return tickerPositions.map(({ t, sx, sy, r, lx, labelRight, lyOffset }) => {
+                            const gradId = t.quad === 'BC' ? 'rg-bc2' : t.quad === 'CC' ? 'rg-cc2' : t.quad === 'BP' ? 'rg-bp2' : 'rg-cp2'
+                            const col = QUAD_COLORS[t.quad]
+                            const agg = allAggs.find(a => a.ticker === t.ticker)
+                            return (
+                              <g key={t.ticker} style={{ cursor: 'pointer' }} onDoubleClick={() => agg && setRrgPopupTicker(agg)}>
+                                <circle cx={sx} cy={sy} r={(r + 5) / rrgTransform.k} fill="transparent" />
+                                <circle cx={sx + 1.5 / rrgTransform.k} cy={sy + 1.5 / rrgTransform.k} r={r / rrgTransform.k} fill="rgba(0,0,0,0.5)" />
+                                <circle cx={sx} cy={sy} r={r / rrgTransform.k} fill={`url(#${gradId})`} stroke={col} strokeWidth={1.2 / rrgTransform.k} />
+                                <text x={lx} y={sy + 4 / rrgTransform.k + lyOffset} textAnchor={labelRight ? 'start' : 'end'} fontFamily="system-ui,sans-serif" fontSize={22 / rrgTransform.k} fontWeight={700} fill={col} filter="url(#rrg-txt-shadow)" style={{ pointerEvents: 'all', userSelect: 'none' }}>{t.ticker}</text>
+                              </g>
+                            )
+                          })
+                        })()}
                       </g>
                     </g>
-                    {[{ x: PAD.l + 14, y: PAD.t + 22, col: '#4da6ff', label: '▲ BULL PUTS' }, { x: CX + 14, y: PAD.t + 22, col: '#00ff88', label: '▲ BULL CALLS' }, { x: PAD.l + 14, y: PAD.t + CH - 8, col: '#ffaa00', label: '▼ BEAR PUTS' }, { x: CX + 14, y: PAD.t + CH - 8, col: '#ff4444', label: '▼ BEAR CALLS' }].map(({ x, y, col, label }) => (
-                      <text key={label} x={x} y={y} fontFamily="JetBrains Mono,monospace" fontSize={13} fontWeight={900} fill={col} letterSpacing={2}>{label}</text>
-                    ))}
+                    {/* ── Regime & RegimeGrouping overlays ── */}
+                    {(showRegime || showRegimeGrouping) && (() => {
+                      // Group tickers by industry per quadrant
+                      const byIndustryQuad: Record<string, Array<{ t: typeof allTickers[0]; sx: number; sy: number }>> = {}
+                      for (const t of allTickers) {
+                        const industry = RRG_INDUSTRY[t.ticker]
+                        if (!industry) continue
+                        const { sx, sy } = toSVG(t.x, t.y)
+                        const key = `${industry}::${t.quad}`
+                        if (!byIndustryQuad[key]) byIndustryQuad[key] = []
+                        byIndustryQuad[key].push({ t, sx, sy })
+                      }
+
+                      const elements: React.ReactNode[] = []
+                      let regimeGroupColorIdx = 0
+
+                      // ── Regime: 3+ same industry in ONE quadrant ──
+                      if (showRegime) {
+                        Object.entries(byIndustryQuad).forEach(([key, members]) => {
+                          if (members.length < 3) return
+                          const [industry] = key.split('::')
+                          const xs = members.map(m => m.sx), ys = members.map(m => m.sy)
+                          const cx2 = xs.reduce((a, b) => a + b, 0) / xs.length
+                          const cy2 = ys.reduce((a, b) => a + b, 0) / ys.length
+                          const maxDist = Math.max(...members.map(m => Math.sqrt((m.sx - cx2) ** 2 + (m.sy - cy2) ** 2)))
+                          const rad = maxDist + 28 / rrgTransform.k
+                          const animId = `regime-anim-${key.replace(/[^a-z0-9]/gi, '')}`
+                          elements.push(
+                            <g key={`regime-${key}`} style={{ pointerEvents: 'none' }}>
+                              <defs>
+                                <radialGradient id={`rg-regime-${animId}`} cx="50%" cy="50%" r="50%">
+                                  <stop offset="60%" stopColor="#a78bfa" stopOpacity="0" />
+                                  <stop offset="100%" stopColor="#a78bfa" stopOpacity="0.18" />
+                                </radialGradient>
+                              </defs>
+                              <circle cx={cx2} cy={cy2} r={rad} fill={`url(#rg-regime-${animId})`} />
+                              <circle cx={cx2} cy={cy2} r={rad} fill="none" stroke="#a78bfa" strokeWidth={2 / rrgTransform.k} strokeDasharray={`${14 / rrgTransform.k} ${7 / rrgTransform.k}`} strokeOpacity={0.85}>
+                                <animateTransform attributeName="transform" type="rotate" from={`0 ${cx2} ${cy2}`} to={`360 ${cx2} ${cy2}`} dur="8s" repeatCount="indefinite" />
+                              </circle>
+                              <circle cx={cx2} cy={cy2} r={rad * 0.88} fill="none" stroke="#c4b5fd" strokeWidth={1 / rrgTransform.k} strokeDasharray={`${7 / rrgTransform.k} ${14 / rrgTransform.k}`} strokeOpacity={0.5}>
+                                <animateTransform attributeName="transform" type="rotate" from={`360 ${cx2} ${cy2}`} to={`0 ${cx2} ${cy2}`} dur="12s" repeatCount="indefinite" />
+                              </circle>
+                              <text x={cx2} y={cy2 - rad - 8 / rrgTransform.k} textAnchor="middle" fontFamily="system-ui,sans-serif" fontSize={16 / rrgTransform.k} fontWeight={700} fill="#c4b5fd" opacity={0.9}>{`REGIME · ${industry.toUpperCase()}`}</text>
+                            </g>
+                          )
+                        })
+                      }
+
+                      // ── RegimeGrouping: 2+ same industry across 2 same-side quadrants ──
+                      if (showRegimeGrouping) {
+                        const industries = new Set(Object.values(RRG_INDUSTRY))
+                        const GROUPING_COLORS = ['#94a3b8', '#c084fc', '#67e8f9', '#86efac']
+                        industries.forEach(industry => {
+                          const bullish = [
+                            ...(byIndustryQuad[`${industry}::BC`] ?? []),
+                            ...(byIndustryQuad[`${industry}::BP`] ?? []),
+                          ]
+                          const bearish = [
+                            ...(byIndustryQuad[`${industry}::CC`] ?? []),
+                            ...(byIndustryQuad[`${industry}::CP`] ?? []),
+                          ]
+                          for (const group of [bullish, bearish]) {
+                            // Must span 2 quadrants (tickers in both quads of same side)
+                            const quadsPresent = new Set(group.map(m => m.t.quad))
+                            if (quadsPresent.size < 2 || group.length < 2) return
+                            const xs = group.map(m => m.sx), ys = group.map(m => m.sy)
+                            const cx2 = xs.reduce((a, b) => a + b, 0) / xs.length
+                            const cy2 = ys.reduce((a, b) => a + b, 0) / ys.length
+                            const maxDist = Math.max(...group.map(m => Math.sqrt((m.sx - cx2) ** 2 + (m.sy - cy2) ** 2)))
+                            const rx = (Math.max(...xs) - Math.min(...xs)) / 2 + 40 / rrgTransform.k
+                            const ry = (Math.max(...ys) - Math.min(...ys)) / 2 + 40 / rrgTransform.k
+                            const col = GROUPING_COLORS[regimeGroupColorIdx % GROUPING_COLORS.length]
+                            const gradId = `rg-grp-${industry.replace(/[^a-z0-9]/gi, '')}-${regimeGroupColorIdx}`
+                            regimeGroupColorIdx++
+                            elements.push(
+                              <g key={`grp-${industry}-${[...quadsPresent].join('')}`} style={{ pointerEvents: 'none' }}>
+                                <defs>
+                                  <radialGradient id={gradId} cx="50%" cy="30%" r="70%">
+                                    <stop offset="0%" stopColor={col} stopOpacity="0.22" />
+                                    <stop offset="55%" stopColor={col} stopOpacity="0.08" />
+                                    <stop offset="100%" stopColor={col} stopOpacity="0" />
+                                  </radialGradient>
+                                </defs>
+                                <ellipse cx={cx2} cy={cy2} rx={rx} ry={ry} fill={`url(#${gradId})`} />
+                                <ellipse cx={cx2} cy={cy2} rx={rx} ry={ry} fill="none" stroke={col} strokeWidth={2.5 / rrgTransform.k} strokeOpacity={0.7} />
+                                {/* Gloss highlight at top of dome */}
+                                <ellipse cx={cx2} cy={cy2 - ry * 0.3} rx={rx * 0.6} ry={ry * 0.2} fill={col} opacity={0.12} />
+                                <text x={cx2} y={cy2 - ry - 8 / rrgTransform.k} textAnchor="middle" fontFamily="system-ui,sans-serif" fontSize={15 / rrgTransform.k} fontWeight={700} fill={col} opacity={0.9}>{`REGIME GROUP · ${industry.toUpperCase()}`}</text>
+                              </g>
+                            )
+                          }
+                        })
+                      }
+
+                      return elements
+                    })()}
+                    {(() => {
+                      const qlabels = [
+                        { label: 'BULL PUTS', g0: '#7dd3fc', g1: '#0ea5e9', x: PAD.l + CW / 4, y: PAD.t + 22 },
+                        { label: 'BULL CALLS', g0: '#6ee7b7', g1: '#10b981', x: CX + CW / 4, y: PAD.t + 22 },
+                        { label: 'BEAR PUTS', g0: '#fcd34d', g1: '#f59e0b', x: PAD.l + CW / 4, y: PAD.t + CH - 22 },
+                        { label: 'BEAR CALLS', g0: '#fca5a5', g1: '#ef4444', x: CX + CW / 4, y: PAD.t + CH - 22 },
+                      ]
+                      const tw = 150, th = 24
+                      return qlabels.map(({ label, g0, g1, x, y }, i) => (
+                        <g key={label}>
+                          <defs>
+                            <linearGradient id={`qlg${i}`} x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor={g0} stopOpacity="1" />
+                              <stop offset="100%" stopColor={g1} stopOpacity="1" />
+                            </linearGradient>
+                          </defs>
+                          {/* Glossy pill background */}
+                          <rect x={x - tw / 2} y={y - th / 2} width={tw} height={th} rx={th / 2} fill={`url(#qlg${i})`} />
+                          {/* Top gloss highlight */}
+                          <rect x={x - tw / 2 + 3} y={y - th / 2 + 2} width={tw - 6} height={th / 2 - 3} rx={(th / 2 - 3) / 2} fill="rgba(255,255,255,0.32)" />
+                          {/* Label text */}
+                          <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontFamily="'JetBrains Mono',monospace" fontSize={17} fontWeight={900} fill="#000" letterSpacing={2}>{label}</text>
+                        </g>
+                      ))
+                    })()}
                   </svg>
                 )
               })() : (

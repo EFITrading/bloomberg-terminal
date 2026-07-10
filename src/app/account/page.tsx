@@ -300,8 +300,12 @@ export default function AccountPage() {
 
   useEffect(() => {
     const cookies = document.cookie.split(';');
+    const levelCookie = cookies.find(c => c.trim().startsWith('efi-level='));
+    const levelVal = levelCookie?.split('=')[1]?.trim();
+    // Fallback for legacy sessions
     const authCookie = cookies.find(c => c.trim().startsWith('efi-auth='));
-    setHasPasswordAuth(!!authCookie && authCookie.split('=')[1]?.trim() === 'authenticated');
+    const authVal = authCookie?.split('=')[1]?.trim();
+    setHasPasswordAuth(levelVal === 'user' || levelVal === 'admin' || authVal === 'authenticated' || authVal === 'admin');
     const t = setInterval(() => setCurrentTime(new Date()), 1000);
 
     return () => clearInterval(t);
@@ -313,6 +317,7 @@ export default function AccountPage() {
 
   const handleLogout = () => {
     document.cookie = 'efi-auth=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+    document.cookie = 'efi-level=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
     router.push('/login');
   };
 

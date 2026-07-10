@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { PrismaClient } from '@prisma/client'
-
-const globalForPrisma = global as unknown as { prismaDP: PrismaClient }
-const prisma = globalForPrisma.prismaDP ?? new PrismaClient()
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prismaDP = prisma
+import { prisma } from '@/lib/prisma'
 
 // GET /api/dark-pool-cache?symbol=SPY
 export async function GET(req: NextRequest) {

@@ -1019,8 +1019,10 @@ export default function OptionsFlowPage() {
             allTradesRef.current = newTrades
           }
 
-          liveTradeCountRef.current = allTradesRef.current.length
-          setLiveTradeCount(allTradesRef.current.length)
+          // Count only $50K+ trades to match what's actually displayed
+          const filteredCount = allTradesRef.current.filter((t: OptionsFlowData) => (t.total_premium || 0) >= 50000).length
+          liveTradeCountRef.current = filteredCount
+          setLiveTradeCount(filteredCount)
 
           if (!liveConnectedRef.current) {
             liveConnectedRef.current = true
