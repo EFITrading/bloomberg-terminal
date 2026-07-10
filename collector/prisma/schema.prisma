@@ -1,0 +1,81 @@
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url = env("POSTGRES_PRISMA_DATABASE_URL") // uses connection pooling
+  directUrl = env("POSTGRES_URL") // uses a direct connection
+}
+
+model UserLayout {
+  id        String   @id @default(cuid())
+  userId    String   @unique  // one layout per user (or use a fixed key for single-user)
+  data      String   // JSON stringified { panelOffsets, panelEnabled }
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Flow {
+  id        String   @id @default(cuid())
+  date      DateTime @unique
+  data      String   // JSON stringified flow data
+  size      Int      // Size in bytes
+  createdAt DateTime @default(now())
+  
+  @@index([date])
+  @@index([createdAt])
+}
+
+model PortfolioData {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  data      String   // JSON: { trades, alerts, notes, cashBalance, equityHistory }
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model LiveOICache {
+  id          String   @id @default(cuid())
+  ticker      String
+  tradingDate String   // 'YYYY-MM-DD' PST-aware trading date
+  data        String   // JSON: [[contractKey, liveOI], ...]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([ticker, tradingDate])
+  @@index([ticker, tradingDate])
+}
+
+model CompositeHistory {
+  id        String   @id @default(cuid())
+  key       String   @unique @default("main") // always "main" — single record
+  data      String   // JSON: { history: [...], yearStart: {...}, storedYear: number }
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+}
+
+model EtfFlowHistory {
+  id        String   @id @default(cuid())
+  key       String   @unique @default("main") // always "main" — single record
+  data      String   // JSON: { flows, baseAUM, lastShares, lastCumFlow, dateStrings, lastDate }
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+}
+
+model FlowBatch {
+  id          String   @id @default(cuid())
+  tradingDate String   // NOT unique — one small record per 30s save window
+  batchTime   DateTime
+  data        String   // gzip base64 of trades for this window only
+  tradeCount  Int
+  createdAt   DateTime @default(now())
+
+  @@index([tradingDate])
+  @@index([batchTime])
+}
