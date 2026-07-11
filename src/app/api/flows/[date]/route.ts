@@ -33,37 +33,60 @@ export async function GET(
       ? new Set(tickersParam.split(',').map(t => t.trim().toUpperCase()).filter(Boolean))
       : null
 
-    // Try FlowBatch first — paginated to stay under Prisma Accelerate 5MB limit
+    // Fetch ALL FlowBatch rows for the date in one query, then gunzip all in parallel.
+    // Falls back to 2 parallel half-queries if Prisma Accelerate rejects the large response.
     const tradingDate = decodedDate.split('T')[0]
-    const allTrades: unknown[] = []
-    let cursor: string | undefined
-    let latestBatchTime: Date | undefined
 
-    while (true) {
-      const page = await prisma.flowBatch.findMany({
-        where: { tradingDate },
-        orderBy: { batchTime: 'asc' },
-        take: 20,
-        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-        select: { id: true, data: true, batchTime: true },
-      })
-      if (page.length === 0) break
-      for (const b of page) {
-        const decompressed = await gunzipAsync(Buffer.from(b.data, 'base64'))
-        const batch: unknown[] = JSON.parse(decompressed.toString('utf8'))
-        for (let i = 0; i < batch.length; i++) {
-          if (!tickerSet || tickerSet.has((batch[i] as any)?.underlying_ticker?.toUpperCase() ?? '')) {
-            allTrades.push(batch[i])
+    async function fetchAndDecompress(rows: { id: string; data: string; batchTime: Date }[]): Promise<unknown[]> {
+      const bufs = await Promise.all(rows.map(b => gunzipAsync(Buffer.from(b.data, 'base64'))))
+      const trades: unknown[] = []
+      for (const buf of bufs) {
+        const batch: unknown[] = JSON.parse(buf.toString('utf8'))
+        for (const item of batch) {
+          if (!tickerSet || tickerSet.has((item as any)?.underlying_ticker?.toUpperCase() ?? '')) {
+            trades.push(item)
           }
         }
       }
-      cursor = page[page.length - 1].id
-      latestBatchTime = page[page.length - 1].batchTime
-      if (page.length < 20) break
+      return trades
     }
 
-    if (allTrades.length > 0) {
-      return NextResponse.json({ date: latestBatchTime!.toISOString(), data: allTrades, size: allTrades.length, createdAt: latestBatchTime, source: 'stream' })
+    let allRows: { id: string; data: string; batchTime: Date }[] = []
+    try {
+      allRows = await prisma.flowBatch.findMany({
+        where: { tradingDate },
+        orderBy: { batchTime: 'asc' },
+        select: { id: true, data: true, batchTime: true },
+      })
+    } catch (singleQueryErr) {
+      // Single query too large for Prisma Accelerate — split into 2 parallel half-queries
+      console.warn('[/api/flows] single query failed, falling back to 2-part split:', singleQueryErr)
+
+      // Get total count first (tiny query), then fetch two halves in parallel by offset
+      const total = await prisma.flowBatch.count({ where: { tradingDate } })
+      const half = Math.ceil(total / 2)
+
+      const [firstHalf, secondHalf] = await Promise.all([
+        prisma.flowBatch.findMany({
+          where: { tradingDate },
+          orderBy: { batchTime: 'asc' },
+          take: half,
+          select: { id: true, data: true, batchTime: true },
+        }),
+        prisma.flowBatch.findMany({
+          where: { tradingDate },
+          orderBy: { batchTime: 'asc' },
+          skip: half,
+          select: { id: true, data: true, batchTime: true },
+        }),
+      ])
+      allRows = [...firstHalf, ...secondHalf]
+    }
+
+    if (allRows.length > 0) {
+      const allTrades = await fetchAndDecompress(allRows)
+      const latestBatchTime = allRows[allRows.length - 1].batchTime
+      return NextResponse.json({ date: latestBatchTime.toISOString(), data: allTrades, size: allTrades.length, createdAt: latestBatchTime, source: 'stream' })
     }
 
     // Fall back to Flow table (scan saves)
