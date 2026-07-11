@@ -10,6 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 // Import your existing Polygon service
 
 import { polygonService } from '@/lib/polygonService'
+import { getDatesList, loadDateTrades, setCachedTrades } from '@/lib/flowDataCache'
+import DateRangePicker from '@/components/DateRangePicker'
 import { useDealerZonesStore } from '@/store/dealerZonesStore'
 
 import '../app/options-flow/mobile.css'
@@ -392,6 +394,10 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [selectedTickerFilters, setSelectedTickerFilters] = useState<string[]>([])
 
   const [selectedUniqueFilters, setSelectedUniqueFilters] = useState<string[]>(ALL_UNIQUE_FILTERS)
+  // Exclusive type filter for mobile panel: empty = show all, otherwise show only selected trade types
+  const [typeFilter, setTypeFilter] = useState<string[]>([])
+  // Exclusive moneyness filter: empty = show all, ['ITM'] = ITM only, etc.
+  const [moneynessFilter, setMoneynessFilter] = useState<string[]>([])
 
   const [expirationStartDate, setExpirationStartDate] = useState<string>('')
 
@@ -424,7 +430,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState<boolean>(false)
 
   const [savedFlowDates, setSavedFlowDates] = useState<
-    Array<{ date: string; size: number; createdAt: string }>
+    Array<{ date: string; size?: number; createdAt?: string; tradeCount?: number | null; source?: string }>
   >([])
 
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false)
@@ -450,6 +456,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [itemsPerPage] = useState<number>(250)
 
   const [showMobilePicksDropdown, setShowMobilePicksDropdown] = useState(false)
+  const [showScanDropdown, setShowScanDropdown] = useState(false)
 
   const [quickFilters, setQuickFilters] = useState<{
     otm: boolean
@@ -501,6 +508,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   >({})
 
   const [isMounted, setIsMounted] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
   const { isMobileView, isTabletView, windowWidth } = useOptionsFlowTableMobile()
 
 
@@ -821,6 +829,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   // Swipe-to-delete state for mobile
 
   const [swipedFlowId, setSwipedFlowId] = useState<string | null>(null)
+  const [tabletPanelOpen, setTabletPanelOpen] = useState<boolean>(false)
 
   const [touchStart, setTouchStart] = useState<number>(0)
 
@@ -850,8 +859,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   useEffect(() => {
     setIsMounted(true)
-
-    // Load tracked flows from localStorage
+    // Read admin cookie
+    const level = document.cookie.split('; ').find(r => r.startsWith('efi-level='))?.split('=')[1]
+    setIsAdmin(level === 'admin')
 
     const savedFlows = localStorage.getItem('flowTrackingWatchlist')
 
@@ -2829,23 +2839,9 @@ Stock Reaction: ${scores.stockReaction}/15`
   const loadFlowHistory = async () => {
     try {
       setLoadingHistory(true)
-
-      const response = await fetch('/api/flows/dates')
-      if (!response.ok) {
-        const errText = await response.text().catch(() => '(no body)')
-        console.error('[History] Error body:', errText)
-        throw new Error(`Failed to load history: HTTP ${response.status} · ${errText}`)
-      }
-
-      const rawText = await response.text()
-      let dates: any[]
-      try { dates = JSON.parse(rawText) } catch (e) {
-        throw new Error(`Response was not JSON: ${rawText.slice(0, 200)}`)
-      }
-      if (!Array.isArray(dates)) {
-        console.error('[History] Response is not an array:', dates)
-        throw new Error(`Expected array, got: ${JSON.stringify(dates).slice(0, 200)}`)
-      }
+      // Shared cache: returns instantly if already fetched by AlgoFlow or OptionsFlow page
+      const dates = await getDatesList()
+      if (!Array.isArray(dates)) throw new Error('Expected array from dates cache')
       setSavedFlowDates(dates)
       setIsHistoryDialogOpen(true)
     } catch (error) {
@@ -2861,21 +2857,8 @@ Stock Reaction: ${scores.stockReaction}/15`
   const handleLoadFlow = async (date: string) => {
     try {
       setLoadingFlowDate(date)
-      const encodedDate = encodeURIComponent(date)
-      const url = `/api/flows/${encodedDate}`
-
-      const response = await fetch(url)
-
-      if (!response.ok) {
-        const errText = await response.text().catch(() => '(no body)')
-        throw new Error(`HTTP ${response.status} · ${errText}`)
-      }
-
-      const rawText = await response.text()
-
-      const flowData = JSON.parse(rawText)
-      const trades = flowData.data
-
+      // Shared cache: returns from memory if AlgoFlow already loaded this date
+      const trades = await loadDateTrades(date)
       loadedDataRef.current = trades
       onDataUpdate && onDataUpdate(trades)
       setIsHistoryDialogOpen(false)
@@ -3198,16 +3181,15 @@ Stock Reaction: ${scores.stockReaction}/15`
       filtered = filtered.filter((trade) => selectedOptionTypes.includes(trade.type))
     }
 
-    // Order side filter (Buy = A/AA, Sell = B/BB)
-
-    if (selectedOrderSides.length > 0 && selectedOrderSides.length < 2) {
-      filtered = filtered.filter((trade) => {
-        const fs = (trade.fill_style || '').toUpperCase()
-        if (selectedOrderSides.includes('buy') && selectedOrderSides.includes('sell')) return true
-        if (selectedOrderSides.includes('buy')) return fs === 'A' || fs === 'AA'
-        if (selectedOrderSides.includes('sell')) return fs === 'B' || fs === 'BB'
-        return true
-      })
+    // Order side filter — matches fill_style directly from button values
+    if (selectedOrderSides.length > 0) {
+      const fillStyleMap: Record<string, string[]> = {
+        buy_a: ['A'], buy_aa: ['AA'], sell_b: ['B'], sell_bb: ['BB'],
+      }
+      const allowedStyles = selectedOrderSides.flatMap(v => fillStyleMap[v] ?? [])
+      if (allowedStyles.length > 0) {
+        filtered = filtered.filter((trade) => allowedStyles.includes((trade.fill_style || '').toUpperCase()))
+      }
     }
 
     // Premium filters (checkbox + custom range)
@@ -3334,13 +3316,10 @@ Stock Reaction: ${scores.stockReaction}/15`
       })
     }
 
-    // Unique filters (visibility toggles — unchecked = hide that category)
-
+    // Unique filters — trade type visibility (desktop legacy checkboxes, not the new exclusive buttons)
     const hasDeselected = ALL_UNIQUE_FILTERS.some(f => !selectedUniqueFilters.includes(f))
     if (hasDeselected) {
       filtered = filtered.filter((trade) => {
-        if (trade.moneyness === 'ITM' && !selectedUniqueFilters.includes('ITM')) return false
-        if (trade.moneyness === 'OTM' && !selectedUniqueFilters.includes('OTM')) return false
         if (trade.trade_type === 'SWEEP' && !selectedUniqueFilters.includes('SWEEP_ONLY')) return false
         if (trade.trade_type === 'BLOCK' && !selectedUniqueFilters.includes('BLOCK_ONLY')) return false
         if (trade.trade_type === 'MULTI-LEG' && !selectedUniqueFilters.includes('MULTI_LEG_ONLY')) return false
@@ -3349,13 +3328,62 @@ Stock Reaction: ${scores.stockReaction}/15`
       })
     }
 
-    // Weekly Expiry — opt-in: if WEEKLY_ONLY is selected, hide weeklies (≤7 days)
+    // Moneyness exclusive filter: empty = show all, non-empty = show only selected
+    if (moneynessFilter.length > 0) {
+      filtered = filtered.filter((trade) => moneynessFilter.includes(trade.moneyness))
+    }
+
+    // Type exclusive filter: empty = show all, non-empty = show only selected trade types
+    if (typeFilter.length > 0) {
+      filtered = filtered.filter((trade) => typeFilter.includes(trade.trade_type))
+    }
+
+    // Weekly Expiry — show only ≤7 day expiries
     if (selectedUniqueFilters.includes('WEEKLY_ONLY')) {
       filtered = filtered.filter((trade) => {
         const expiryDate = new Date(trade.expiry)
         const today = new Date()
         const daysToExpiry = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
         return daysToExpiry > 7
+      })
+    }
+
+    // Monthly Expiry — show only contracts expiring on the 3rd Friday of a month
+    if (selectedUniqueFilters.includes('MONTHLY_ONLY')) {
+      filtered = filtered.filter((trade) => {
+        const d = new Date(trade.expiry)
+        if (d.getDay() !== 5) return false // must be Friday
+        const month = d.getMonth(), year = d.getFullYear()
+        let friCount = 0
+        for (let day = 1; day <= d.getDate(); day++) {
+          if (new Date(year, month, day).getDay() === 5) friCount++
+        }
+        return friCount === 3
+      })
+    }
+
+    // Quadwitching — 3rd Friday of Mar/Jun/Sep/Dec
+    if (selectedUniqueFilters.includes('QUAD_WITCHING')) {
+      filtered = filtered.filter((trade) => {
+        const d = new Date(trade.expiry)
+        const m = d.getMonth()
+        if (![2, 5, 8, 11].includes(m)) return false
+        if (d.getDay() !== 5) return false
+        const year = d.getFullYear()
+        let friCount = 0
+        for (let day = 1; day <= d.getDate(); day++) {
+          if (new Date(year, m, day).getDay() === 5) friCount++
+        }
+        return friCount === 3
+      })
+    }
+
+    // 0DTE — expiring today
+    if (selectedUniqueFilters.includes('ZERO_DTE')) {
+      const todayStr = new Date().toISOString().split('T')[0]
+      filtered = filtered.filter((trade) => {
+        const expStr = trade.expiry.includes('T') ? trade.expiry.split('T')[0] : trade.expiry
+        return expStr === todayStr
       })
     }
 
@@ -3500,6 +3528,8 @@ Stock Reaction: ${scores.stockReaction}/15`
     customMaxPremium,
     selectedTickerFilters,
     selectedUniqueFilters,
+    typeFilter,
+    moneynessFilter,
     expirationStartDate,
     expirationEndDate,
     selectedTickerFilter,
@@ -3657,6 +3687,8 @@ Stock Reaction: ${scores.stockReaction}/15`
     customMaxPremium,
     selectedTickerFilters,
     selectedUniqueFilters,
+    typeFilter,
+    moneynessFilter,
     expirationStartDate,
     expirationEndDate,
     selectedTickerFilter,
@@ -4310,6 +4342,13 @@ Stock Reaction: ${scores.stockReaction}/15`
     return null
   }
 
+  // Compact toolbar sizing for tablet + mobile — applied directly to inline styles
+  const tbH = isTabletView ? '26px' : isMobileView ? '22px' : undefined
+  const tbHn = isTabletView ? '26px' : isMobileView ? '22px' : undefined   // numeric-safe alias
+  const tbPad = isTabletView ? '0 8px' : isMobileView ? '0 6px' : undefined
+  const tbFs = isTabletView ? '10px' : isMobileView ? '9px' : undefined
+  const tbLs = isTabletView ? '0.7px' : isMobileView ? '0.4px' : undefined
+
   return (
     <div style={{ display: 'flex', width: '100%', alignItems: 'flex-start' }}>
       {/* Quick Grade Popup — fixed overlay, same design as grade column */}
@@ -4425,13 +4464,16 @@ Stock Reaction: ${scores.stockReaction}/15`
           <div
             className="filter-dialog fixed left-0 md:left-1/2 transform md:-translate-x-1/2 w-full md:w-auto md:max-w-[985px] max-h-[85vh] md:h-auto md:max-h-[55vh] overflow-y-auto z-[9999]"
             style={{
-              top: isMobileView ? '130px' : '224px',
+              top: isMobileView ? '130px' : isTabletView ? '110px' : '224px',
+              maxWidth: isTabletView ? 'min(94vw, 820px)' : undefined,
+              maxHeight: isTabletView ? '82vh' : undefined,
+              width: isTabletView ? 'min(94vw, 820px)' : undefined,
               background: isMobileView ? '#000000' : '#000',
               border: isMobileView
                 ? '1px solid rgba(255,255,255,0.1)'
                 : '1px solid #4b5563',
               borderRadius: isMobileView ? '16px' : '8px',
-              padding: isMobileView ? '16px' : '16px',
+              padding: isTabletView ? '12px' : isMobileView ? '16px' : '16px',
               boxShadow: isMobileView
                 ? '0 0 0 1px rgba(255,255,255,0.04), 0 32px 64px rgba(0,0,0,0.95)'
                 : '0 4px 16px rgba(0,0,0,0.5)',
@@ -4444,6 +4486,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     className="hidden md:inline"
                     style={{
                       fontFamily: 'Georgia, serif',
+                      fontSize: isTabletView ? '16px' : undefined,
                       textShadow: '0 0 8px rgba(255, 165, 0, 0.3)',
                       letterSpacing: '0.5px',
                     }}
@@ -4497,6 +4540,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                   setSelectedOrderSides={setSelectedOrderSides}
                   selectedUniqueFilters={selectedUniqueFilters}
                   setSelectedUniqueFilters={setSelectedUniqueFilters}
+                  typeFilter={typeFilter}
+                  setTypeFilter={setTypeFilter}
                   selectedPremiumFilters={selectedPremiumFilters}
                   setSelectedPremiumFilters={setSelectedPremiumFilters}
                   customMinPremium={customMinPremium}
@@ -4524,13 +4569,36 @@ Stock Reaction: ${scores.stockReaction}/15`
                   style={{
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '12px',
+                    gap: isTabletView ? '8px' : '12px',
                     padding: '0 4px',
                   }}
                 >
+                  {isTabletView && (
+                    <style>{`
+                      .filter-dialog .filter-dialog-content span,
+                      .filter-dialog .filter-dialog-content label,
+                      .filter-dialog .filter-dialog-content div[style] {
+                        font-size: 11px !important;
+                      }
+                      .filter-dialog .filter-dialog-content button {
+                        font-size: 11px !important;
+                        padding: 5px 8px !important;
+                        min-height: 28px !important;
+                      }
+                      .filter-dialog .filter-dialog-content input {
+                        font-size: 11px !important;
+                        height: 28px !important;
+                        padding: 4px 8px !important;
+                      }
+                      .filter-dialog .filter-dialog-content > div > div {
+                        padding: 10px !important;
+                        border-radius: 8px !important;
+                      }
+                    `}</style>
+                  )}
                   {/* Row 1: Options Type | Premium | Ticker Filter */}
                   <div
-                    style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}
+                    style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: isTabletView ? '8px' : '12px' }}
                   >
                     {/* OPTIONS TYPE + UNIQUE FILTERS */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -4763,80 +4831,38 @@ Stock Reaction: ${scores.stockReaction}/15`
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px' }}>
                           {[
-                            { label: 'ITM', value: 'ITM', color: '#22c55e' },
-                            { label: 'OTM', value: 'OTM', color: '#ffffff' },
-                            { label: 'Sweep Only', value: 'SWEEP_ONLY', color: '#22d3ee' },
-                            { label: 'Block Only', value: 'BLOCK_ONLY', color: '#22d3ee' },
-                            { label: 'Multi-Leg', value: 'MULTI_LEG_ONLY', color: '#a855f7' },
-                            { label: 'Mini Only', value: 'MINI_ONLY', color: '#84cc16' },
-                          ].map(({ label, value, color }) => {
-                            const active = selectedUniqueFilters.includes(value)
-                            // active = visible (no filter). !active = filtering this type out → glow
-                            const filtering = !active
+                            { label: 'ITM', value: 'ITM', isType: false },
+                            { label: 'OTM', value: 'OTM', isType: false },
+                            { label: 'Sweep Only', value: 'SWEEP', isType: true },
+                            { label: 'Block Only', value: 'BLOCK', isType: true },
+                            { label: 'Multi-Leg', value: 'MULTI-LEG', isType: true },
+                            { label: 'Mini Only', value: 'MINI', isType: true },
+                          ].map(({ label, value, isType }) => {
+                            const active = isType ? typeFilter.includes(value) : moneynessFilter.includes(value)
                             return (
-                              <button
-                                key={value}
-                                onClick={() =>
-                                  setSelectedUniqueFilters((prev) =>
-                                    active ? prev.filter((f) => f !== value) : [...prev, value]
-                                  )
-                                }
-                                style={{
-                                  padding: '7px 8px',
-                                  borderRadius: '8px',
-                                  border: `1px solid ${filtering ? color : 'rgba(255,255,255,0.07)'}`,
-                                  background: filtering ? `${color}18` : 'rgba(255,255,255,0.02)',
-                                  boxShadow: filtering ? `0 0 10px ${color}33` : 'none',
-                                  cursor: 'pointer',
-                                  transition: 'all 0.15s ease',
-                                  fontSize: '13px',
-                                  fontWeight: 800,
-                                  letterSpacing: '0.5px',
-                                  color: filtering ? color : 'rgba(255,255,255,0.5)',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
+                              <button key={value}
+                                onClick={() => {
+                                  if (isType) setTypeFilter((prev) => prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value])
+                                  else setMoneynessFilter((prev) => prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value])
                                 }}
-                              >
-                                {label}
-                              </button>
+                                style={{ padding: '7px 8px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.07)', background: '#000', cursor: 'pointer', fontSize: '13px', fontWeight: 800, color: active ? '#ff8500' : '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'color 0.15s ease' }}
+                              >{label}</button>
                             )
                           })}
                         </div>
                         {/* Sector filters — full-width single-column rows */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
                           {[
-                            { label: 'Growth  XLK · XLY · XLC · ARKK', value: 'GROWTH_ONLY', color: '#34d399' },
-                            { label: 'Value  XLI · XLF · XLB', value: 'VALUE_ONLY', color: '#fbbf24' },
-                            { label: 'Defensives  XLV · XLRE · XLP · XLU', value: 'DEFENSIVES_ONLY', color: '#60a5fa' },
-                          ].map(({ label, value, color }) => {
+                            { label: 'Growth  XLK · XLY · XLC · ARKK', value: 'GROWTH_ONLY' },
+                            { label: 'Value  XLI · XLF · XLB', value: 'VALUE_ONLY' },
+                            { label: 'Defensives  XLV · XLRE · XLP · XLU', value: 'DEFENSIVES_ONLY' },
+                          ].map(({ label, value }) => {
                             const sectorActive = selectedUniqueFilters.includes(value)
                             return (
-                              <button
-                                key={value}
-                                onClick={() =>
-                                  setSelectedUniqueFilters((prev) =>
-                                    sectorActive ? prev.filter((f) => f !== value) : [...prev, value]
-                                  )
-                                }
-                                style={{
-                                  padding: '7px 8px',
-                                  borderRadius: '8px',
-                                  border: `1px solid ${sectorActive ? color : 'rgba(255,255,255,0.07)'}`,
-                                  background: sectorActive ? `${color}18` : 'rgba(255,255,255,0.02)',
-                                  boxShadow: sectorActive ? `0 0 10px ${color}33` : 'none',
-                                  cursor: 'pointer',
-                                  transition: 'all 0.15s ease',
-                                  fontSize: '12px',
-                                  fontWeight: 800,
-                                  letterSpacing: '0.5px',
-                                  color: sectorActive ? color : 'rgba(255,255,255,0.5)',
-                                  width: '100%',
-                                  textAlign: 'center',
-                                }}
-                              >
-                                {label}
-                              </button>
+                              <button key={value}
+                                onClick={() => setSelectedUniqueFilters((prev) => sectorActive ? prev.filter((f) => f !== value) : [...prev, value])}
+                                style={{ padding: '7px 8px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.07)', background: '#000', cursor: 'pointer', fontSize: '12px', fontWeight: 800, color: sectorActive ? '#ff8500' : '#ffffff', width: '100%', textAlign: 'center' as const, transition: 'color 0.15s ease' }}
+                              >{label}</button>
                             )
                           })}
                         </div>
@@ -5147,63 +5173,42 @@ Stock Reaction: ${scores.stockReaction}/15`
                             Ticker Filter
                           </span>
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                          {/* Column headers */}
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 72px 72px', gap: '4px', marginBottom: '4px' }}>
+                            <span style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.3)', letterSpacing: '1.5px', textTransform: 'uppercase' as const }}>Group</span>
+                            <span style={{ fontSize: '11px', fontWeight: 700, color: '#22c55e', letterSpacing: '1.5px', textTransform: 'uppercase' as const, textAlign: 'center' as const }}>Include</span>
+                            <span style={{ fontSize: '11px', fontWeight: 700, color: '#ef4444', letterSpacing: '1.5px', textTransform: 'uppercase' as const, textAlign: 'center' as const }}>Exclude</span>
+                          </div>
                           {[
-                            { label: 'ETF Only', value: 'ETF_ONLY' },
-                            { label: 'Stock Only', value: 'STOCK_ONLY' },
-                            { label: 'Mag 7 Only', value: 'MAG7_ONLY' },
-                            { label: 'Exclude Mag 7', value: 'EXCLUDE_MAG7' },
-                            { label: 'Exclude ETFs', value: 'EXCLUDE_ETF' },
-                            { label: 'Exclude Futures', value: 'EXCLUDE_FUTURES' },
-                            { label: 'Overblown Tickers', value: 'OVERBLOWN_TICKERS' },
-                          ].map(({ label, value }) => {
-                            const active = selectedTickerFilters.includes(value)
+                            { label: 'ETF Only', inc: 'ETF_ONLY', exc: 'EXCLUDE_ETF' },
+                            { label: 'Stocks Only', inc: 'STOCK_ONLY', exc: null },
+                            { label: 'Mag 7 Only', inc: 'MAG7_ONLY', exc: 'EXCLUDE_MAG7' },
+                            { label: 'Excl. Futures', inc: null, exc: 'EXCLUDE_FUTURES' },
+                            { label: 'Overblown', inc: 'OVERBLOWN_TICKERS', exc: null },
+                          ].map(({ label, inc, exc }) => {
+                            const incActive = inc ? selectedTickerFilters.includes(inc) : false
+                            const excActive = exc ? selectedTickerFilters.includes(exc) : false
+                            const toggle = (val: string, current: boolean) =>
+                              setSelectedTickerFilters((prev) =>
+                                current
+                                  ? prev.filter((f) => f !== val)
+                                  : [...prev.filter((f) => f !== (val === inc ? exc ?? '' : inc ?? '')), val]
+                              )
                             return (
-                              <button
-                                key={value}
-                                onClick={() =>
-                                  setSelectedTickerFilters((prev) =>
-                                    active ? prev.filter((f) => f !== value) : [...prev, value]
-                                  )
-                                }
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '8px',
-                                  padding: '9px 10px',
-                                  borderRadius: '8px',
-                                  border: `1px solid ${active ? '#3b82f6' : 'rgba(255,255,255,0.07)'}`,
-                                  background: active
-                                    ? 'rgba(59,130,246,0.12)'
-                                    : 'rgba(255,255,255,0.02)',
-                                  boxShadow: active ? '0 0 10px rgba(59,130,246,0.2)' : 'none',
-                                  cursor: 'pointer',
-                                  transition: 'all 0.15s ease',
-                                  width: '100%',
-                                  gridColumn: value === 'OVERBLOWN_TICKERS' ? '1 / -1' : undefined,
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    width: '7px',
-                                    height: '7px',
-                                    borderRadius: '50%',
-                                    background: active ? '#3b82f6' : '#374151',
-                                    boxShadow: active ? '0 0 5px #3b82f6' : 'none',
-                                    flexShrink: 0,
-                                  }}
-                                />
-                                <span
-                                  style={{
-                                    fontSize: '14px',
-                                    fontWeight: 800,
-                                    letterSpacing: '0.5px',
-                                    color: active ? '#93c5fd' : '#ffffff',
-                                  }}
-                                >
-                                  {label}
-                                </span>
-                              </button>
+                              <div key={label} style={{ display: 'grid', gridTemplateColumns: '1fr 72px 72px', gap: '4px', alignItems: 'center' }}>
+                                <span style={{ fontSize: '13px', fontWeight: 700, color: '#ffffff', letterSpacing: '0.3px' }}>{label}</span>
+                                <button
+                                  onClick={() => inc && toggle(inc, incActive)}
+                                  disabled={!inc}
+                                  style={{ padding: '7px 0', borderRadius: '7px', border: `1px solid ${incActive ? '#22c55e' : 'rgba(255,255,255,0.07)'}`, background: incActive ? 'rgba(34,197,94,0.14)' : 'rgba(255,255,255,0.02)', boxShadow: incActive ? '0 0 8px rgba(34,197,94,0.25)' : 'none', cursor: inc ? 'pointer' : 'not-allowed', opacity: inc ? 1 : 0.2, fontSize: '12px', fontWeight: 800, color: incActive ? '#22c55e' : 'rgba(255,255,255,0.3)', textAlign: 'center' as const, transition: 'all 0.15s ease' }}
+                                >{incActive ? '✓ YES' : 'YES'}</button>
+                                <button
+                                  onClick={() => exc && toggle(exc, excActive)}
+                                  disabled={!exc}
+                                  style={{ padding: '7px 0', borderRadius: '7px', border: `1px solid ${excActive ? '#ef4444' : 'rgba(255,255,255,0.07)'}`, background: excActive ? 'rgba(239,68,68,0.14)' : 'rgba(255,255,255,0.02)', boxShadow: excActive ? '0 0 8px rgba(239,68,68,0.25)' : 'none', cursor: exc ? 'pointer' : 'not-allowed', opacity: exc ? 1 : 0.2, fontSize: '12px', fontWeight: 800, color: excActive ? '#ef4444' : 'rgba(255,255,255,0.3)', textAlign: 'center' as const, transition: 'all 0.15s ease' }}
+                                >{excActive ? '✓ NO' : 'NO'}</button>
+                              </div>
                             )
                           })}
                         </div>
@@ -5248,107 +5253,27 @@ Stock Reaction: ${scores.stockReaction}/15`
                             Options Expiration
                           </span>
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                          <div>
-                            <span
-                              style={{
-                                display: 'block',
-                                fontSize: '12px',
-                                fontWeight: 800,
-                                letterSpacing: '1.5px',
-                                color: '#94a3b8',
-                                marginBottom: '6px',
-                                textTransform: 'uppercase',
-                              }}
-                            >
-                              Start Date
-                            </span>
-                            <input
-                              type="date"
-                              value={expirationStartDate}
-                              onChange={(e) => setExpirationStartDate(e.target.value)}
-                              style={{
-                                width: '100%',
-                                padding: '10px 10px',
-                                background: '#000',
-                                border: '1px solid rgba(168,85,247,0.3)',
-                                borderRadius: '8px',
-                                color: '#e9d5ff',
-                                fontSize: '14px',
-                                fontWeight: 700,
-                                outline: 'none',
-                                boxSizing: 'border-box',
-                              }}
-                            />
-                          </div>
-                          <div>
-                            <span
-                              style={{
-                                display: 'block',
-                                fontSize: '12px',
-                                fontWeight: 800,
-                                letterSpacing: '1.5px',
-                                color: '#94a3b8',
-                                marginBottom: '6px',
-                                textTransform: 'uppercase',
-                              }}
-                            >
-                              End Date
-                            </span>
-                            <input
-                              type="date"
-                              value={expirationEndDate}
-                              onChange={(e) => setExpirationEndDate(e.target.value)}
-                              style={{
-                                width: '100%',
-                                padding: '10px 10px',
-                                background: '#000',
-                                border: '1px solid rgba(168,85,247,0.3)',
-                                borderRadius: '8px',
-                                color: '#e9d5ff',
-                                fontSize: '14px',
-                                fontWeight: 700,
-                                outline: 'none',
-                                boxSizing: 'border-box',
-                              }}
-                            />
-                          </div>
-                          {/* Weekly Expiry toggle */}
-                          <div>
-                            {(() => {
-                              const weeklyActive = selectedUniqueFilters.includes('WEEKLY_ONLY')
-                              return (
-                                <button
-                                  onClick={() =>
-                                    setSelectedUniqueFilters((prev) =>
-                                      weeklyActive ? prev.filter((f) => f !== 'WEEKLY_ONLY') : [...prev, 'WEEKLY_ONLY']
-                                    )
-                                  }
-                                  style={{
-                                    width: '100%',
-                                    padding: '9px 10px',
-                                    borderRadius: '8px',
-                                    border: `1px solid ${weeklyActive ? '#f97316' : 'rgba(255,255,255,0.07)'}`,
-                                    background: weeklyActive ? 'rgba(249,115,22,0.12)' : 'rgba(255,255,255,0.02)',
-                                    boxShadow: weeklyActive ? '0 0 10px rgba(249,115,22,0.3)' : 'none',
-                                    cursor: 'pointer',
-                                    transition: 'all 0.15s ease',
-                                    fontSize: '13px',
-                                    fontWeight: 800,
-                                    letterSpacing: '0.5px',
-                                    color: weeklyActive ? '#f97316' : 'rgba(255,255,255,0.5)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: '8px',
-                                  }}
-                                >
-                                  <span>Weekly Expiry</span>
-                                  {weeklyActive && <span style={{ fontSize: '11px', opacity: 0.7 }}>— hiding weeklies</span>}
-                                </button>
-                              )
-                            })()}
-                          </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          <DateRangePicker
+                            startDate={expirationStartDate}
+                            endDate={expirationEndDate}
+                            onStartChange={setExpirationStartDate}
+                            onEndChange={setExpirationEndDate}
+                          />
+                          {[
+                            { key: 'WEEKLY_ONLY', label: 'Weekly Expiry' },
+                            { key: 'MONTHLY_ONLY', label: 'Monthly Expiry' },
+                            { key: 'QUAD_WITCHING', label: 'Quad Witching' },
+                            { key: 'ZERO_DTE', label: '0DTE Expiry' },
+                          ].map(({ key, label }) => {
+                            const active = selectedUniqueFilters.includes(key)
+                            return (
+                              <button key={key} onClick={() => setSelectedUniqueFilters((prev) => active ? prev.filter((f) => f !== key) : [...prev, key])}
+                                style={{ width: '100%', padding: '9px 10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.07)', background: '#000', cursor: 'pointer', fontSize: '13px', fontWeight: 800, color: active ? '#ff8500' : '#ffffff', textAlign: 'center' as const, transition: 'color 0.15s ease' }}>
+                                {label}
+                              </button>
+                            )
+                          })}
                         </div>
                       </div>
                     </div>{/* end TICKER + OPTIONS EXPIRATION */}
@@ -5402,20 +5327,19 @@ Stock Reaction: ${scores.stockReaction}/15`
                   style={{
                     flex: 2,
                     padding: '12px',
-                    background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
-                    border: 'none',
+                    background: 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 60%, #040404 100%)',
+                    border: '1px solid rgba(255,133,0,0.45)',
+                    borderTop: '1px solid rgba(255,133,0,0.7)',
                     borderRadius: '10px',
-                    color: '#fff',
+                    color: '#ff8500',
                     fontSize: '16px',
                     fontWeight: 800,
                     letterSpacing: '1.5px',
                     textTransform: 'uppercase',
                     cursor: 'pointer',
-                    boxShadow: '0 4px 14px rgba(249,115,22,0.35)',
-                    transition: 'all 0.15s ease',
+                    boxShadow: 'inset 0 1px 0 rgba(255,133,0,0.15), inset 0 -1px 0 rgba(0,0,0,0.7)',
+                    transition: 'color 0.15s ease',
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.filter = 'brightness(1.1)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.filter = 'brightness(1)')}
                 >
                   Apply Filters
                 </Button>
@@ -5540,7 +5464,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       timeZone: 'America/Los_Angeles',
                     })
                     // Time label from createdAt in PST/PDT
-                    const savedAt = new Date(flow.createdAt)
+                    const savedAt = new Date(flow.createdAt ?? flow.date)
                     const timeLabel = savedAt.toLocaleTimeString('en-US', {
                       hour: '2-digit',
                       minute: '2-digit',
@@ -6327,18 +6251,8 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                 <div className="relative" style={{ width: '148px' }}>
                   <div className="absolute left-3 top-1/2 transform -translate-y-1/2 z-10 pointer-events-none">
-                    <svg
-                      width="13" height="13"
-                      fill="none"
-                      stroke="#ff8500"
-                      viewBox="0 0 24 24"
-                      strokeWidth={2}
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                      />
+                    <svg width="13" height="13" fill="none" stroke="#ff8500" viewBox="0 0 24 24" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                     </svg>
                   </div>
 
@@ -6414,6 +6328,63 @@ Stock Reaction: ${scores.stockReaction}/15`
                       title="Clear ticker filter"
                     >✕</button>
                   )}
+
+                  {/* Scan quick-pick dropdown arrow */}
+                  {!inputTicker && (
+                    <button
+                      onClick={() => setShowScanDropdown(v => !v)}
+                      style={{
+                        position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)',
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: '#555', fontSize: '10px', lineHeight: 1, padding: '2px', zIndex: 20,
+                      }}
+                      title="Quick scan"
+                    >▾</button>
+                  )}
+
+                  {/* Scan dropdown */}
+                  {showScanDropdown && (
+                    <>
+                      <div onClick={() => setShowScanDropdown(false)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />
+                      <div style={{
+                        position: 'absolute', top: 'calc(100% + 4px)', left: 0,
+                        zIndex: 9999, minWidth: '150px',
+                        background: '#0e0e0e', border: '1px solid rgba(255,133,0,0.45)',
+                        borderRadius: '8px', overflow: 'hidden',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.9)',
+                      }}>
+                        {[
+                          { label: 'Scan All', value: 'ALL' },
+                          { label: 'Scan MAG7', value: 'MAG7' },
+                          { label: 'Scan ETF', value: 'ETF' },
+                        ].map(opt => (
+                          <button
+                            key={opt.value}
+                            onClick={() => {
+                              setShowScanDropdown(false)
+                              if (loading) { onCancel?.(); return }
+                              setInputTicker(opt.value)
+                              onTickerChange(opt.value)
+                              onRefresh?.(opt.value)
+                            }}
+                            style={{
+                              display: 'block', width: '100%', textAlign: 'left',
+                              padding: '9px 14px', background: 'none', border: 'none',
+                              color: inputTicker === opt.value ? '#ff8500' : '#ccc',
+                              fontWeight: 700, fontSize: '11px', letterSpacing: '1px',
+                              fontFamily: 'monospace', cursor: 'pointer',
+                              borderBottom: '1px solid rgba(255,255,255,0.06)',
+                              textTransform: 'uppercase',
+                            }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,133,0,0.1)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Date range calendar picker */}
@@ -6469,8 +6440,9 @@ Stock Reaction: ${scores.stockReaction}/15`
                           }
                           setCalOpen(v => !v)
                         }}
+                        className="toolbar-pill"
                         style={{
-                          height: 31, padding: '0 10px',
+                          height: tbH || 31, padding: tbPad || '0 10px',
                           background: isRange ? '#0a0500' : '#000',
                           border: `1px solid ${isRange || calPickStart ? 'rgba(255,133,0,0.65)' : '#2a2a2a'}`,
                           color: isRange || calPickStart ? '#ff8500' : '#555',
@@ -6590,78 +6562,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                   </div>
                 )}
 
-                {/* Divider + Scan Shortcuts — hidden in live mode */}
-                {!isLiveMode && (<>
-                  <div className="hidden md:block" style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.14)' }}></div>
-
-                  {/* Scan Shortcuts */}
-
-                  <div className="hidden md:flex items-center gap-2">
-                    {useDropdowns ? (
-                      <button
-                        onClick={() => {
-                          if (loading) { onCancel?.(); return }
-                          setInputTicker('ALL')
-                          onTickerChange('ALL')
-                          onRefresh?.('ALL')
-                        }}
-                        className="toolbar-pill font-bold uppercase transition-all duration-150"
-                        style={{
-                          height: '31px',
-                          padding: '0 13px',
-                          background: loading
-                            ? 'linear-gradient(180deg, rgba(239,68,68,0.22) 0%, rgba(239,68,68,0.06) 55%, rgba(0,0,0,0.2) 100%)'
-                            : inputTicker === 'ALL' ? 'linear-gradient(180deg, rgba(255,133,0,0.22) 0%, rgba(255,133,0,0.06) 55%, rgba(0,0,0,0.2) 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
-                          border: loading ? '1px solid #ef4444' : inputTicker === 'ALL' ? '1px solid #ff8500' : '1px solid #666',
-                          borderRadius: '20px',
-                          fontSize: '12px',
-                          letterSpacing: '1.2px',
-                          fontWeight: '700',
-                          boxShadow: loading ? '0 0 10px rgba(239,68,68,0.3)' : inputTicker === 'ALL' ? 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 10px rgba(255,133,0,0.22)' : 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.35)',
-                          outline: 'none',
-                          color: loading ? '#fca5a5' : inputTicker === 'ALL' ? '#ffaa55' : '#d4d4d4',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        {loading ? '✕ CANCEL' : 'SCAN ALL'}
-                      </button>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => {
-                            if (loading) { onCancel?.(); return }
-                            setInputTicker('ALL')
-                            onTickerChange('ALL')
-                            onRefresh?.('ALL')
-                          }}
-                          className="toolbar-pill font-bold uppercase transition-all duration-150"
-                          style={{
-                            height: '31px',
-                            padding: '0 13px',
-                            background: loading
-                              ? 'linear-gradient(180deg, rgba(239,68,68,0.22) 0%, rgba(239,68,68,0.06) 55%, rgba(0,0,0,0.2) 100%)'
-                              : inputTicker === 'ALL' ? 'linear-gradient(180deg, rgba(255,133,0,0.22) 0%, rgba(255,133,0,0.06) 55%, rgba(0,0,0,0.2) 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
-                            border: loading ? '1px solid #ef4444' : inputTicker === 'ALL' ? '1px solid #ff8500' : '1px solid #666',
-                            borderRadius: '20px',
-                            fontSize: '12px',
-                            letterSpacing: '1.2px',
-                            fontWeight: '700',
-                            boxShadow: loading ? '0 0 10px rgba(239,68,68,0.3)' : inputTicker === 'ALL' ? 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 10px rgba(255,133,0,0.22)' : 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.35)',
-                            outline: 'none',
-                            color: loading ? '#fca5a5' : inputTicker === 'ALL' ? '#ffaa55' : '#d4d4d4',
-                            cursor: 'pointer',
-                            transition: 'all 0.15s ease',
-                          }}
-                        >
-                          {loading ? '✕ CANCEL' : 'SCAN ALL'}
-                        </button>
-
-                        {/* MAG7 and ETF buttons removed from toolbar UI (logic unchanged) */}
-                      </>
-                    )}
-                  </div>
-                </>)}
+                {/* Divider + Scan Shortcuts — removed, now in ticker dropdown */}
 
                 {/* Divider */}
 
@@ -6680,13 +6581,13 @@ Stock Reaction: ${scores.stockReaction}/15`
                       onClick={() => setNotableFilterActive(!notableFilterActive)}
                       className="toolbar-pill font-bold uppercase transition-all duration-150"
                       style={{
-                        height: '31px',
-                        padding: '0 13px',
+                        height: tbH || '31px',
+                        padding: tbPad || '0 13px',
                         background: notableFilterActive ? 'linear-gradient(180deg, rgba(255,215,0,0.3) 0%, rgba(255,215,0,0.09) 55%, rgba(255,215,0,0.18) 100%)' : 'linear-gradient(180deg, rgba(255,215,0,0.12) 0%, rgba(255,215,0,0.03) 100%)',
                         border: notableFilterActive ? '1px solid #ffd700' : '1px solid #c8a500',
                         borderRadius: '20px',
-                        fontSize: '11px',
-                        letterSpacing: '1.5px',
+                        fontSize: tbFs || '11px',
+                        letterSpacing: tbLs || '1.5px',
                         fontWeight: '700',
                         boxShadow: notableFilterActive ? 'inset 0 1px 0 rgba(255,255,255,0.22), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 10px rgba(255,215,0,0.22)' : 'inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.35)',
                         outline: 'none',
@@ -6739,15 +6640,15 @@ Stock Reaction: ${scores.stockReaction}/15`
                   disabled={modeLoadingStep !== null}
                   className={`toolbar-mode${leapActive ? ' toolbar-mode--active' : ''} flex items-center gap-1.5 font-bold uppercase transition-all duration-150 focus:outline-none${(modeLoadingStep !== null || !data || data.length === 0 || loading || stockPricesLoading) ? ' opacity-40 cursor-not-allowed' : ''}`}
                   style={{
-                    height: '35px',
-                    padding: '0 15px',
+                    height: tbH || '35px',
+                    padding: tbPad || '0 15px',
                     background: leapActive
                       ? 'linear-gradient(180deg, rgba(0,212,255,0.24) 0%, rgba(0,150,200,0.08) 55%, rgba(0,0,0,0.2) 100%)'
                       : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
                     border: leapActive ? '1px solid #00d4ff' : '1px solid #0099bb',
                     borderRadius: '7px',
-                    fontSize: '12px',
-                    letterSpacing: '1.5px',
+                    fontSize: tbFs || '12px',
+                    letterSpacing: tbLs || '1.5px',
                     fontWeight: '700',
                     boxShadow: leapActive ? 'inset 0 1px 0 rgba(255,255,255,0.22), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 14px rgba(0,200,255,0.28)' : 'inset 0 1px 0 rgba(255,255,255,0.09), inset 0 -1px 0 rgba(0,0,0,0.4)',
                     color: '#00d4ff',
@@ -6785,15 +6686,15 @@ Stock Reaction: ${scores.stockReaction}/15`
                   }}
                   className={`toolbar-mode${efiHighlightsActive ? ' toolbar-mode--active' : ''} flex items-center gap-1.5 font-bold uppercase transition-all duration-150 focus:outline-none${(!data || data.length === 0 || loading || stockPricesLoading) ? ' opacity-40 cursor-not-allowed' : ''}`}
                   style={{
-                    height: '35px',
-                    padding: '0 15px',
+                    height: tbH || '35px',
+                    padding: tbPad || '0 15px',
                     background: efiHighlightsActive
                       ? 'linear-gradient(180deg, rgba(245,166,35,0.24) 0%, rgba(245,133,0,0.08) 55%, rgba(0,0,0,0.2) 100%)'
                       : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
                     border: efiHighlightsActive ? '1px solid #f5a623' : '1px solid #b87010',
                     borderRadius: '7px',
-                    fontSize: '12px',
-                    letterSpacing: '1.5px',
+                    fontSize: tbFs || '12px',
+                    letterSpacing: tbLs || '1.5px',
                     fontWeight: '700',
                     boxShadow: efiHighlightsActive ? 'inset 0 1px 0 rgba(255,255,255,0.2), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 14px rgba(245,166,35,0.25)' : 'inset 0 1px 0 rgba(255,255,255,0.09), inset 0 -1px 0 rgba(0,0,0,0.4)',
                     color: '#f5a623',
@@ -6850,13 +6751,13 @@ Stock Reaction: ${scores.stockReaction}/15`
                       title="Algo Flow"
                       className="hidden md:flex items-center gap-1.5 font-bold uppercase transition-all duration-150 focus:outline-none"
                       style={{
-                        height: '35px',
-                        padding: '0 13px',
+                        height: tbH || '35px',
+                        padding: tbPad || '0 13px',
                         background: 'linear-gradient(180deg, rgba(255,133,0,0.22) 0%, rgba(255,133,0,0.06) 55%, rgba(0,0,0,0.2) 100%)',
                         border: '1px solid #ff8500',
                         borderRadius: '7px',
-                        fontSize: '12px',
-                        letterSpacing: '1.2px',
+                        fontSize: tbFs || '12px',
+                        letterSpacing: tbLs || '1.2px',
                         fontWeight: '700',
                         color: '#ffaa55',
                         cursor: 'pointer',
@@ -6892,10 +6793,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                     onClick={handleSaveFlow}
                     disabled={savingFlow || !data || data.length === 0}
                     title={savingFlow ? 'Saving...' : saveStatus === 'success' ? 'Saved!' : saveStatus === 'error' ? 'Error saving' : 'Save Flow'}
-                    className={`toolbar-btn-save${saveStatus === 'success' ? ' tb-save-success' : ''} hidden md:flex items-center gap-2 justify-center transition-all duration-150 focus:outline-none ${savingFlow || !data || data.length === 0 ? 'cursor-not-allowed opacity-40' : ''}`}
+                    className={`toolbar-btn-save${saveStatus === 'success' ? ' tb-save-success' : ''} hidden md:flex items-center gap-2 justify-center transition-all duration-150 focus:outline-none ${savingFlow || !data || data.length === 0 ? 'cursor-not-allowed opacity-40' : ''}${!isAdmin ? ' !hidden' : ''}`}
                     style={{
-                      height: '42px',
-                      padding: '0 12px',
+                      height: tbH || '42px',
+                      padding: tbPad || '0 12px',
                       background: saveStatus === 'success' ? 'linear-gradient(180deg, rgba(34,197,94,0.22) 0%, rgba(34,197,94,0.06) 55%, rgba(0,0,0,0.2) 100%)' : saveStatus === 'error' ? 'linear-gradient(180deg, rgba(239,68,68,0.22) 0%, rgba(239,68,68,0.06) 55%, rgba(0,0,0,0.2) 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)',
                       border: saveStatus === 'success' ? '1px solid #22c55e' : saveStatus === 'error' ? '1px solid #ef4444' : '1px solid #3b82f6',
                       borderRadius: '7px',
@@ -6962,8 +6863,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                     title={loadingHistory ? 'Loading...' : 'Flow History'}
                     className={`toolbar-btn-history hidden md:flex items-center gap-2 justify-center transition-all duration-150 focus:outline-none ${loadingHistory ? 'cursor-not-allowed opacity-40' : ''}`}
                     style={{
-                      height: '42px',
-                      padding: '0 12px',
+                      height: tbH || '42px',
+                      padding: tbPad || '0 12px',
                       background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)',
                       border: '1px solid #8b5cf6',
                       borderRadius: '7px',
@@ -7009,8 +6910,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                       title="Clear Data"
                       className={`toolbar-btn-clear hidden md:flex items-center justify-center transition-all duration-150 focus:outline-none ${loading ? 'cursor-not-allowed opacity-40' : ''}`}
                       style={{
-                        width: '42px',
-                        height: '42px',
+                        width: tbHn || '42px',
+                        height: tbHn || '42px',
                         background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)',
                         border: '1px solid #ef4444',
                         borderRadius: '7px',
@@ -7047,8 +6948,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                     title="Download as image"
                     className="toolbar-btn-img hidden md:flex items-center justify-center transition-all duration-150 focus:outline-none"
                     style={{
-                      width: '42px',
-                      height: '42px',
+                      width: tbHn || '42px',
+                      height: tbHn || '42px',
                       background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)',
                       border: '1px solid #22c55e',
                       borderRadius: '7px',
@@ -7265,9 +7166,9 @@ Stock Reaction: ${scores.stockReaction}/15`
                       <span style={{ color: '#777', fontSize: '10px', letterSpacing: '0.12em', textTransform: 'uppercase' }}>trades</span>
                     </div>
 
-                    {/* Pagination Info */}
+                    {/* Pagination Info + Controls — hidden on tablet/laptop (shown at table bottom instead) */}
 
-                    <div style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '3px', color: '#8a8a8a', fontFamily: 'monospace' }}>
+                    <div style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '3px', color: '#8a8a8a', fontFamily: 'monospace' }} className={windowWidth < 1440 ? 'hidden' : ''}>
                       <span>{currentPage}</span>
                       <span style={{ color: '#555', fontSize: '10px' }}>/</span>
                       <span>{totalPages}</span>
@@ -7276,7 +7177,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     {/* Pagination Controls */}
 
                     {filteredAndSortedData.length > itemsPerPage && (
-                      <div className="pagination flex items-center gap-0.5">
+                      <div className={`pagination flex items-center gap-0.5${windowWidth < 1440 ? ' hidden' : ''}`}>
                         <button
                           onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
                           disabled={currentPage === 1}
@@ -7788,14 +7689,14 @@ Stock Reaction: ${scores.stockReaction}/15`
             <div
               className={`table-scroll-container custom-scrollbar overflow-y-auto overflow-x-auto${isTabletView ? ' table-tablet' : ''}`}
               style={{
-                height: isMobileView ? 'calc(100vh - 200px)' : 'calc(100vh - 171px)',
+                height: isMobileView ? 'calc(100vh - 200px)' : windowWidth < 1440 ? 'calc(100vh - 210px)' : 'calc(100vh - 171px)',
                 overflowY: 'auto',
                 overflowX: 'auto',
-                paddingBottom: '100px',
+                paddingBottom: '0px',
                 scrollBehavior: 'smooth',
               }}
             >
-              <table className="w-full options-flow-table" style={{ marginBottom: '80px' }}>
+              <table className="w-full options-flow-table" style={{ marginBottom: '0px' }}>
                 <thead className="col-thead sticky top-0 z-[100]">
                   <tr>
                     {/* TIME */}
@@ -7898,8 +7799,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg className="hidden md:block" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /><line x1="8" y1="14" x2="8" y2="14" strokeWidth="3" /><line x1="12" y1="14" x2="12" y2="14" strokeWidth="3" /></svg>
-                        <span className="hidden md:inline lg:hidden">EXPIRY</span>
-                        <span className="hidden lg:inline">EXPIRATION</span>
+                        <span className="hidden md:inline">EXPIRY</span>
                         <span className="md:hidden" style={{ fontWeight: 900, fontSize: '11px' }}>EXPIRY</span>
                         <span className="hidden md:inline-flex" style={{ alignItems: 'center', marginLeft: 1 }}>
                           {sortField === 'expiry' && (
@@ -9466,6 +9366,74 @@ Stock Reaction: ${scores.stockReaction}/15`
             </div>
           </div>
         </div>
+
+        {/* Bottom pagination bar — tablet/laptop only (< 1440px) */}
+        {windowWidth < 1440 && !isMobileView && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+            padding: '8px 12px',
+            borderTop: '1px solid rgba(255,133,0,0.35)',
+            background: '#050505',
+            flexShrink: 0,
+            minHeight: '42px',
+          }}>
+            {/* Trade count + Page X / Y */}
+            <span style={{ fontSize: '11px', color: '#ff8500', fontFamily: 'monospace', fontWeight: 700, marginRight: '6px' }}>
+              {filteredAndSortedData.length.toLocaleString()} trades
+            </span>
+            <span style={{ fontSize: '11px', color: '#555', fontFamily: 'monospace', marginRight: '4px' }}>
+              pg {currentPage}/{totalPages}
+            </span>
+            <button
+              onClick={() => setCurrentPage(1)}
+              disabled={currentPage === 1}
+              className="disabled:opacity-30 disabled:cursor-not-allowed"
+              style={{ width: '26px', height: '26px', background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)', border: '1px solid rgba(255,255,255,0.16)', borderRadius: '4px', color: '#aaa', fontSize: '12px', cursor: currentPage === 1 ? 'not-allowed' : 'pointer' }}
+            >«</button>
+            <button
+              onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
+              disabled={currentPage === 1}
+              className="disabled:opacity-30 disabled:cursor-not-allowed"
+              style={{ width: '26px', height: '26px', background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)', border: '1px solid rgba(255,255,255,0.16)', borderRadius: '4px', color: '#aaa', fontSize: '14px', cursor: currentPage === 1 ? 'not-allowed' : 'pointer' }}
+            >‹</button>
+
+            {Array.from({ length: Math.min(7, totalPages) }, (_, i) => {
+              let pageNum
+              if (totalPages <= 7) pageNum = i + 1
+              else if (currentPage <= 4) pageNum = i + 1
+              else if (currentPage >= totalPages - 3) pageNum = totalPages - 6 + i
+              else pageNum = currentPage - 3 + i
+              return (
+                <button
+                  key={pageNum}
+                  onClick={() => setCurrentPage(pageNum)}
+                  style={{
+                    width: '26px', height: '26px',
+                    background: currentPage === pageNum ? 'rgba(255,133,0,0.9)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)',
+                    border: currentPage === pageNum ? '1px solid #ff8500' : '1px solid rgba(255,255,255,0.16)',
+                    borderRadius: '4px',
+                    color: currentPage === pageNum ? '#000' : '#aaa',
+                    fontSize: '10px', fontWeight: currentPage === pageNum ? '700' : '500',
+                    fontFamily: 'monospace', cursor: 'pointer',
+                  }}
+                >{pageNum}</button>
+              )
+            })}
+
+            <button
+              onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="disabled:opacity-30 disabled:cursor-not-allowed"
+              style={{ width: '26px', height: '26px', background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)', border: '1px solid rgba(255,255,255,0.16)', borderRadius: '4px', color: '#aaa', fontSize: '14px', cursor: currentPage === totalPages ? 'not-allowed' : 'pointer' }}
+            >›</button>
+            <button
+              onClick={() => setCurrentPage(totalPages)}
+              disabled={currentPage === totalPages}
+              className="disabled:opacity-30 disabled:cursor-not-allowed"
+              style={{ width: '26px', height: '26px', background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)', border: '1px solid rgba(255,255,255,0.16)', borderRadius: '4px', color: '#aaa', fontSize: '12px', cursor: currentPage === totalPages ? 'not-allowed' : 'pointer' }}
+            >»</button>
+          </div>
+        )}
       </div>
 
       {false && (
@@ -10720,7 +10688,7 @@ Stock Reaction: ${scores.stockReaction}/15`
           </div>
         </div>
       )}
-      {!isSidebarPanel && !isMobileView && (
+      {!isSidebarPanel && !isMobileView && !isTabletView && (
         <div
           style={{
             width: '38%',
@@ -10777,6 +10745,108 @@ Stock Reaction: ${scores.stockReaction}/15`
             parentStockPrices={currentPrices}
           />
         </div>
+      )}
+
+      {/* Tablet: slide-in Flow Tracking Panel toggle button + drawer */}
+      {!isSidebarPanel && isTabletView && (
+        <>
+          {/* Tab button — fixed on the right edge */}
+          <button
+            onClick={() => setTabletPanelOpen((v) => !v)}
+            style={{
+              position: 'fixed',
+              top: '50%',
+              right: tabletPanelOpen ? '100vw' : '0px',
+              transform: 'translateY(-50%)',
+              zIndex: 10010,
+              background: 'linear-gradient(180deg, #1a1a1a 0%, #0a0a0a 100%)',
+              border: '1px solid #ff8500',
+              borderRight: tabletPanelOpen ? '1px solid #ff8500' : 'none',
+              borderRadius: tabletPanelOpen ? '8px 0 0 8px' : '8px 0 0 8px',
+              color: '#ff8500',
+              padding: '10px 6px',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '4px',
+              writingMode: 'vertical-rl',
+              fontSize: '11px',
+              fontWeight: 700,
+              letterSpacing: '1.5px',
+              textTransform: 'uppercase',
+              fontFamily: 'monospace',
+              boxShadow: '-4px 0 16px rgba(0,0,0,0.8)',
+              transition: 'right 0.3s ease',
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ff8500" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+            </svg>
+            {tabletPanelOpen ? '✕' : 'A+'}
+          </button>
+
+          {/* Backdrop */}
+          {tabletPanelOpen && (
+            <div
+              onClick={() => setTabletPanelOpen(false)}
+              style={{
+                position: 'fixed', inset: 0, zIndex: 10005,
+                background: 'rgba(0,0,0,0.45)',
+              }}
+            />
+          )}
+
+          {/* Drawer */}
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              right: 0,
+              bottom: 0,
+              width: '100vw',
+              zIndex: 10008,
+              background: '#000000',
+              borderLeft: '1px solid #ff8500',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              transform: tabletPanelOpen ? 'translateX(0)' : 'translateX(100%)',
+              transition: 'transform 0.3s ease',
+              boxShadow: '-8px 0 32px rgba(0,0,0,0.9)',
+            }}
+          >
+            {/* Drawer header */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '12px 16px',
+              borderBottom: '1px solid #ff8500',
+              background: 'linear-gradient(180deg, #141414 0%, #080808 100%)',
+              flexShrink: 0,
+            }}>
+              <span style={{ color: '#ff8500', fontWeight: 900, fontSize: '14px', fontFamily: 'monospace', letterSpacing: '2px' }}>A+ FLOW TRACKER</span>
+              <button
+                onClick={() => setTabletPanelOpen(false)}
+                style={{ background: 'none', border: 'none', color: '#888', fontSize: '20px', cursor: 'pointer', lineHeight: 1 }}
+              >✕</button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              <FlowTrackingPanel
+                onClose={() => setTabletPanelOpen(false)}
+                relativeStrengthData={relativeStrengthData}
+                historicalStdDevs={historicalStdDevs}
+                comboTradeMap={comboTradeMap}
+                dealerZoneCache={dealerZoneCache}
+                liveFlows={trackedFlows}
+                leapRsData={leapRsData}
+                leap52wkData={leap52wkData}
+                leapSeasonalData={leapSeasonalData}
+                parentOptionPrices={currentOptionPrices}
+                parentStockPrices={currentPrices}
+              />
+            </div>
+          </div>
+        </>
       )}
 
       {/* Mobile Pagination Bar — fixed just above the bottom tab bar */}

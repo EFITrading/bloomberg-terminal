@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import DateRangePicker from '@/components/DateRangePicker'
 
 interface Props {
     selectedOptionTypes: string[]
@@ -9,6 +10,8 @@ interface Props {
     setSelectedOrderSides: React.Dispatch<React.SetStateAction<string[]>>
     selectedUniqueFilters: string[]
     setSelectedUniqueFilters: React.Dispatch<React.SetStateAction<string[]>>
+    typeFilter: string[]
+    setTypeFilter: React.Dispatch<React.SetStateAction<string[]>>
     selectedPremiumFilters: string[]
     setSelectedPremiumFilters: React.Dispatch<React.SetStateAction<string[]>>
     customMinPremium: string
@@ -36,6 +39,7 @@ export default function OptionsFlowMobileFilterPanel({
     selectedOptionTypes, setSelectedOptionTypes,
     selectedOrderSides, setSelectedOrderSides,
     selectedUniqueFilters, setSelectedUniqueFilters,
+    typeFilter, setTypeFilter,
     selectedPremiumFilters, setSelectedPremiumFilters,
     customMinPremium, setCustomMinPremium,
     customMaxPremium, setCustomMaxPremium,
@@ -257,19 +261,25 @@ export default function OptionsFlowMobileFilterPanel({
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         {[
-                            { label: 'BLOCK', value: 'BLOCK_ONLY', color: '#6366f1', glow: 'rgba(99,102,241,0.25)' },
-                            { label: 'SWEEP', value: 'SWEEP_ONLY', color: '#f59e0b', glow: 'rgba(245,158,11,0.25)' },
-                            { label: 'MULTI-LEG', value: 'MULTI_LEG_ONLY', color: '#a855f7', glow: 'rgba(168,85,247,0.25)' },
+                            { label: 'SWEEP', value: 'SWEEP', color: '#f59e0b', glow: 'rgba(245,158,11,0.25)' },
+                            { label: 'BLOCK', value: 'BLOCK', color: '#6366f1', glow: 'rgba(99,102,241,0.25)' },
+                            { label: 'MULTI-LEG', value: 'MULTI-LEG', color: '#a855f7', glow: 'rgba(168,85,247,0.25)' },
+                            { label: 'MINI', value: 'MINI', color: '#84cc16', glow: 'rgba(132,204,22,0.25)' },
                         ].map(({ label, value, color, glow }) => {
-                            const active = selectedUniqueFilters.includes(value)
+                            const active = typeFilter.includes(value)
                             return (
                                 <button
                                     key={value}
-                                    onClick={() =>
-                                        setSelectedUniqueFilters((prev) =>
-                                            active ? prev.filter((f) => f !== value) : [...prev, value]
-                                        )
-                                    }
+                                    onClick={() => {
+                                        console.log('[TypeFilter] button clicked:', value, '| current typeFilter:', typeFilter)
+                                        setTypeFilter((prev) => {
+                                            const next = prev.includes(value)
+                                                ? prev.filter((v) => v !== value)
+                                                : [...prev, value]
+                                            console.log('[TypeFilter] new typeFilter:', next)
+                                            return next
+                                        })
+                                    }}
                                     style={{
                                         display: 'flex',
                                         alignItems: 'center',
@@ -494,199 +504,143 @@ export default function OptionsFlowMobileFilterPanel({
             </div>
 
             {/* -- TICKER + SPECIAL -- */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                {/* TICKER */}
-                <div
-                    style={{
-                        background: '#000',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: '12px',
-                        padding: '12px',
-                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
-                    }}
-                >
-                    <div
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            marginBottom: '10px',
-                            paddingBottom: '8px',
-                            borderBottom: '1px solid rgba(255,255,255,0.08)',
-                        }}
-                    >
-                        <div
-                            style={{
-                                width: '3px',
-                                height: '14px',
-                                borderRadius: '2px',
-                                background: 'linear-gradient(180deg, #3b82f6, #1d4ed8)',
-                            }}
-                        />
-                        <span
-                            style={{
-                                fontSize: '13px',
-                                fontWeight: 800,
-                                letterSpacing: '2px',
-                                textTransform: 'uppercase',
-                                color: '#ffffff',
-                            }}
-                        >
-                            Ticker
-                        </span>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                        {[
-                            { label: 'ETF', value: 'ETF_ONLY' },
-                            { label: 'STOCK', value: 'STOCK_ONLY' },
-                            { label: 'MAG 7', value: 'MAG7_ONLY' },
-                            { label: 'NO MAG7', value: 'EXCLUDE_MAG7' },
-                            { label: 'NO ETF', value: 'EXCLUDE_ETF' },
-                            { label: 'OVERBLOWN', value: 'OVERBLOWN_TICKERS' },
-                        ].map(({ label, value }) => {
-                            const active = selectedTickerFilters.includes(value)
-                            return (
-                                <button
-                                    key={value}
-                                    onClick={() =>
-                                        setSelectedTickerFilters((prev) =>
-                                            active ? prev.filter((f) => f !== value) : [...prev, value]
-                                        )
-                                    }
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '7px',
-                                        padding: '7px 8px',
-                                        borderRadius: '7px',
-                                        border: `1px solid ${active ? '#3b82f6' : 'rgba(255,255,255,0.05)'}`,
-                                        background: active ? 'rgba(59,130,246,0.12)' : 'rgba(255,255,255,0.02)',
-                                        boxShadow: active ? '0 0 10px rgba(59,130,246,0.2)' : 'none',
-                                        cursor: 'pointer',
-                                        transition: 'all 0.15s ease',
-                                        width: '100%',
-                                    }}
-                                >
-                                    <div
-                                        style={{
-                                            width: '6px',
-                                            height: '6px',
-                                            borderRadius: '50%',
-                                            background: active ? '#3b82f6' : '#374151',
-                                            boxShadow: active ? '0 0 5px #3b82f6' : 'none',
-                                            flexShrink: 0,
-                                        }}
-                                    />
-                                    <span
-                                        style={{
-                                            fontSize: '13px',
-                                            fontWeight: 800,
-                                            letterSpacing: '1px',
-                                            color: active ? '#93c5fd' : '#ffffff',
-                                        }}
-                                    >
-                                        {label}
-                                    </span>
-                                </button>
-                            )
-                        })}
-                    </div>
+            {/* -- TICKER FILTER -- */}
+            <div
+                style={{
+                    background: '#000',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '12px',
+                    padding: '12px',
+                    boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
+                }}
+            >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #3b82f6, #1d4ed8)' }} />
+                    <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase' as const, color: '#ffffff' }}>Ticker Filter</span>
                 </div>
+                {/* Column headers */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 80px', gap: '4px', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.35)', letterSpacing: '1.5px', textTransform: 'uppercase' as const }}>Group</span>
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#22c55e', letterSpacing: '1.5px', textTransform: 'uppercase' as const, textAlign: 'center' as const }}>Include</span>
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#ef4444', letterSpacing: '1.5px', textTransform: 'uppercase' as const, textAlign: 'center' as const }}>Exclude</span>
+                </div>
+                {[
+                    { label: 'ETF Only', inc: 'ETF_ONLY', exc: 'EXCLUDE_ETF' },
+                    { label: 'Stocks Only', inc: 'STOCK_ONLY', exc: null },
+                    { label: 'Mag 7 Only', inc: 'MAG7_ONLY', exc: 'EXCLUDE_MAG7' },
+                    { label: 'Exclude Futures', inc: null, exc: 'EXCLUDE_FUTURES' },
+                    { label: 'Overblown Tickers', inc: 'OVERBLOWN_TICKERS', exc: null },
+                ].map(({ label, inc, exc }) => {
+                    const incActive = inc ? selectedTickerFilters.includes(inc) : false
+                    const excActive = exc ? selectedTickerFilters.includes(exc) : false
+                    const toggle = (val: string, current: boolean) =>
+                        setSelectedTickerFilters((prev) =>
+                            current ? prev.filter((f) => f !== val) : [...prev.filter((f) => f !== (val === inc ? exc : inc) ?? ''), val]
+                        )
+                    return (
+                        <div key={label} style={{ display: 'grid', gridTemplateColumns: '1fr 80px 80px', gap: '4px', alignItems: 'center', marginBottom: '5px' }}>
+                            <span style={{ fontSize: '13px', fontWeight: 700, color: '#ffffff', letterSpacing: '0.5px' }}>{label}</span>
+                            {/* Include button */}
+                            <button
+                                onClick={() => inc && toggle(inc, incActive)}
+                                disabled={!inc}
+                                style={{
+                                    padding: '7px 0',
+                                    borderRadius: '7px',
+                                    border: `1px solid ${incActive ? '#22c55e' : 'rgba(255,255,255,0.08)'}`,
+                                    background: incActive ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.02)',
+                                    boxShadow: incActive ? '0 0 8px rgba(34,197,94,0.3)' : 'none',
+                                    cursor: inc ? 'pointer' : 'not-allowed',
+                                    opacity: inc ? 1 : 0.25,
+                                    fontSize: '12px',
+                                    fontWeight: 800,
+                                    color: incActive ? '#22c55e' : 'rgba(255,255,255,0.35)',
+                                    textAlign: 'center' as const,
+                                    transition: 'all 0.15s ease',
+                                }}
+                            >{incActive ? '✓ YES' : 'YES'}</button>
+                            {/* Exclude button */}
+                            <button
+                                onClick={() => exc && toggle(exc, excActive)}
+                                disabled={!exc}
+                                style={{
+                                    padding: '7px 0',
+                                    borderRadius: '7px',
+                                    border: `1px solid ${excActive ? '#ef4444' : 'rgba(255,255,255,0.08)'}`,
+                                    background: excActive ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.02)',
+                                    boxShadow: excActive ? '0 0 8px rgba(239,68,68,0.3)' : 'none',
+                                    cursor: exc ? 'pointer' : 'not-allowed',
+                                    opacity: exc ? 1 : 0.25,
+                                    fontSize: '12px',
+                                    fontWeight: 800,
+                                    color: excActive ? '#ef4444' : 'rgba(255,255,255,0.35)',
+                                    textAlign: 'center' as const,
+                                    transition: 'all 0.15s ease',
+                                }}
+                            >{excActive ? '✓ NO' : 'NO'}</button>
+                        </div>
+                    )
+                })}
+            </div>
 
-                {/* SPECIAL */}
+            {/* -- SPECIAL -- */}
+            <div
+                style={{
+                    background: '#000',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '12px',
+                    padding: '12px',
+                    boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
+                }}
+            >
                 <div
                     style={{
-                        background: '#000',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: '12px',
-                        padding: '12px',
-                        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        marginBottom: '10px',
+                        paddingBottom: '8px',
+                        borderBottom: '1px solid rgba(255,255,255,0.08)',
                     }}
                 >
                     <div
                         style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            marginBottom: '10px',
-                            paddingBottom: '8px',
-                            borderBottom: '1px solid rgba(255,255,255,0.08)',
+                            width: '3px',
+                            height: '14px',
+                            borderRadius: '2px',
+                            background: 'linear-gradient(180deg, #06b6d4, #0891b2)',
+                        }}
+                    />
+                    <span
+                        style={{
+                            fontSize: '13px',
+                            fontWeight: 800,
+                            letterSpacing: '2px',
+                            textTransform: 'uppercase',
+                            color: '#ffffff',
                         }}
                     >
-                        <div
-                            style={{
-                                width: '3px',
-                                height: '14px',
-                                borderRadius: '2px',
-                                background: 'linear-gradient(180deg, #06b6d4, #0891b2)',
-                            }}
-                        />
-                        <span
-                            style={{
-                                fontSize: '13px',
-                                fontWeight: 800,
-                                letterSpacing: '2px',
-                                textTransform: 'uppercase',
-                                color: '#ffffff',
-                            }}
-                        >
-                            Special
-                        </span>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                        {[
-                            { label: 'ITM', value: 'ITM' },
-                            { label: 'OTM', value: 'OTM' },
-                            { label: 'WEEKLY', value: 'WEEKLY_ONLY' },
-                            { label: 'MINI', value: 'MINI_ONLY' },
-                        ].map(({ label, value }) => {
-                            const active = selectedUniqueFilters.includes(value)
-                            return (
-                                <button
-                                    key={value}
-                                    onClick={() =>
-                                        setSelectedUniqueFilters((prev) =>
-                                            active ? prev.filter((f) => f !== value) : [...prev, value]
-                                        )
-                                    }
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '7px',
-                                        padding: '7px 8px',
-                                        borderRadius: '7px',
-                                        border: `1px solid ${active ? '#06b6d4' : 'rgba(255,255,255,0.05)'}`,
-                                        background: active ? 'rgba(6,182,212,0.12)' : 'rgba(255,255,255,0.02)',
-                                        boxShadow: active ? '0 0 10px rgba(6,182,212,0.2)' : 'none',
-                                        cursor: 'pointer',
-                                        transition: 'all 0.15s ease',
-                                        width: '100%',
-                                    }}
-                                >
-                                    <div
-                                        style={{
-                                            width: '6px',
-                                            height: '6px',
-                                            borderRadius: '50%',
-                                            background: active ? '#06b6d4' : '#374151',
-                                            boxShadow: active ? '0 0 5px #06b6d4' : 'none',
-                                            flexShrink: 0,
-                                        }}
-                                    />
-                                    <span
-                                        style={{
-                                            fontSize: '13px',
-                                            fontWeight: 800,
-                                            letterSpacing: '1px',
-                                            color: active ? '#67e8f9' : '#ffffff',
-                                        }}
-                                    >
-                                        {label}
-                                    </span>
-                                </button>
-                            )
-                        })}
-                    </div>
+                        Special
+                    </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                    {[
+                        { label: 'ITM', value: 'ITM' },
+                        { label: 'OTM', value: 'OTM' },
+                        { label: 'MINI', value: 'MINI_ONLY' },
+                        { label: 'Weekly Expiry', value: 'WEEKLY_ONLY' },
+                        { label: 'Monthly Expiry', value: 'MONTHLY_ONLY' },
+                        { label: 'Quad Witching', value: 'QUAD_WITCHING' },
+                        { label: '0DTE Expiry', value: 'ZERO_DTE' },
+                    ].map(({ label, value }) => {
+                        const active = selectedUniqueFilters.includes(value)
+                        return (
+                            <button key={value} onClick={() => setSelectedUniqueFilters((prev) => active ? prev.filter((f) => f !== value) : [...prev, value])}
+                                style={{ padding: '7px 8px', borderRadius: '7px', border: '1px solid rgba(255,255,255,0.07)', background: '#000', cursor: 'pointer', width: '100%', fontSize: '13px', fontWeight: 800, color: active ? '#ff8500' : '#ffffff', textAlign: 'left' as const, transition: 'color 0.15s ease' }}>
+                                {label}
+                            </button>
+                        )
+                    })}
                 </div>
             </div>
 
@@ -715,37 +669,16 @@ export default function OptionsFlowMobileFilterPanel({
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     {[
-                        { label: 'Growth  XLK · XLY · XLC · ARKK', value: 'GROWTH_ONLY', color: '#34d399' },
-                        { label: 'Value  XLI · XLF · XLB', value: 'VALUE_ONLY', color: '#fbbf24' },
-                        { label: 'Defensives  XLV · XLRE · XLP · XLU', value: 'DEFENSIVES_ONLY', color: '#60a5fa' },
-                    ].map(({ label, value, color }) => {
+                        { label: 'Growth  XLK · XLY · XLC · ARKK', value: 'GROWTH_ONLY' },
+                        { label: 'Value  XLI · XLF · XLB', value: 'VALUE_ONLY' },
+                        { label: 'Defensives  XLV · XLRE · XLP · XLU', value: 'DEFENSIVES_ONLY' },
+                    ].map(({ label, value }) => {
                         const active = selectedUniqueFilters.includes(value)
                         return (
-                            <button
-                                key={value}
-                                onClick={() =>
-                                    setSelectedUniqueFilters((prev) =>
-                                        active ? prev.filter((f) => f !== value) : [...prev, value]
-                                    )
-                                }
-                                style={{
-                                    padding: '9px 10px',
-                                    borderRadius: '8px',
-                                    border: `1px solid ${active ? color : 'rgba(255,255,255,0.07)'}`,
-                                    background: active ? `${color}18` : 'rgba(255,255,255,0.02)',
-                                    boxShadow: active ? `0 0 10px ${color}33` : 'none',
-                                    cursor: 'pointer',
-                                    transition: 'all 0.15s ease',
-                                    fontSize: '13px',
-                                    fontWeight: 800,
-                                    letterSpacing: '0.5px',
-                                    color: active ? color : 'rgba(255,255,255,0.7)',
-                                    width: '100%',
-                                    textAlign: 'left' as const,
-                                }}
-                            >
-                                {label}
-                            </button>
+                            <button key={value}
+                                onClick={() => setSelectedUniqueFilters((prev) => active ? prev.filter((f) => f !== value) : [...prev, value])}
+                                style={{ padding: '9px 10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.07)', background: '#000', cursor: 'pointer', fontSize: '13px', fontWeight: 800, color: active ? '#ff8500' : '#ffffff', width: '100%', textAlign: 'left' as const, transition: 'color 0.15s ease' }}
+                            >{label}</button>
                         )
                     })}
                 </div>
@@ -850,102 +783,25 @@ export default function OptionsFlowMobileFilterPanel({
                     boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.95)',
                 }}
             >
-                <div
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        marginBottom: '10px',
-                        paddingBottom: '8px',
-                        borderBottom: '1px solid rgba(255,255,255,0.08)',
-                    }}
-                >
-                    <div
-                        style={{
-                            width: '3px',
-                            height: '14px',
-                            borderRadius: '2px',
-                            background: 'linear-gradient(180deg, #a855f7, #7c3aed)',
-                        }}
-                    />
-                    <span
-                        style={{
-                            fontSize: '13px',
-                            fontWeight: 800,
-                            letterSpacing: '2px',
-                            textTransform: 'uppercase',
-                            color: '#ffffff',
-                        }}
-                    >
-                        Expiration
-                    </span>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                    <div>
-                        <span
-                            style={{
-                                display: 'block',
-                                fontSize: '12px',
-                                fontWeight: 800,
-                                letterSpacing: '1.5px',
-                                color: '#94a3b8',
-                                marginBottom: '5px',
-                                textTransform: 'uppercase',
-                            }}
-                        >
-                            Start
-                        </span>
-                        <input
-                            type="date"
-                            value={expirationStartDate}
-                            onChange={(e) => setExpirationStartDate(e.target.value)}
-                            style={{
-                                width: '100%',
-                                padding: '9px 8px',
-                                background: 'rgba(255,255,255,0.03)',
-                                border: '1px solid rgba(168,85,247,0.3)',
-                                borderRadius: '8px',
-                                color: '#e9d5ff',
-                                fontSize: '14px',
-                                fontWeight: 700,
-                                outline: 'none',
-                                boxSizing: 'border-box',
-                            }}
-                        />
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: 'linear-gradient(180deg, #a855f7, #7c3aed)' }} />
+                        <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase' as const, color: '#ffffff' }}>Expiration</span>
                     </div>
-                    <div>
-                        <span
-                            style={{
-                                display: 'block',
-                                fontSize: '12px',
-                                fontWeight: 800,
-                                letterSpacing: '1.5px',
-                                color: '#94a3b8',
-                                marginBottom: '5px',
-                                textTransform: 'uppercase',
-                            }}
-                        >
-                            End
-                        </span>
-                        <input
-                            type="date"
-                            value={expirationEndDate}
-                            onChange={(e) => setExpirationEndDate(e.target.value)}
-                            style={{
-                                width: '100%',
-                                padding: '9px 8px',
-                                background: 'rgba(255,255,255,0.03)',
-                                border: '1px solid rgba(168,85,247,0.3)',
-                                borderRadius: '8px',
-                                color: '#e9d5ff',
-                                fontSize: '14px',
-                                fontWeight: 700,
-                                outline: 'none',
-                                boxSizing: 'border-box',
-                            }}
-                        />
-                    </div>
+                    {(expirationStartDate || expirationEndDate) && (
+                        <button
+                            onClick={() => { setExpirationStartDate(''); setExpirationEndDate('') }}
+                            style={{ padding: '3px 8px', borderRadius: '6px', border: '1px solid rgba(239,68,68,0.4)', background: 'transparent', color: '#ef4444', fontSize: '11px', fontWeight: 700, cursor: 'pointer', letterSpacing: '1px' }}
+                        >CLEAR</button>
+                    )}
                 </div>
+
+                <DateRangePicker
+                    startDate={expirationStartDate}
+                    endDate={expirationEndDate}
+                    onStartChange={setExpirationStartDate}
+                    onEndChange={setExpirationEndDate}
+                />
             </div>
         </div>
     )

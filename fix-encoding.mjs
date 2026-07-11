@@ -52,17 +52,17 @@ for (const file of files) {
   // We need to work at the UTF-8 level
   const buf = readFileSync(file);
   const text = buf.toString('utf8');
-  
+
   // Check if any mojibake present by looking for the actual chars
   const mojibakeChars = ['â\x94\x80', 'â\x80\x94', 'â\x88\x9e', 'â\x9a\xa0', 'â\x80\x93'];
   const hasMojibake = mojibakeChars.some(s => text.includes(s));
   if (!hasMojibake) continue;
-  
+
   let fixed_text = text;
   for (const [bad, good] of replacements) {
     fixed_text = fixed_text.split(bad).join(good);
   }
-  
+
   if (fixed_text !== text) {
     writeFileSync(file, Buffer.from(fixed_text, 'utf8'));
     console.log('Fixed:', file.split('/src/')[1]);

@@ -2894,7 +2894,7 @@
     box-shadow: 0 4px 16px rgba(255, 102, 0, 0.15);
 }
 
-/* ── Seasonality viz ─────────────────────────────────────────────── */
+/* -- Seasonality viz ----------------------------------------------- */
 .tsv2-viz-seasonal {
     display: flex;
     flex-direction: column;
@@ -2946,7 +2946,7 @@
     opacity: 0.6;
 }
 
-/* ── Options Flow viz ────────────────────────────────────────────── */
+/* -- Options Flow viz ---------------------------------------------- */
 .tsv2-viz-flow {
     display: flex;
     flex-direction: column;
@@ -3056,7 +3056,7 @@
     border: 1px solid rgba(139, 92, 246, 0.2);
 }
 
-/* ── Charting viz ────────────────────────────────────────────────── */
+/* -- Charting viz -------------------------------------------------- */
 .tsv2-viz-chart {
     display: flex;
     flex-direction: column;
@@ -3110,7 +3110,7 @@
     letter-spacing: 0.5px;
 }
 
-/* ── Regime viz ──────────────────────────────────────────────────── */
+/* -- Regime viz ---------------------------------------------------- */
 .tsv2-viz-regime {
     display: flex;
     flex-direction: column;
@@ -3219,7 +3219,7 @@
     text-align: right;
 }
 
-/* ── Screener viz ────────────────────────────────────────────────── */
+/* -- Screener viz -------------------------------------------------- */
 .tsv2-viz-screener {
     display: flex;
     flex-direction: column;
@@ -3339,7 +3339,7 @@
     flex-shrink: 0;
 }
 
-/* ── Alerts viz ──────────────────────────────────────────────────── */
+/* -- Alerts viz ---------------------------------------------------- */
 .tsv2-viz-alerts {
     display: flex;
     flex-direction: column;
@@ -3391,7 +3391,7 @@
     white-space: nowrap;
 }
 
-/* ── Responsive ──────────────────────────────────────────────────── */
+/* -- Responsive ---------------------------------------------------- */
 @media (max-width: 1024px) {
     .tsv2-grid {
         grid-template-columns: repeat(2, 1fr);

@@ -89,7 +89,7 @@ export function useWatchlist() {
     };
 
     useEffect(() => {
-        // ── WebSocket: real-time per-minute price updates via AM.* ────────────────
+        // -- WebSocket: real-time per-minute price updates via AM.* ----------------
         let dead = false;
         let interval: ReturnType<typeof setInterval>;
         let reconnectTimer: ReturnType<typeof setTimeout> | null = null;

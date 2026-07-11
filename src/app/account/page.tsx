@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -31,7 +31,7 @@ const DEMO_MSGS: Record<number, { from: string; text: string; time: string; mine
 
 const STATUS_COLOR: Record<string, string> = { online: '#22c55e', away: '#f59e0b', offline: '#6b7280' };
 
-// ── Avatar style definitions — all circles, frame effects only ───────────
+// -- Avatar style definitions — all circles, frame effects only -----------
 const AVATAR_STYLES = [
   { id: 'classic', name: 'EFI Classic', label: 'EFI', isEmoji: false, avatarBg: 'linear-gradient(160deg,#1a0800,#3d1500,#1a0800)', frame: 'solid', frameGrad: '#FF6600', glowColor: '#FF6600', animDur: '2s' },
   { id: 'blizzard', name: 'Blizzard', label: '❄', isEmoji: false, avatarBg: 'radial-gradient(circle at 50% 40%,#0a2a4a,#001133,#000816)', frame: 'ice', frameGrad: '#88d8ff', glowColor: '#88d8ff', animDur: '9s' },
@@ -386,7 +386,7 @@ export default function AccountPage() {
         .acct-scrollbar::-webkit-scrollbar-thumb { background:rgba(255,102,0,0.2); border-radius:2px; }
       `}</style>
 
-      {/* ── PAGE HEADER ── */}
+      {/* -- PAGE HEADER -- */}
       <div style={{ borderBottom: '1px solid rgba(255,102,0,0.12)', padding: '18px 40px 0', marginBottom: '0' }}>
         <div style={{ maxWidth: '1375px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '20px' }}>
           <div>
@@ -409,7 +409,7 @@ export default function AccountPage() {
           </div>
         </div>
 
-        {/* ── TAB NAV ── */}
+        {/* -- TAB NAV -- */}
         <div style={{ display: 'flex', gap: '2px', maxWidth: '1375px', margin: '0 auto' }}>
           {TABS.map(t => (
             <button key={t} style={activeTabStyle(t)} onClick={() => setActiveTab(t)}>
@@ -423,7 +423,7 @@ export default function AccountPage() {
         </div>
       </div>
 
-      {/* ── CONTENT AREA ── */}
+      {/* -- CONTENT AREA -- */}
       <div style={{ maxWidth: '1375px', margin: '0 auto', padding: '35px 40px 75px' }} className="acct-tab-content" key={activeTab}>
 
         {/* ════════════════════════════════ PROFILE TAB ════════════════════════════════ */}
@@ -910,7 +910,7 @@ export default function AccountPage() {
         )}
       </div>
 
-      {/* ── FOOTER ── */}
+      {/* -- FOOTER -- */}
       <div style={{ borderTop: '1px solid rgba(255,102,0,0.08)', padding: '15px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontSize: '13px', color: '#fff', letterSpacing: '0.15em' }}>© 2025 EFI TRADING INTELLIGENCE</span>
         <span style={{ fontSize: '13px', color: 'rgba(255,102,0,0.8)', letterSpacing: '0.15em' }}>TERMINAL v2.0</span>

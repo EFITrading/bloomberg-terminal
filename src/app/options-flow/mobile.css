@@ -290,20 +290,142 @@
   }
 }
 
-/* Tablet optimization (768px - 1024px) */
-@media (min-width: 768px) and (max-width: 1024px) {
-  .options-flow-table thead th {
-    padding: 10px 6px !important;
-    font-size: 14px !important;
+/* ── Toolbar button scaling: tablet + mobile ── */
+@media (max-width: 1199px) {
+
+  /* Shared base: shrink all toolbar buttons */
+  .toolbar-pill,
+  .toolbar-mode {
+    height: 26px !important;
+    padding: 0 9px !important;
+    font-size: 10px !important;
+    letter-spacing: 0.8px !important;
+    border-radius: 6px !important;
   }
 
+  /* Icons inside buttons */
+  .toolbar-pill .tb-icon svg,
+  .toolbar-mode .tb-icon svg {
+    width: 11px !important;
+    height: 11px !important;
+  }
+
+  /* Ticker search input */
+  input.toolbar-ticker-input,
+  input[placeholder="TICKER"] {
+    height: 26px !important;
+    font-size: 10px !important;
+    padding-left: 1.6rem !important;
+  }
+}
+
+/* Extra compact on true mobile (<768px) */
+@media (max-width: 767px) {
+
+  .toolbar-pill,
+  .toolbar-mode {
+    height: 24px !important;
+    padding: 0 7px !important;
+    font-size: 9px !important;
+    letter-spacing: 0.5px !important;
+  }
+}
+
+/* Tablet optimization (768px - 1199px) */
+@media (min-width: 768px) and (max-width: 1199px) {
+
+  /* Table header: compact */
+  .options-flow-table thead th {
+    padding: 6px 5px !important;
+    font-size: 11px !important;
+    white-space: nowrap !important;
+  }
+
+  /* All body cells: compact font + tight padding */
   .options-flow-table tbody td {
-    padding: 10px 6px !important;
+    padding: 5px 5px !important;
+    font-size: 11px !important;
+  }
+
+  /* Ticker button */
+  .ticker-button {
+    padding: 3px 6px !important;
+    font-size: 12px !important;
+    min-width: 44px !important;
+  }
+
+  /* Call/Put */
+  .call-put-text {
     font-size: 13px !important;
   }
 
-  .control-bar button {
-    padding: 10px 14px !important;
+  /* Strike */
+  .strike-cell {
+    font-size: 13px !important;
+  }
+
+  /* Size / price */
+  .size-premium-cell .size-text span,
+  .size-premium-cell .premium-value span,
+  .size-premium-cell .premium-at span {
+    font-size: 13px !important;
+  }
+
+  .fill-style-badge span {
     font-size: 12px !important;
+  }
+
+  /* Total premium */
+  .premium-text {
+    font-size: 13px !important;
+  }
+
+  /* Expiry */
+  .expiry-cell {
+    font-size: 13px !important;
+  }
+
+  /* Spot / current price */
+  .price-display {
+    font-size: 12px !important;
+  }
+
+  /* Vol/OI */
+  .vol-oi-display {
+    font-size: 12px !important;
+  }
+
+  .col-vol-oi {
+    min-width: 0 !important;
+  }
+
+  /* Trade-type badge */
+  .trade-type-badge {
+    padding: 3px 7px !important;
+    font-size: 11px !important;
+  }
+
+  /* Time column */
+  .time-cell {
+    font-size: 12px !important;
+  }
+
+  /* Control bar buttons */
+  .control-bar button,
+  .toolbar-mode,
+  .toolbar-pill {
+    padding: 0 9px !important;
+    font-size: 11px !important;
+    height: 30px !important;
+  }
+
+  /* table-tablet helper applied via className */
+  .table-tablet .options-flow-table thead th {
+    padding: 5px 4px !important;
+    font-size: 11px !important;
+  }
+
+  .table-tablet .options-flow-table tbody td {
+    padding: 4px 4px !important;
   }
 }

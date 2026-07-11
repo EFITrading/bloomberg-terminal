@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import {
   Area,
@@ -23,6 +23,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import OptionsFlowScene from './loading/OptionsFlowScene'
 import { polygonOptionsWS, parseOCCTicker, PolygonOptionsTradeMsg } from '@/lib/polygonOptionsWS'
+import { getDatesList, loadMultiDateTrades, setCachedTrades, getCachedTrades } from '@/lib/flowDataCache'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
@@ -81,7 +82,7 @@ const fetchVolumeAndOpenInterest = async (
           }
         }
       } catch (error) {
-        // spot price fetch failed "” continue
+        // spot price fetch failed "-- continue
       }
 
       // Get unique expiration dates for this underlying to fetch specific expirations
@@ -502,8 +503,8 @@ const computeFillStyle = (fillPrice: number, bid: number, ask: number): string =
 const analyzeBidAskExecutionLightning = async (trades: any[]): Promise<any[]> => {
   if (trades.length === 0) return trades
 
-  // Build deduplicated batch payload "” unique by contract+second bucket
-  // Use trade.ticker directly "” it's the correct OCC ticker from Polygon (e.g. O:SPXW260325C...)
+  // Build deduplicated batch payload "-- unique by contract+second bucket
+  // Use trade.ticker directly "-- it's the correct OCC ticker from Polygon (e.g. O:SPXW260325C...)
   // buildOptionTicker() produces wrong format for SPX (missing W in SPXW), so never use it for quote lookups
   type QuoteKey = string
   const uniqueQuotes = new Map<QuoteKey, { contract: string; timestamp_ns: number }>()
@@ -518,7 +519,7 @@ const analyzeBidAskExecutionLightning = async (trades: any[]): Promise<any[]> =>
     if (!uniqueQuotes.has(key)) uniqueQuotes.set(key, { contract, timestamp_ns: timestampNs })
   }
 
-  // Single POST "” server fans out all Polygon calls simultaneously
+  // Single POST "-- server fans out all Polygon calls simultaneously
   const batchPayload = Array.from(uniqueQuotes.entries()).map(([id, v]) => ({ id, ...v }))
   const quoteResultMap = new Map<QuoteKey, { bid: number; ask: number } | null>()
   try {
@@ -809,7 +810,7 @@ const CandlestickLayer = (props: any) => {
   )
 }
 
-// Helper: convert scanTimeframe string ←’ number of trading days
+// Helper: convert scanTimeframe string ←' number of trading days
 const getScanDays = (tf: string): number => {
   if (tf === '1D') return 1
   if (tf === '3D') return 3
@@ -817,7 +818,7 @@ const getScanDays = (tf: string): number => {
   return Math.max(1, parseInt(tf) || 1)
 }
 
-// Chart view options (label ←’ trading days)
+// Chart view options (label ←' trading days)
 const CHART_VIEW_OPTIONS = [
   { label: '1D', days: 1 },
   { label: '3D', days: 3 },
@@ -845,7 +846,7 @@ const ALGO_MARKET_HOLIDAYS = [
   '2026-06-19', '2026-07-03', '2026-09-07', '2026-11-26', '2026-12-25',
 ]
 
-// Returns the last N trading days (oldest ←’ newest) for the given timeframe string.
+// Returns the last N trading days (oldest ←' newest) for the given timeframe string.
 function getAlgoTradingDays(timeframe: string): string[] {
   const days: string[] = []
   const pstNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
@@ -855,7 +856,7 @@ function getAlgoTradingDays(timeframe: string): string[] {
         : timeframe === '1W' ? 5
           : Math.max(1, parseInt(timeframe) || 1)
   const cur = new Date(pstNow)
-  // Before market open (6:30 AM PST) today has no data yet — step back to previous session
+  // Before market open (6:30 AM PST) today has no data yet --” step back to previous session
   const hourPST = cur.getHours() + cur.getMinutes() / 60
   if (hourPST < 6.5) cur.setDate(cur.getDate() - 1)
   while (days.length < daysNeeded) {
@@ -867,6 +868,404 @@ function getAlgoTradingDays(timeframe: string): string[] {
   return days.reverse()
 }
 
+// --- RRG Ticker Popup --------------------------------------------------------
+function RrgTickerPopup({
+  p,
+  rawTrades,
+  onClose,
+}: {
+  p: { ticker: string; bullCall: number; bearCall: number; bullPut: number; bearPut: number; total: number }
+  rawTrades: OptionsFlowData[]
+  onClose: () => void
+}) {
+  const [slotMs, setSlotMs] = useState(30 * 60_000)
+  const [showNet, setShowNet] = useState(true)
+  const [zoomRange, setZoomRange] = useState<{ start: number; end: number } | null>(null)
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null)
+  const dragRef = useRef<{ down: boolean; startX: number; startRange: { start: number; end: number } }>({ down: false, startX: 0, startRange: { start: 0, end: 0 } })
+  const svgEl = useRef<SVGSVGElement | null>(null)
+
+  const classifiedTotal = (p.bullCall + p.bearCall + p.bullPut + p.bearPut) || 1
+  const score = (p.bullCall + p.bullPut - p.bearCall - p.bearPut) / classifiedTotal
+  const dominant = Math.max(p.bullCall, p.bearCall, p.bullPut, p.bearPut)
+  const col = dominant === p.bullCall ? '#00ff88' : dominant === p.bearCall ? '#ff4444' : dominant === p.bullPut ? '#4da6ff' : '#ffaa00'
+  const quadLabel = dominant === p.bullCall ? 'BULL CALLS' : dominant === p.bearCall ? 'BEAR CALLS' : dominant === p.bullPut ? 'BULL PUTS' : 'BEAR PUTS'
+  const absScore = Math.abs(score)
+  const scoreColor2 = absScore < 0.2 ? '#eab308' : score > 0 ? '#10b981' : '#ef4444'
+
+  // -- Series (bucketed cumulative) -------------------------------------------
+  const series = useMemo(() => {
+    const tickerTrades = rawTrades.filter(t => t.underlying_ticker === p.ticker)
+    const buckets = new Map<number, { bc: number; cc: number; bp: number; rp: number }>()
+    for (const t of tickerTrades) {
+      const ts = typeof (t as any).trade_timestamp === 'number'
+        ? (t as any).trade_timestamp as number
+        : new Date(t.trade_timestamp as string).getTime()
+      const slot = Math.floor(ts / slotMs) * slotMs
+      if (!buckets.has(slot)) buckets.set(slot, { bc: 0, cc: 0, bp: 0, rp: 0 })
+      const b = buckets.get(slot)!
+      const prem = t.total_premium || 0
+      const fs = (t as any).fill_style as string | undefined
+      const isCall = t.type?.toLowerCase() === 'call'
+      const isBull = !fs || fs === 'N/A' || fs === 'A' || fs === 'AA'
+      const isBear = fs === 'B' || fs === 'BB'
+      if (isCall) { if (isBull) b.bc += prem; else if (isBear) b.cc += prem }
+      else { if (isBull) b.bp += prem; else if (isBear) b.rp += prem }
+    }
+    const sorted = [...buckets.entries()].sort((a, b2) => a[0] - b2[0])
+    let cBc = 0, cCc = 0, cBp = 0, cRp = 0
+    return sorted.map(([ts, b]) => {
+      cBc += b.bc; cCc += b.cc; cBp += b.bp; cRp += b.rp
+      const tot = cBc + cCc + cBp + cRp || 1
+      const net = (cBc + cBp - cCc - cRp) / (cBc + cBp + cCc + cRp || 1)
+      return { ts, bcPct: cBc / tot * 100, ccPct: cCc / tot * 100, bpPct: cBp / tot * 100, rpPct: cRp / tot * 100, netPct: 50 + net * 50 }
+    })
+  }, [p.ticker, rawTrades, slotMs])
+
+  useEffect(() => { setZoomRange(null) }, [series])
+
+  const visible = useMemo(() => {
+    if (!zoomRange || series.length < 2) return series
+    return series.slice(Math.max(0, zoomRange.start), Math.min(series.length, zoomRange.end + 1))
+  }, [series, zoomRange])
+
+  // -- Chart geometry ---------------------------------------------------------
+  const VW = 816, VH = 420, PL = 5, PR = 10, PT = 10, PB = 28
+  const CW2 = VW - PL - PR, CH2 = VH - PT - PB
+  const toX = (i: number) => PL + (visible.length < 2 ? CW2 / 2 : (i / (visible.length - 1)) * CW2)
+  const toY = (pct: number) => PT + (1 - Math.min(100, Math.max(0, pct)) / 100) * CH2
+
+  const FCLR = { bc: '#00ff88', cc: '#ff4444', bp: '#4da6ff', rp: '#ffaa00' }
+  const KEYS: Array<'bc' | 'cc' | 'bp' | 'rp'> = ['bc', 'cc', 'bp', 'rp']
+  const PKEY = { bc: 'bcPct', cc: 'ccPct', bp: 'bpPct', rp: 'rpPct' } as const
+
+  // -- Zoom / drag / hover handlers ------------------------------------------
+  // Keep latest zoom/series in refs so the imperative wheel handler always sees current values
+  const zoomRangeRef = useRef(zoomRange)
+  const seriesLenRef = useRef(series.length)
+  useEffect(() => { zoomRangeRef.current = zoomRange }, [zoomRange])
+  useEffect(() => { seriesLenRef.current = series.length }, [series.length])
+
+  // Attach wheel listener as non-passive so preventDefault() works
+  useEffect(() => {
+    const el = svgEl.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const len = seriesLenRef.current
+      if (len < 2) return
+      const cur = zoomRangeRef.current ?? { start: 0, end: len - 1 }
+      const range = cur.end - cur.start
+      const step = Math.max(2, Math.floor(range * 0.12))
+      if (e.deltaY < 0) {
+        const mid = Math.round((cur.start + cur.end) / 2)
+        const half = Math.max(3, Math.floor((range - step * 2) / 2))
+        setZoomRange({ start: Math.max(0, mid - half), end: Math.min(len - 1, mid + half) })
+      } else {
+        setZoomRange({ start: Math.max(0, cur.start - step), end: Math.min(len - 1, cur.end + step) })
+      }
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, []) // attach once; reads live values via refs
+
+  const handleMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    const len = series.length
+    const cur = zoomRange ?? { start: 0, end: len - 1 }
+    dragRef.current = { down: true, startX: e.clientX, startRange: { ...cur } }
+  }, [series.length, zoomRange])
+
+  const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    const rect = svgEl.current?.getBoundingClientRect()
+    if (!rect) return
+    // Compute hover index from mouse position in SVG coords
+    const svgX = (e.clientX - rect.left) / rect.width * VW
+    const frac = Math.max(0, Math.min(1, (svgX - PL) / CW2))
+    const idx = Math.round(frac * (visible.length - 1))
+    setHoverIdx(Math.max(0, Math.min(visible.length - 1, idx)))
+    // Drag pan
+    if (dragRef.current.down && series.length >= 2) {
+      const len = series.length
+      const cur = dragRef.current.startRange
+      const range = cur.end - cur.start
+      const dx = (dragRef.current.startX - e.clientX) / rect.width
+      const shift = Math.round(dx * range)
+      const ns = Math.max(0, Math.min(len - 1 - range, cur.start + shift))
+      setZoomRange({ start: ns, end: ns + range })
+    }
+  }, [series.length, visible.length, VW, PL, CW2])
+
+  const handleMouseUp = useCallback(() => { dragRef.current.down = false }, [])
+  const handleMouseLeave = useCallback(() => { dragRef.current.down = false; setHoverIdx(null) }, [])
+
+  // -- Liquid boxes -----------------------------------------------------------
+  const BW = 162, BH = 88, Bamp = 5
+  const bSpeeds = [2.0, 2.6, 1.8, 2.3]
+  const rowBoxes = [
+    { id: 'bc', lbl: 'BULL CALLS', color: '#10b981' },
+    { id: 'cc', lbl: 'BEAR CALLS', color: '#ef4444' },
+    { id: 'bp', lbl: 'BULL PUTS', color: '#3b82f6' },
+    { id: 'rp', lbl: 'BEAR PUTS', color: '#f97316' },
+  ]
+  // When hovering: use that time-slice's % values; otherwise use full-period totals
+  const hp = hoverIdx !== null ? visible[hoverIdx] : null
+  const hoverFills = {
+    bc: hp ? hp.bcPct / 100 : p.bullCall / classifiedTotal,
+    cc: hp ? hp.ccPct / 100 : p.bearCall / classifiedTotal,
+    bp: hp ? hp.bpPct / 100 : p.bullPut / classifiedTotal,
+    rp: hp ? hp.rpPct / 100 : p.bearPut / classifiedTotal,
+  }
+  const hoverScore = hp ? ((hp.bcPct + hp.bpPct) - (hp.ccPct + hp.rpPct)) / 100 : score
+  const hoverScoreColor = Math.abs(hoverScore) < 0.2 ? '#eab308' : hoverScore > 0 ? '#10b981' : '#ef4444'
+
+  // -- Stat bar (unused vars kept to avoid removing callPrem/etc) -------------
+  const callPrem = p.bullCall + p.bearCall
+  const putPrem = p.bullPut + p.bearPut
+  const pcRatio = callPrem > 0 ? putPrem / callPrem : 0
+  const bullPct = (p.bullCall + p.bullPut) / classifiedTotal
+  const bearPct = (p.bearCall + p.bearPut) / classifiedTotal
+
+  return (
+    <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'linear-gradient(160deg,#0d0d14 0%,#060608 100%)', border: `1px solid ${col}33`, borderRadius: 16, padding: '20px 8px 22px', width: 936, maxWidth: '99vw', boxShadow: `0 0 80px ${col}18, inset 0 1px 0 rgba(255,255,255,0.06)`, maxHeight: '99vh', overflowY: 'auto' }}>
+
+        {/* -- Header -- */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 11, height: 11, borderRadius: '50%', background: col, boxShadow: `0 0 8px ${col}` }} />
+            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 22, fontWeight: 900, color: '#fff', letterSpacing: '0.05em' }}>{p.ticker}</span>
+            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 900, color: col, padding: '3px 10px', border: `1px solid ${col}55`, borderRadius: 4 }}>{quadLabel}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 15, color: score > 0 ? '#00ff88' : '#ff4444', fontWeight: 800 }}>${(p.total / 1e6).toFixed(1)}M</span>
+            <button onClick={onClose} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 15, fontWeight: 700, padding: '3px 12px', cursor: 'pointer' }}>✕</button>
+          </div>
+        </div>
+
+        {/* -- Liquid boxes (hover-reactive, centered) -- */}
+        <div style={{ marginBottom: 14, display: 'flex', justifyContent: 'center' }}>
+          <svg width={(BW + 6) * 4 - 6} height={BH} viewBox={`0 0 ${(BW + 6) * 4 - 6} ${BH}`} style={{ overflow: 'visible', display: 'block', maxWidth: '100%' }}>
+            <style>{`@keyframes rpbw0{from{transform:translateX(0)}to{transform:translateX(-${BW}px)}}@keyframes rpbw1{from{transform:translateX(0)}to{transform:translateX(-${BW}px)}}@keyframes rpbw2{from{transform:translateX(0)}to{transform:translateX(-${BW}px)}}@keyframes rpbw3{from{transform:translateX(0)}to{transform:translateX(-${BW}px)}}`}</style>
+            {rowBoxes.map((b, i) => {
+              const fillKey = b.id as keyof typeof hoverFills
+              const fill = hoverFills[fillKey]
+              const liquidH = fill * BH
+              const bx = i * (BW + 6)
+              const waveY = BH - liquidH
+              const wx = -BW
+              const wp = `M${wx} ${waveY} q${BW / 4} ${-Bamp} ${BW / 2} 0 q${BW / 4} ${Bamp} ${BW / 2} 0 q${BW / 4} ${-Bamp} ${BW / 2} 0 q${BW / 4} ${Bamp} ${BW / 2} 0 q${BW / 4} ${-Bamp} ${BW / 2} 0 q${BW / 4} ${Bamp} ${BW / 2} 0 V${BH} H${wx} Z`
+              const clipId = `rpop-box-clip-${i}-${p.ticker}`
+              return (
+                <g key={b.id} transform={`translate(${bx},0)`}>
+                  <defs><clipPath id={clipId}><rect x={0} y={0} width={BW} height={BH} rx="4" /></clipPath></defs>
+                  <rect x={0} y={0} width={BW} height={BH} rx="4" fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.07)" strokeWidth="0.5" />
+                  <g clipPath={`url(#${clipId})`}>
+                    {fill > 0.005 && (<>
+                      <rect x={0} y={Math.max(0, waveY + Bamp)} width={BW} height={Math.max(0, BH - Math.max(0, waveY + Bamp))} fill={b.color} opacity={0.35} />
+                      <g style={{ animationName: `rpbw${i}`, animationDuration: `${bSpeeds[i]}s`, animationTimingFunction: 'linear', animationIterationCount: 'infinite' }}>
+                        <path d={wp} fill={b.color} opacity={0.65} />
+                      </g>
+                    </>)}
+                  </g>
+                  <text x={BW / 2} y={17} textAnchor="middle" fill="#fff" fontSize="12" fontFamily="JetBrains Mono,monospace" fontWeight="700">{b.lbl}</text>
+                  <text x={BW / 2} y={BH - 10} textAnchor="middle" fill="#fff" fontSize="25" fontFamily="JetBrains Mono,monospace" fontWeight="800">{(fill * 100).toFixed(0)}%</text>
+                </g>
+              )
+            })}
+            <circle cx={(BW + 6) * 2 - 3} cy={BH / 2} r={21} fill="rgba(4,4,12,0.92)" stroke="rgba(255,255,255,0.13)" strokeWidth="1" />
+            <text x={(BW + 6) * 2 - 3} y={BH / 2 - 7} textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize="11" fontFamily="JetBrains Mono,monospace" fontWeight="700">NEU</text>
+            <text x={(BW + 6) * 2 - 3} y={BH / 2 + 8} textAnchor="middle" dominantBaseline="middle" fill={hoverScoreColor} fontSize="13" fontFamily="JetBrains Mono,monospace" fontWeight="800">{hoverScore.toFixed(2)}</text>
+          </svg>
+        </div>
+
+        {/* -- Chart toolbar -- */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 800, color: '#ff8500', letterSpacing: '0.2em' }}>INTRADAY FLOW</span>
+          {hp && (
+            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>
+              {new Date(hp.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Los_Angeles' })}
+            </span>
+          )}
+          <div style={{ flex: 1 }} />
+          {([{ label: '1m', ms: 60_000 }, { label: '5m', ms: 5 * 60_000 }, { label: '30m', ms: 30 * 60_000 }, { label: '1h', ms: 60 * 60_000 }] as const).map(tf => (
+            <button key={tf.label} onClick={() => setSlotMs(tf.ms)}
+              style={{ height: 30, padding: '0 13px', background: 'transparent', border: 'none', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, color: slotMs === tf.ms ? '#ff8500' : '#ffffff', cursor: 'pointer', outline: 'none' }}
+            >{tf.label}</button>
+          ))}
+          <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.15)', margin: '0 4px' }} />
+          <button onClick={() => setShowNet(v => !v)}
+            style={{ height: 30, padding: '0 13px', background: 'transparent', border: 'none', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, color: showNet ? '#ff8500' : '#ffffff', cursor: 'pointer', outline: 'none' }}
+          >NET</button>
+          {zoomRange && (
+            <button onClick={() => setZoomRange(null)}
+              style={{ height: 30, padding: '0 13px', background: 'transparent', border: '1px solid rgba(34,211,238,0.4)', borderRadius: 4, fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, color: '#22d3ee', cursor: 'pointer' }}
+            >RESET</button>
+          )}
+        </div>
+
+        {/* -- Chart SVG -- */}
+        {visible.length < 2 ? (
+          <div style={{ height: VH, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#333', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, background: 'linear-gradient(180deg,#080810 0%,#040408 100%)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.05)' }}>NOT ENOUGH DATA</div>
+        ) : (
+          <svg
+            ref={svgEl}
+            viewBox={`0 0 ${VW} ${VH}`}
+            width="100%"
+            height={VH}
+            style={{ display: 'block', borderRadius: 8, cursor: 'crosshair', userSelect: 'none', overflow: 'hidden' }}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseLeave}
+          >
+            <defs>
+              <linearGradient id="rpop-bg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#0c0c18" />
+                <stop offset="100%" stopColor="#050508" />
+              </linearGradient>
+              <linearGradient id="rpop-gloss" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="rgba(255,255,255,0.04)" />
+                <stop offset="35%" stopColor="rgba(255,255,255,0)" />
+              </linearGradient>
+              <clipPath id="rpop-lines-clip">
+                <rect x={PL} y={PT} width={CW2} height={CH2} />
+              </clipPath>
+            </defs>
+
+            {/* Candy-black glossy background */}
+            <rect x={0} y={0} width={VW} height={VH} rx={6} fill="url(#rpop-bg)" />
+            <rect x={0} y={0} width={VW} height={VH / 2} rx={6} fill="url(#rpop-gloss)" />
+            <rect x={PL} y={PT} width={CW2} height={CH2} fill="rgba(0,0,0,0.3)" />
+
+            {/* Grid lines + Y-axis labels */}
+            {[0, 25, 50, 75, 100].map(pct => {
+              const gy = toY(pct)
+              const dollarVal = p.total * pct / 100
+              const dollarLabel = dollarVal === 0 ? '$0' : dollarVal >= 1e9 ? `$${(dollarVal / 1e9).toFixed(1)}B` : dollarVal >= 1e6 ? `$${(dollarVal / 1e6).toFixed(1)}M` : dollarVal >= 1000 ? `$${(dollarVal / 1000).toFixed(0)}K` : `$${dollarVal.toFixed(0)}`
+              return (
+                <g key={pct}>
+                  <line x1={PL} y1={gy} x2={PL + CW2} y2={gy}
+                    stroke={pct === 50 ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.06)'}
+                    strokeWidth={pct === 50 ? 1.5 : 1}
+                    strokeDasharray={pct === 0 || pct === 100 ? undefined : '4,4'} />
+                  <text x={PL - 5} y={gy + 4} textAnchor="end" fontFamily="JetBrains Mono,monospace" fontSize={18} fontWeight={700} fill="#ffffff">{dollarLabel}</text>
+                </g>
+              )
+            })}
+
+            {/* Chart border */}
+            <rect x={PL} y={PT} width={CW2} height={CH2} fill="none" stroke="rgba(255,255,255,0.09)" strokeWidth={1} />
+
+            {/* Lines --” clipped to chart area */}
+            <g clipPath="url(#rpop-lines-clip)">
+              {KEYS.map(k => {
+                const color = FCLR[k]
+                const pKey = PKEY[k] as keyof typeof visible[0]
+                const d = visible.map((s, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(s[pKey] as number).toFixed(1)}`).join(' ')
+                return <path key={k} d={d} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+              })}
+              {showNet && (() => {
+                const d = visible.map((s, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(s.netPct).toFixed(1)}`).join(' ')
+                return <path d={d} fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth={2.5} strokeDasharray="7,3" strokeLinejoin="round" strokeLinecap="round" />
+              })()}
+            </g>
+
+            {/* -- Crosshair -- */}
+            {hoverIdx !== null && visible[hoverIdx] && (() => {
+              const cx = toX(hoverIdx)
+              const hv = visible[hoverIdx]
+              return (
+                <g>
+                  {/* Vertical bar --” clipped */}
+                  <g clipPath="url(#rpop-lines-clip)">
+                    <line x1={cx} y1={PT} x2={cx} y2={PT + CH2} stroke="rgba(255,255,255,0.55)" strokeWidth={1} strokeDasharray="4,3" />
+                    {/* Horizontal guides for each line */}
+                    {KEYS.map(k => {
+                      const pKey = PKEY[k] as keyof typeof visible[0]
+                      const val = hv[pKey] as number
+                      return <line key={k} x1={PL} y1={toY(val)} x2={PL + CW2} y2={toY(val)} stroke={FCLR[k]} strokeWidth={0.8} strokeDasharray="3,4" opacity={0.5} />
+                    })}
+                    {showNet && <line x1={PL} y1={toY(hv.netPct)} x2={PL + CW2} y2={toY(hv.netPct)} stroke="rgba(255,255,255,0.4)" strokeWidth={0.8} strokeDasharray="3,4" />}
+                    {/* Intersection dots */}
+                    {KEYS.map(k => {
+                      const pKey = PKEY[k] as keyof typeof visible[0]
+                      const val = hv[pKey] as number
+                      return <circle key={k} cx={cx} cy={toY(val)} r={4.5} fill={FCLR[k]} stroke="#000" strokeWidth={1.2} />
+                    })}
+                    {showNet && <circle cx={cx} cy={toY(hv.netPct)} r={4.5} fill="#ffffff" stroke="#000" strokeWidth={1.2} />}
+                  </g>
+                  {/* Value labels right of crosshair --” outside clip */}
+                  {KEYS.map(k => {
+                    const pKey = PKEY[k] as keyof typeof visible[0]
+                    const val = hv[pKey] as number
+                    const ly = Math.max(PT + 8, Math.min(PT + CH2 - 4, toY(val)))
+                    return <text key={k} x={PL + CW2 + 5} y={ly + 5} fontFamily="JetBrains Mono,monospace" fontSize={18} fontWeight={800} fill={FCLR[k]}>{val.toFixed(0)}%</text>
+                  })}
+                  {showNet && (() => {
+                    const ly = Math.max(PT + 8, Math.min(PT + CH2 - 4, toY(hv.netPct)))
+                    return <text x={PL + CW2 + 5} y={ly + 5} fontFamily="JetBrains Mono,monospace" fontSize={18} fontWeight={800} fill="#ffffff">NET</text>
+                  })()}
+                </g>
+              )
+            })()}
+
+            {/* Static right-edge labels --” shown only when not hovering */}
+            {hoverIdx === null && (<>
+              {KEYS.map(k => {
+                const pKey = PKEY[k] as keyof typeof visible[0]
+                const last = visible[visible.length - 1]
+                const val = last[pKey] as number
+                const ly = Math.max(PT + 6, Math.min(PT + CH2 - 4, toY(val)))
+                return <text key={k} x={PL + CW2 + 5} y={ly + 4} fontFamily="JetBrains Mono,monospace" fontSize={18} fontWeight={800} fill={FCLR[k]}>{val.toFixed(0)}%</text>
+              })}
+              {showNet && (() => {
+                const last = visible[visible.length - 1]
+                const ly = Math.max(PT + 6, Math.min(PT + CH2 - 4, toY(last.netPct)))
+                return <text x={PL + CW2 + 5} y={ly + 4} fontFamily="JetBrains Mono,monospace" fontSize={18} fontWeight={800} fill="#ffffff">NET</text>
+              })()}
+            </>)}
+
+            {/* X-axis time labels */}
+            {(() => {
+              const step = Math.max(1, Math.floor(visible.length / 6))
+              return visible.map((s, i) => {
+                if (i % step !== 0 && i !== visible.length - 1) return null
+                const x = toX(i)
+                if (x < PL - 2 || x > PL + CW2 + 2) return null
+                return (
+                  <text key={s.ts} x={x} y={PT + CH2 + 22} textAnchor="middle" fontFamily="JetBrains Mono,monospace" fontSize={18} fontWeight={700} fill="#ffffff">
+                    {new Date(s.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Los_Angeles' })}
+                  </text>
+                )
+              })
+            })()}
+          </svg>
+        )}
+
+        {/* -- Legend -- */}
+        <div style={{ display: 'flex', gap: 14, marginTop: 7, justifyContent: 'center', flexWrap: 'wrap' }}>
+          {KEYS.map(k => (
+            <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ width: 16, height: 2.5, background: FCLR[k], borderRadius: 1 }} />
+              <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 700, color: FCLR[k] }}>
+                {k === 'bc' ? 'BULL CALLS' : k === 'cc' ? 'BEAR CALLS' : k === 'bp' ? 'BULL PUTS' : 'BEAR PUTS'}
+              </span>
+            </div>
+          ))}
+          {showNet && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ width: 16, height: 2.5, background: 'rgba(255,255,255,0.8)', borderRadius: 1 }} />
+              <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 700, color: '#fff' }}>NET BULL/BEAR</span>
+            </div>
+          )}
+        </div>
+
+
+      </div>
+    </div>
+  )
+}
+
 export default function AlgoFlowScreener({ onBack, embeddedMode = false, embeddedTrades, embeddedTicker }: { onBack?: () => void; embeddedMode?: boolean; embeddedTrades?: any[]; embeddedTicker?: string } = {}) {
   const [ticker, setTicker] = useState('')
   const [searchTicker, setSearchTicker] = useState('')
@@ -874,11 +1273,16 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const [flowData, setFlowData] = useState<OptionsFlowData[]>([])
   const [error, setError] = useState('')
   const [isMobile, setIsMobile] = useState(false)
+  const [isTablet, setIsTablet] = useState(false)
+  const [windowWidth, setWindowWidth] = useState(1440)
+  const [tabletFlowMatrixOpen, setTabletFlowMatrixOpen] = useState(false)
+  const [afExcludeOpen, setAfExcludeOpen] = useState(false)
+  const [afTimeOpen, setAfTimeOpen] = useState(false)
 
-  // ── Tab state ────────────────────────────────────────────────────────────────
+  // -- Tab state ----------------------------------------------------------------
   const [activeTab, setActiveTab] = useState<'algoflow' | 'flowbias'>('algoflow')
 
-  // ── Flow Bias Scanner state ──────────────────────────────────────────────────
+  // -- Flow Bias Scanner state --------------------------------------------------
   type BiasAgg = { ticker: string; bullCall: number; bearCall: number; bullPut: number; bearPut: number; total: number; callPremium: number; putPremium: number }
   const [biasRRGData, setBiasRRGData] = useState<{ bullCalls: BiasAgg[]; bearCalls: BiasAgg[]; bullPuts: BiasAgg[]; bearPuts: BiasAgg[] } | null>(null)
   const [biasRRGLoading, setBiasRRGLoading] = useState(false)
@@ -949,7 +1353,12 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   }
 
   useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth <= 768)
+    const check = () => {
+      const w = window.innerWidth
+      setWindowWidth(w)
+      setIsMobile(w <= 768)
+      setIsTablet(w > 768 && w < 1440)
+    }
     check()
     window.addEventListener('resize', check)
     return () => window.removeEventListener('resize', check)
@@ -958,7 +1367,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   useEffect(() => {
     const el = rrgSvgRef.current
     if (!el) return
-    // SVG viewBox is always 1755x875 — use these constants everywhere
+    // SVG viewBox is always 1755x875 --” use these constants everywhere
     const RRG_W = 1755, RRG_H = 875
     const RRG_PL = 52, RRG_PT = 32, RRG_CW = 1671, RRG_CH = 799
     const clamp = (tx: number, ty: number, k: number) => {
@@ -1043,7 +1452,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     setFlowData((prev) => [...prev, ...batch])
   }
 
-  // ── AlgoFlow Live WebSocket state ───────────────────────────────────────────
+  // -- AlgoFlow Live WebSocket state -------------------------------------------
   const [isAlgoLive, setIsAlgoLive] = useState(false)
   const [algoLiveTicker, setAlgoLiveTicker] = useState<string>('')
   const [algoLiveConnected, setAlgoLiveConnected] = useState(false)
@@ -1114,7 +1523,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const [brushIndices, setBrushIndices] = useState<{ start: number; end: number } | null>(null)
   const chartDragRef = useRef<{ dragging: boolean; startX: number; startIndices: { start: number; end: number } }>({ dragging: false, startX: 0, startIndices: { start: 0, end: 0 } })
   const dragMoveRafRef = useRef<number | null>(null)   // RAF handle for drag throttle
-  const analysisRef = useRef<AlgoFlowAnalysis | null>(null) // sync ref "” avoids setAnalysis in wheel handler
+  const analysisRef = useRef<AlgoFlowAnalysis | null>(null) // sync ref "-- avoids setAnalysis in wheel handler
   const chartDivRef = useRef<HTMLDivElement>(null)
   const mainChartWrapRef = useRef<HTMLDivElement>(null)
   const pcPanelRef = useRef<HTMLDivElement>(null)
@@ -1189,13 +1598,13 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
 
   const ETF_SET = new Set(['SPY', 'QQQ', 'IWM', 'DIA', 'SMH', 'VXX', 'UVXY', 'EFA', 'EEM', 'VTI', 'IEFA', 'AGG', 'LQD', 'HYG', 'XLF', 'XLE', 'XLK', 'XLV', 'XLI', 'XLU', 'XLP', 'XLY', 'XLB', 'XLRE', 'XLC', 'GLD', 'SLV', 'TLT', 'IEF', 'SHY', 'VTEB', 'VXUS', 'BND', 'BNDX', 'SQQQ', 'TQQQ', 'SPXL', 'SPXS', 'SPYG', 'SPYV', 'IVV', 'VOO', 'VEA', 'VWO', 'ARKK', 'ARKG', 'ARKW', 'ARKF', 'ARKQ', 'RSP', 'MDY', 'IJH', 'IJR', 'IWF', 'IWD', 'IWB', 'IWO', 'IWN', 'XBI', 'IBB', 'SOXX', 'HACK', 'BOTZ', 'ROBO', 'SKYY', 'CLOU', 'GDX', 'GDXJ', 'SIL', 'SILJ', 'IAU', 'SGOL', 'USO', 'UNG', 'PDBC', 'DBO', 'DBB', 'DBC', 'TBT', 'TMF', 'TMV', 'TLH', 'IEI', 'GOVT', 'FXI', 'KWEB', 'MCHI', 'ASHR', 'VGK', 'EWJ', 'EWZ', 'EWC', 'EWG', 'EWU', 'EURL', 'HEDJ', 'DBJP', 'DBEF'])
 
-  // Fast analysis built directly from already-classified saved trades "” no re-processing
+  // Fast analysis built directly from already-classified saved trades "-- no re-processing
   const buildFastAnalysisFromSaved = (trades: OptionsFlowData[], displayLabel?: string): AlgoFlowAnalysis | null => {
     if (!trades.length) return null
     const ticker = displayLabel ?? trades[0].underlying_ticker
     const currentPrice = displayLabel ? 0 : (trades[0].spot_price ?? 0)
 
-    // Compute PST/PDT offset once "” avoids 601k Intl calls in the loop
+    // Compute PST/PDT offset once "-- avoids 601k Intl calls in the loop
     const sampleTs = new Date(trades[0].trade_timestamp)
     const pstOffsetMs = sampleTs.getTime() - new Date(sampleTs.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTime()
     const FIVE_MIN = 5 * 60 * 1000
@@ -1205,7 +1614,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     let aggressiveCalls = 0, aggressivePuts = 0
     let bullCallPremium = 0, bearCallPremium = 0, bullPutPremium = 0, bearPutPremium = 0
 
-    // time ←’ {callsPlus, callsMinus, putsPlus, putsMinus}
+    // time ←' {callsPlus, callsMinus, putsPlus, putsMinus}
     const buckets = new Map<number, { callsPlus: number; callsMinus: number; putsPlus: number; putsMinus: number }>()
 
     for (let i = 0; i < trades.length; i++) {
@@ -1213,7 +1622,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       const premium = t.total_premium || 0
       const isCall = t.type?.toLowerCase() === 'call'
       const fs = (t as any).fill_style as string | undefined
-      // No fill_style = default to A (Buy): calls ←’ bullish, puts ←’ bearish
+      // No fill_style = default to A (Buy): calls ←' bullish, puts ←' bearish
       const isBullish = !fs || fs === 'N/A' || fs === 'A' || fs === 'AA'
       const isBearish = fs === 'B' || fs === 'BB'
 
@@ -1232,7 +1641,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       else if (tt === 'BLOCK') blockCount++
       else if (tt === 'MINI') miniCount++
 
-      // Bucket by 5-min using pure math "” no Intl calls per trade
+      // Bucket by 5-min using pure math "-- no Intl calls per trade
       if (t.trade_timestamp) {
         const tsUtc = new Date(t.trade_timestamp).getTime()
         const tsPst = tsUtc - pstOffsetMs
@@ -1252,7 +1661,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     const algoFlowScore = (aggressiveCalls - aggressivePuts) / total
     const flowTrend: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = algoFlowScore > 0.25 ? 'BULLISH' : algoFlowScore < -0.25 ? 'BEARISH' : 'NEUTRAL'
 
-    // Build cumulative chart data — filter to regular market hours: 6:30 AM – 1:00 PM PST
+    // Build cumulative chart data --” filter to regular market hours: 6:30 AM --“ 1:00 PM PST
     // Use Intl to get PST hours reliably regardless of browser timezone
     const sortedBuckets = Array.from(buckets.entries())
       .sort((a, b) => a[0] - b[0])
@@ -1334,7 +1743,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0 })
 
-  // Derived analysis that respects expiryFilter "” re-aggregates from filtered trades without re-running async analysis
+  // Derived analysis that respects expiryFilter "-- re-aggregates from filtered trades without re-running async analysis
   const displayAnalysis = useMemo(() => {
     if (!analysis || (expiryFilter === 'all' && !excludeMag7 && !excludeEtf && !excludeIndex)) return analysis
 
@@ -1415,7 +1824,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const allScanCacheRef = useRef<{ flowData: OptionsFlowData[]; analysis: AlgoFlowAnalysis } | null>(null)
   const [drilledTicker, setDrilledTicker] = useState<string | null>(null)
 
-  // Build analysis directly from already-classified trades "” no re-processing
+  // Build analysis directly from already-classified trades "-- no re-processing
   const performAnalysis = (tradesData: any[], displayLabel?: string) => {
     const result = buildFastAnalysisFromSaved(tradesData, displayLabel)
     setAnalysis(result)
@@ -1431,7 +1840,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     }
   }, [flowData])
 
-  // ── AlgoFlow Live: start streaming for a ticker or all tickers ───────────────
+  // -- AlgoFlow Live: start streaming for a ticker or all tickers ---------------
   const startAlgoLive = useCallback((tickerOrAll: string) => {
     // Stop any existing live session first
     if (algoLiveUnsubRef.current) { algoLiveUnsubRef.current(); algoLiveUnsubRef.current = null }
@@ -1453,7 +1862,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     setStreamStatus(`LIVE ${targetTicker === 'ALL' ? '· ALL TICKERS' : `· ${targetTicker}`}`)
 
     // Subscribe via Railway DB poll instead of WebSocket
-    // (Railway holds the single Polygon WS connection "” browser polls every 30s)
+    // (Railway holds the single Polygon WS connection "-- browser polls every 30s)
     const getTodayDS = () => {
       const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -1490,15 +1899,15 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     }, 10000)
   }, [convertAlgoTrade, performAnalysis])
 
-  // Sync chart view window when scan timeframe changes (no auto re-analyze "” user must click ANALYZE)
+  // Sync chart view window when scan timeframe changes (no auto re-analyze "-- user must click ANALYZE)
   useEffect(() => {
     setChartDisplayDays(getScanDays(scanTimeframe))
     setBrushIndices(null)
   }, [scanTimeframe])
 
-  // Reset brush when chartDisplayDays changes "” merged into button click handler, no separate effect needed
+  // Reset brush when chartDisplayDays changes "-- merged into button click handler, no separate effect needed
 
-  // Memoize trades-table OI computation "” prevents rerunning 36k-trade loop on every render
+  // Memoize trades-table OI computation "-- prevents rerunning 36k-trade loop on every render
   const tradeOIMemo = useMemo(() => {
     const allTrades: any[] = analysis?.trades || flowData || []
     const isMultiDay = getScanDays(scanTimeframe) > 1
@@ -1577,7 +1986,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       for (const point of analysis.chartData) {
         intervalData[point.time] = { callsPlus: 0, callsMinus: 0, putsPlus: 0, putsMinus: 0 }
       }
-      // Build a fast lookup: ms-timestamp ←’ slot (nearest slot)
+      // Build a fast lookup: ms-timestamp ←' slot (nearest slot)
       const slotTimes = Object.keys(intervalData).map(Number).sort((a, b) => a - b)
 
       for (const trade of filteredTrades) {
@@ -1621,7 +2030,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       })
     }
 
-    // ── Resample to selected interval ───────────────────────────────────
+    // -- Resample to selected interval -----------------------------------
     if (timeInterval === '1min' && (displayAnalysis?.trades?.length ?? 0) > 0) {
       // Rebuild at 1-min resolution from individual trades
       const trades = (displayAnalysis!.trades as any[])
@@ -1663,10 +2072,10 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
           return { time, timeLabel, callsPlus: cCp, callsMinus: cCm, putsPlus: cPp, putsMinus: cPm, netFlow, bullishTotal, bearishTotal, pcRatio: bullishTotal > 0 ? Math.abs(bearishTotal) / bullishTotal : 1 }
         })
     } else if (timeInterval === '30min') {
-      // Downsample 5-min ←’ 30-min: take every 6th cumulative point
+      // Downsample 5-min ←' 30-min: take every 6th cumulative point
       activeChartData = activeChartData.filter((_: any, i: number) => i % 6 === 0 || i === activeChartData.length - 1)
     } else if (timeInterval === '1hour') {
-      // Downsample 5-min ←’ 1-hour: take every 12th cumulative point
+      // Downsample 5-min ←' 1-hour: take every 12th cumulative point
       activeChartData = activeChartData.filter((_: any, i: number) => i % 12 === 0 || i === activeChartData.length - 1)
     } else if (timeInterval === '1day') {
       // Downsample to daily: last 5-min point of each trading day
@@ -1687,7 +2096,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     const bStart = brushIndices ? Math.max(0, Math.min(brushIndices.start, len - 1)) : 0
     const bEnd = brushIndices ? Math.max(bStart + 1, Math.min(brushIndices.end, len - 1)) : len - 1
     const sliced = baseData.slice(bStart, bEnd + 1)
-    // Downsample to max 400 pts "” SVG renders 600x4 lines in ~50ms, 400x4 in ~10ms
+    // Downsample to max 400 pts "-- SVG renders 600x4 lines in ~50ms, 400x4 in ~10ms
     const MAX_PTS = 400
     const visibleData = (sliced.length > MAX_PTS
       ? sliced.filter((_: any, i: number) =>
@@ -1730,12 +2139,12 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
         const range = current.end - current.start
         const step = Math.max(2, Math.floor(range * 0.1))
         if (e.deltaY < 0) {
-          // zoom in "” shrink window
+          // zoom in "-- shrink window
           const mid = Math.round((current.start + current.end) / 2)
           const half = Math.max(4, Math.floor((range - step * 2) / 2))
           return { start: Math.max(0, mid - half), end: Math.min(len - 1, mid + half) }
         } else {
-          // zoom out "” expand window
+          // zoom out "-- expand window
           return { start: Math.max(0, current.start - step), end: Math.min(len - 1, current.end + step) }
         }
       })
@@ -1756,7 +2165,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     if (!tickerToSearch.trim()) return
     const tf = tfOverride ?? scanTimeframe
 
-    // Expand group keywords ←’ comma-list of actual tickers
+    // Expand group keywords ←' comma-list of actual tickers
     const upper = tickerToSearch.trim().toUpperCase()
     let actualTickers: string
     let displayLabel: string | undefined
@@ -1823,104 +2232,83 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     if (!options?.specificDates) {
       setStreamStatus('Checking saved data...')
       try {
-        const datesResp = await fetch('/api/flows/dates')
-        if (datesResp.ok) {
-          const dates: { date: string; tradeCount?: number | null; source?: string }[] = await datesResp.json()
-          if (dates.length > 0) {
-            const allRequiredDays = getAlgoTradingDays(tf)
-            const requiredDayCount = allRequiredDays.length
+        // Shared cache: one DB hit across AlgoFlow, OptionsFlow page, and Flow Matrix
+        const dates = await getDatesList()
+        if (dates.length > 0) {
+          const allRequiredDays = getAlgoTradingDays(tf)
+          const requiredDayCount = allRequiredDays.length
 
-            const seenDayKeys = new Set<string>()
-            const rowsToLoad: string[] = []
-            // Sort descending so we pick the MOST RECENT dates first
-            const sortedDates = [...dates].sort((a, b) => b.date.localeCompare(a.date))
-            for (const { date: rawDate } of sortedDates) {
-              const dayKey = new Date(rawDate).toISOString().split('T')[0]
-              if (!seenDayKeys.has(dayKey)) {
-                seenDayKeys.add(dayKey)
-                rowsToLoad.push(rawDate)
-              }
-              if (rowsToLoad.length >= requiredDayCount) break
+          const seenDayKeys = new Set<string>()
+          const rowsToLoad: string[] = []
+          // Sort descending so we pick the MOST RECENT dates first
+          const sortedDates = [...dates].sort((a, b) => b.date.localeCompare(a.date))
+          for (const { date: rawDate } of sortedDates) {
+            const dayKey = new Date(rawDate).toISOString().split('T')[0]
+            if (!seenDayKeys.has(dayKey)) {
+              seenDayKeys.add(dayKey)
+              rowsToLoad.push(rawDate)
             }
-            if (rowsToLoad.length > 0) {
-              const isMultiAll = displayLabel === 'ALL' || displayLabel === 'MAG7' || (displayLabel != null && actualTickers.includes(','))
-              const tickersQS = isMultiAll ? '' : `?tickers=${encodeURIComponent(actualTickers)}`
-              // eslint-disable-next-line no-inner-declarations
-              if (false) { const dayPayloads2 = null; void dayPayloads2 } // dead: neutralize duplicate below "” server filters before
-              // building the response so wire transfer shrinks from 601k ←’ only matching trades
-              const dayPayloads = await Promise.all(
-                rowsToLoad.map(async (rawDate) => {
-                  const r = await fetch(`/api/flows/${encodeURIComponent(rawDate)}${tickersQS}`)
-                  const json = r.ok ? await r.json() : null
-                  return json
-                })
+            if (rowsToLoad.length >= requiredDayCount) break
+          }
+          if (rowsToLoad.length > 0) {
+            const isMultiAll = displayLabel === 'ALL' || displayLabel === 'MAG7' || (displayLabel != null && actualTickers.includes(','))
+            const tickersQS = isMultiAll ? '' : `?tickers=${encodeURIComponent(actualTickers)}`
+            // Shared cache: first caller fetches DB, subsequent callers read from memory instantly
+            const combinedTrades: OptionsFlowData[] = await loadMultiDateTrades(rowsToLoad, tickersQS)
+            // Determine which required trading days are actually present.
+            // FIXED: compute PST offset ONCE from a sample trade (1 Intl call), then
+            // use pure UTC math per-trade "-- avoids 601k Intl calls that blocked for 21s.
+            const _pstSample = combinedTrades.length > 0 ? new Date(combinedTrades[0].trade_timestamp) : new Date()
+            const _pstOffsetMs = _pstSample.getTime() - new Date(_pstSample.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTime()
+            const tradeDaySet = new Set<string>()
+            for (let i = 0; i < combinedTrades.length; i++) {
+              const pstMs = new Date(combinedTrades[i].trade_timestamp).getTime() - _pstOffsetMs
+              const d = new Date(pstMs)
+              tradeDaySet.add(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`)
+            }
+            const coveredDays = allRequiredDays.filter((d) => tradeDaySet.has(d))
+            const missingDays = allRequiredDays.filter((d) => !tradeDaySet.has(d))
+
+            // When scanning ALL (or MAG7), skip the ticker filter "-- return every trade
+            // in the saved data. The DB was saved from a broader scan so filtering
+            // to a hardcoded 33-ticker set throws away legitimate data.
+            // FIXED: hoist Set construction outside the filter callback (was creating 601k Sets)
+            const _tickerSet = new Set(actualTickers.split(',').map((x) => x.trim().toUpperCase()))
+            const saved = displayLabel === 'ALL' || displayLabel === 'MAG7'
+              ? combinedTrades
+              : combinedTrades.filter((t: OptionsFlowData) =>
+                _tickerSet.has(t.underlying_ticker?.toUpperCase() ?? '')
               )
 
-              const combinedTrades: OptionsFlowData[] = []
-              for (const payload of dayPayloads) {
-                // Use a loop instead of push(...) "” spread on 600k+ items overflows the JS call stack
-                if (Array.isArray(payload?.data)) {
-                  const incoming = payload.data as OptionsFlowData[]
-                  for (let i = 0; i < incoming.length; i++) combinedTrades.push(incoming[i])
-                }
+            if (saved.length > 0 && missingDays.length === 0) {
+              // Full coverage and ticker data found "-- use saved
+              setFlowData(saved)
+              accumulatedTradesRef.current = saved
+              liveOICache.clear()
+              setIsStreamComplete(true)
+              setStreamStatus(`Loaded from saved - ${saved.length} trades`)
+              setLoading(false)
+              // Trades are already classified "-- build analysis directly from saved fields, skip re-processing
+              const fastAnalysis = buildFastAnalysisFromSaved(saved, displayLabel)
+              if (fastAnalysis) {
+                setAnalysis(fastAnalysis)
+                if (fastAnalysis.ticker === 'ALL') { allScanCacheRef.current = { flowData: saved, analysis: fastAnalysis }; setShouldAutoScanRRG(v => v + 1) }
               }
-
-              // Determine which required trading days are actually present.
-              // FIXED: compute PST offset ONCE from a sample trade (1 Intl call), then
-              // use pure UTC math per-trade "” avoids 601k Intl calls that blocked for 21s.
-              const _pstSample = combinedTrades.length > 0 ? new Date(combinedTrades[0].trade_timestamp) : new Date()
-              const _pstOffsetMs = _pstSample.getTime() - new Date(_pstSample.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTime()
-              const tradeDaySet = new Set<string>()
-              for (let i = 0; i < combinedTrades.length; i++) {
-                const pstMs = new Date(combinedTrades[i].trade_timestamp).getTime() - _pstOffsetMs
-                const d = new Date(pstMs)
-                tradeDaySet.add(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`)
-              }
-              const coveredDays = allRequiredDays.filter((d) => tradeDaySet.has(d))
-              const missingDays = allRequiredDays.filter((d) => !tradeDaySet.has(d))
-
-              // When scanning ALL (or MAG7), skip the ticker filter "” return every trade
-              // in the saved data. The DB was saved from a broader scan so filtering
-              // to a hardcoded 33-ticker set throws away legitimate data.
-              // FIXED: hoist Set construction outside the filter callback (was creating 601k Sets)
-              const _tickerSet = new Set(actualTickers.split(',').map((x) => x.trim().toUpperCase()))
-              const saved = displayLabel === 'ALL' || displayLabel === 'MAG7'
-                ? combinedTrades
-                : combinedTrades.filter((t: OptionsFlowData) =>
-                  _tickerSet.has(t.underlying_ticker?.toUpperCase() ?? '')
-                )
-
-              if (saved.length > 0 && missingDays.length === 0) {
-                // Full coverage and ticker data found "” use saved
-                setFlowData(saved)
-                accumulatedTradesRef.current = saved
-                liveOICache.clear()
-                setIsStreamComplete(true)
-                setStreamStatus(`Loaded from saved - ${saved.length} trades`)
-                setLoading(false)
-                // Trades are already classified "” build analysis directly from saved fields, skip re-processing
-                const fastAnalysis = buildFastAnalysisFromSaved(saved, displayLabel)
-                if (fastAnalysis) {
-                  setAnalysis(fastAnalysis)
-                  if (fastAnalysis.ticker === 'ALL') { allScanCacheRef.current = { flowData: saved, analysis: fastAnalysis }; setShouldAutoScanRRG(v => v + 1) }
-                }
-                setOverlayActive(false)
-                return
-              } else if (saved.length > 0 && coveredDays.length > 0) {
-                // Partial coverage but have some ticker data "” show missing days dialog
-                setLoading(false)
-                setStreamStatus('')
-                setMissingDaysDialog({ missingDays, savedTrades: saved, originalSearch: tickerToSearch, tf, displayLabel })
-                setOverlayActive(false)
-                return
-              }
-              // saved.length === 0 means ticker not in saved data ←’ fall through to live scan
+              setOverlayActive(false)
+              return
+            } else if (saved.length > 0 && coveredDays.length > 0) {
+              // Partial coverage but have some ticker data "-- show missing days dialog
+              setLoading(false)
+              setStreamStatus('')
+              setMissingDaysDialog({ missingDays, savedTrades: saved, originalSearch: tickerToSearch, tf, displayLabel })
+              setOverlayActive(false)
+              return
             }
+            // saved.length === 0 means ticker not in saved data ←' fall through to live scan
           }
         }
       } catch (err) {
       }
-    } else {
     }
 
     setStreamStatus('Connecting...')
@@ -1947,7 +2335,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               setStreamStatus(data.message)
               break
 
-            // ─── PRIMARY TRADE DELIVERY PATH ───────────────────────────────
+            // --- PRIMARY TRADE DELIVERY PATH -------------------------------
             // Server streams trades as 'ticker_complete' events (one per ticker).
             // We must handle this OR we lose all trades before 'complete' fires.
             case 'ticker_complete':
@@ -1966,7 +2354,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               }
               break
 
-            // ─── LEGACY PROGRESSIVE PATH (kept for other callers) ──────────
+            // --- LEGACY PROGRESSIVE PATH (kept for other callers) ----------
             case 'trades':
               if (data.trades?.length > 0 && !isStreamComplete) {
                 accumulatedTradesRef.current = [...accumulatedTradesRef.current, ...data.trades]
@@ -2001,7 +2389,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                     accumulatedTradesRef.current = tradesWithVolOI
                     liveOICache.clear()
                     setIsStreamComplete(true)
-                    setStreamStatus(`Complete "” ${tradesWithVolOI.length} trades loaded`)
+                    setStreamStatus(`Complete "-- ${tradesWithVolOI.length} trades loaded`)
                     setLoading(false)
                     performAnalysis(tradesWithVolOI, displayLabel)
                   })
@@ -2029,7 +2417,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               break
           }
         } catch (parseError) {
-          // parse error "” skip
+          // parse error "-- skip
         }
       }
 
@@ -2058,7 +2446,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     if (!trades.length || !underlyingTicker) return
     setGammaLoading(true)
     try {
-      // Single call "” options-chain without expiration returns all contracts up to 3 months
+      // Single call "-- options-chain without expiration returns all contracts up to 3 months
       const res = await fetch(`/api/options-chain?ticker=${underlyingTicker}`)
       const json = await res.json()
       if (!json.success || !json.data) return
@@ -2092,7 +2480,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analysis?.ticker])
 
-  // Build cumulative gamma line from real Polygon greeks "” per trade, chronological
+  // Build cumulative gamma line from real Polygon greeks "-- per trade, chronological
   const gammaLineData = useMemo(() => {
     if (!gammaMap.size || !flowData.length) return [] as Array<{ time: number; timeLabel: string; cumGamma: number }>
     const sorted = [...flowData].sort(
@@ -2178,7 +2566,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
         return
       }
     }
-    // No ALL cache — fetch flow for ETF holdings
+    // No ALL cache --” fetch flow for ETF holdings
     fetchTickerFlow(etf + '100')
   }
 
@@ -2229,7 +2617,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     }
   }
 
-  // Flow Quadrant Gauge "” 4 liquid-filled quadrants (Bull/Bear Calls & Puts) + center neutral
+  // Flow Quadrant Gauge "-- 4 liquid-filled quadrants (Bull/Bear Calls & Puts) + center neutral
   const FlowQuadrantGauge = ({
     bullCall, bearCall, bullPut, bearPut, score, label,
   }: {
@@ -2294,7 +2682,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               </g>
             )
           })}
-          {/* Center score circle "” mobile only */}
+          {/* Center score circle "-- mobile only */}
           {isMobile && (() => {
             const cx = 151, cy = 35, r = 24, rt = 32
             const fillColor = score >= 0 ? '#10b981' : '#ef4444'
@@ -2347,7 +2735,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     )
   }
 
-  // Legacy gauge (unused "” kept for reference)
+  // Legacy gauge (unused "-- kept for reference)
   const _GaugeChart = ({
     value,
     max,
@@ -2422,7 +2810,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             return <line key={i} x1={p0.x} y1={p0.y} x2={p1.x} y2={p1.y} stroke={isMaj ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.18)'} strokeWidth={isMaj ? 1.5 : 0.8} />
           })}
 
-          {/* Single-color fill "” 0° to needle, one solid color based on current zone */}
+          {/* Single-color fill "-- 0° to needle, one solid color based on current zone */}
           {gaugeAngle > 0.5 && (
             <path d={arc(0, gaugeAngle, innerR, outerR)} fill={color} opacity={0.85} filter={`url(#${glowId})`} />
           )}
@@ -2510,7 +2898,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     }
   }
 
-  // ── Flow Bias Scanner helpers ────────────────────────────────────────────────
+  // -- Flow Bias Scanner helpers ------------------------------------------------
   const aggregateFlowByTicker = (trades: OptionsFlowData[]) => {
     const map = new Map<string, { ticker: string; bullCall: number; bearCall: number; bullPut: number; bearPut: number; total: number; callPremium: number; putPremium: number }>()
     for (const t of trades) {
@@ -2553,7 +2941,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       setBiasDataStatus(`Loaded ${combined.length} trades from DB`)
       return combined
     } catch (e) {
-      setBiasDataStatus('No cached data — run an ALL scan first')
+      setBiasDataStatus('No cached data --” run an ALL scan first')
       return []
     }
   }
@@ -2735,9 +3123,9 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
           </div>
         </div>
       )}
-      {/* HEADER BAR "” hidden in embedded mode */}
+      {/* HEADER BAR — hidden in embedded mode */}
       {!embeddedMode && (isMobile ? (
-        /* ── MOBILE HEADER ─────────────────────────────────────── */
+        /* -- MOBILE HEADER --------------------------------------- */
         <div style={{ background: 'linear-gradient(180deg, #0d0d0d 0%, #060606 100%)', borderBottom: '1px solid rgba(255,255,255,0.1)', flexShrink: 0 }}>
           {/* Row 1: Back + [RRG: RUN SCAN] / [AlgoFlow: input + GO] + FILTER + GO 2 RRG */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '3px 8px 0', position: 'relative', zIndex: 200 }}>
@@ -2779,7 +3167,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                 </button>
               </>
             )}
-            {/* GO 2 RRG — only visible when NOT already in RRG */}
+            {/* GO 2 RRG --” only visible when NOT already in RRG */}
             {activeTab !== 'flowbias' && (
               <button
                 onClick={() => setActiveTab('flowbias')}
@@ -2798,7 +3186,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                 {SECTORS.map(({ etf, label }) => {
                   const active = sectorFilter === etf
                   return <div key={etf} onClick={() => handleSectorSelect(etf)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', cursor: 'pointer', background: active ? 'rgba(52,211,153,0.1)' : 'transparent' }}>
-                    <div style={{ width: 12, height: 12, borderRadius: 3, border: `2px solid ${active ? '#34d399' : 'rgba(255,255,255,0.3)'}`, background: active ? '#34d399' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{active && <span style={{ color: '#000', fontSize: 8, fontWeight: 900 }}>✓</span>}</div>
+                    <div style={{ width: 12, height: 12, borderRadius: 3, border: `2px solid ${active ? '#34d399' : 'rgba(255,255,255,0.3)'}`, background: active ? '#34d399' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{active && <span style={{ color: '#000', fontSize: 8, fontWeight: 900 }}>-</span>}</div>
                     <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, color: active ? '#34d399' : '#fff' }}>{etf} <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 9 }}>{label}</span></span>
                   </div>
                 })}
@@ -2807,7 +3195,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                 {INDUSTRIES.map(({ etf, label }) => {
                   const active = sectorFilter === etf
                   return <div key={etf} onClick={() => handleSectorSelect(etf)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', cursor: 'pointer', background: active ? 'rgba(167,139,250,0.1)' : 'transparent' }}>
-                    <div style={{ width: 12, height: 12, borderRadius: 3, border: `2px solid ${active ? '#a78bfa' : 'rgba(255,255,255,0.3)'}`, background: active ? '#a78bfa' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{active && <span style={{ color: '#fff', fontSize: 8, fontWeight: 900 }}>✓</span>}</div>
+                    <div style={{ width: 12, height: 12, borderRadius: 3, border: `2px solid ${active ? '#a78bfa' : 'rgba(255,255,255,0.3)'}`, background: active ? '#a78bfa' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{active && <span style={{ color: '#fff', fontSize: 8, fontWeight: 900 }}>-</span>}</div>
                     <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, color: active ? '#a78bfa' : '#fff' }}>{etf} <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 9 }}>{label}</span></span>
                   </div>
                 })}
@@ -2819,7 +3207,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                 )}
               </div>
             )}
-            {/* FILTER popup — consolidates TICKER + TIME + UNIQUENESS */}
+            {/* FILTER popup --” consolidates TICKER + TIME + UNIQUENESS */}
             {rrgDropdownOpen === 'filter' && <div onClick={() => setRrgDropdownOpen(null)} style={{ position: 'fixed', inset: 0, zIndex: 298 }} />}
             <div style={{ position: 'relative', zIndex: rrgDropdownOpen === 'filter' ? 300 : 99, flexShrink: 0, marginLeft: 'auto' }}>
               {(() => {
@@ -2836,7 +3224,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                         {([{ id: 'mag7only', label: 'MAG7 ONLY' }, { id: 'exmag7', label: 'EXCL MAG7' }, { id: 'etfonly', label: 'ETF ONLY' }, { id: 'exetf', label: 'EXCL ETF' }, { id: 'stockonly', label: 'STOCKS ONLY' }] as const).map(item => {
                           const active = rrgTickerMode === item.id
                           return <div key={item.id} onClick={() => { setRrgTickerMode(active ? 'all' : item.id); setRrgDropdownOpen(null) }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', cursor: 'pointer', background: active ? 'rgba(255,133,0,0.1)' : 'transparent' }}>
-                            <div style={{ width: 13, height: 13, borderRadius: 3, border: `2px solid ${active ? '#ff8500' : 'rgba(255,255,255,0.3)'}`, background: active ? '#ff8500' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{active && <span style={{ color: '#000', fontSize: 9, fontWeight: 900 }}>✓</span>}</div>
+                            <div style={{ width: 13, height: 13, borderRadius: 3, border: `2px solid ${active ? '#ff8500' : 'rgba(255,255,255,0.3)'}`, background: active ? '#ff8500' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{active && <span style={{ color: '#000', fontSize: 9, fontWeight: 900 }}>-</span>}</div>
                             <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 700, color: active ? '#ff8500' : '#fff' }}>{item.label}</span>
                           </div>
                         })}
@@ -2845,7 +3233,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                         {([{ id: '45d', label: '45D OUT' }, { id: 'weekly', label: 'WEEKLIES' }, { id: '0dte', label: '0DTE' }] as const).map(item => {
                           const active = expiryFilter === item.id
                           return <div key={item.id} onClick={() => { setExpiryFilter(active ? 'all' : item.id); setRrgDropdownOpen(null) }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', cursor: 'pointer', background: active ? 'rgba(250,204,21,0.1)' : 'transparent' }}>
-                            <div style={{ width: 13, height: 13, borderRadius: 3, border: `2px solid ${active ? '#facc15' : 'rgba(255,255,255,0.3)'}`, background: active ? '#facc15' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{active && <span style={{ color: '#000', fontSize: 9, fontWeight: 900 }}>✓</span>}</div>
+                            <div style={{ width: 13, height: 13, borderRadius: 3, border: `2px solid ${active ? '#facc15' : 'rgba(255,255,255,0.3)'}`, background: active ? '#facc15' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{active && <span style={{ color: '#000', fontSize: 9, fontWeight: 900 }}>-</span>}</div>
                             <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 700, color: active ? '#facc15' : '#fff' }}>{item.label}</span>
                           </div>
                         })}
@@ -2859,7 +3247,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             </div>
           </div>
 
-          {/* Row 2: Ticker + Timeframe + Analyze "” hidden on mobile (use filter pills in Row 3) */}
+          {/* Row 2: Ticker + Timeframe + Analyze "-- hidden on mobile (use filter pills in Row 3) */}
           {!isMobile && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 14px 4px' }}>
               <input
@@ -2903,11 +3291,11 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             </div>
           )}
 
-          {/* Row 3: Filter pills — desktop only on mobile, mobile has everything in Row 1 */}
+          {/* Row 3: Filter pills --” desktop only on mobile, mobile has everything in Row 1 */}
           {!isMobile ? (
             <div style={{ padding: '6px 14px 8px', display: 'flex', gap: 8, position: 'relative' }}>
               {rrgDropdownOpen && <div onClick={() => setRrgDropdownOpen(null)} style={{ position: 'fixed', inset: 0, zIndex: 98 }} />}
-              {/* 1. TICKER FILTER — desktop only (mobile has it in Row 1) */}
+              {/* 1. TICKER FILTER --” desktop only (mobile has it in Row 1) */}
               {!isMobile && (() => {
                 const isActive = rrgTickerMode !== 'all'
                 const items: { id: 'mag7only' | 'exmag7' | 'etfonly' | 'exetf' | 'stockonly', label: string }[] = [
@@ -2922,7 +3310,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       <div style={{ position: 'absolute', top: 'calc(100% + 5px)', left: 0, background: 'linear-gradient(180deg,#141428 0%,#080812 100%)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: 5, width: 'max-content', zIndex: 999, boxShadow: '0 16px 48px rgba(0,0,0,0.95),inset 0 1px 0 rgba(255,255,255,0.08)' }}>{items.map(item => {
                         const active = rrgTickerMode === item.id; return (
                           <div key={item.id} onClick={() => { setRrgTickerMode(active ? 'all' : item.id); setRrgDropdownOpen(null) }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, cursor: 'pointer', background: active ? 'rgba(255,133,0,0.12)' : 'transparent' }}>
-                            <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${active ? '#a78bfa' : 'rgba(255,255,255,0.3)'}`, background: active ? '#a78bfa' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{active && <span style={{ color: '#fff', fontSize: 11, fontWeight: 900 }}>✓</span>}</div>
+                            <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${active ? '#a78bfa' : 'rgba(255,255,255,0.3)'}`, background: active ? '#a78bfa' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{active && <span style={{ color: '#fff', fontSize: 11, fontWeight: 900 }}>-</span>}</div>
                             <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 700, color: active ? '#a78bfa' : '#fff' }}>{item.label}</span>
                           </div>
                         )
@@ -2932,7 +3320,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                   </div>
                 )
               })()}
-              {/* 2. TIME FILTER — desktop only */}
+              {/* 2. TIME FILTER --” desktop only */}
               {!isMobile && (() => {
                 const isActive = expiryFilter !== 'all'
                 const items = [{ id: '45d' as const, label: '45D OUT' }, { id: 'weekly' as const, label: 'WEEKLIES' }, { id: '0dte' as const, label: '0DTE' }]
@@ -2946,7 +3334,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                         {items.map(item => {
                           const active = expiryFilter === item.id; return (
                             <div key={item.id} onClick={() => { setExpiryFilter(active ? 'all' : item.id); setRrgDropdownOpen(null) }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, cursor: 'pointer', background: active ? 'rgba(250,204,21,0.12)' : 'transparent' }}>
-                              <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${active ? '#facc15' : 'rgba(255,255,255,0.3)'}`, background: active ? '#facc15' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{active && <span style={{ color: '#000', fontSize: 11, fontWeight: 900 }}>✓</span>}</div>
+                              <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${active ? '#facc15' : 'rgba(255,255,255,0.3)'}`, background: active ? '#facc15' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{active && <span style={{ color: '#000', fontSize: 11, fontWeight: 900 }}>-</span>}</div>
                               <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 700, color: active ? '#facc15' : '#fff' }}>{item.label}</span>
                             </div>
                           )
@@ -2957,7 +3345,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                 )
               })()}
 
-              {/* RRG button — desktop only in Row 3, mobile has it in Row 1 */}
+              {/* RRG button --” desktop only in Row 3, mobile has it in Row 1 */}
               {!isMobile && (
                 <button
                   onClick={() => setActiveTab(activeTab === 'flowbias' ? 'algoflow' : 'flowbias')}
@@ -2969,19 +3357,151 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             </div>
           ) : null}
         </div>
-      ) : (
-        /* -- DESKTOP HEADER -- */
+      ) : isTablet ? (
+        /* -- TABLET / LAPTOP HEADER (769px – 1439px) --------------------------------- */
         <div style={{
           background: 'linear-gradient(180deg, #111 0%, #080808 100%)',
-          borderBottom: '1px solid rgba(255,255,255,0.08)',
-          padding: '7px 16px',
+          borderBottom: '1px solid rgba(255,133,0,0.3)',
+          padding: '6px 12px',
           flexShrink: 0,
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
+          gap: 6,
           flexWrap: 'nowrap',
           overflowX: 'auto',
         }}>
+          <style>{`
+            .aft-btn {
+              height: 28px; padding: 0 10px;
+              background: linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 60%, #040404 100%);
+              border: 1px solid rgba(255,255,255,0.14);
+              border-top: 1px solid rgba(255,255,255,0.22);
+              border-radius: 6px;
+              box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.7);
+              font-family: JetBrains Mono, monospace;
+              font-size: 11px; font-weight: 800; letter-spacing: 0.8px;
+              color: #fff; cursor: pointer; white-space: nowrap;
+              transition: color 0.12s; outline: none; flex-shrink: 0;
+            }
+            .aft-btn:hover { color: #ff8500; }
+            .aft-btn.aft-active { color: #ff8500; border-color: #ff8500; background: linear-gradient(180deg,rgba(255,133,0,0.18) 0%,rgba(0,0,0,0.6) 100%); }
+            .aft-sep { width: 1px; height: 20px; background: rgba(255,255,255,0.1); flex-shrink: 0; margin: 0 2px; }
+          `}</style>
+
+          {onBack && <button className="aft-btn" onClick={onBack}>← BACK</button>}
+          <div className="aft-sep" />
+
+          {/* STOCKS ONLY — single button */}
+          <button
+            className={`aft-btn${(excludeMag7 && excludeEtf && excludeIndex) ? ' aft-active' : ''}`}
+            onClick={() => { const on = excludeMag7 && excludeEtf && excludeIndex; setExcludeMag7(!on); setExcludeEtf(!on); setExcludeIndex(!on) }}
+            title="Stocks only — exclude MAG7, ETFs and indices"
+          >STOCKS ONLY</button>
+
+          {/* EXCLUDE dropdown */}
+          {afExcludeOpen && <div onClick={() => setAfExcludeOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />}
+          <div style={{ position: 'relative', zIndex: afExcludeOpen ? 9999 : undefined, flexShrink: 0 }}>
+            <button
+              className={`aft-btn${(excludeMag7 || excludeEtf || excludeIndex) && !(excludeMag7 && excludeEtf && excludeIndex) ? ' aft-active' : ''}`}
+              onClick={() => { setAfExcludeOpen(v => !v); setAfTimeOpen(false) }}
+            >EXCLUDE {afExcludeOpen ? '▲' : '▾'}</button>
+            {afExcludeOpen && (
+              <div style={{ position: 'absolute', top: 'calc(100% + 5px)', left: 0, background: '#0e0e0e', border: '1px solid rgba(255,133,0,0.45)', borderRadius: 8, overflow: 'hidden', minWidth: 160, boxShadow: '0 8px 32px rgba(0,0,0,0.9)', zIndex: 9999 }}>
+                {[
+                  { label: 'MAG7', active: excludeMag7, toggle: () => setExcludeMag7(v => !v) },
+                  { label: 'ETFs', active: excludeEtf, toggle: () => setExcludeEtf(v => !v) },
+                  { label: 'Indices', active: excludeIndex, toggle: () => setExcludeIndex((v: boolean) => !v) },
+                ].map(opt => (
+                  <button key={opt.label} onClick={opt.toggle}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '9px 14px', background: 'none', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.06)', cursor: 'pointer', textAlign: 'left' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,133,0,0.08)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                  >
+                    <div style={{ width: 15, height: 15, borderRadius: 3, border: `2px solid ${opt.active ? '#ff8500' : 'rgba(255,255,255,0.3)'}`, background: opt.active ? '#ff8500' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {opt.active && <span style={{ color: '#000', fontSize: 10, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+                    </div>
+                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 700, color: opt.active ? '#ff8500' : '#ccc', textTransform: 'uppercase', letterSpacing: '0.8px' }}>{opt.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* TIME dropdown */}
+          {afTimeOpen && <div onClick={() => setAfTimeOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />}
+          <div style={{ position: 'relative', zIndex: afTimeOpen ? 9999 : undefined, flexShrink: 0 }}>
+            <button
+              className={`aft-btn${expiryFilter !== 'all' ? ' aft-active' : ''}`}
+              onClick={() => { setAfTimeOpen(v => !v); setAfExcludeOpen(false) }}
+            >TIME {expiryFilter !== 'all' ? `(${expiryFilter.toUpperCase()})` : ''} {afTimeOpen ? '▲' : '▾'}</button>
+            {afTimeOpen && (
+              <div style={{ position: 'absolute', top: 'calc(100% + 5px)', left: 0, background: '#0e0e0e', border: '1px solid rgba(255,133,0,0.45)', borderRadius: 8, overflow: 'hidden', minWidth: 150, boxShadow: '0 8px 32px rgba(0,0,0,0.9)', zIndex: 9999 }}>
+                {[
+                  { label: '45D', value: '45d' as const },
+                  { label: 'WEEKLY', value: 'weekly' as const },
+                  { label: '0DTE', value: '0dte' as const },
+                ].map(opt => (
+                  <button key={opt.value} onClick={() => { setExpiryFilter(expiryFilter === opt.value ? 'all' : opt.value); setAfTimeOpen(false) }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '9px 14px', background: 'none', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.06)', cursor: 'pointer', textAlign: 'left' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,133,0,0.08)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                  >
+                    <div style={{ width: 15, height: 15, borderRadius: 3, border: `2px solid ${expiryFilter === opt.value ? '#facc15' : 'rgba(255,255,255,0.3)'}`, background: expiryFilter === opt.value ? '#facc15' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {expiryFilter === opt.value && <span style={{ color: '#000', fontSize: 10, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+                    </div>
+                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 700, color: expiryFilter === opt.value ? '#facc15' : '#ccc', textTransform: 'uppercase', letterSpacing: '0.8px' }}>{opt.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="aft-sep" />
+
+          {/* ALL TICKERS */}
+          <button className={`aft-btn${ticker === 'ALL' ? ' aft-active' : ''}`}
+            onClick={() => { setSearchTicker('ALL'); setIsAllScan(true); fetchTickerFlow('ALL') }}
+            disabled={loading}>ALL</button>
+
+          {/* SECTORS */}
+          {sectorPopupOpen && <div onClick={() => setSectorPopupOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 398 }} />}
+          <div style={{ position: 'relative', zIndex: sectorPopupOpen ? 400 : undefined, flexShrink: 0 }}>
+            <button className={`aft-btn${sectorFilter ? ' aft-active' : ''}`} onClick={() => setSectorPopupOpen(o => !o)}>
+              {sectorFilter ? sectorFilter : 'SECTORS'} {sectorPopupOpen ? '▲' : '▾'}
+            </button>
+            {sectorPopupOpen && (
+              <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: '6px 0', width: 200, zIndex: 999, boxShadow: '0 16px 48px rgba(0,0,0,0.95)', maxHeight: '60vh', overflowY: 'auto' }}>
+                <div style={{ padding: '5px 14px 3px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#34d399', letterSpacing: '0.2em', fontWeight: 800 }}>SECTORS</div>
+                {sectorFilter && (
+                  <div onClick={() => { setSectorFilter(null); setSectorPopupOpen(false) }} style={{ padding: '8px 14px', fontSize: 11, color: '#ef4444', fontFamily: 'JetBrains Mono,monospace', fontWeight: 700, cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>✕ CLEAR</div>
+                )}
+                {SECTORS.map(({ etf, label }) => (
+                  <div key={etf} onClick={() => { setSectorFilter(etf); setSectorPopupOpen(false); fetchTickerFlow(etf) }}
+                    style={{ padding: '8px 14px', fontSize: 11, color: sectorFilter === etf ? '#34d399' : '#ccc', fontFamily: 'JetBrains Mono,monospace', fontWeight: 700, cursor: 'pointer', background: sectorFilter === etf ? 'rgba(52,211,153,0.1)' : 'transparent' }}>
+                    {etf} <span style={{ color: '#666', fontWeight: 400 }}>· {label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="aft-sep" />
+
+          {/* FLOW MATRIX toggle */}
+          <button
+            className={`aft-btn${tabletFlowMatrixOpen ? ' aft-active' : ''}`}
+            onClick={() => setTabletFlowMatrixOpen(v => !v)}
+            title="Toggle Flow Matrix panel"
+          >FLOW MATRIX</button>
+
+          {/* Loading indicator */}
+          {loading && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#ff8500', letterSpacing: '0.1em', flexShrink: 0 }}>LOADING…</span>}
+          {streamStatus && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#22d3ee', letterSpacing: '0.1em', flexShrink: 0 }}>{streamStatus}</span>}
+          {error && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#ef4444', flexShrink: 0 }}>{error}</span>}
+        </div>
+      ) : (
+        /* -- DESKTOP HEADER --------------------------------------- */
+        <div style={{ background: 'linear-gradient(180deg, #111 0%, #080808 100%)', borderBottom: '1px solid rgba(255,255,255,0.08)', padding: '7px 16px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', overflowX: 'auto' }}>
           {/* Candy-black 3D glossy button style helper */}
           <style>{`
             .af-btn {
@@ -3037,7 +3557,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
 
           <div className="af-sep" />
 
-          {/* Chart overlays — single ticker only */}
+          {/* Chart overlays --” single ticker only */}
           {analysis && !isAllScan && (<>
             <button className={`af-btn${showGammaLine ? ' af-active-orange' : ''}`} onClick={() => setShowGammaLine(v => !v)} title="Cumulative gamma from flow">GAMMA</button>
             <button className={`af-btn${showBullBear ? ' af-active-violet' : ''}`} onClick={() => setShowBullBear(v => !v)} title="Bull/Bear ratio">BULL/BEAR</button>
@@ -3063,7 +3583,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                 {SECTORS.map(({ etf, label }) => {
                   const active = sectorFilter === etf
                   return <div key={etf} onClick={() => handleSectorSelect(etf)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', background: active ? 'rgba(52,211,153,0.1)' : 'transparent' }}>
-                    <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${active ? '#34d399' : 'rgba(255,255,255,0.3)'}`, background: active ? '#34d399' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{active && <span style={{ color: '#000', fontSize: 10, fontWeight: 900 }}>✓</span>}</div>
+                    <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${active ? '#34d399' : 'rgba(255,255,255,0.3)'}`, background: active ? '#34d399' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{active && <span style={{ color: '#000', fontSize: 10, fontWeight: 900 }}>-</span>}</div>
                     <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 700, color: active ? '#34d399' : '#fff' }}>{etf} <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>{label}</span></span>
                   </div>
                 })}
@@ -3072,7 +3592,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                 {INDUSTRIES.map(({ etf, label }) => {
                   const active = sectorFilter === etf
                   return <div key={etf} onClick={() => handleSectorSelect(etf)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', background: active ? 'rgba(167,139,250,0.1)' : 'transparent' }}>
-                    <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${active ? '#a78bfa' : 'rgba(255,255,255,0.3)'}`, background: active ? '#a78bfa' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{active && <span style={{ color: '#fff', fontSize: 10, fontWeight: 900 }}>✓</span>}</div>
+                    <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${active ? '#a78bfa' : 'rgba(255,255,255,0.3)'}`, background: active ? '#a78bfa' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{active && <span style={{ color: '#fff', fontSize: 10, fontWeight: 900 }}>-</span>}</div>
                     <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 700, color: active ? '#a78bfa' : '#fff' }}>{etf} <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>{label}</span></span>
                   </div>
                 })}
@@ -3147,10 +3667,12 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
         </div>
       ))} {/* end header */}
 
-      {/* Main content: flex row — left scrollable content | right RRG panel */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: 0, overflow: 'hidden', alignItems: 'stretch' }}>
+      {/* Tablet Flow Matrix side drawer removed */}
 
-        {/* LEFT: scrollable content — hidden on mobile when RRG tab is active */}
+      {/* Main content: flex row --” left scrollable content | right RRG panel */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: 0, overflow: 'hidden', alignItems: 'stretch', position: 'relative' }}>
+
+        {/* LEFT: scrollable content --” hidden on mobile when RRG tab is active */}
         <div className="flex-1 overflow-y-auto min-h-0" style={{ padding: isMobile ? '8px 10px 80px' : '12px 20px 20px', flex: 1, minWidth: 0, display: (isMobile && activeTab === 'flowbias') ? 'none' : undefined }}>
 
           {/* Drill-down re-analysis overlay */}
@@ -3164,13 +3686,13 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             </div>
           )}
 
-          {/* Main analysis layout — RRG stretches full height alongside scrollable left */}
+          {/* Main analysis layout --” RRG stretches full height alongside scrollable left */}
           {analysis && (
             <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 0 }}>
               {/* LEFT: scrollable chart + table */}
               <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-                {/* ── ROW 2: METRICS + CHART SIDE BY SIDE (stacked on mobile) ── */}
+                {/* -- ROW 2: METRICS + CHART SIDE BY SIDE (stacked on mobile) -- */}
                 <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 0, borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
 
                   {/* LEFT: Stats sidebar */}
@@ -3203,8 +3725,8 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       />
                     </div>
 
-                    {/* P/C + Execution "” compact single row on mobile, full panels on desktop */}
-                    {/* P/C + Execution — desktop only, removed from mobile */}
+                    {/* P/C + Execution "-- compact single row on mobile, full panels on desktop */}
+                    {/* P/C + Execution --” desktop only, removed from mobile */}
                     {null /* DEBUG: B/B row removed for mobile */}
                     {!isMobile && (
                       <>
@@ -3297,7 +3819,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       </>
                     )}
 
-                    {/* Stacked metrics "” desktop only */}
+                    {/* Stacked metrics "-- desktop only */}
                     {!isMobile && [{ label: 'CALLS PREM', value: formatCurrency(displayAnalysis?.totalCallPremium ?? 0), color: '#10b981', glow: 'rgba(16,185,129,0.35)', bg: 'rgba(16,185,129,0.04)' },
                     { label: 'PUTS PREM', value: formatCurrency(displayAnalysis?.totalPutPremium ?? 0), color: '#ef4444', glow: 'rgba(239,68,68,0.35)', bg: 'rgba(239,68,68,0.04)' },
                     { label: 'NET FLOW', value: formatCurrency(analysis.netFlow), color: analysis.netFlow >= 0 ? '#10b981' : '#ef4444', glow: analysis.netFlow >= 0 ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)', bg: analysis.netFlow >= 0 ? 'rgba(16,185,129,0.04)' : 'rgba(239,68,68,0.04)' },
@@ -3318,9 +3840,9 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                     ))}
                   </div>
 
-                  {/* RIGHT: Chart — fills remaining left column */}
+                  {/* RIGHT: Chart --” fills remaining left column */}
                   <div style={{ flex: isMobile ? 'none' : 1, minWidth: 0, width: isMobile ? '100%' : undefined }}>
-                    {/* Chart toolbar "” desktop only; mobile controls overlaid inside chart */}
+                    {/* Chart toolbar "-- desktop only; mobile controls overlaid inside chart */}
                     <div className="algo-chart-toolbar" style={{ padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: isMobile ? 'none' : 'flex', alignItems: 'center', position: 'relative', minHeight: 36, gap: 0 }}>
                       {/* LEFT: ticker + FLOW + timeframe buttons */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
@@ -3334,12 +3856,12 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                               setAnalysis(allScanCacheRef.current.analysis)
                             }}
                             style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 800, letterSpacing: '0.1em', padding: '2px 10px', background: 'rgba(255,133,0,0.15)', border: '1px solid #ff8500', color: '#ff8500', cursor: 'pointer', borderRadius: 3, marginRight: 6 }}
-                          >← ALL</button>
+                          >← ALL</button>
                         )}
                         <span style={{ color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: isMobile ? 14 : 21, fontWeight: 900, letterSpacing: '0.1em', marginRight: 2 }}>{analysis.ticker}</span>
                         {analysis.currentPrice > 0 && !isMobile && <span style={{ color: '#aaa', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 700, marginRight: 4 }}>${analysis.currentPrice.toFixed(2)}</span>}
                         {!isMobile && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, letterSpacing: '0.12em', padding: '1px 6px', borderRadius: 2, marginRight: 10, background: displayAnalysis?.flowTrend === 'BULLISH' ? 'rgba(16,185,129,0.15)' : displayAnalysis?.flowTrend === 'BEARISH' ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.15)', color: displayAnalysis?.flowTrend === 'BULLISH' ? '#10b981' : displayAnalysis?.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308', border: `1px solid ${displayAnalysis?.flowTrend === 'BULLISH' ? '#10b981' : displayAnalysis?.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308'}` }}>{displayAnalysis?.flowTrend}</span>}
-                        {/* Interval buttons "” context-aware based on scan days */}
+                        {/* Interval buttons "-- context-aware based on scan days */}
                         {(() => {
                           const sd = getScanDays(scanTimeframe)
                           const opts = sd === 1
@@ -3392,7 +3914,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                         ))}
                       </div>
                     </div>
-                    {/* Chart body "” height auto-sizes to content: main chart + visible sub-panels */}
+                    {/* Chart body "-- height auto-sizes to content: main chart + visible sub-panels */}
                     <div ref={chartDivRef} style={{
                       padding: 0,
                       background: 'linear-gradient(180deg, #0e0e0e 0%, #070707 4%, #000 100%)',
@@ -3415,7 +3937,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       onMouseMove={(e) => {
                         if (!chartDragRef.current.dragging) return
                         const clientX = e.clientX
-                        // RAF throttle "” only compute once per frame
+                        // RAF throttle "-- only compute once per frame
                         if (dragMoveRafRef.current) cancelAnimationFrame(dragMoveRafRef.current)
                         dragMoveRafRef.current = requestAnimationFrame(() => {
                           dragMoveRafRef.current = null
@@ -3436,7 +3958,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       onMouseUp={() => { chartDragRef.current.dragging = false; if (dragMoveRafRef.current) { cancelAnimationFrame(dragMoveRafRef.current); dragMoveRafRef.current = null } }}
                       onMouseLeave={() => { chartDragRef.current.dragging = false; if (dragMoveRafRef.current) { cancelAnimationFrame(dragMoveRafRef.current); dragMoveRafRef.current = null } }}
                     >
-                      {/* Mobile overlay controls — Ticker | Timeframe dropdown | Line dropdown | Gamma | Bull/Bear */}
+                      {/* Mobile overlay controls --” Ticker | Timeframe dropdown | Line dropdown | Gamma | Bull/Bear */}
                       {isMobile && (
                         <div style={{ position: 'absolute', top: 6, left: 6, right: 6, zIndex: 10, display: 'flex', alignItems: 'center', gap: 4, pointerEvents: 'auto' }}>
                           {/* Back to ALL drill-down */}
@@ -3547,7 +4069,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                         </ResponsiveContainer>
                       </div>
 
-                      {/* P/C Ratio sub-panel "” toggleable */}
+                      {/* P/C Ratio sub-panel "-- toggleable */}
                       {showBullBear && (() => {
                         const pcData = chartMemo.visibleData
                         const pcVals = pcData.map((d: any) => d.pcRatio ?? 1)
@@ -3601,7 +4123,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
 
                     </div>{/* end chart body */}
 
-                    {/* Gamma Line panel "” outside fixed-height chart body so it's never clipped */}
+                    {/* Gamma Line panel "-- outside fixed-height chart body so it's never clipped */}
                     {showGammaLine && !isAllScan && (() => {
                       const lastGamma = gammaLineData.length ? gammaLineData[gammaLineData.length - 1].cumGamma : 0
                       const gammaColor = lastGamma > 0 ? '#10b981' : lastGamma < 0 ? '#ef4444' : '#888'
@@ -3617,13 +4139,13 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       const gRange = gMax - gMin || Math.abs(gMax) * 0.2 || 1
                       const gDomMin = gMin - gRange * 0.1
                       const gDomMax = gMax + gRange * 0.1
-                      // Gradient: green above 0, red below 0 "” hard stop at zero fraction
+                      // Gradient: green above 0, red below 0 "-- hard stop at zero fraction
                       const totalRange = gDomMax - gDomMin
                       const zeroFrac = totalRange > 0 ? ((gDomMax - 0) / totalRange) * 100 : 50
                       const zeroStop = `${Math.max(0, Math.min(100, zeroFrac)).toFixed(1)}%`
                       return (
                         <div style={{ borderTop: '2px solid rgba(16,185,129,0.4)', background: 'linear-gradient(180deg, rgba(16,185,129,0.012) 0%, transparent 100%)', flexShrink: 0, overflow: 'hidden' }}>
-                          {/* Header "” title + spinner only, value lives on the Y axis */}
+                          {/* Header "-- title + spinner only, value lives on the Y axis */}
                           <div style={{ padding: '6px 14px 4px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#ff8500', letterSpacing: '0.22em', fontWeight: 700 }}>GAMMA EXPOSURE</div>
@@ -3679,7 +4201,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                               </LineChart>
                             </ResponsiveContainer>
                           ) : !gammaLoading ? (
-                            <div style={{ height: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: 'rgba(255,133,0,0.5)', letterSpacing: '0.1em' }}>NO GAMMA DATA "” CONTRACT NOT IN SNAPSHOT</div>
+                            <div style={{ height: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: 'rgba(255,133,0,0.5)', letterSpacing: '0.1em' }}>NO GAMMA DATA "-- CONTRACT NOT IN SNAPSHOT</div>
                           ) : null}
                         </div>
                       )
@@ -3688,10 +4210,10 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                   </div>{/* end chart column */}
                 </div>{/* end ROW 2 */}
 
-                {/* ── ROW 3: TRADES TABLE + EFI CHART "” hidden in embedded mode ── */}
+                {/* -- ROW 3: TRADES TABLE + EFI CHART "-- hidden in embedded mode -- */}
                 <div style={{ borderTop: '1px solid rgba(255,255,255,0.15)', display: embeddedMode ? 'none' : 'flex', marginTop: 0 }}>
 
-                  {/* Left: Trades table — fills remaining left column */}
+                  {/* Left: Trades table --” fills remaining left column */}
                   <div style={{ flex: 1, minWidth: 0, width: isMobile ? '100%' : undefined }}>
                     <div style={{ padding: '5px 14px', background: 'linear-gradient(90deg,#0a0a0a,#111)', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#fff', letterSpacing: '0.15em' }}></span>
@@ -3719,7 +4241,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                                   onClick={key ? () => { if (sortColumn === key) { setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc') } else { setSortColumn(key); setSortDirection('desc') } } : undefined}
                                   style={{ textAlign: 'left', padding: '4px 5px', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, color: sortColumn === key ? '#fff' : '#ff8500', letterSpacing: '0.08em', fontWeight: 800, cursor: key ? 'pointer' : 'default', whiteSpace: 'nowrap' }}
                                 >
-                                  {label}{key && sortColumn === key ? (sortDirection === 'asc' ? ' ←‘' : ' ←“') : ''}
+                                  {label}{key && sortColumn === key ? (sortDirection === 'asc' ? ' ←--˜' : ' ←"') : ''}
                                 </th>
                               ))
                             ) : (
@@ -3740,7 +4262,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                                   onClick={key ? () => { if (sortColumn === key) { setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc') } else { setSortColumn(key); setSortDirection('desc') } } : undefined}
                                   style={{ textAlign: 'left', padding: '6px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 22, color: sortColumn === key ? '#fff' : '#ff8500', letterSpacing: '0.12em', fontWeight: 800, cursor: key ? 'pointer' : 'default', whiteSpace: 'nowrap' }}
                                 >
-                                  {label}{key && sortColumn === key ? (sortDirection === 'asc' ? ' ←‘' : ' ←“') : ''}
+                                  {label}{key && sortColumn === key ? (sortDirection === 'asc' ? ' ←--˜' : ' ←"') : ''}
                                 </th>
                               ))
                             )}
@@ -3770,8 +4292,8 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                                   return expStr >= tradingDate && expStr <= cutoffStr
                                 })
                               } else if (expiryFilter === 'weekly') {
-                                // Week = Mon"“Fri. If today is Fri (5) or Sat (6), point to next week's Friday.
-                                const daysToFriday = dow <= 5 ? 5 - dow : 6 // 0=Sun←’5, 1=Mon←’4, ..., 5=Fri←’0, 6=Sat←’6(next Fri)
+                                // Week = Mon""Fri. If today is Fri (5) or Sat (6), point to next week's Friday.
+                                const daysToFriday = dow <= 5 ? 5 - dow : 6 // 0=Sun←'5, 1=Mon←'4, ..., 5=Fri←'0, 6=Sat←'6(next Fri)
                                 const thisFriday = new Date(todayPT)
                                 thisFriday.setDate(todayPT.getDate() + daysToFriday)
                                 // Week start = Monday of same week
@@ -3814,7 +4336,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                             const fillColors: Record<string, string> = { A: '#10b981', B: '#ef4444', AA: '#6ee7b7', BB: '#fca5a5', 'N/A': 'rgba(255,255,255,0.2)' }
                             const styleColors: Record<string, string> = { SWEEP: 'rgb(255,215,0)', BLOCK: 'rgb(0,153,255)', MINI: 'rgb(0,255,94)', 'MULTI-LEG': 'rgb(168,85,247)' }
 
-                            // Use memoized OI computation (tradeOIMemo) "” avoids rerunning on every render
+                            // Use memoized OI computation (tradeOIMemo) "-- avoids rerunning on every render
                             const { isMultiDay, liveOIMap, baseOIMap, multiDayOIChange, lastDayVolumeMap, lastDayOISnapshotMap } = tradeOIMemo
 
                             return paginatedTrades.map((trade, idx) => {
@@ -3974,7 +4496,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                         return (
                           <div style={{ padding: '6px 14px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                             <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#fff' }}>
-                              {(currentPage - 1) * TRADES_PER_PAGE + 1}"“{Math.min(currentPage * TRADES_PER_PAGE, tradesToDisplay.length)} OF {tradesToDisplay.length}
+                              {(currentPage - 1) * TRADES_PER_PAGE + 1}""{Math.min(currentPage * TRADES_PER_PAGE, tradesToDisplay.length)} OF {tradesToDisplay.length}
                             </span>
                             <div style={{ display: 'flex', gap: 4 }}>
                               <button onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} disabled={currentPage === 1} style={{ padding: '2px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 800, background: '#fff', color: '#000', border: 'none', cursor: currentPage === 1 ? 'not-allowed' : 'pointer', opacity: currentPage === 1 ? 0.3 : 1 }}>PREV</button>
@@ -4018,12 +4540,15 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
           )}
 
         </div>{/* end left scrollable */}
-        {/* RIGHT: RRG Panel */}
-        {(!isMobile || activeTab === 'flowbias') && (
-          <div style={{ width: isMobile ? '99%' : '40%', height: isMobile ? '86vh' : undefined, flex: isMobile ? 'none' : undefined, marginLeft: isMobile ? 'auto' : undefined, flexShrink: 0, borderLeft: isMobile ? 'none' : '1px solid rgba(255,255,255,0.1)', background: '#060608', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* RIGHT: RRG Panel — hidden on tablet unless toggled open */}
+        {((!isMobile && (!isTablet || tabletFlowMatrixOpen)) || (activeTab === 'flowbias' && isMobile)) && (
+          <div style={{ width: isMobile ? '99%' : isTablet ? '100%' : '40%', height: isMobile ? '86vh' : isTablet ? '100%' : undefined, position: isTablet ? 'absolute' : undefined, inset: isTablet ? 0 : undefined, zIndex: isTablet ? 500 : undefined, flex: isMobile ? 'none' : undefined, marginLeft: isMobile ? 'auto' : undefined, flexShrink: 0, borderLeft: isMobile ? 'none' : '1px solid rgba(255,255,255,0.1)', background: '#060608', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {/* RRG chart */}
             <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
               {/* FLOW MATRIX title overlay */}
+              {isTablet && (
+                <button onClick={() => setTabletFlowMatrixOpen(false)} style={{ position: 'absolute', top: 8, right: 8, zIndex: 20, background: 'rgba(0,0,0,0.8)', border: '1px solid #ff8500', borderRadius: 4, color: '#ff8500', fontSize: 16, fontWeight: 900, cursor: 'pointer', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>✕</button>
+              )}
               <div style={{ position: 'absolute', top: 10, left: 0, right: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10, pointerEvents: 'none' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 22, fontWeight: 900, color: '#ff8500', letterSpacing: '0.25em', textTransform: 'uppercase', textShadow: 'none', filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.9))' }}>FLOW MATRIX</span>
@@ -4077,7 +4602,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect()
                       const cx2 = (e.clientX - rect.left) * W / rect.width, cy2 = (e.clientY - rect.top) * H / rect.height
                       const dx = cx2 - rrgDragRef.current.lastSvgX, dy = cy2 - rrgDragRef.current.lastSvgY
-                      // Only start dragging after moving >4px — prevents double-click from drifting
+                      // Only start dragging after moving >4px --” prevents double-click from drifting
                       if (!rrgDragRef.current.dragging && Math.sqrt(dx * dx + dy * dy) < 4) return
                       rrgDragRef.current.dragging = true
                       rrgDragRef.current.lastSvgX = cx2; rrgDragRef.current.lastSvgY = cy2
@@ -4097,7 +4622,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       <linearGradient id="rrg-gloss2" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="rgba(255,255,255,0.04)" /><stop offset="45%" stopColor="rgba(255,255,255,0.01)" /><stop offset="100%" stopColor="rgba(0,0,0,0.08)" />
                       </linearGradient>
-                      {/* Quadrant diagonal gradients — same style as market overview RRG */}
+                      {/* Quadrant diagonal gradients --” same style as market overview RRG */}
                       <linearGradient id="rrg-q-bp" x1="0%" y1="0%" x2="100%" y2="100%">
                         <stop offset="0%" stopColor="#000000" stopOpacity="1" />
                         <stop offset="50%" stopColor="#004a4a" stopOpacity="1" />
@@ -4171,19 +4696,19 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                             const isHoverActive = hoveredRegimeMembers.size > 0
                             const isHighlighted = hoveredRegimeMembers.has(t.ticker)
 
-                            // ── Neutrality classification ──
+                            // -- Neutrality classification --
                             // Use classified-only total (same as popup gauge) so percentages match what's displayed
                             let neutralLevel: 'neutral' | 'highlighted' | 'normal' = 'normal'
                             if (agg) {
                               const classifiedTotal = (agg.bullCall + agg.bearCall + agg.bullPut + agg.bearPut) || 1
                               const bc = agg.bullCall / classifiedTotal, cc = agg.bearCall / classifiedTotal
                               const bp = agg.bullPut / classifiedTotal, rp = agg.bearPut / classifiedTotal
-                              // GRAY: same instrument, opposing sentiment — Bull Calls+Bear Calls OR Bull Puts+Bear Puts
-                              // combined ≥60%, min of either ≥25%
+                              // GRAY: same instrument, opposing sentiment --” Bull Calls+Bear Calls OR Bull Puts+Bear Puts
+                              // combined >=60%, min of either >=25%
                               const callsNeutral = (bc + cc >= 0.60) && Math.min(bc, cc) >= 0.25
                               const putsNeutral = (bp + rp >= 0.60) && Math.min(bp, rp) >= 0.25
-                              // HIGHLIGHTED: opposing instruments, same direction — Bull Calls+Bull Puts OR Bear Calls+Bear Puts
-                              // combined ≥65%, min of either ≥25%
+                              // HIGHLIGHTED: opposing instruments, same direction --” Bull Calls+Bull Puts OR Bear Calls+Bear Puts
+                              // combined >=65%, min of either >=25%
                               const bullHighlight = (bc + bp >= 0.65) && Math.min(bc, bp) >= 0.25
                               const bearHighlight = (cc + rp >= 0.65) && Math.min(cc, rp) >= 0.25
                               if (callsNeutral || putsNeutral) neutralLevel = 'neutral'
@@ -4205,7 +4730,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                             )
                           })
                         })()}
-                        {/* Quadrant labels — inside the transform group so they stay
+                        {/* Quadrant labels --” inside the transform group so they stay
                             anchored to their quadrant when the user pans/zooms.
                             Sizes are divided by k to stay visually constant. */}
                         {(() => {
@@ -4231,7 +4756,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                             </g>
                           ))
                         })()}
-                        {/* ── Regime & RegimeGrouping overlays ── */}
+                        {/* -- Regime & RegimeGrouping overlays -- */}
                         {(showRegime || showRegimeGrouping) && (() => {
                           // Group tickers by industry per quadrant
                           const byIndustryQuad: Record<string, Array<{ t: typeof allTickers[0]; sx: number; sy: number }>> = {}
@@ -4248,7 +4773,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                           const titleElements: React.ReactNode[] = []
                           let regimeGroupColorIdx = 0
 
-                          // ── Regime: 3+ same industry in ONE quadrant ──
+                          // -- Regime: 3+ same industry in ONE quadrant --
                           if (showRegime) {
                             Object.entries(byIndustryQuad).forEach(([key, members]) => {
                               if (members.length < 3) return
@@ -4289,7 +4814,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                             })
                           }
 
-                          // ── RegimeGrouping: 2+ same industry across 2 same-side quadrants ──
+                          // -- RegimeGrouping: 2+ same industry across 2 same-side quadrants --
                           if (showRegimeGrouping) {
                             const industries = new Set(Object.values(RRG_INDUSTRY))
                             const GROUPING_COLORS = ['#94a3b8', '#c084fc', '#67e8f9', '#86efac']
@@ -4359,300 +4884,18 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               )}
             </div>
             {/* Double-click popup */}
-            {rrgPopupTicker && (() => {
-              const p = rrgPopupTicker
-              const classifiedTotal = (p.bullCall + p.bearCall + p.bullPut + p.bearPut) || 1
-              const score = (p.bullCall + p.bullPut - p.bearCall - p.bearPut) / classifiedTotal
-              const dominant = Math.max(p.bullCall, p.bearCall, p.bullPut, p.bearPut)
-              const col = dominant === p.bullCall ? '#00ff88' : dominant === p.bearCall ? '#ff4444' : dominant === p.bullPut ? '#4da6ff' : '#ffaa00'
-              const quadLabel = dominant === p.bullCall ? 'BULL CALLS' : dominant === p.bearCall ? 'BEAR CALLS' : dominant === p.bullPut ? 'BULL PUTS' : 'BEAR PUTS'
-
-              // Build intraday time-series from raw trade data
-              const rawTrades = allScanCacheRef.current?.flowData ?? []
-              const tickerTrades = rawTrades.filter(t => t.underlying_ticker === p.ticker)
-              // Bucket by 30-min slots
-              const buckets = new Map<number, { bc: number; cc: number; bp: number; rp: number; total: number }>()
-              for (const t of tickerTrades) {
-                const ts = typeof t.trade_timestamp === 'number' ? t.trade_timestamp : new Date(t.trade_timestamp).getTime()
-                const slot = Math.floor(ts / (30 * 60 * 1000)) * (30 * 60 * 1000)
-                if (!buckets.has(slot)) buckets.set(slot, { bc: 0, cc: 0, bp: 0, rp: 0, total: 0 })
-                const b = buckets.get(slot)!
-                const prem = t.total_premium || 0
-                const fs = (t as any).fill_style as string | undefined
-                const isCall = t.type?.toLowerCase() === 'call'
-                const isBull = !fs || fs === 'N/A' || fs === 'A' || fs === 'AA'
-                const isBear = fs === 'B' || fs === 'BB'
-                b.total += prem
-                if (isCall) { if (isBull) b.bc += prem; else if (isBear) b.cc += prem }
-                else { if (isBull) b.bp += prem; else if (isBear) b.rp += prem }
-              }
-              const slots = [...buckets.entries()].sort((a, b) => a[0] - b[0])
-              // Build cumulative series
-              let cumBc = 0, cumCc = 0, cumBp = 0, cumRp = 0
-              const series = slots.map(([ts, b]) => {
-                cumBc += b.bc; cumCc += b.cc; cumBp += b.bp; cumRp += b.rp
-                const tot = cumBc + cumCc + cumBp + cumRp || 1
-                return { ts, bcPct: cumBc / tot * 100, ccPct: cumCc / tot * 100, bpPct: cumBp / tot * 100, rpPct: cumRp / tot * 100, slotTotal: b.total }
-              })
-
-              // Stats
-              const FLOW_COLORS = { bc: '#00ff88', cc: '#ff4444', bp: '#4da6ff', rp: '#ffaa00' }
-              const stats = [
-                { key: 'bc', label: 'BULL CALLS', val: p.bullCall / classifiedTotal * 100, color: FLOW_COLORS.bc },
-                { key: 'cc', label: 'BEAR CALLS', val: p.bearCall / classifiedTotal * 100, color: FLOW_COLORS.cc },
-                { key: 'bp', label: 'BULL PUTS', val: p.bullPut / classifiedTotal * 100, color: FLOW_COLORS.bp },
-                { key: 'rp', label: 'BEAR PUTS', val: p.bearPut / classifiedTotal * 100, color: FLOW_COLORS.rp },
-              ].sort((a, b) => b.val - a.val)
-
-              // Chart: 25% bigger, tight right label
-              const CW = 520, CH = 300, LABEL_W = 38
-              const keys: Array<keyof typeof FLOW_COLORS> = ['bc', 'cc', 'bp', 'rp']
-              const maxY = 100
-
-              // Zoom/pan state lives in the IIFE via refs trick — use local vars updated by handlers
-              // We store zoom+pan as a viewBox offset
-              const chartContainerRef = { panX: 0, zoom: 1 } // dummy — real state below
-
-              const toX = (i: number) => series.length < 2 ? CW / 2 : (i / (series.length - 1)) * CW
-              const toY = (pct: number) => 4 + (CH - 8) * (1 - pct / maxY)
-
-              // Inline 1-row liquid boxes (same color/fill logic as FlowQuadrantGauge)
-              const BW = 128, BH = 90, Bamp = 5
-              const bSpeeds = [2.0, 2.6, 1.8, 2.3]
-              const boxTotal = (p.bullCall + p.bearCall + p.bullPut + p.bearPut) || 1
-              const rowBoxes = [
-                { id: 'bc', lbl: 'BULL CALLS', val: p.bullCall, color: '#10b981' },
-                { id: 'cc', lbl: 'BEAR CALLS', val: p.bearCall, color: '#ef4444' },
-                { id: 'bp', lbl: 'BULL PUTS', val: p.bullPut, color: '#3b82f6' },
-                { id: 'rp', lbl: 'BEAR PUTS', val: p.bearPut, color: '#f97316' },
-              ]
-              const absScore = Math.abs(score)
-              const scoreColor2 = absScore < 0.2 ? '#eab308' : score > 0 ? '#10b981' : '#ef4444'
-
-              return (
-                <div onClick={() => setRrgPopupTicker(null)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-                  <div onClick={e => e.stopPropagation()} style={{ background: 'linear-gradient(160deg,#0d0d14 0%,#060608 100%)', border: `1px solid ${col}33`, borderRadius: 16, padding: '28px 32px', width: 660, maxWidth: '95vw', boxShadow: `0 0 80px ${col}18, inset 0 1px 0 rgba(255,255,255,0.06)` }}>
-
-                    {/* Header */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ width: 12, height: 12, borderRadius: '50%', background: col }} />
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 26, fontWeight: 900, color: '#fff', letterSpacing: '0.05em' }}>{p.ticker}</span>
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 900, color: col, padding: '3px 10px', border: `1px solid ${col}55`, borderRadius: 4 }}>{quadLabel}</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 16, color: score > 0 ? '#00ff88' : '#ff4444', fontWeight: 800 }}>${(p.total / 1e6).toFixed(1)}M</span>
-                        <button onClick={() => setRrgPopupTicker(null)} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 700, padding: '3px 12px', cursor: 'pointer' }}>✕</button>
-                      </div>
-                    </div>
-
-                    {/* 1-row liquid boxes */}
-                    <div style={{ marginBottom: 20 }}>
-                      <svg width="100%" viewBox={`0 0 ${(BW + 6) * 4 - 6} ${BH}`} style={{ overflow: 'visible', display: 'block' }}>
-                        <style>{`
-                          @keyframes bw0{from{transform:translateX(0)}to{transform:translateX(-${BW}px)}}
-                          @keyframes bw1{from{transform:translateX(0)}to{transform:translateX(-${BW}px)}}
-                          @keyframes bw2{from{transform:translateX(0)}to{transform:translateX(-${BW}px)}}
-                          @keyframes bw3{from{transform:translateX(0)}to{transform:translateX(-${BW}px)}}
-                        `}</style>
-                        {rowBoxes.map((b, i) => {
-                          const fill = b.val / boxTotal
-                          const liquidH = fill * BH
-                          const bx = i * (BW + 6)
-                          const waveY = BH - liquidH
-                          const wx = -BW
-                          const wp = `M${wx} ${waveY} q${BW / 4} ${-Bamp} ${BW / 2} 0 q${BW / 4} ${Bamp} ${BW / 2} 0 q${BW / 4} ${-Bamp} ${BW / 2} 0 q${BW / 4} ${Bamp} ${BW / 2} 0 q${BW / 4} ${-Bamp} ${BW / 2} 0 q${BW / 4} ${Bamp} ${BW / 2} 0 V${BH} H${wx} Z`
-                          const clipId = `pb${i}`
-                          return (
-                            <g key={b.id} transform={`translate(${bx},0)`}>
-                              <defs><clipPath id={clipId}><rect x={0} y={0} width={BW} height={BH} rx="4" /></clipPath></defs>
-                              <rect x={0} y={0} width={BW} height={BH} rx="4" fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.07)" strokeWidth="0.5" />
-                              <g clipPath={`url(#${clipId})`}>
-                                {fill > 0.005 && (<>
-                                  <rect x={0} y={Math.max(0, waveY + Bamp)} width={BW} height={Math.max(0, BH - Math.max(0, waveY + Bamp))} fill={b.color} opacity={0.35} />
-                                  <g style={{ animationName: `bw${i}`, animationDuration: `${bSpeeds[i]}s`, animationTimingFunction: 'linear', animationIterationCount: 'infinite' }}>
-                                    <path d={wp} fill={b.color} opacity={0.65} />
-                                  </g>
-                                </>)}
-                              </g>
-                              <text x={BW / 2} y={18} textAnchor="middle" fill="#fff" fontSize="12" fontFamily="JetBrains Mono,monospace" fontWeight="700">{b.lbl}</text>
-                              <text x={BW / 2} y={BH - 10} textAnchor="middle" fill="#fff" fontSize="26" fontFamily="JetBrains Mono,monospace" fontWeight="800">{(fill * 100).toFixed(0)}%</text>
-                            </g>
-                          )
-                        })}
-                        {/* Center NEU score overlay */}
-                        <circle cx={(BW + 6) * 2 - 3} cy={BH / 2} r={22} fill="rgba(4,4,12,0.92)" stroke="rgba(255,255,255,0.13)" strokeWidth="1" />
-                        <text x={(BW + 6) * 2 - 3} y={BH / 2 - 7} textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize="11" fontFamily="JetBrains Mono,monospace" fontWeight="700">NEU</text>
-                        <text x={(BW + 6) * 2 - 3} y={BH / 2 + 8} textAnchor="middle" dominantBaseline="middle" fill={scoreColor2} fontSize="13" fontFamily="JetBrains Mono,monospace" fontWeight="800">{score.toFixed(2)}</text>
-                      </svg>
-                    </div>
-
-                    {/* Intraday chart with zoom/pan */}
-                    <div>
-                      <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 15, color: '#fff', fontWeight: 800, letterSpacing: '0.2em', marginBottom: 8, textAlign: 'center' }}>INTRADAY FLOW COMPOSITION</div>
-                      {series.length < 2 ? (
-                        <div style={{ height: CH, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 13 }}>NOT ENOUGH DATA</div>
-                      ) : (() => {
-                        // All data drawn at full width; zoom/pan via <g transform> + clip. No viewBox manipulation.
-                        const PAD_L = 14, PAD_R = 58
-                        const chartW = CW - PAD_L  // data area width
-                        const toXd = (i: number) => PAD_L + (series.length < 2 ? chartW / 2 : (i / (series.length - 1)) * chartW)
-
-                        const clipId = `fc-clip-${p.ticker.replace(/[^a-z0-9]/gi, '')}`
-                        const groupId = `fc-g-${p.ticker.replace(/[^a-z0-9]/gi, '')}`
-                        const labId = `fc-lab-${p.ticker.replace(/[^a-z0-9]/gi, '')}`
-                        const axId = `fc-ax-${p.ticker.replace(/[^a-z0-9]/gi, '')}`
-
-                        // Ref callback: attach wheel + drag listeners once, manipulate DOM directly
-                        const svgRef = (svg: SVGSVGElement | null) => {
-                          if (!svg || svg.dataset.zoomInit) return
-                          svg.dataset.zoomInit = '1'
-                          let z = 1, panX = 0
-                          const totalW = CW + PAD_R
-                          const g = svg.querySelector<SVGGElement>(`#${groupId}`)!
-                          const labG = svg.querySelector<SVGGElement>(`#${labId}`)!
-                          const axG = svg.querySelector<SVGGElement>(`#${axId}`)!
-
-                          const update = () => {
-                            // Transform: scale then shift so data at panX maps to x=0
-                            g.setAttribute('transform', `scale(${z},1) translate(${-panX / z * (z > 1 ? 1 : 1)},0)`)
-                            // Actually correct: screen_x = (dataX - panX) * z
-                            // => transform on g: translate(-panX,0) then scale around origin... easier as matrix
-                            // Use: translate then scale
-                            g.setAttribute('transform', `translate(${-panX * z},0) scale(${z},1)`)
-
-                            // Reposition end-of-line % labels to stay at right edge in screen coords
-                            keys.forEach(k => {
-                              const pctKey = `${k}Pct` as keyof typeof series[0]
-                              const lastI = series.length - 1
-                              const dataX = toXd(lastI)
-                              const screenX = (dataX - panX) * z  // wait, wrong since g is already translated
-                              // Actually with transform translate(-panX*z,0) scale(z,1):
-                              // a point at dataX maps to: dataX * z - panX * z = (dataX - panX) * z
-                              const sx = Math.min(CW - 2, Math.max(PAD_L, (dataX - panX) * z))
-                              const lastVal = series[lastI][pctKey] as number
-                              const labelEl = labG.querySelector<SVGTextElement>(`[data-key="${k}"]`)
-                              const dotEl = labG.querySelector<SVGCircleElement>(`[data-dot="${k}"]`)
-                              if (labelEl) { labelEl.setAttribute('x', String(sx + 8)); labelEl.setAttribute('visibility', sx < CW - 5 ? 'visible' : 'hidden') }
-                              if (dotEl) { dotEl.setAttribute('cx', String(sx)); dotEl.setAttribute('visibility', sx < CW - 2 && sx > PAD_L ? 'visible' : 'hidden') }
-                            })
-
-                            // Reposition x-axis time labels
-                            axG.querySelectorAll<SVGTextElement>('[data-ts]').forEach(el => {
-                              const i = parseInt(el.dataset.si || '0')
-                              const dataX = toXd(i)
-                              const sx = (dataX - panX) * z
-                              el.setAttribute('x', String(sx))
-                              el.setAttribute('visibility', sx >= PAD_L && sx <= CW ? 'visible' : 'hidden')
-                            })
-                          }
-
-                          svg.addEventListener('wheel', (e) => {
-                            e.preventDefault()
-                            const rect = svg.getBoundingClientRect()
-                            const mouseFrac = (e.clientX - rect.left) / rect.width
-                            // data x under mouse: panX + mouseFrac * (totalW / z)
-                            const dataUnderMouse = panX + mouseFrac * (totalW / z)
-                            const delta = e.deltaY < 0 ? 1.25 : 0.8
-                            z = Math.max(1, Math.min(14, z * delta))
-                            panX = Math.max(0, Math.min(totalW - totalW / z, dataUnderMouse - mouseFrac * (totalW / z)))
-                            update()
-                          }, { passive: false })
-
-                          let dragX = 0, dragging = false, dragPan = 0
-                          svg.addEventListener('mousedown', (e) => { dragging = true; dragX = e.clientX; dragPan = panX; svg.style.cursor = 'grabbing' })
-                          svg.addEventListener('mousemove', (e) => {
-                            if (!dragging) return
-                            const rect = svg.getBoundingClientRect()
-                            const dx = (dragX - e.clientX) * (totalW / z) / rect.width
-                            panX = Math.max(0, Math.min(totalW - totalW / z, dragPan + dx))
-                            update()
-                          })
-                          svg.addEventListener('mouseup', () => { dragging = false; svg.style.cursor = 'grab' })
-                          svg.addEventListener('mouseleave', () => { dragging = false; svg.style.cursor = 'grab' })
-                          update()
-                        }
-
-                        return (
-                          <svg ref={svgRef} width="100%" height={CH + 26}
-                            style={{ display: 'block', borderRadius: 6, background: '#000', cursor: 'grab', userSelect: 'none', overflow: 'hidden' }}>
-                            <defs>
-                              <clipPath id={clipId}>
-                                <rect x={PAD_L} y={0} width={chartW} height={CH + 2} />
-                              </clipPath>
-                            </defs>
-
-                            {/* Y-axis labels — fixed, right side outside clip */}
-                            {[0, 25, 50, 75, 100].map(pct => (
-                              <g key={pct}>
-                                <line x1={PAD_L + chartW} y1={toY(pct)} x2={PAD_L + chartW + 5} y2={toY(pct)} stroke="rgba(255,255,255,0.4)" strokeWidth={1} />
-                                <text x={PAD_L + chartW + 9} y={toY(pct) + 7} textAnchor="start" fontFamily="JetBrains Mono,monospace" fontSize={20} fontWeight={700} fill="#fff">{pct}%</text>
-                              </g>
-                            ))}
-
-                            {/* Zoomable/pannable content group — lines only, clipped */}
-                            <g id={groupId} clipPath={`url(#${clipId})`}>
-                              {keys.map(k => {
-                                const color = FLOW_COLORS[k]
-                                const pctKey = `${k}Pct` as keyof typeof series[0]
-                                const d = series.map((s, i) => `${i === 0 ? 'M' : 'L'}${toXd(i).toFixed(1)},${toY(s[pctKey] as number).toFixed(1)}`).join(' ')
-                                return <path key={k} d={d} fill="none" stroke={color} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
-                              })}
-                            </g>
-
-                            {/* End-of-line labels — unclipped, repositioned by update() */}
-                            <g id={labId}>
-                              {keys.map(k => {
-                                const color = FLOW_COLORS[k]
-                                const pctKey = `${k}Pct` as keyof typeof series[0]
-                                const lastVal = series[series.length - 1][pctKey] as number
-                                const lastY = toY(lastVal)
-                                return (
-                                  <g key={k}>
-                                    <circle data-dot={k} cx={toXd(series.length - 1)} cy={lastY} r={4} fill={color} />
-                                    <text data-key={k} x={toXd(series.length - 1) + 8} y={lastY + 5} fontFamily="JetBrains Mono,monospace" fontSize={15} fontWeight={800} fill={color}>{lastVal.toFixed(0)}%</text>
-                                  </g>
-                                )
-                              })}
-                            </g>
-
-                            {/* X-axis time labels — unclipped, repositioned by update() */}
-                            <g id={axId}>
-                              {series.map((s, i) => {
-                                const step = Math.max(1, Math.floor(series.length / 5))
-                                const show = i === 0 || (i % step === 0 && i < series.length - Math.floor(step * 0.6))
-                                if (!show) return null
-                                return (
-                                  <text key={s.ts} data-ts={s.ts} data-si={i}
-                                    x={toXd(i)} y={CH + 18} textAnchor="middle"
-                                    fontFamily="JetBrains Mono,monospace" fontSize={20} fontWeight={700} fill="#fff">
-                                    {new Date(s.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}
-                                  </text>
-                                )
-                              })}
-                            </g>
-                          </svg>
-                        )
-                      })()}
-                      {/* Legend */}
-                      <div style={{ display: 'flex', gap: 16, marginTop: 10, justifyContent: 'center' }}>
-                        {keys.map(k => (
-                          <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <div style={{ width: 18, height: 2.5, background: FLOW_COLORS[k], borderRadius: 1 }} />
-                            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, color: FLOW_COLORS[k] }}>
-                              {k === 'bc' ? 'BULL CALLS' : k === 'cc' ? 'BEAR CALLS' : k === 'bp' ? 'BULL PUTS' : 'BEAR PUTS'}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )
-            })()}
+            {rrgPopupTicker && (
+              <RrgTickerPopup
+                p={rrgPopupTicker}
+                rawTrades={allScanCacheRef.current?.flowData ?? []}
+                onClose={() => setRrgPopupTicker(null)}
+              />
+            )}
           </div>
         )}
       </div>{/* end main content row */}
     </div>
   )
 }
+
+// touch: 11:52:18

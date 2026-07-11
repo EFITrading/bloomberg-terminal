@@ -3,7 +3,7 @@
  * All entries: { text, author }
  */
 export const TRADING_QUOTES: { text: string; author: string }[] = [
-    // ─── EFI Research originals ───────────────────────────────────────────────
+    // --- EFI Research originals -----------------------------------------------
     { text: 'Block trades don\'t lie. Institutions leave footprints.', author: 'EFI Research' },
     { text: 'When sweep orders cluster, the smart money is speaking.', author: 'EFI Research' },
     { text: 'Volume is the weapon of the informed trader.', author: 'EFI Research' },
@@ -22,7 +22,7 @@ export const TRADING_QUOTES: { text: string; author: string }[] = [
     { text: 'Successful traders are not born — they are built through discipline, losses, and relentless self-improvement.', author: 'EFI Research' },
     { text: 'In a bull market, everyone is a genius. In a bear market, you find out who the real traders are.', author: 'EFI Research' },
 
-    // ─── Live / real-time flow wisdom ─────────────────────────────────────────
+    // --- Live / real-time flow wisdom -----------------------------------------
     { text: 'Real-time data doesn\'t remove uncertainty — it just makes you faster at being wrong.', author: 'Trading Desk' },
     { text: 'The tape never lies. Only the traders who read it do.', author: 'Trading Desk' },
     { text: 'Momentum is a fact. Direction is an opinion.', author: 'Trading Desk' },
@@ -39,7 +39,7 @@ export const TRADING_QUOTES: { text: string; author: string }[] = [
     { text: 'The market moves toward max pain like a river to the sea.', author: 'Trading Desk' },
     { text: 'Size doesn\'t guarantee direction, but it always guarantees attention.', author: 'Trading Desk' },
 
-    // ─── Wall Street proverbs ──────────────────────────────────────────────────
+    // --- Wall Street proverbs --------------------------------------------------
     { text: 'The trend is your friend — until it bends.', author: 'Wall Street Proverb' },
     { text: 'Cut your losses and let your winners run.', author: 'Wall Street Proverb' },
     { text: 'Bulls make money, bears make money, pigs get slaughtered.', author: 'Wall Street Proverb' },
@@ -50,7 +50,7 @@ export const TRADING_QUOTES: { text: string; author: string }[] = [
     { text: 'Never let a win turn into a loss.', author: 'Wall Street Proverb' },
     { text: 'The elements of good trading are: cutting losses, cutting losses, and cutting losses.', author: 'Wall Street Proverb' },
 
-    // ─── Legendary traders ────────────────────────────────────────────────────
+    // --- Legendary traders ----------------------------------------------------
     { text: 'It\'s not whether you\'re right or wrong that matters, but how much money you make when you\'re right and how much you lose when you\'re wrong.', author: 'George Soros' },
     { text: 'The most important thing in making money is not letting your losses get out of hand.', author: 'George Soros' },
     { text: 'I\'m always thinking about losing money as opposed to making money.', author: 'Paul Tudor Jones' },
@@ -84,7 +84,7 @@ export const TRADING_QUOTES: { text: string; author: string }[] = [
     { text: 'The time of maximum pessimism is the best time to buy.', author: 'Sir John Templeton' },
     { text: 'The four most dangerous words in investing: this time it\'s different.', author: 'Sir John Templeton' },
 
-    // ─── Investor classics ────────────────────────────────────────────────────
+    // --- Investor classics ----------------------------------------------------
     { text: 'Markets can remain irrational longer than you can remain solvent.', author: 'John Maynard Keynes' },
     { text: 'In the short run the market is a voting machine. In the long run, a weighing machine.', author: 'Benjamin Graham' },
     { text: 'Successful investing is about managing risk, not avoiding it.', author: 'Benjamin Graham' },

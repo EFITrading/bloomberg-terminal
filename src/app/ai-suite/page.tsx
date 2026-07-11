@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
@@ -557,17 +557,17 @@ const TPL_DARK = `// ===========================================================
 
 async function run() {
 
-  // ── Helper: color for pos/neg numbers ───────────────────────────────────────
+  // -- Helper: color for pos/neg numbers ---------------------------------------
   function clr(v) { return v > 0 ? '#44cc77' : v < 0 ? '#ff5544' : '#888'; }
   function fmt(v, d) { return (v >= 0 ? '+' : '') + Number(v).toFixed(d || 2) + '%'; }
 
-  // ── Fetch some live data ─────────────────────────────────────────────────────
+  // -- Fetch some live data -----------------------------------------------------
   const symbols = ['SPY','QQQ','IWM','DIA'];
   log('Loading data...');
   const px   = await api.prices(symbols);
   const snap = await api.marketSnapshot();
 
-  // ── Build rows ───────────────────────────────────────────────────────────────
+  // -- Build rows ---------------------------------------------------------------
   const moverRows = (snap.movers || []).slice(0, 6).map(m =>
     '<tr>'
     + '<td style="padding:5px 12px 5px 0;color:#e0e0e0;font-weight:700;">'+m.ticker+'</td>'
@@ -595,7 +595,7 @@ async function run() {
       + '</div>';
   }).join('');
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  // -- Render -------------------------------------------------------------------
   html(\`
   <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#d0d0d0;padding:6px 0 12px;">
 
@@ -661,21 +661,21 @@ const TPL_LIGHT = `// ==========================================================
 
 async function run() {
 
-  // ── Helpers ──────────────────────────────────────────────────────────────────
+  // -- Helpers ------------------------------------------------------------------
   function clr(v) { return v > 0 ? '#16a34a' : v < 0 ? '#dc2626' : '#9ca3af'; }
   function fmt(v, d) { return (v >= 0 ? '+' : '') + Number(v).toFixed(d || 2) + '%'; }
   function badge(text, bg, col) {
     return '<span style="font-size:9px;font-weight:700;letter-spacing:0.07em;background:'+bg+';color:'+col+';border-radius:3px;padding:2px 6px;">'+text+'</span>';
   }
 
-  // ── Fetch live data ───────────────────────────────────────────────────────────
+  // -- Fetch live data -----------------------------------------------------------
   const symbols = ['SPY','QQQ','IWM','DIA'];
   log('Loading data...');
   const px   = await api.prices(symbols);
   const snap = await api.marketSnapshot();
   const news = await api.news(undefined, 5);
 
-  // ── Build components ──────────────────────────────────────────────────────────
+  // -- Build components ----------------------------------------------------------
   const indexCards = symbols.map(s => {
     const p = px[s] || 0;
     return '<div style="flex:1;min-width:90px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px 15px;">'
@@ -717,7 +717,7 @@ async function run() {
     + '</div>'
   ).join('');
 
-  // ── Render ────────────────────────────────────────────────────────────────────
+  // -- Render --------------------------------------------------------------------
   html(\`
   <div style="font-family:system-ui,-apple-system,sans-serif;font-size:12px;color:#374151;padding:6px 0 12px;background:#fff;">
 
@@ -890,18 +890,18 @@ async function run() {
   log('Fetching live holding prices...');
   const hpx=await api.prices(ranked.slice(0,3).flatMap(r=>HOLDINGS[r.tk]||[]));
 
-  // ─── max score for bar width normalization ──────────────────────────────────
+  // --- max score for bar width normalization ----------------------------------
   const maxS=ranked[0].score,minS=ranked[ranked.length-1].score;
   const bw=s=>Math.max(3,Math.min(100,((s-minS)/(maxS-minS+0.001))*100)).toFixed(1);
 
-  // ─── REGIME BANNER ──────────────────────────────────────────────────────────
+  // --- REGIME BANNER ----------------------------------------------------------
   const RB = regime==='RISK-ON'
     ? {bg:'#003316',border:'#00e676',text:'#00e676',sub:'Risk-on sectors leading. Favor growth and cyclicals.'}
     : regime==='DEFENSIVE'
     ? {bg:'#330008',border:'#ff1744',text:'#ff1744',sub:'Defensive rotation. Favor staples, utilities, healthcare.'}
     : {bg:'#1a1500',border:'#ffd600',text:'#ffd600',sub:'Mixed signals. Monitor for directional confirmation.'};
 
-  // ─── SECTOR RANKING ROWS ───────────────────────────────────────────────────
+  // --- SECTOR RANKING ROWS ---------------------------------------------------
   const rankRows=ranked.map((r,i)=>{
     const col=COL[i]||'#fff';
     const isTop=i<3,isBot=i>=ranked.length-3;
@@ -954,7 +954,7 @@ async function run() {
       +'</div>';
   }).join('');
 
-  // ─── TOP 3 HOLDINGS PANELS ─────────────────────────────────────────────────
+  // --- TOP 3 HOLDINGS PANELS -------------------------------------------------
   const holdPanels=ranked.slice(0,3).map((r,i)=>{
     const col=COL[i];
     const hRows=(HOLDINGS[r.tk]||[]).map(t=>{
@@ -1819,7 +1819,7 @@ export default function AiSuitePage() {
     FLOW: '#ff6600', VOL: '#cc44ff', MACRO: '#00aaff',
   };
 
-  // ── MOBILE RENDER ────────────────────────────────────────────────────────────
+  // -- MOBILE RENDER ------------------------------------------------------------
   if (isMobile) {
     const mobileBtnBase: React.CSSProperties = {
       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,

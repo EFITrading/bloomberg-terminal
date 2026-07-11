@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import AlgoFlowScreener from '@/components/AlgoFlowScreener'
 import { polygonOptionsWS, parseOCCTicker } from '@/lib/polygonOptionsWS'
 import type { PolygonOptionsTradeMsg } from '@/lib/polygonOptionsWS'
+import { getDatesList, loadDateTrades, setCachedTrades } from '@/lib/flowDataCache'
 
 // Polygon API key
 const POLYGON_API_KEY: string = ''
@@ -533,9 +534,7 @@ const tryLoadHistoricalFromSaved = async (
   tickerSet?: Set<string> // optional: for MAG7/ETF multi-day expansion
 ): Promise<{ cachedTrades: OptionsFlowData[]; missingDays: string[] }> => {
   try {
-    const datesResp = await fetch('/api/flows/dates')
-    if (!datesResp.ok) return { cachedTrades: [], missingDays: tradingDays }
-    const savedDates: { date: string }[] = await datesResp.json()
+    const savedDates = await getDatesList()
     const savedDaySet = new Set(
       savedDates.map((d) => new Date(d.date).toISOString().split('T')[0])
     )
@@ -549,23 +548,18 @@ const tryLoadHistoricalFromSaved = async (
           return
         }
         try {
-          // Pass ticker filter so server returns only matching trades — avoids downloading 601k trades for a single ticker
           const tickerQS = tickerSet
             ? `?tickers=${Array.from(tickerSet).join(',')}`
             : ticker
               ? `?tickers=${encodeURIComponent(ticker.toUpperCase())}`
               : ''
-          const flowResp = await fetch(`/api/flows/${encodeURIComponent(day)}${tickerQS}`)
-          if (!flowResp.ok) { missingDays.push(day); return }
-          const flowData = await flowResp.json()
-          const allTrades: OptionsFlowData[] = Array.isArray(flowData.data) ? flowData.data : []
+          // Shared cache: returns from memory if already loaded by AlgoFlow or OptionsFlowTable
+          const allTrades: OptionsFlowData[] = await loadDateTrades(day, tickerQS)
           const filtered = tickerSet
             ? allTrades.filter((t) => tickerSet.has(t.underlying_ticker?.toUpperCase() ?? ''))
             : ticker
               ? allTrades.filter((t) => t.underlying_ticker?.toUpperCase() === ticker.toUpperCase())
               : allTrades
-          // If this save has too few total trades to be a full-day scan AND the ticker
-          // returned nothing, the day was saved from a different (smaller) scan — treat as missing
           if (filtered.length === 0 && allTrades.length < 10000 && ticker) {
             missingDays.push(day)
             return
@@ -606,12 +600,8 @@ const tryLoadFromSavedFiltered = async (tickerSet: Set<string> | null): Promise<
 
       return null
     }
-    const datesResp = await fetch('/api/flows/dates')
-    if (!datesResp.ok) {
-
-      return null
-    }
-    const dates: { date: string }[] = await datesResp.json()
+    const datesResp = { ok: true }
+    const dates = await getDatesList()
 
     if (dates.length === 0) {
 
@@ -627,13 +617,7 @@ const tryLoadFromSavedFiltered = async (tickerSet: Set<string> | null): Promise<
 
       return null
     }
-    const flowResp = await fetch(`/api/flows/${encodeURIComponent(latestDateRaw)}`)
-    if (!flowResp.ok) {
-
-      return null
-    }
-    const flowData = await flowResp.json()
-    const allTrades: OptionsFlowData[] = Array.isArray(flowData.data) ? flowData.data : []
+    const allTrades: OptionsFlowData[] = await loadDateTrades(latestDateRaw)
 
     // Sample the first 3 trade timestamps to verify timezone handling
     const sampleTimestamps = allTrades.slice(0, 3).map((t) => ({
@@ -678,9 +662,8 @@ const tryLoadFromSaved = async (ticker: string): Promise<OptionsFlowData[] | nul
     // Markets are open right now - data from any prior save is incomplete, always scan fresh
     if (isMarketCurrentlyOpen()) return null
     // Get stored dates so we use the actual saved date key (avoids UTC/local mismatch)
-    const datesResp = await fetch('/api/flows/dates')
-    if (!datesResp.ok) return null
-    const dates: { date: string }[] = await datesResp.json()
+    const datesResp = { ok: true }
+    const dates = await getDatesList()
     if (dates.length === 0) return null
 
     // Use PST-aware trading date: before 6:30 AM PST rolls back to previous trading day
@@ -690,11 +673,8 @@ const tryLoadFromSaved = async (ticker: string): Promise<OptionsFlowData[] | nul
     const latestDateDay = new Date(latestDateRaw).toISOString().split('T')[0]
     if (latestDateDay !== flowTradingDate) return null
 
-    // Fetch using the actual stored date key
-    const flowResp = await fetch(`/api/flows/${encodeURIComponent(latestDateRaw)}`)
-    if (!flowResp.ok) return null
-    const flowData = await flowResp.json()
-    const allTrades: OptionsFlowData[] = Array.isArray(flowData.data) ? flowData.data : []
+    // Shared cache: returns from memory if already loaded
+    const allTrades: OptionsFlowData[] = await loadDateTrades(latestDateRaw)
     // Verify the actual trade timestamps match the expected trading date.
     // Old DB records were saved with wall-clock date - e.g. a 12:07 AM May 28 save contains
     // May 27 trades but is stored as May 28. Reject if trades don't belong to flowTradingDate.
@@ -1013,11 +993,13 @@ export default function OptionsFlowPage() {
           if (newTrades.length === 0) return
 
           if (result.incremental) {
-            // Push new trades onto the existing array - no 601k spread
             for (const t of newTrades) allTradesRef.current.push(t)
           } else {
             allTradesRef.current = newTrades
           }
+
+          // Populate shared cache so AlgoFlow/FlowMatrix get this data for free
+          setCachedTrades(dateStr, allTradesRef.current)
 
           // Count only $50K+ trades to match what's actually displayed
           const filteredCount = allTradesRef.current.filter((t: OptionsFlowData) => (t.total_premium || 0) >= 50000).length
@@ -1128,10 +1110,8 @@ export default function OptionsFlowPage() {
     const loadLastTradingDayFlow = async () => {
       if (cancelled) return
       try {
-        // Fetch saved dates from DB
-        const datesResp = await fetch('/api/flows/dates')
-        if (!datesResp.ok || cancelled) { if (!cancelled) { setLoading(false); setStreamingStatus('') } return }
-        const savedDates: { date: string }[] = await datesResp.json()
+        // Shared cache: returns instantly if already fetched by AlgoFlow
+        const savedDates = await getDatesList()
         if (savedDates.length === 0 || cancelled) { if (!cancelled) { setLoading(false); setStreamingStatus('') } return }
 
         // Find the most recent saved date that is a real trading day
@@ -1150,11 +1130,8 @@ export default function OptionsFlowPage() {
 
         dbgLog(`[afterHours] loading saved flow for ${lastSavedDate}`)
 
-        // Fetch that day's flow (no ticker filter — load all)
-        const flowResp = await fetch(`/api/flows/${encodeURIComponent(lastSavedDate)}`)
-        if (!flowResp.ok || cancelled) { if (!cancelled) { setLoading(false); setStreamingStatus('') } return }
-        const flowData = await flowResp.json()
-        const trades: OptionsFlowData[] = Array.isArray(flowData.data) ? flowData.data : []
+        // Shared cache: first load fetches DB, subsequent loads are instant
+        const trades: OptionsFlowData[] = await loadDateTrades(lastSavedDate)
         if (trades.length === 0 || cancelled) { if (!cancelled) { setLoading(false); setStreamingStatus('') } return }
 
         const computedSummary: OptionsFlowSummary = {
