@@ -549,7 +549,7 @@ const tryLoadHistoricalFromSaved = async (
           return
         }
         try {
-          // Pass ticker filter so server returns only matching trades â€” avoids downloading 601k trades for a single ticker
+          // Pass ticker filter so server returns only matching trades — avoids downloading 601k trades for a single ticker
           const tickerQS = tickerSet
             ? `?tickers=${Array.from(tickerSet).join(',')}`
             : ticker
@@ -565,7 +565,7 @@ const tryLoadHistoricalFromSaved = async (
               ? allTrades.filter((t) => t.underlying_ticker?.toUpperCase() === ticker.toUpperCase())
               : allTrades
           // If this save has too few total trades to be a full-day scan AND the ticker
-          // returned nothing, the day was saved from a different (smaller) scan â€” treat as missing
+          // returned nothing, the day was saved from a different (smaller) scan — treat as missing
           if (filtered.length === 0 && allTrades.length < 10000 && ticker) {
             missingDays.push(day)
             return
@@ -2079,7 +2079,9 @@ export default function OptionsFlowPage() {
 
   if (showAlgoFlow) {
     return (
-      <div style={{ position: 'fixed', top: 119, left: 0, right: 0, bottom: 0, zIndex: 999, display: 'flex', flexDirection: 'column', background: '#000' }}>
+      <div style={{ position: 'fixed', top: 'var(--nav-height, 119px)', left: 0, right: 0, bottom: 0, zIndex: 999, display: 'flex', flexDirection: 'column', background: '#000' }}
+        className="algo-flow-wrapper">
+        <style>{`@media (max-width: 768px) { .algo-flow-wrapper { top: 0 !important; } }`}</style>
         <AlgoFlowScreener onBack={() => setShowAlgoFlow(false)} />
       </div>
     )

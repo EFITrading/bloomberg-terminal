@@ -1515,7 +1515,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
         const normalizedY = 1 - (crosshair.y - margin.top) / chartHeight
         const yValue = minVal + normalizedY * valueRange
 
-        // Draw label box on left â€” clamped so it never overflows the left canvas edge
+        // Draw label box on left — clamped so it never overflows the left canvas edge
         ctx.fillStyle = '#ff8800'
         const yLabel = `${yValue >= 0 ? '+' : ''}${yValue.toFixed(2)}%`
         ctx.font = isSmall ? 'bold 11px monospace' : 'bold 16px monospace'
@@ -1732,7 +1732,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
   if (!isVisible) return null
 
-  // â”€â”€ Shared button/dropdown style helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Shared button/dropdown style helpers ─────────────────────────────────
   const btnStyle = (active: boolean, open: boolean): React.CSSProperties => ({
     height: '45px', padding: '0 18px', display: 'flex', alignItems: 'center', gap: '6px',
     background: active || open
@@ -1785,7 +1785,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
         background: allSel ? '#FF6600' : 'transparent',
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         fontSize: '9px', color: '#000', fontWeight: '900',
-      }}>{allSel ? 'âœ“' : ''}</span>
+      }}>{allSel ? '✓' : ''}</span>
       SELECT ALL
     </div>
   )
@@ -1819,7 +1819,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
           background: isSelected ? '#FF6600' : 'transparent',
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
           fontSize: '9px', color: '#000', fontWeight: '900',
-        }}>{isSelected ? 'âœ“' : ''}</span>
+        }}>{isSelected ? '✓' : ''}</span>
         <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: item.color, flexShrink: 0 }} />
         <span style={{ fontWeight: '700', letterSpacing: '0.5px', minWidth: '48px' }}>{item.symbol}</span>
         <span style={{ fontSize: '11px', color: '#ffffff', opacity: 0.5, marginLeft: 'auto' }}>{item.name}</span>
@@ -1855,7 +1855,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
               background: hSelected ? '#00d4ff' : 'transparent',
               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
               fontSize: '8px', color: '#000', fontWeight: '900',
-            }}>{hSelected ? 'âœ“' : ''}</span>
+            }}>{hSelected ? '✓' : ''}</span>
             <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: h.color, flexShrink: 0 }} />
             <span style={{ fontWeight: '700', minWidth: '48px' }}>{h.symbol}</span>
             <span style={{ fontSize: '11px', color: '#ffffff', opacity: 0.45, marginLeft: 'auto' }}>{h.name}</span>
@@ -1878,10 +1878,10 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
         overflow: 'hidden',
       }}
     >
-      {/* â”€â”€ HEADER: 2-row professional bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── HEADER: 2-row professional bar ─────────────────────────────── */}
       <div className="perf-header" style={{ background: 'rgba(5,5,7,0.96)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.07)', position: 'relative', zIndex: 1, overflow: 'visible' }}>
 
-        {/* â”€â”€ ROW 1: symbol selector toolbar â”€â”€ */}
+        {/* ── ROW 1: symbol selector toolbar ── */}
         <div style={{ display: 'flex', alignItems: 'center', padding: '0 12px', height: '63px', gap: '4px', overflowX: 'auto', overflowY: 'visible' }}>
 
           {/* Ticker input */}

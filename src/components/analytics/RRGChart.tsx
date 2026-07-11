@@ -144,13 +144,15 @@ const RRGChart: React.FC<RRGChartProps> = ({
   }, []);
 
   // Initialize all tickers as visible when data changes
+  // Also reset autoFit so axis rescales to the new filtered data
   useEffect(() => {
     if (data && data.length > 0) {
       setVisibleTickers(new Set(data.map(d => d.symbol)));
+      setAutoFit(true);
     }
   }, [data]);
 
-  const isMobileChart = renderWidth < 432;
+  const isMobileChart = renderWidth < 768;
   const margin = isMobileChart
     ? { top: 25, right: 10, bottom: 60, left: 50 }
     : { top: 40, right: 60, bottom: 80, left: 60 };
@@ -606,14 +608,14 @@ const RRGChart: React.FC<RRGChartProps> = ({
         rsMomentumExtent[1] + rsMomentumPadding
       ];
     } else {
-      xDomain = [
-        Math.min(rsRatioExtent[0] || 80, 80),
-        Math.max(rsRatioExtent[1] || 120, 120)
-      ];
-      yDomain = [
-        Math.min(rsMomentumExtent[0] || 80, 80),
-        Math.max(rsMomentumExtent[1] || 120, 120)
-      ];
+      // Non-autoFit: center around 100 but expand to include all data
+      const xDataMin = rsRatioExtent[0] || 80;
+      const xDataMax = rsRatioExtent[1] || 120;
+      const yDataMin = rsMomentumExtent[0] || 80;
+      const yDataMax = rsMomentumExtent[1] || 120;
+      // Ensure 80-120 default range but always include actual data
+      xDomain = [Math.min(xDataMin - 2, 80), Math.max(xDataMax + 2, 120)];
+      yDomain = [Math.min(yDataMin - 2, 80), Math.max(yDataMax + 2, 120)];
     }
 
     // Create scales from the data domain — d3.zoom handles all pan/zoom transforms
@@ -892,23 +894,23 @@ const RRGChart: React.FC<RRGChartProps> = ({
       .call(xAxis)
       .append('text')
       .attr('x', chartWidth / 2)
-      .attr('y', 35)
+      .attr('y', isMobileChart ? 28 : 35)
       .attr('fill', 'white')
       .attr('text-anchor', 'middle')
-      .attr('font-size', '14px')
-      .text('RS-Ratio (Relative Strength)');
+      .attr('font-size', isMobileChart ? '9px' : '14px')
+      .text(isMobileChart ? 'RS-Ratio' : 'RS-Ratio (Relative Strength)');
 
     axesGroup.append('g')
       .attr('class', 'y-axis')
       .call(yAxis)
       .append('text')
       .attr('transform', 'rotate(-90)')
-      .attr('y', -40)
+      .attr('y', isMobileChart ? -30 : -40)
       .attr('x', -chartHeight / 2)
       .attr('fill', 'white')
       .attr('text-anchor', 'middle')
-      .attr('font-size', '14px')
-      .text('RS-Momentum (Rate of Change)');
+      .attr('font-size', isMobileChart ? '9px' : '14px')
+      .text(isMobileChart ? 'RS-Momentum' : 'RS-Momentum (Rate of Change)');
 
     // Add quadrant labels directly on the chart
     const quadLabelSize = isMobileChart ? '11px' : '16px';
@@ -998,46 +1000,68 @@ const RRGChart: React.FC<RRGChartProps> = ({
         .attr('stroke-width', 1.5)
         .attr('rx', 4);
     } else {
-      // Regular RRG labels
-      // Bottom-left label
-      axesGroup.append('text')
-        .attr('x', center100X / 2)
-        .attr('y', chartHeight - 10)
-        .attr('fill', '#FF0000')
-        .attr('text-anchor', 'middle')
-        .attr('font-size', '16px')
-        .attr('font-weight', 'bold')
-        .text('Lagging');
+      // Regular RRG labels — hide label if its quadrant has zero width/height (off-screen)
+      const stdLabelSize = isMobileChart ? '10px' : '16px';
+      const leftCenterX = center100X / 2;
+      const rightCenterX = center100X + (chartWidth - center100X) / 2;
 
-      // Bottom-right label
-      axesGroup.append('text')
-        .attr('x', center100X + (chartWidth - center100X) / 2)
-        .attr('y', chartHeight - 10)
-        .attr('fill', '#FFD700')
-        .attr('text-anchor', 'middle')
-        .attr('font-size', '16px')
-        .attr('font-weight', 'bold')
-        .text('Weakening');
+      // Only draw labels when the quadrant is visible (center line is within chart)
+      const showLeft = center100X > 10;
+      const showRight = center100X < chartWidth - 10;
+      const showBottom = center100Y < chartHeight - 10;
+      const showTop = center100Y > 10;
 
-      // Top-left label
-      axesGroup.append('text')
-        .attr('x', center100X / 2)
-        .attr('y', 20)
-        .attr('fill', '#0000FF')
-        .attr('text-anchor', 'middle')
-        .attr('font-size', '16px')
-        .attr('font-weight', 'bold')
-        .text('Improving');
+      if (showLeft && showBottom)
+        axesGroup.append('text')
+          .attr('x', leftCenterX)
+          .attr('y', chartHeight - 10)
+          .attr('fill', '#FF4444')
+          .attr('text-anchor', 'middle')
+          .attr('font-size', stdLabelSize)
+          .attr('font-weight', 'bold')
+          .attr('stroke', '#000')
+          .attr('stroke-width', isMobileChart ? 2 : 0)
+          .attr('paint-order', 'stroke')
+          .text('Lagging');
 
-      // Top-right label
-      axesGroup.append('text')
-        .attr('x', center100X + (chartWidth - center100X) / 2)
-        .attr('y', 20)
-        .attr('fill', '#228B22')
-        .attr('text-anchor', 'middle')
-        .attr('font-size', '16px')
-        .attr('font-weight', 'bold')
-        .text('Leading');
+      if (showRight && showBottom)
+        axesGroup.append('text')
+          .attr('x', rightCenterX)
+          .attr('y', chartHeight - 10)
+          .attr('fill', '#FFD700')
+          .attr('text-anchor', 'middle')
+          .attr('font-size', stdLabelSize)
+          .attr('font-weight', 'bold')
+          .attr('stroke', '#000')
+          .attr('stroke-width', isMobileChart ? 2 : 0)
+          .attr('paint-order', 'stroke')
+          .text('Weakening');
+
+      if (showLeft && showTop)
+        axesGroup.append('text')
+          .attr('x', leftCenterX)
+          .attr('y', 20)
+          .attr('fill', '#4488FF')
+          .attr('text-anchor', 'middle')
+          .attr('font-size', stdLabelSize)
+          .attr('font-weight', 'bold')
+          .attr('stroke', '#000')
+          .attr('stroke-width', isMobileChart ? 2 : 0)
+          .attr('paint-order', 'stroke')
+          .text('Improving');
+
+      if (showRight && showTop)
+        axesGroup.append('text')
+          .attr('x', rightCenterX)
+          .attr('y', 20)
+          .attr('fill', '#33BB33')
+          .attr('text-anchor', 'middle')
+          .attr('font-size', stdLabelSize)
+          .attr('font-weight', 'bold')
+          .attr('stroke', '#000')
+          .attr('stroke-width', isMobileChart ? 2 : 0)
+          .attr('paint-order', 'stroke')
+          .text('Leading');
     }
 
     // Draw tails if enabled (hide in waves mode)
@@ -1396,25 +1420,47 @@ const RRGChart: React.FC<RRGChartProps> = ({
         });
       });
 
-    points.append('circle')
-      .attr('cx', d => xScale(d.rsRatio)) // No clipping - let clipping path handle it
-      .attr('cy', d => yScale(d.rsMomentum)) // No clipping - let clipping path handle it
-      .attr('r', 8)
-      .attr('fill', d => tickerColors[d.symbol]) // Use persistent ticker color
-      .attr('stroke', 'white')
-      .attr('stroke-width', 2)
-      .style('filter', d => `drop-shadow(0 0 4px ${tickerColors[d.symbol]}60)`);
+    // On mobile: skip circles entirely — ticker label is the only visual marker
+    if (!isMobileChart) {
+      points.append('circle')
+        .attr('cx', d => xScale(d.rsRatio))
+        .attr('cy', d => yScale(d.rsMomentum))
+        .attr('r', 8)
+        .attr('fill', d => tickerColors[d.symbol])
+        .attr('stroke', 'white')
+        .attr('stroke-width', 2)
+        .style('filter', d => `drop-shadow(0 0 4px ${tickerColors[d.symbol]}60)`);
+    }
 
     // Add labels (no clipping - let clipping path handle it)
+    const labelFontSize = isMobileChart ? '13px' : '12px';
+    // On mobile there's no circle, so center the label on the data point
+    const labelOffset = isMobileChart ? 5 : -12;
+    // Approximate character width for background rect sizing (matches 13px bold)
+    const charW = isMobileChart ? 7.5 : 7;
+
+    if (isMobileChart) {
+      // On mobile: solid opaque background rect provides contrast — no need for text stroke
+      points.append('rect')
+        .attr('x', d => xScale(d.rsRatio) - (d.symbol.length * charW / 2) - 4)
+        .attr('y', d => yScale(d.rsMomentum) + labelOffset - 13)
+        .attr('width', d => d.symbol.length * charW + 8)
+        .attr('height', 16)
+        .attr('fill', 'rgba(0,0,0,0.90)')
+        .attr('rx', 3)
+        .style('pointer-events', 'none');
+    }
+
     points.append('text')
-      .attr('x', d => xScale(d.rsRatio)) // No clipping constraints
-      .attr('y', d => yScale(d.rsMomentum) - 12) // No clipping constraints
+      .attr('x', d => xScale(d.rsRatio))
+      .attr('y', d => yScale(d.rsMomentum) + labelOffset)
       .attr('text-anchor', 'middle')
-      .attr('font-size', '12px')
+      .attr('font-size', labelFontSize)
       .attr('font-weight', 'bold')
-      .attr('fill', 'white')
-      .attr('stroke', '#000')
-      .attr('stroke-width', 0.5)
+      .attr('font-family', 'system-ui, -apple-system, sans-serif')
+      .attr('fill', d => isMobileChart ? (tickerColors[d.symbol] || 'white') : 'white')
+      .attr('stroke', isMobileChart ? 'none' : '#000')
+      .attr('stroke-width', isMobileChart ? 0 : 0.5)
       .text(d => d.symbol)
       .style('pointer-events', 'none');
 
@@ -1430,7 +1476,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
     // Style axes
     svg.selectAll('.x-axis text, .y-axis text')
       .attr('fill', 'white')
-      .attr('font-size', '12px');
+      .attr('font-size', isMobileChart ? '9px' : '12px');
 
     svg.selectAll('.x-axis path, .y-axis path, .x-axis line, .y-axis line')
       .attr('stroke', 'white');
@@ -1440,12 +1486,23 @@ const RRGChart: React.FC<RRGChartProps> = ({
 
     const zoom = d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([1, 8])
+      // Filter: allow wheel zoom and touch (pinch/drag), but not right-click
+      .filter((event) => {
+        // Prevent default on touch so the browser doesn't also scroll the page
+        if (event.type === 'touchstart' || event.type === 'touchmove') {
+          event.preventDefault();
+        }
+        return !event.button;
+      })
       .constrain((transform) => {
         // Keep content filling the chart frame at all zoom levels.
-        // At k=1: tx/ty forced to 0 (no panning). At k>1: bounded by zoom extent.
+        // At k=1: allow no panning. At k>1: bounded by zoom extent.
         const k = transform.k;
+        // Clamp to valid pan range
         const x = Math.min(0, Math.max((1 - k) * chartWidth, transform.x));
         const y = Math.min(0, Math.max((1 - k) * chartHeight, transform.y));
+        // Only snap to origin exactly at k=1 (not near-1) to avoid jarring jumps
+        if (k <= 1) return d3.zoomIdentity;
         return d3.zoomIdentity.scale(k).translate(x / k, y / k);
       })
       .on('zoom', (event) => {
@@ -1482,12 +1539,12 @@ const RRGChart: React.FC<RRGChartProps> = ({
     <div className={`rrg-chart-container${isIVMode ? ' iv-mode' : ''}`}>
       {/* Redesigned Header - One Clean Row */}
       <div ref={headerRef} className="rrg-header-controls" style={{
-        padding: '16px 20px',
+        padding: isMobileChart ? '4px 8px' : '16px 20px',
         background: 'linear-gradient(135deg, #0a1628 0%, #000000 50%, #0a1628 100%)',
         borderBottom: '2px solid rgba(59, 130, 246, 0.3)',
         display: 'flex',
         alignItems: 'center',
-        gap: '20px',
+        gap: isMobileChart ? '4px' : '20px',
         flexWrap: 'wrap',
         boxShadow: 'inset 0 2px 4px rgba(255, 255, 255, 0.05), inset 0 -2px 4px rgba(0, 0, 0, 0.3)'
       }}>
@@ -1969,12 +2026,12 @@ const RRGChart: React.FC<RRGChartProps> = ({
 
       {/* Lookback Control Bar - Redesigned */}
       <div className="rrg-lookback-bar" style={{
-        padding: '12px 20px',
+        padding: isMobileChart ? '4px 8px' : '12px 20px',
         background: '#000000',
         borderBottom: '1px solid rgba(255, 107, 0, 0.2)',
         display: 'flex',
         alignItems: 'center',
-        gap: '20px'
+        gap: isMobileChart ? '8px' : '20px'
       }}>
         <span style={{
           color: '#ff8844',
@@ -2045,7 +2102,7 @@ const RRGChart: React.FC<RRGChartProps> = ({
         <svg
           ref={svgRef}
           viewBox={`0 0 ${renderWidth} ${renderHeight}`}
-          preserveAspectRatio="none"
+          preserveAspectRatio="xMidYMid meet"
           width="100%"
           height="100%"
           style={{

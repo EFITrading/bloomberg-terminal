@@ -937,6 +937,15 @@
   -webkit-user-select: none;
   -moz-user-select: none;
   -ms-user-select: none;
+  /* Prevent browser native pan/zoom from competing with d3.zoom on mobile */
+  touch-action: none;
+}
+
+.rrg-chart-wrapper {
+  position: relative;
+  user-select: none;
+  /* Also block native touch on the wrapper itself */
+  touch-action: none;
 }
 
 /* Enhanced tail styling with ticker-specific colors */
@@ -1097,6 +1106,12 @@
   /* Compact lookback bar */
   .rrg-lookback-bar {
     padding: 4px 8px !important;
+  }
+
+  /* Force RRG panel to 55vh on mobile — !important overrides the inline style */
+  .analytics-rrg-panel {
+    height: 55vh !important;
+    max-height: 55vh !important;
   }
 }
 

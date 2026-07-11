@@ -7806,7 +7806,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg className="hidden md:block animate-pulse" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FF6600" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /><circle cx="12" cy="12" r="2" fill="#FF6600" opacity="0.4" /></svg>
                         <span className="hidden md:inline">TIME</span>
-                        <span className="md:hidden" style={{ fontWeight: 900, fontSize: '15px' }}>SYMBOL</span>
+                        <span className="md:hidden" style={{ fontWeight: 900, fontSize: '11px' }}>SYMBOL</span>
                       </div>
                     </th>
 
@@ -7834,7 +7834,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg className="hidden md:block" width="12" height="12" viewBox="0 0 24 24" fill="none" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M7 16V4m0 0L3 8m4-4l4 4" stroke="#22c55e" /><path d="M17 8v12m0 0l4-4m-4 4l-4-4" stroke="#ef4444" /></svg>
                         <span className="hidden md:inline">C/P</span>
-                        <span className="md:hidden" style={{ fontWeight: 900, fontSize: '15px' }}>C/P</span>
+                        <span className="md:hidden" style={{ fontWeight: 900, fontSize: '11px' }}>C/P</span>
                         <span className="hidden md:inline-flex" style={{ alignItems: 'center', marginLeft: 1 }}>
                           {sortField === 'type' && (
                             <svg width="7" height="8" viewBox="0 0 7 8" fill="currentColor" aria-hidden="true">{sortDirection === 'asc' ? <path d="M3.5 1L7 7H0Z" /> : <path d="M3.5 7L0 1H7Z" />}</svg>
@@ -7866,7 +7866,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg className="hidden md:block" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#a855f7" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></svg>
-                        <span style={{ fontWeight: 900, fontSize: '15px' }}>SIZE</span>
+                        <span style={{ fontWeight: 900, fontSize: '11px' }}>SIZE</span>
                         <span style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 1 }}>
                           {sortField === 'total_premium' && (
                             <svg width="7" height="8" viewBox="0 0 7 8" fill="currentColor" aria-hidden="true">{sortDirection === 'asc' ? <path d="M3.5 1L7 7H0Z" /> : <path d="M3.5 7L0 1H7Z" />}</svg>
@@ -7900,7 +7900,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                         <svg className="hidden md:block" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /><line x1="8" y1="14" x2="8" y2="14" strokeWidth="3" /><line x1="12" y1="14" x2="12" y2="14" strokeWidth="3" /></svg>
                         <span className="hidden md:inline lg:hidden">EXPIRY</span>
                         <span className="hidden lg:inline">EXPIRATION</span>
-                        <span className="md:hidden" style={{ fontWeight: 900, fontSize: '15px' }}>EXPIRY</span>
+                        <span className="md:hidden" style={{ fontWeight: 900, fontSize: '11px' }}>EXPIRY</span>
                         <span className="hidden md:inline-flex" style={{ alignItems: 'center', marginLeft: 1 }}>
                           {sortField === 'expiry' && (
                             <svg width="7" height="8" viewBox="0 0 7 8" fill="currentColor" aria-hidden="true">{sortDirection === 'asc' ? <path d="M3.5 1L7 7H0Z" /> : <path d="M3.5 7L0 1H7Z" />}</svg>
@@ -7917,7 +7917,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg className="hidden md:block" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
                         <span className="hidden md:inline">SPOT → CURR</span>
-                        <span className="md:hidden" style={{ fontWeight: 900, fontSize: '15px' }}>SPOT</span>
+                        <span className="md:hidden" style={{ fontWeight: 900, fontSize: '11px' }}>SPOT</span>
                         <span className="hidden md:inline-flex" style={{ alignItems: 'center', marginLeft: 1 }}>
                           {sortField === 'spot_price' && (
                             <svg width="7" height="8" viewBox="0 0 7 8" fill="currentColor" aria-hidden="true">{sortDirection === 'asc' ? <path d="M3.5 1L7 7H0Z" /> : <path d="M3.5 7L0 1H7Z" />}</svg>

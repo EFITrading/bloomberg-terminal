@@ -11,7 +11,7 @@ const EFIPopupChart = dynamic(
   () => import('./EFICharting').then((m) => ({ default: m.TradePopupChart })),
   { ssr: false }
 )
-// â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Types ────────────────────────────────────────────────────────────────────
 type BriefBlockType =
   | 'intro'
   | 'body'
@@ -59,7 +59,7 @@ interface SavedReport {
   snapshot: InsightData
 }
 
-// â”€â”€ Quick Brief types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Quick Brief types ─────────────────────────────────────────────────────────
 interface MktDataItem { label: string; value: string; change: string; up: boolean }
 interface BulletItem { category: string; text: string }
 interface KeyLevelItem { price: string; tag: string; note: string }
@@ -78,7 +78,7 @@ interface QuickBrief {
   updatedAt: string
 }
 
-// â”€â”€ Storage & helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Storage & helpers ─────────────────────────────────────────────────────────
 const STORAGE_KEY = 'efi_insight_v1'
 const HISTORY_KEY = 'efi_insight_history_v1'
 const QUICK_KEY = 'efi_quick_v1'
@@ -125,7 +125,7 @@ const LEVEL_TAG_COLORS: Record<string, string> = {
   RESISTANCE: '#FF3B3B', SUPPORT: '#00D68F', CURRENT: '#FFD700',
   PIVOT: '#A855F7', TARGET: '#22D3EE', STOP: '#FF3B3B', KEY: '#FF6600',
 }
-// â”€â”€ Quick-pulse direction helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Quick-pulse direction helpers ─────────────────────────────────────────────
 const QD_COLOR: Record<string, string> = { bull: '#00D68F', bear: '#FF3B3B', straddle: '#A855F7', neutral: '#9AAAB8', hot: '#FF6600' }
 const QD_LABEL: Record<string, string> = { bull: 'BULLISH', bear: 'BEARISH', straddle: 'STRADDLE', neutral: 'NEUTRAL', hot: 'TOP FOCUS' }
 const QD_TRADE_CLR: Record<string, string> = { call: '#00D68F', put: '#FF3B3B', straddle: '#A855F7', spread: '#FFD700', stock: '#22D3EE' }
@@ -151,7 +151,7 @@ const fmtTs = (iso: string) =>
     })
     : ''
 
-// â”€â”€ Design tokens â€” multi-layer premium palette â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Design tokens — multi-layer premium palette ──────────────────────────────
 const GS = {
   gold: '#D4A843', // warm amber-gold
   goldFaint: '#080808', // pure void black
@@ -168,7 +168,7 @@ const GS = {
   live: '#FF2D55',
 }
 
-// â”€â”€ Shared inline styles â€” glossy premium â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Shared inline styles — glossy premium ────────────────────────────────────
 const iBase: React.CSSProperties = {
   background: '#020202',
   border: '1px solid rgba(212,168,67,0.25)',
@@ -221,7 +221,7 @@ const ghostBtn = (color: string): React.CSSProperties => ({
   boxShadow: `0 0 10px ${color}18`,
 })
 
-// â”€â”€ Draggable chart wrapper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Draggable chart wrapper ────────────────────────────────────────────────────
 function ChartDraggableWrapper({
   children,
   editMode,
@@ -279,11 +279,11 @@ function ChartDraggableWrapper({
   )
 }
 
-// â”€â”€ Accent theming context â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Accent theming context ────────────────────────────────────────────────────
 const AccentCtx = React.createContext('#D4A843')
 const useAccent = () => React.useContext(AccentCtx)
 
-// â”€â”€ Shared sub-components â€” premium â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Shared sub-components — premium ──────────────────────────────────────────
 const SectionTitle = ({ children }: { children: React.ReactNode }) => {
   const accent = useAccent()
   return (
@@ -423,7 +423,7 @@ const AddFormBox = ({ children }: { children: React.ReactNode }) => {
   )
 }
 
-// â”€â”€ Rich Body Editor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Rich Body Editor ─────────────────────────────────────────────────────────
 const FONTS = [
   { label: 'Georgia', value: 'Georgia, serif' },
   { label: 'Times New Roman', value: '"Times New Roman", serif' },
@@ -458,7 +458,7 @@ function RichBodyEditor({
   const editorRef = useRef<HTMLDivElement>(null)
   const isInitialized = useRef(false)
   const [colorMode, setColorMode] = React.useState<'text' | 'hl'>('text')
-  // Self-contained undo/redo stack â€” never touches anything outside this editor
+  // Self-contained undo/redo stack — never touches anything outside this editor
   const histRef = useRef<string[]>([])
   const histIdxRef = useRef(-1)
   const applyingRef = useRef(false)
@@ -695,7 +695,7 @@ function RichBodyEditor({
             undo()
           }}
         >
-          â†©
+          ↩
         </button>
         <button
           style={btn()}
@@ -705,7 +705,7 @@ function RichBodyEditor({
             redo()
           }}
         >
-          â†ª
+          ↪
         </button>
         <button
           style={btn()}
@@ -744,7 +744,7 @@ function RichBodyEditor({
   )
 }
 
-// â”€â”€ BRIEF â”€ Block Layout Editor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── BRIEF ─ Block Layout Editor ─────────────────────────────────────────────────
 const BRIEF_THEMES: Record<string, string> = {
   goldman: '#D4A843',
   bloomberg: '#FF6B00',
@@ -819,7 +819,7 @@ const EMPTY_TARGETS: FlowTargets = {
 
 // Compute live DTE from today using expiry string (YYYY-MM-DD)
 function liveDTE(expiry: string): number {
-  // market close is 4:00 PM ET â€” derive correct UTC offset (EDT=-04:00, EST=-05:00)
+  // market close is 4:00 PM ET — derive correct UTC offset (EDT=-04:00, EST=-05:00)
   const probe = new Date(expiry + 'T12:00:00Z')
   const isEDT = probe
     .toLocaleString('en-US', { timeZone: 'America/New_York', timeZoneName: 'short' })
@@ -1035,7 +1035,7 @@ function FlowBlockView({ block, accent }: { block: BriefBlock; accent: string })
             fontWeight: 700,
           }}
         >
-          FLOW â€” SELECT FROM TRACKER IN EDIT
+          FLOW — SELECT FROM TRACKER IN EDIT
         </span>
       </div>
     )
@@ -1184,7 +1184,7 @@ function FlowBlockView({ block, accent }: { block: BriefBlock; accent: string })
       fontFamily: 'monospace',
       overflow: 'hidden',
     }}>
-      {/* â”€â”€ Wire ticket header bar â”€â”€ */}
+      {/* ── Wire ticket header bar ── */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '6px 12px',
@@ -1213,7 +1213,7 @@ function FlowBlockView({ block, accent }: { block: BriefBlock; accent: string })
         </span>
       </div>
 
-      {/* â”€â”€ Primary row: ticker + title â”€â”€ */}
+      {/* ── Primary row: ticker + title ── */}
       <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '8px', flexWrap: 'wrap' }}>
           <span style={{ fontSize: '20px', fontWeight: 900, color: '#FFFFFF', letterSpacing: '1px' }}>
@@ -1240,7 +1240,7 @@ function FlowBlockView({ block, accent }: { block: BriefBlock; accent: string })
           </div>
         </div>
 
-        {/* â”€â”€ Key deal metrics â”€â”€ */}
+        {/* ── Key deal metrics ── */}
         <div style={{ display: 'flex', gap: '0', flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
           {[
             { label: 'CONTRACTS', value: (flow.trade_size || 0).toLocaleString(), color: '#22D3EE' },
@@ -1264,7 +1264,7 @@ function FlowBlockView({ block, accent }: { block: BriefBlock; accent: string })
         </div>
       </div>
 
-      {/* â”€â”€ Analytics grid â”€â”€ */}
+      {/* ── Analytics grid ── */}
       {detailGrid.length > 0 && (
         <div style={{
           display: 'grid',
@@ -1507,7 +1507,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
                   {stTicker}
                 </span>
               </div>
-              {/* Year label top-right (view mode only â€” edit mode has year dropdown in controls) */}
+              {/* Year label top-right (view mode only — edit mode has year dropdown in controls) */}
               {!editMode && (
                 <div
                   style={{
@@ -1535,7 +1535,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
               background: '#050505',
             }}>
               <span style={{ fontSize: '9px', letterSpacing: '5px', color: `${accent}60`, fontFamily: 'monospace' }}>
-                SEASONALITY â€” ENTER TICKER IN EDIT
+                SEASONALITY — ENTER TICKER IN EDIT
               </span>
             </div>
           )}
@@ -1567,7 +1567,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
               background: '#050505',
             }}>
               <span style={{ fontSize: '9px', letterSpacing: '5px', color: `${accent}60`, fontFamily: 'monospace' }}>
-                CHART â€” ENTER TICKER IN EDIT
+                CHART — ENTER TICKER IN EDIT
               </span>
             </div>
           )}
@@ -1597,7 +1597,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
               background: '#050505',
             }}>
               <span style={{ fontSize: '9px', letterSpacing: '5px', color: `${accent}60`, fontFamily: 'monospace' }}>
-                IMAGE â€” ADD URL IN EDIT
+                IMAGE — ADD URL IN EDIT
               </span>
             </div>
           )}
@@ -1625,7 +1625,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
           {
             label: 'BULLISH',
             sub: 'ZONE',
-            value: items[0]?.value || 'â€”',
+            value: items[0]?.value || '—',
             color: GS.green,
             bg: 'rgba(52,211,153,0.055)',
             glowColor: 'rgba(52,211,153,0.12)',
@@ -1634,7 +1634,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
           {
             label: 'CHOP',
             sub: 'ZONE',
-            value: items[1]?.value || 'â€”',
+            value: items[1]?.value || '—',
             color: GS.amber,
             bg: 'rgba(255,149,0,0.055)',
             glowColor: 'rgba(255,149,0,0.12)',
@@ -1643,7 +1643,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
           {
             label: 'BEARISH',
             sub: 'ZONE',
-            value: items[2]?.value || 'â€”',
+            value: items[2]?.value || '—',
             color: GS.red,
             bg: 'rgba(255,45,85,0.055)',
             glowColor: 'rgba(255,45,85,0.12)',
@@ -1696,9 +1696,9 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
         )
       }
       if (mode === 'directional') {
-        const bull = items[0]?.value || 'â€”'
-        const target = items[1]?.value || 'â€”'
-        const stop = items[2]?.value || 'â€”'
+        const bull = items[0]?.value || '—'
+        const target = items[1]?.value || '—'
+        const stop = items[2]?.value || '—'
         const note = block.caption || ''
         const isBearish = items[0]?.delta === 'bear'
         const dirRows = [
@@ -1799,10 +1799,10 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
       }
       // straddle
       const note = block.caption || ''
-      const callVal = items[0]?.value || 'â€”'
-      const callT = items[1]?.value || 'â€”'
-      const putVal = items[2]?.value || 'â€”'
-      const putT = items[3]?.value || 'â€”'
+      const callVal = items[0]?.value || '—'
+      const callT = items[1]?.value || '—'
+      const putVal = items[2]?.value || '—'
+      const putT = items[3]?.value || '—'
       return (
         <div style={{
           marginBottom: '20px',
@@ -1841,7 +1841,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
                 <span style={{ fontSize: '9px', fontWeight: 900, color: GS.green, letterSpacing: '3px' }}>CALL</span>
               </div>
               <div style={{ fontSize: '13px', fontWeight: 700, color: '#E8EDF2', lineHeight: 1.6 }}>{callVal}</div>
-              {callT && callT !== 'â€”' && <div style={{ fontSize: '11px', color: GS.green, fontWeight: 700 }}>TARGET: {callT}</div>}
+              {callT && callT !== '—' && <div style={{ fontSize: '11px', color: GS.green, fontWeight: 700 }}>TARGET: {callT}</div>}
             </div>
             <div style={{
               borderTop: `2px solid ${GS.red}`,
@@ -1853,7 +1853,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
                 <span style={{ fontSize: '9px', fontWeight: 900, color: GS.red, letterSpacing: '3px' }}>PUT</span>
               </div>
               <div style={{ fontSize: '13px', fontWeight: 700, color: '#E8EDF2', lineHeight: 1.6 }}>{putVal}</div>
-              {putT && putT !== 'â€”' && <div style={{ fontSize: '11px', color: GS.red, fontWeight: 700 }}>TARGET: {putT}</div>}
+              {putT && putT !== '—' && <div style={{ fontSize: '11px', color: GS.red, fontWeight: 700 }}>TARGET: {putT}</div>}
             </div>
           </div>
           {block.url && (
@@ -1894,11 +1894,11 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
   }
 }
 
-// â”€â”€ SVG Zone Icons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── SVG Zone Icons ───────────────────────────────────────────────────────────
 function BullishZoneIcon({ size = 40 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 40 40" fill="none" style={{ flexShrink: 0 }}>
-      {/* Zone band â€” solid fill */}
+      {/* Zone band — solid fill */}
       <rect x="4" y="6" width="32" height="5" rx="2" fill="#34D399" />
       {/* Uptrend line */}
       <polyline
@@ -1925,9 +1925,9 @@ function BullishZoneIcon({ size = 40 }: { size?: number }) {
 function ChopZoneIcon({ size = 40 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 40 40" fill="none" style={{ flexShrink: 0 }}>
-      {/* Upper band â€” solid fill same as bullish/bearish rect */}
+      {/* Upper band — solid fill same as bullish/bearish rect */}
       <rect x="4" y="6" width="32" height="5" rx="2" fill="#FF9500" />
-      {/* Lower band â€” solid fill same as bullish/bearish rect */}
+      {/* Lower band — solid fill same as bullish/bearish rect */}
       <rect x="4" y="29" width="32" height="5" rx="2" fill="#FF9500" />
       {/* Zigzag between the two bands */}
       <polyline
@@ -1945,7 +1945,7 @@ function ChopZoneIcon({ size = 40 }: { size?: number }) {
 function BearishZoneIcon({ size = 40 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 40 40" fill="none" style={{ flexShrink: 0 }}>
-      {/* Zone band â€” solid fill */}
+      {/* Zone band — solid fill */}
       <rect x="4" y="29" width="32" height="5" rx="2" fill="#FF2D55" />
       {/* Downtrend line */}
       <polyline
@@ -2048,7 +2048,7 @@ function DirectionalBadgeIcon({ size = 14, color = '#D4A843' }: { size?: number;
   )
 }
 
-// â”€â”€ SVG Market Icons (animated, no emoji) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── SVG Market Icons (animated, no emoji) ───────────────────────────────────
 function CallIcon({ size = 28 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 28 28" fill="none" style={{ flexShrink: 0 }}>
@@ -2139,7 +2139,7 @@ function PutIcon({ size = 28 }: { size?: number }) {
   )
 }
 
-// â”€â”€ Brief block editors â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Brief block editors ───────────────────────────────────────────────────────
 
 function FlowEditRow({
   flow,
@@ -2712,7 +2712,7 @@ function FlowBlockEdit({
           borderRadius: '4px',
         }}
       >
-        NO FLOWS IN TRACKER â€” ADD FLOWS FROM THE LIVE FLOW PANEL FIRST
+        NO FLOWS IN TRACKER — ADD FLOWS FROM THE LIVE FLOW PANEL FIRST
       </div>
     )
 
@@ -2860,7 +2860,7 @@ function SeasonalityBlockEdit({
           style={toggleStyle(sweetOn)}
           onClick={() => updateBlock(block.id, { title: sweetOn ? '0' : '1' })}
         >
-          {sweetOn ? 'â˜…' : 'â˜†'} SWEET SPOT
+          {sweetOn ? '★' : '☆'} SWEET SPOT
         </button>
         <button
           style={toggleStyle(painOn)}
@@ -3323,7 +3323,7 @@ function MetricsBlockEdit({
                 fontWeight: 700,
               }}
             >
-              {imgFocused ? 'PASTE NOW (CTRL+V)' : 'CLICK â†’ CTRL+V  OR  DROP'}
+              {imgFocused ? 'PASTE NOW (CTRL+V)' : 'CLICK → CTRL+V  OR  DROP'}
             </span>
           </div>
           <button
@@ -3456,7 +3456,7 @@ function MetricsBlockEdit({
   )
 }
 
-// â”€â”€ QuickSection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── QuickSection ─────────────────────────────────────────────────────────────
 function QuickSection({
   quick, persist, editMode, accent,
 }: { quick: QuickBrief; persist: (q: QuickBrief) => void; editMode: boolean; accent: string }) {
@@ -3490,7 +3490,7 @@ function QuickSection({
     </div>
   )
 
-  // â”€â”€ EDIT MODE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── EDIT MODE ──────────────────────────────────────────────────────────────
   if (editMode) return (
     <div style={{ fontFamily: 'monospace', display: 'flex', flexDirection: 'column', gap: '22px', padding: '4px 0' }}>
       {/* Config row: mode + layout */}
@@ -3507,7 +3507,7 @@ function QuickSection({
           <div style={{ fontSize: '9px', letterSpacing: '4px', color: accent, marginBottom: '6px', fontWeight: 900 }}>LAYOUT</div>
           <div style={{ display: 'flex', gap: '4px' }}>
             {(['single', 'double'] as const).map(l => (
-              <button key={l} onClick={() => save({ layout: l })} style={{ padding: '5px 12px', fontSize: '9px', fontWeight: 900, letterSpacing: '2px', fontFamily: 'monospace', cursor: 'pointer', border: `1px solid ${(quick.layout || 'single') === l ? accent : 'rgba(255,255,255,0.1)'}`, background: (quick.layout || 'single') === l ? `${accent}18` : 'transparent', color: (quick.layout || 'single') === l ? accent : 'rgba(255,255,255,0.35)' }}>{l === 'single' ? 'â‘  SINGLE COL' : 'â‘¡ DOUBLE COL'}</button>
+              <button key={l} onClick={() => save({ layout: l })} style={{ padding: '5px 12px', fontSize: '9px', fontWeight: 900, letterSpacing: '2px', fontFamily: 'monospace', cursor: 'pointer', border: `1px solid ${(quick.layout || 'single') === l ? accent : 'rgba(255,255,255,0.1)'}`, background: (quick.layout || 'single') === l ? `${accent}18` : 'transparent', color: (quick.layout || 'single') === l ? accent : 'rgba(255,255,255,0.35)' }}>{l === 'single' ? '① SINGLE COL' : '② DOUBLE COL'}</button>
             ))}
           </div>
         </div>
@@ -3521,7 +3521,7 @@ function QuickSection({
         </div>
         <div>
           <div style={{ fontSize: '9px', letterSpacing: '4px', color: accent, marginBottom: '6px', fontWeight: 900 }}>MARKET SUMMARY</div>
-          <textarea value={quick.summary || ''} onChange={e => save({ summary: e.target.value })} placeholder="Context paragraph â€” macro drivers, overnight news..." style={{ ...iBase, padding: '10px 12px', fontSize: '12px', resize: 'vertical', minHeight: '48px', lineHeight: '1.65', fontFamily: 'Georgia, serif', width: '100%' }} />
+          <textarea value={quick.summary || ''} onChange={e => save({ summary: e.target.value })} placeholder="Context paragraph — macro drivers, overnight news..." style={{ ...iBase, padding: '10px 12px', fontSize: '12px', resize: 'vertical', minHeight: '48px', lineHeight: '1.65', fontFamily: 'Georgia, serif', width: '100%' }} />
         </div>
       </div>
 
@@ -3556,7 +3556,7 @@ function QuickSection({
           <div style={{ fontSize: '9px', letterSpacing: '4px', color: accent, fontWeight: 900 }}>TOP FOCUS ITEMS</div>
           <button onClick={addFocus} style={{ ...ghostBtn(accent), padding: '4px 12px', fontSize: '9px', letterSpacing: '2px', cursor: 'pointer' }}>+ ADD TICKER</button>
         </div>
-        {focusItems.length === 0 && <div style={{ fontSize: '10px', color: '#FFFFFF', letterSpacing: '2px', padding: '4px 0' }}>No focus items â€” click + ADD TICKER</div>}
+        {focusItems.length === 0 && <div style={{ fontSize: '10px', color: '#FFFFFF', letterSpacing: '2px', padding: '4px 0' }}>No focus items — click + ADD TICKER</div>}
         {focusItems.map((fi) => (
           <div key={fi.id} style={{ border: `1px solid ${QD_COLOR[fi.direction] || accent}30`, marginBottom: '10px', background: '#040404' }}>
             <div style={{ display: 'grid', gridTemplateColumns: '110px 140px 1fr 32px', gap: '6px', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)', alignItems: 'center' }}>
@@ -3570,7 +3570,7 @@ function QuickSection({
             <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
               {fi.bullets.map((b, bi) => (
                 <div key={bi} style={{ display: 'grid', gridTemplateColumns: '1fr 30px', gap: '4px', alignItems: 'center' }}>
-                  <input value={b} onChange={e => updFocusBullet(fi.id, fi.bullets, bi, e.target.value)} placeholder={`Bullet ${bi + 1} â€” thesis, setup, risk...`} style={{ ...inp, fontSize: '12px' }} />
+                  <input value={b} onChange={e => updFocusBullet(fi.id, fi.bullets, bi, e.target.value)} placeholder={`Bullet ${bi + 1} — thesis, setup, risk...`} style={{ ...inp, fontSize: '12px' }} />
                   <button onClick={() => delFocusBullet(fi.id, fi.bullets, bi)} style={{ ...rmBtn, padding: '5px 6px', cursor: 'pointer', fontSize: '11px' }}>✕</button>
                 </div>
               ))}
@@ -3586,7 +3586,7 @@ function QuickSection({
           <div style={{ fontSize: '9px', letterSpacing: '4px', color: accent, fontWeight: 900 }}>TRADE SETUPS</div>
           <button onClick={addTrade} style={{ ...ghostBtn(accent), padding: '4px 12px', fontSize: '9px', letterSpacing: '2px', cursor: 'pointer' }}>+ ADD TRADE</button>
         </div>
-        {trades.length === 0 && <div style={{ fontSize: '10px', color: '#FFFFFF', letterSpacing: '2px', padding: '4px 0' }}>No trades â€” click + ADD TRADE</div>}
+        {trades.length === 0 && <div style={{ fontSize: '10px', color: '#FFFFFF', letterSpacing: '2px', padding: '4px 0' }}>No trades — click + ADD TRADE</div>}
         <div style={{ display: 'grid', gridTemplateColumns: '70px 66px 1fr 70px 70px 70px 72px 1fr 30px', gap: '4px', marginBottom: '4px' }}>
           {['TICKER', 'TYPE', 'CONTRACT', 'ENTRY', 'T1', 'T2', 'STOP', 'NOTES', ''].map(h => <div key={h} style={{ fontSize: '8px', color: '#FFFFFF', letterSpacing: '2px' }}>{h}</div>)}
         </div>
@@ -3630,7 +3630,7 @@ function QuickSection({
     </div>
   )
 
-  // â”€â”€ VIEW MODE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── VIEW MODE ──────────────────────────────────────────────────────────────
   const hasAnyContent = quick.headline || quick.summary || focusItems.some(f => f.ticker) || trades.some(t => t.ticker) || quick.marketData.some(d => d.value) || quick.bullets.some(b => b.text)
   if (!hasAnyContent) return (
     <div style={{ padding: '52px 0', textAlign: 'center' }}>
@@ -3647,7 +3647,7 @@ function QuickSection({
 
   const activeMktData = quick.marketData.filter(d => d.value)
 
-  // â”€â”€ Section blocks â”€â”€
+  // ── Section blocks ──
   const mastheadEl = (
     <div style={{ borderBottom: `2px solid ${accent}`, paddingBottom: '10px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
       <div>
@@ -3820,7 +3820,7 @@ function QuickSection({
     </div>
   ) : null
 
-  // â”€â”€ Double column â”€â”€
+  // ── Double column ──
   if (isDouble) return (
     <div style={{ display: 'grid', gridTemplateColumns: '58% 1fr', gap: '28px', alignItems: 'start' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -3832,7 +3832,7 @@ function QuickSection({
     </div>
   )
 
-  // â”€â”€ Single column â”€â”€
+  // ── Single column ──
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {mastheadEl}{headlineEl}{summaryEl}{snapshotEl}{focusEl}{legacyBulletsEl}{tradesEl}{levelsEl}
@@ -3964,7 +3964,7 @@ function BriefSection({
                         cursor: 'pointer',
                       }}
                     >
-                      â†‘
+                      ↑
                     </button>
                     <button
                       onClick={() => moveBlock(block.id, 1)}
@@ -3977,7 +3977,7 @@ function BriefSection({
                         cursor: 'pointer',
                       }}
                     >
-                      â†“
+                      ↓
                     </button>
                     <button
                       onClick={() => deleteBlock(block.id)}
@@ -4079,7 +4079,7 @@ function BriefSection({
   )
 }
 
-// â”€â”€ Main Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Main Component ────────────────────────────────────────────────────────────
 
 export default function InsightPanel({ onClose }: { onClose: () => void }) {
   const [editMode, setEditMode] = useState(false)
@@ -4144,11 +4144,11 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
         position: 'relative',
       }}
     >
-      {/* â”€â”€ Wire masthead top rules â”€â”€ */}
+      {/* ── Wire masthead top rules ── */}
       <div style={{ height: '3px', background: '#FF6B00', flexShrink: 0 }} />
       <div style={{ height: '1px', background: 'rgba(255,107,0,0.25)', flexShrink: 0 }} />
 
-      {/* â”€â”€ Header â”€â”€ */}
+      {/* ── Header ── */}
       <div style={{
         padding: '10px 18px',
         flexShrink: 0,
@@ -4206,7 +4206,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
                   minHeight: '18px',
                 }}
               >
-                {data.reportTitle || 'No title â€” enter in Edit Mode'}
+                {data.reportTitle || 'No title — enter in Edit Mode'}
               </span>
             )}
           </div>
@@ -4263,7 +4263,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
                   onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.07)')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                 >
-                  â± HISTORICAL
+                  ⏱ HISTORICAL
                 </button>
                 <button
                   onClick={() => { saveReport(); setOptionsOpen(false) }}
@@ -4279,7 +4279,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
                   onMouseEnter={e => (e.currentTarget.style.background = 'rgba(34,197,94,0.08)')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                 >
-                  {savedToast ? 'âœ… SAVED!' : 'âœ¦ SAVE REPORT'}
+                  {savedToast ? '✅ SAVED!' : '✦ SAVE REPORT'}
                 </button>
                 <button
                   onClick={() => { setEditMode((e) => !e); setOptionsOpen(false) }}
@@ -4295,7 +4295,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
                   onMouseEnter={e => (e.currentTarget.style.background = 'rgba(6,182,212,0.08)')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                 >
-                  {editMode ? 'â— EDITING' : 'âœŽ EDIT MODE'}
+                  {editMode ? '● EDITING' : '✎ EDIT MODE'}
                 </button>
               </div>
             )}
@@ -4318,7 +4318,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
         </div>
       </div>
 
-      {/* â”€â”€ Tab bar â”€â”€ */}
+      {/* ── Tab bar ── */}
       <div style={{
         display: 'flex', flexShrink: 0,
         background: '#030303',
@@ -4341,7 +4341,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
         ))}
       </div>
 
-      {/* â”€â”€ Content â”€â”€ */}
+      {/* ── Content ── */}
       <AccentCtx.Provider value={GS.gold}>
         <div style={{ flex: 1, overflowY: 'auto', background: '#000000', position: 'relative' }}>
           <div style={{ padding: '18px 28px' }}>
@@ -4353,7 +4353,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
         </div>
       </AccentCtx.Provider>
 
-      {/* â”€â”€ History Drawer â”€â”€ */}
+      {/* ── History Drawer ── */}
       {historyOpen && (
         <div
           style={{
@@ -4388,7 +4388,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
                 fontWeight: '700',
               }}
             >
-              â± HISTORICAL REPORTS
+              ⏱ HISTORICAL REPORTS
             </span>
             <button
               onClick={() => setHistoryOpen(false)}
@@ -4425,7 +4425,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
               >
                 No saved reports yet.
                 <br />
-                Click âœ¦ SAVE REPORT to archive the current report.
+                Click ✦ SAVE REPORT to archive the current report.
               </div>
             )}
             {history.map((report) => (
@@ -4502,7 +4502,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
-      {/* â”€â”€ Footer â”€â”€ */}
+      {/* ── Footer ── */}
       <div style={{
         borderTop: '1px solid rgba(255,107,0,0.12)',
         padding: '6px 18px',
@@ -4517,7 +4517,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
         </span>
         {editMode && (
           <span style={{ fontSize: '9px', color: GS.amber, letterSpacing: '3px', fontWeight: 900, fontFamily: 'monospace' }}>
-            â— LIVE EDIT
+            ● LIVE EDIT
           </span>
         )}
       </div>

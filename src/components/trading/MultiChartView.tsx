@@ -269,7 +269,7 @@ export default function MultiChartView({
       ctx.fillRect(x, priceCH + volH - vh, Math.round(cw), vh);
     });
 
-    // Time axis â€” same adaptive logic as main chart drawTimeAxis
+    // Time axis — same adaptive logic as main chart drawTimeAxis
     const taxY = H - timeAxisH;
     ctx.strokeStyle = colors.grid || '#1a1a1a'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, taxY); ctx.lineTo(W, taxY); ctx.stroke();
@@ -461,7 +461,7 @@ export default function MultiChartView({
                 c.clearRect(0, 0, ov.width, ov.height);
                 c.save(); c.scale(dpr2, dpr2);
 
-                // Crosshair lines â€” exact main chart style
+                // Crosshair lines — exact main chart style
                 c.strokeStyle = config.theme === 'dark' ? '#555555' : '#cccccc';
                 c.lineWidth = 1; c.setLineDash([2, 2]);
                 if (cx >= 0) { c.beginPath(); c.moveTo(cx, 0); c.lineTo(cx, H2); c.stroke(); }
@@ -475,7 +475,7 @@ export default function MultiChartView({
                     c.font = 'bold 18px "Segoe UI", system-ui, -apple-system, sans-serif';
                     c.imageSmoothingEnabled = false; c.textBaseline = 'middle';
 
-                    // Y-axis price label â€” dark bg, orange text
+                    // Y-axis price label — dark bg, orange text
                     if (cy >= 0 && cy <= pch2) {
                       const price = aMax2 - (cy / pch2) * (aMax2 - aMin2);
                       const ptxt = `$${price.toFixed(2)}`;
@@ -491,7 +491,7 @@ export default function MultiChartView({
                       c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetX = 0; c.shadowOffsetY = 0;
                     }
 
-                    // X-axis date label â€” dark bg, orange text
+                    // X-axis date label — dark bg, orange text
                     if (cx >= 0) {
                       const ci2 = Math.floor((cx - 40) / cs2);
                       if (ci2 >= 0 && ci2 < vis2.length) {
@@ -518,7 +518,7 @@ export default function MultiChartView({
                         c.fillStyle = '#FF6600'; c.fillText(dateTxt, lx, xLY);
                         c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetX = 0; c.shadowOffsetY = 0;
 
-                        // OHLC panel â€” exact match to main chart
+                        // OHLC panel — exact match to main chart
                         const bull = candle.close >= candle.open;
                         const px2 = 20, py2 = 44, pw2 = 200, ph2 = 80;
                         c.fillStyle = 'rgba(0,0,0,0.9)'; c.strokeStyle = '#333333'; c.lineWidth = 1;

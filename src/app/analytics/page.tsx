@@ -47,7 +47,7 @@ export default function Analytics() {
     switch (id) {
       case 'rrg':
         return (
-          <div key={id} className="analytics-rrg-panel" style={{ ...panelStyle, height: 'calc(100vh - 156px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div key={id} className="analytics-rrg-panel" style={{ ...panelStyle, height: 'calc(var(--rrg-panel-h, 100vh) - 156px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <RRGAnalytics defaultTimeframe="12 weeks" defaultBenchmark="SPY" />
           </div>
         )

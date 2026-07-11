@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import {
   Area,
@@ -892,10 +892,11 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const rrgDragRef = useRef({ dragging: false, mouseDownActive: false, lastSvgX: 0, lastSvgY: 0 })
   const rrgSvgRef = useRef<SVGSVGElement | null>(null)
   const [rrgTickerMode, setRrgTickerMode] = useState<'all' | 'mag7only' | 'exmag7' | 'etfonly' | 'exetf' | 'stockonly'>('all')
-  const [rrgUniqueness, setRrgUniqueness] = useState<number | null>(null)
-  const [rrgDropdownOpen, setRrgDropdownOpen] = useState<'ticker' | 'time' | 'unique' | null>(null)
+  const [rrgDropdownOpen, setRrgDropdownOpen] = useState<'ticker' | 'time' | 'filter' | null>(null)
+  const [shouldAutoScanRRG, setShouldAutoScanRRG] = useState(0)
   const [showRegime, setShowRegime] = useState(false)
   const [showRegimeGrouping, setShowRegimeGrouping] = useState(false)
+  const [hoveredRegimeMembers, setHoveredRegimeMembers] = useState<Set<string>>(new Set())
 
   // Industry map for Regime detection
   const RRG_INDUSTRY: Record<string, string> = {
@@ -957,10 +958,9 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   useEffect(() => {
     const el = rrgSvgRef.current
     if (!el) return
-    // W=1755 H=875(desktop)/1750(mobile) PAD={t:32,r:32,b:44,l:52} → CW=1671 CH=799(desktop)/1674(mobile)
-    const RRG_PL = 52, RRG_PT = 32, RRG_CW = 1671
-    const RRG_H = document.body.clientWidth <= 768 ? 1750 : 875
-    const RRG_CH = RRG_H - 32 - 44
+    // SVG viewBox is always 1755x875 — use these constants everywhere
+    const RRG_W = 1755, RRG_H = 875
+    const RRG_PL = 52, RRG_PT = 32, RRG_CW = 1671, RRG_CH = 799
     const clamp = (tx: number, ty: number, k: number) => {
       const k1 = Math.max(1, k)
       return {
@@ -969,24 +969,66 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
         ty: Math.max((1 - k1) * (RRG_PT + RRG_CH), Math.min((1 - k1) * RRG_PT, ty)),
       }
     }
-    const handler = (e: WheelEvent) => {
+    // Desktop wheel zoom
+    const wheelHandler = (e: WheelEvent) => {
       e.preventDefault()
       const rect = el.getBoundingClientRect()
-      const mx = (e.clientX - rect.left) * 1755 / rect.width
-      const my = (e.clientY - rect.top) * (document.body.clientWidth <= 768 ? 1750 : 875) / rect.height
+      const mx = (e.clientX - rect.left) * RRG_W / rect.width
+      const my = (e.clientY - rect.top) * RRG_H / rect.height
       const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
       setRrgTransform(t => {
         const k2 = Math.max(1, Math.min(12, t.k * factor))
-        const raw = {
-          k: k2,
-          tx: mx - (mx - t.tx) * (k2 / t.k),
-          ty: my - (my - t.ty) * (k2 / t.k),
-        }
+        const raw = { k: k2, tx: mx - (mx - t.tx) * (k2 / t.k), ty: my - (my - t.ty) * (k2 / t.k) }
         return clamp(raw.tx, raw.ty, raw.k)
       })
     }
-    el.addEventListener('wheel', handler, { passive: false })
-    return () => el.removeEventListener('wheel', handler)
+    // Mobile touch: pinch-to-zoom + single-finger pan
+    let lastTouches: TouchList | null = null
+    const touchStart = (e: TouchEvent) => {
+      e.preventDefault()
+      lastTouches = e.touches
+    }
+    const touchMove = (e: TouchEvent) => {
+      e.preventDefault()
+      if (!lastTouches) return
+      const rect = el.getBoundingClientRect()
+      const toSvg = (t: Touch) => ({
+        x: (t.clientX - rect.left) * RRG_W / rect.width,
+        y: (t.clientY - rect.top) * RRG_H / rect.height,
+      })
+      if (e.touches.length === 1 && lastTouches.length === 1) {
+        // Single-finger pan
+        const prev = toSvg(lastTouches[0]), cur = toSvg(e.touches[0])
+        const dx = cur.x - prev.x, dy = cur.y - prev.y
+        setRrgTransform(t => clamp(t.tx + dx, t.ty + dy, t.k))
+      } else if (e.touches.length === 2 && lastTouches.length >= 1) {
+        // Pinch-to-zoom: use midpoint as zoom origin, scale from distance change
+        const p0 = toSvg(lastTouches[0] || e.touches[0])
+        const p1 = toSvg(lastTouches[1] || e.touches[1])
+        const c0 = toSvg(e.touches[0]), c1 = toSvg(e.touches[1])
+        const prevDist = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1
+        const curDist = Math.hypot(c1.x - c0.x, c1.y - c0.y)
+        const factor = Math.max(0.5, Math.min(2, curDist / prevDist))
+        const mx = (c0.x + c1.x) / 2, my = (c0.y + c1.y) / 2
+        setRrgTransform(t => {
+          const k2 = Math.max(1, Math.min(12, t.k * factor))
+          const raw = { k: k2, tx: mx - (mx - t.tx) * (k2 / t.k), ty: my - (my - t.ty) * (k2 / t.k) }
+          return clamp(raw.tx, raw.ty, raw.k)
+        })
+      }
+      lastTouches = e.touches
+    }
+    const touchEnd = (e: TouchEvent) => { lastTouches = e.touches.length > 0 ? e.touches : null }
+    el.addEventListener('wheel', wheelHandler, { passive: false })
+    el.addEventListener('touchstart', touchStart, { passive: false })
+    el.addEventListener('touchmove', touchMove, { passive: false })
+    el.addEventListener('touchend', touchEnd, { passive: false })
+    return () => {
+      el.removeEventListener('wheel', wheelHandler)
+      el.removeEventListener('touchstart', touchStart)
+      el.removeEventListener('touchmove', touchMove)
+      el.removeEventListener('touchend', touchEnd)
+    }
   }, [biasRRGData])
 
   // Ref to track accumulated trades synchronously across async SSE events
@@ -1001,7 +1043,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     setFlowData((prev) => [...prev, ...batch])
   }
 
-  // â”€â”€ AlgoFlow Live WebSocket state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── AlgoFlow Live WebSocket state ───────────────────────────────────────────
   const [isAlgoLive, setIsAlgoLive] = useState(false)
   const [algoLiveTicker, setAlgoLiveTicker] = useState<string>('')
   const [algoLiveConnected, setAlgoLiveConnected] = useState(false)
@@ -1110,7 +1152,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   // Gamma line toggle (single-ticker only)
   const [showGammaLine, setShowGammaLine] = useState(false)
   // Bull/Bear Ratio sub-panel toggle
-  const [showBullBear, setShowBullBear] = useState(true)
+  const [showBullBear, setShowBullBear] = useState(typeof window !== 'undefined' ? window.innerWidth > 768 : true)
 
   // Gamma: real greeks from Polygon per contract
   const [gammaMap, setGammaMap] = useState<Map<string, number>>(new Map())
@@ -1120,6 +1162,28 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const [excludeMag7, setExcludeMag7] = useState(false)
   const [excludeEtf, setExcludeEtf] = useState(false)
   const [excludeIndex, setExcludeIndex] = useState(false)
+  const [sectorFilter, setSectorFilter] = useState<string | null>(null)
+  const [sectorPopupOpen, setSectorPopupOpen] = useState(false)
+  const sectorHoldingsCacheRef = useRef<Map<string, string[]>>(new Map())
+
+  const SECTORS = [
+    { etf: 'XLK', label: 'Tech' }, { etf: 'XLY', label: 'Cons. Disc.' },
+    { etf: 'XLE', label: 'Energy' }, { etf: 'XLF', label: 'Financials' },
+    { etf: 'XLV', label: 'Healthcare' }, { etf: 'XLI', label: 'Industrials' },
+    { etf: 'XLU', label: 'Utilities' }, { etf: 'XLP', label: 'Cons. Staples' },
+    { etf: 'XLB', label: 'Materials' }, { etf: 'XLRE', label: 'Real Estate' },
+    { etf: 'XLC', label: 'Comm. Services' },
+  ]
+  const INDUSTRIES = [
+    { etf: 'SMH', label: 'Semiconductors' }, { etf: 'SOXX', label: 'Semis Broad' },
+    { etf: 'IGV', label: 'Software' }, { etf: 'SKYY', label: 'Cloud' },
+    { etf: 'CLOU', label: 'Cloud SaaS' }, { etf: 'HACK', label: 'Cybersecurity' },
+    { etf: 'BOTZ', label: 'Robotics/AI' }, { etf: 'ARKK', label: 'Innovation' },
+    { etf: 'ARKG', label: 'Genomics' }, { etf: 'KRE', label: 'Regional Banks' },
+    { etf: 'XBI', label: 'Biotech' }, { etf: 'IBB', label: 'Biotech Broad' },
+    { etf: 'GDX', label: 'Gold Miners' }, { etf: 'KWEB', label: 'China Internet' },
+    { etf: 'FXI', label: 'China Large Cap' },
+  ]
 
   const INDEX_SET = new Set(['SPX', 'SPXW', 'NDX', 'NDXP', 'RUT', 'RUTW', 'VIX', 'VIXW', 'XSP', 'DJX', 'MXEA', 'MXEF'])
 
@@ -1355,7 +1419,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const performAnalysis = (tradesData: any[], displayLabel?: string) => {
     const result = buildFastAnalysisFromSaved(tradesData, displayLabel)
     setAnalysis(result)
-    if (result?.ticker === 'ALL') allScanCacheRef.current = { flowData: tradesData, analysis: result }
+    if (result?.ticker === 'ALL') { allScanCacheRef.current = { flowData: tradesData, analysis: result }; setShouldAutoScanRRG(v => v + 1) }
     setIsAnalyzing(false)
     setOverlayActive(false)
   }
@@ -1367,7 +1431,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     }
   }, [flowData])
 
-  // â”€â”€ AlgoFlow Live: start streaming for a ticker or all tickers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── AlgoFlow Live: start streaming for a ticker or all tickers ───────────────
   const startAlgoLive = useCallback((tickerOrAll: string) => {
     // Stop any existing live session first
     if (algoLiveUnsubRef.current) { algoLiveUnsubRef.current(); algoLiveUnsubRef.current = null }
@@ -1557,7 +1621,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       })
     }
 
-    // â”€â”€ Resample to selected interval â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Resample to selected interval ───────────────────────────────────
     if (timeInterval === '1min' && (displayAnalysis?.trades?.length ?? 0) > 0) {
       // Rebuild at 1-min resolution from individual trades
       const trades = (displayAnalysis!.trades as any[])
@@ -1838,7 +1902,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                 const fastAnalysis = buildFastAnalysisFromSaved(saved, displayLabel)
                 if (fastAnalysis) {
                   setAnalysis(fastAnalysis)
-                  if (fastAnalysis.ticker === 'ALL') allScanCacheRef.current = { flowData: saved, analysis: fastAnalysis }
+                  if (fastAnalysis.ticker === 'ALL') { allScanCacheRef.current = { flowData: saved, analysis: fastAnalysis }; setShouldAutoScanRRG(v => v + 1) }
                 }
                 setOverlayActive(false)
                 return
@@ -1883,7 +1947,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               setStreamStatus(data.message)
               break
 
-            // â”€â”€â”€ PRIMARY TRADE DELIVERY PATH â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ─── PRIMARY TRADE DELIVERY PATH ───────────────────────────────
             // Server streams trades as 'ticker_complete' events (one per ticker).
             // We must handle this OR we lose all trades before 'complete' fires.
             case 'ticker_complete':
@@ -1902,7 +1966,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               }
               break
 
-            // â”€â”€â”€ LEGACY PROGRESSIVE PATH (kept for other callers) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ─── LEGACY PROGRESSIVE PATH (kept for other callers) ──────────
             case 'trades':
               if (data.trades?.length > 0 && !isStreamComplete) {
                 accumulatedTradesRef.current = [...accumulatedTradesRef.current, ...data.trades]
@@ -2073,9 +2137,49 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
 
   const handleSearch = () => {
     if (ticker.trim()) {
+      setSectorFilter(null)
       setSearchTicker(ticker.toUpperCase())
       fetchTickerFlow(ticker)
     }
+  }
+
+  const handleSectorSelect = async (etf: string) => {
+    setSectorPopupOpen(false)
+    if (sectorFilter === etf) {
+      setSectorFilter(null)
+      if (allScanCacheRef.current) {
+        setFlowData(allScanCacheRef.current.flowData)
+        setAnalysis(allScanCacheRef.current.analysis)
+      }
+      return
+    }
+    setSectorFilter(etf)
+    // Get holdings (cached)
+    let holdings = sectorHoldingsCacheRef.current.get(etf)
+    if (!holdings) {
+      try {
+        const resp = await fetch(`/api/etf-holdings?etf=${etf}&limit=100`)
+        if (resp.ok) {
+          const data = await resp.json()
+          holdings = (data.symbols || []) as string[]
+          sectorHoldingsCacheRef.current.set(etf, holdings)
+        }
+      } catch { }
+    }
+    if (!holdings?.length) return
+    const holdingSet = new Set(holdings.map((s: string) => s.toUpperCase()))
+    if (allScanCacheRef.current?.flowData?.length) {
+      const filtered = allScanCacheRef.current.flowData.filter(
+        t => holdingSet.has(t.underlying_ticker?.toUpperCase() ?? '')
+      )
+      if (filtered.length > 0) {
+        setFlowData(filtered)
+        performAnalysis(filtered, etf)
+        return
+      }
+    }
+    // No ALL cache — fetch flow for ETF holdings
+    fetchTickerFlow(etf + '100')
   }
 
   // Show full-screen ALL-scan loading scene (match OptionsFlow visuals)
@@ -2318,7 +2422,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             return <line key={i} x1={p0.x} y1={p0.y} x2={p1.x} y2={p1.y} stroke={isMaj ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.18)'} strokeWidth={isMaj ? 1.5 : 0.8} />
           })}
 
-          {/* Single-color fill "” 0Â° to needle, one solid color based on current zone */}
+          {/* Single-color fill "” 0° to needle, one solid color based on current zone */}
           {gaugeAngle > 0.5 && (
             <path d={arc(0, gaugeAngle, innerR, outerR)} fill={color} opacity={0.85} filter={`url(#${glowId})`} />
           )}
@@ -2454,6 +2558,14 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     }
   }
 
+  // Auto-run RRG when ALL scan cache is ready
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (shouldAutoScanRRG > 0) runRRGScan() }, [shouldAutoScanRRG])
+
+  // Re-run RRG when expiry filter changes (if data already loaded)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (allScanCacheRef.current?.flowData?.length) runRRGScan() }, [expiryFilter])
+
   const runRRGScan = async () => {
     setBiasRRGLoading(true); setBiasRRGData(null)
     let trades = await getBiasFlowData()
@@ -2481,8 +2593,8 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       }
     }
     const aggs = aggregateFlowByTicker(trades)
-    const MIN_THRESHOLD = rrgUniqueness ?? 0.35
-    const MIN_PREMIUM = 500_000
+    const MIN_THRESHOLD = 0.35
+    const MIN_PREMIUM = 1_000_000
     const result = { bullCalls: [] as typeof aggs, bearCalls: [] as typeof aggs, bullPuts: [] as typeof aggs, bearPuts: [] as typeof aggs }
     for (const a of aggs) {
       if (a.total < MIN_PREMIUM) continue
@@ -2618,38 +2730,133 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                   fontFamily: 'JetBrains Mono,monospace', fontSize: 15, fontWeight: 700,
                   color: '#ffffff', cursor: 'pointer',
                 }}
-              >âœ•</button>
+              >✕</button>
             </div>
           </div>
         </div>
       )}
       {/* HEADER BAR "” hidden in embedded mode */}
       {!embeddedMode && (isMobile ? (
-        /* â”€â”€ MOBILE HEADER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+        /* ── MOBILE HEADER ─────────────────────────────────────── */
         <div style={{ background: 'linear-gradient(180deg, #0d0d0d 0%, #060606 100%)', borderBottom: '1px solid rgba(255,255,255,0.1)', flexShrink: 0 }}>
-          {/* Row 1: Back + Tabs + conditional */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px 4px' }}>
-            {onBack && (
-              <button onClick={onBack} style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12, fontWeight: 800, color: '#fff', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', flexShrink: 0 }}>← BACK</button>
+          {/* Row 1: Back + [RRG: RUN SCAN] / [AlgoFlow: input + GO] + FILTER + GO 2 RRG */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '3px 8px 0', position: 'relative', zIndex: 200 }}>
+            {/* Back: exits RRG tab back to algoflow, or calls onBack if on algoflow */}
+            {(onBack || activeTab === 'flowbias') && (
+              <button
+                onClick={() => activeTab === 'flowbias' ? setActiveTab('algoflow') : onBack?.()}
+                style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, fontWeight: 800, color: '#fff', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 60%,#040404 100%)', border: '1px solid rgba(255,255,255,0.18)', borderTop: '1px solid rgba(255,255,255,0.32)', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', flexShrink: 0, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1),inset 0 -1px 0 rgba(0,0,0,0.7)' }}
+              >←</button>
             )}
-            <div style={{ display: 'flex', gap: 2, background: '#0a0a0a', border: '1px solid #222', borderRadius: 6, padding: 2, flexShrink: 0 }}>
-              <button onClick={() => setActiveTab('algoflow')} style={{ height: 26, padding: '0 10px', background: 'linear-gradient(135deg,#ff8500,#ff6000)', color: '#000', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, letterSpacing: '0.1em', border: 'none', borderRadius: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                ALGOFLOW
-              </button>
-            </div>
+            {/* Center: SCAN + REGIME + GROUPING in RRG mode, or ticker input + GO in algoflow mode */}
             {activeTab === 'flowbias' ? (
-              <button onClick={runRRGScan} disabled={biasRRGLoading} style={{ height: 30, padding: '0 16px', background: biasRRGLoading ? '#333' : 'linear-gradient(135deg,#7c3aed,#4c1d95)', color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 800, letterSpacing: '0.1em', border: 'none', borderRadius: 6, cursor: biasRRGLoading ? 'not-allowed' : 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5 }}>
-                {biasRRGLoading ? <><span style={{ display: 'inline-block', width: 10, height: 10, border: '2px solid #fff', borderTopColor: 'transparent', borderRadius: '50%', animation: 'biasSpin 0.7s linear infinite' }} />SCANNING...</> : 'RUN SCAN'}
-              </button>
+              <>
+                <button onClick={runRRGScan} disabled={biasRRGLoading}
+                  style={{ height: 31, padding: '0 12px', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 60%,#040404 100%)', border: '1px solid rgba(255,133,0,0.45)', borderTop: '1px solid rgba(255,133,0,0.7)', borderRadius: 4, cursor: biasRRGLoading ? 'not-allowed' : 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5, color: '#ff8500', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 800, letterSpacing: '0.08em', boxShadow: 'inset 0 1px 0 rgba(255,133,0,0.15),inset 0 -1px 0 rgba(0,0,0,0.7)' }}>
+                  {biasRRGLoading
+                    ? <span style={{ display: 'inline-block', width: 10, height: 10, border: '2px solid #ff8500', borderTopColor: 'transparent', borderRadius: '50%', animation: 'biasSpin 0.7s linear infinite' }} />
+                    : 'Scan'}
+                </button>
+                <button onClick={() => setShowRegime(v => !v)}
+                  style={{ height: 31, padding: '0 10px', background: showRegime ? 'linear-gradient(180deg,rgba(167,139,250,0.2),rgba(0,0,0,0.4))' : 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 60%,#040404 100%)', border: showRegime ? '1px solid #a78bfa' : '1px solid rgba(255,255,255,0.14)', borderTop: showRegime ? '1px solid #c4b5fd' : '1px solid rgba(255,255,255,0.24)', borderRadius: 4, cursor: 'pointer', flexShrink: 0, color: showRegime ? '#a78bfa' : '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 800, boxShadow: showRegime ? '0 0 6px rgba(167,139,250,0.3)' : 'inset 0 1px 0 rgba(255,255,255,0.08),inset 0 -1px 0 rgba(0,0,0,0.7)' }}>
+                  REGIME
+                </button>
+                <button onClick={() => setShowRegimeGrouping(v => !v)}
+                  style={{ height: 31, padding: '0 10px', background: showRegimeGrouping ? 'linear-gradient(180deg,rgba(148,163,184,0.2),rgba(0,0,0,0.4))' : 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 60%,#040404 100%)', border: showRegimeGrouping ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.14)', borderTop: showRegimeGrouping ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.24)', borderRadius: 4, cursor: 'pointer', flexShrink: 0, color: showRegimeGrouping ? '#94a3b8' : '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 800, boxShadow: showRegimeGrouping ? '0 0 6px rgba(148,163,184,0.3)' : 'inset 0 1px 0 rgba(255,255,255,0.08),inset 0 -1px 0 rgba(0,0,0,0.7)' }}>
+                  GROUP
+                </button>
+              </>
             ) : (
               <>
-                <input type="text" value={ticker} onChange={(e) => setTicker(e.target.value.toUpperCase())} onKeyPress={handleKeyPress} placeholder="TICKER" disabled={loading} style={{ flex: 1, minWidth: 0, height: 30, padding: '0 8px', background: '#111', border: '1px solid rgba(255,255,255,0.25)', color: '#fff', fontFamily: 'JetBrains Mono, monospace', fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', outline: 'none', borderRadius: 4 }} />
-                <button onClick={handleSearch} disabled={loading || isAnalyzing || !ticker.trim()} style={{ height: 30, padding: '0 10px', background: (loading || isAnalyzing) ? '#333' : 'linear-gradient(135deg, #ff8500, #ff6000)', color: (loading || isAnalyzing) ? '#fff' : '#000', fontFamily: 'JetBrains Mono, monospace', fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', border: 'none', borderRadius: 4, cursor: (loading || isAnalyzing || !ticker.trim()) ? 'not-allowed' : 'pointer', flexShrink: 0, opacity: (!ticker.trim() || loading || isAnalyzing) ? 0.7 : 1, whiteSpace: 'nowrap' }}>
-                  {isAnalyzing ? '...' : loading ? '...' : 'GO'}
+                <input type="text" value={ticker} onChange={(e) => setTicker(e.target.value.toUpperCase())} onKeyPress={handleKeyPress} placeholder="TICKER" disabled={loading}
+                  style={{ width: 94, flexShrink: 0, height: 31, padding: '0 7px', background: 'linear-gradient(180deg,#111,#080808)', border: '1px solid rgba(255,255,255,0.2)', borderTop: '1px solid rgba(255,255,255,0.3)', color: '#fff', fontFamily: 'JetBrains Mono, monospace', fontSize: 13, fontWeight: 700, letterSpacing: '0.1em', outline: 'none', borderRadius: 4, boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.8)' }} />
+                {/* GO: candy black with orange arrow */}
+                <button onClick={handleSearch} disabled={loading || isAnalyzing || !ticker.trim()}
+                  style={{ height: 31, width: 31, background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 60%,#040404 100%)', border: '1px solid rgba(255,133,0,0.45)', borderTop: '1px solid rgba(255,133,0,0.7)', borderRadius: 4, cursor: (loading || isAnalyzing || !ticker.trim()) ? 'not-allowed' : 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'inset 0 1px 0 rgba(255,133,0,0.15),inset 0 -1px 0 rgba(0,0,0,0.7)' }}>
+                  {(loading || isAnalyzing)
+                    ? <span style={{ display: 'inline-block', width: 10, height: 10, border: '2px solid #ff8500', borderTopColor: 'transparent', borderRadius: '50%', animation: 'biasSpin 0.7s linear infinite' }} />
+                    : <svg width="10" height="10" viewBox="0 0 10 10"><polygon points="2,1 9,5 2,9" fill="#ff8500" /></svg>}
                 </button>
-                {(streamStatus || error) && (<span style={{ color: error ? '#ef4444' : '#22d3ee', fontFamily: 'JetBrains Mono, monospace', fontSize: 9, letterSpacing: '0.06em', flexShrink: 0, maxWidth: 60, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{error || streamStatus}</span>)}
               </>
             )}
+            {/* GO 2 RRG — only visible when NOT already in RRG */}
+            {activeTab !== 'flowbias' && (
+              <button
+                onClick={() => setActiveTab('flowbias')}
+                style={{ height: 29, padding: '0 11px', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 60%,#040404 100%)', border: '1px solid rgba(255,255,255,0.14)', borderTop: '1px solid rgba(255,255,255,0.24)', borderRadius: 4, fontSize: 12, fontWeight: 800, color: '#22c55e', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', flexShrink: 0, whiteSpace: 'nowrap', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08),inset 0 -1px 0 rgba(0,0,0,0.7)' }}
+              >GO 2 RRG</button>
+            )}
+            {/* SECTORS popup */}
+            {sectorPopupOpen && <div onClick={() => setSectorPopupOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 298 }} />}
+            <button
+              onClick={() => setSectorPopupOpen(o => !o)}
+              style={{ height: 29, padding: '0 11px', background: sectorFilter ? 'linear-gradient(180deg,rgba(52,211,153,0.2),rgba(0,0,0,0.4))' : 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 60%,#040404 100%)', border: sectorFilter ? '1px solid #34d399' : '1px solid rgba(255,255,255,0.14)', borderTop: sectorFilter ? '1px solid #5cf0b8' : '1px solid rgba(255,255,255,0.24)', borderRadius: 4, fontSize: 12, fontWeight: 800, color: sectorFilter ? '#34d399' : '#fff', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', flexShrink: 0, whiteSpace: 'nowrap', boxShadow: sectorFilter ? '0 0 6px rgba(52,211,153,0.3)' : 'inset 0 1px 0 rgba(255,255,255,0.08),inset 0 -1px 0 rgba(0,0,0,0.7)' }}
+            >{sectorFilter ? sectorFilter : 'SECTORS'} {sectorPopupOpen ? '▲' : '▾'}</button>
+            {sectorPopupOpen && (
+              <div style={{ position: 'fixed', top: 42, left: 8, background: 'linear-gradient(180deg,#0d1420 0%,#060810 100%)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: '6px 0', width: 180, zIndex: 999, boxShadow: '0 16px 48px rgba(0,0,0,0.95)', maxHeight: '70vh', overflowY: 'auto' }}>
+                <div style={{ padding: '4px 12px 3px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#34d399', letterSpacing: '0.2em', fontWeight: 800 }}>SECTORS</div>
+                {SECTORS.map(({ etf, label }) => {
+                  const active = sectorFilter === etf
+                  return <div key={etf} onClick={() => handleSectorSelect(etf)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', cursor: 'pointer', background: active ? 'rgba(52,211,153,0.1)' : 'transparent' }}>
+                    <div style={{ width: 12, height: 12, borderRadius: 3, border: `2px solid ${active ? '#34d399' : 'rgba(255,255,255,0.3)'}`, background: active ? '#34d399' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{active && <span style={{ color: '#000', fontSize: 8, fontWeight: 900 }}>✓</span>}</div>
+                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, color: active ? '#34d399' : '#fff' }}>{etf} <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 9 }}>{label}</span></span>
+                  </div>
+                })}
+                <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
+                <div style={{ padding: '4px 12px 3px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#a78bfa', letterSpacing: '0.2em', fontWeight: 800 }}>INDUSTRIES</div>
+                {INDUSTRIES.map(({ etf, label }) => {
+                  const active = sectorFilter === etf
+                  return <div key={etf} onClick={() => handleSectorSelect(etf)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', cursor: 'pointer', background: active ? 'rgba(167,139,250,0.1)' : 'transparent' }}>
+                    <div style={{ width: 12, height: 12, borderRadius: 3, border: `2px solid ${active ? '#a78bfa' : 'rgba(255,255,255,0.3)'}`, background: active ? '#a78bfa' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{active && <span style={{ color: '#fff', fontSize: 8, fontWeight: 900 }}>✓</span>}</div>
+                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, color: active ? '#a78bfa' : '#fff' }}>{etf} <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 9 }}>{label}</span></span>
+                  </div>
+                })}
+                {sectorFilter && (
+                  <>
+                    <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
+                    <div onClick={() => { setSectorFilter(null); setSectorPopupOpen(false); if (allScanCacheRef.current) { setFlowData(allScanCacheRef.current.flowData); setAnalysis(allScanCacheRef.current.analysis) } }} style={{ padding: '6px 12px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, color: '#ef4444' }}>✕ CLEAR SECTOR</div>
+                  </>
+                )}
+              </div>
+            )}
+            {/* FILTER popup — consolidates TICKER + TIME + UNIQUENESS */}
+            {rrgDropdownOpen === 'filter' && <div onClick={() => setRrgDropdownOpen(null)} style={{ position: 'fixed', inset: 0, zIndex: 298 }} />}
+            <div style={{ position: 'relative', zIndex: rrgDropdownOpen === 'filter' ? 300 : 99, flexShrink: 0, marginLeft: 'auto' }}>
+              {(() => {
+                const anyActive = rrgTickerMode !== 'all' || expiryFilter !== 'all'
+                return (
+                  <>
+                    <button
+                      onClick={() => setRrgDropdownOpen(o => o === 'filter' ? null : 'filter')}
+                      style={{ height: 29, padding: '0 11px', background: anyActive ? 'linear-gradient(180deg,rgba(255,133,0,0.2),rgba(0,0,0,0.4))' : 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 60%,#040404 100%)', border: anyActive ? '1px solid #ff8500' : '1px solid rgba(255,255,255,0.14)', borderTop: anyActive ? '1px solid rgba(255,133,0,0.7)' : '1px solid rgba(255,255,255,0.24)', borderRadius: 4, fontSize: 12, fontWeight: 800, color: anyActive ? '#ff8500' : '#fff', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', whiteSpace: 'nowrap', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08),inset 0 -1px 0 rgba(0,0,0,0.7)' }}
+                    >FILTER {rrgDropdownOpen === 'filter' ? '▲' : '▾'}</button>
+                    {rrgDropdownOpen === 'filter' && (
+                      <div style={{ position: 'fixed', top: 38, right: 8, background: 'linear-gradient(180deg,#141428 0%,#080812 100%)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: '6px 0', width: 170, zIndex: 999, boxShadow: '0 16px 48px rgba(0,0,0,0.95)' }}>
+                        <div style={{ padding: '4px 12px 2px', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#ff8500', letterSpacing: '0.2em', fontWeight: 800 }}>TICKER</div>
+                        {([{ id: 'mag7only', label: 'MAG7 ONLY' }, { id: 'exmag7', label: 'EXCL MAG7' }, { id: 'etfonly', label: 'ETF ONLY' }, { id: 'exetf', label: 'EXCL ETF' }, { id: 'stockonly', label: 'STOCKS ONLY' }] as const).map(item => {
+                          const active = rrgTickerMode === item.id
+                          return <div key={item.id} onClick={() => { setRrgTickerMode(active ? 'all' : item.id); setRrgDropdownOpen(null) }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', cursor: 'pointer', background: active ? 'rgba(255,133,0,0.1)' : 'transparent' }}>
+                            <div style={{ width: 13, height: 13, borderRadius: 3, border: `2px solid ${active ? '#ff8500' : 'rgba(255,255,255,0.3)'}`, background: active ? '#ff8500' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{active && <span style={{ color: '#000', fontSize: 9, fontWeight: 900 }}>✓</span>}</div>
+                            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 700, color: active ? '#ff8500' : '#fff' }}>{item.label}</span>
+                          </div>
+                        })}
+                        <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
+                        <div style={{ padding: '4px 12px 2px', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#facc15', letterSpacing: '0.2em', fontWeight: 800 }}>EXPIRY</div>
+                        {([{ id: '45d', label: '45D OUT' }, { id: 'weekly', label: 'WEEKLIES' }, { id: '0dte', label: '0DTE' }] as const).map(item => {
+                          const active = expiryFilter === item.id
+                          return <div key={item.id} onClick={() => { setExpiryFilter(active ? 'all' : item.id); setRrgDropdownOpen(null) }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', cursor: 'pointer', background: active ? 'rgba(250,204,21,0.1)' : 'transparent' }}>
+                            <div style={{ width: 13, height: 13, borderRadius: 3, border: `2px solid ${active ? '#facc15' : 'rgba(255,255,255,0.3)'}`, background: active ? '#facc15' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{active && <span style={{ color: '#000', fontSize: 9, fontWeight: 900 }}>✓</span>}</div>
+                            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 700, color: active ? '#facc15' : '#fff' }}>{item.label}</span>
+                          </div>
+                        })}
+
+
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
+            </div>
           </div>
 
           {/* Row 2: Ticker + Timeframe + Analyze "” hidden on mobile (use filter pills in Row 3) */}
@@ -2696,12 +2903,12 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             </div>
           )}
 
-          {/* Row 3: Filter pills */}
-          {true ? (
+          {/* Row 3: Filter pills — desktop only on mobile, mobile has everything in Row 1 */}
+          {!isMobile ? (
             <div style={{ padding: '6px 14px 8px', display: 'flex', gap: 8, position: 'relative' }}>
               {rrgDropdownOpen && <div onClick={() => setRrgDropdownOpen(null)} style={{ position: 'fixed', inset: 0, zIndex: 98 }} />}
-              {/* 1. TICKER FILTER */}
-              {(() => {
+              {/* 1. TICKER FILTER — desktop only (mobile has it in Row 1) */}
+              {!isMobile && (() => {
                 const isActive = rrgTickerMode !== 'all'
                 const items: { id: 'mag7only' | 'exmag7' | 'etfonly' | 'exetf' | 'stockonly', label: string }[] = [
                   { id: 'mag7only', label: 'MAG7 ONLY' }, { id: 'exmag7', label: 'EXCLUDE MAG7' },
@@ -2725,8 +2932,8 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                   </div>
                 )
               })()}
-              {/* 2. TIME FILTER */}
-              {(() => {
+              {/* 2. TIME FILTER — desktop only */}
+              {!isMobile && (() => {
                 const isActive = expiryFilter !== 'all'
                 const items = [{ id: '45d' as const, label: '45D OUT' }, { id: 'weekly' as const, label: 'WEEKLIES' }, { id: '0dte' as const, label: '0DTE' }]
                 return (
@@ -2749,94 +2956,18 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                   </div>
                 )
               })()}
-              {/* 3. UNIQUENESS */}
-              {(() => {
-                const isActive = rrgUniqueness !== null
-                const items = [{ val: 0.35, label: '35%+ AVG', col: '#60a5fa' }, { val: 0.45, label: '45%+ SUSPICIOUS', col: '#34d399' }, { val: 0.60, label: '60%+ ULTRA', col: '#f59e0b' }, { val: 0.70, label: '70%+ LEGENDARY', col: '#ef4444' }]
-                return (
-                  <div style={{ position: 'relative', zIndex: rrgDropdownOpen === 'unique' ? 200 : 99 }}>
-                    <button onClick={() => setRrgDropdownOpen(o => o === 'unique' ? null : 'unique')} style={{ height: 28, padding: '0 11px', background: isActive ? 'rgba(255,133,0,0.15)' : 'linear-gradient(180deg,rgba(255,255,255,0.1),rgba(0,0,0,0.4))', border: isActive ? '1px solid #ff8500' : '1px solid #555', borderRadius: 20, fontSize: 11, fontWeight: 800, color: isActive ? '#ff8500' : '#fff', cursor: 'pointer', letterSpacing: '0.5px', fontFamily: 'JetBrains Mono,monospace', whiteSpace: 'nowrap', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}>
-                      UNIQUENESS {rrgDropdownOpen === 'unique' ? '▲' : '▾'}
-                    </button>
-                    {rrgDropdownOpen === 'unique' && (
-                      <div style={{ position: 'absolute', top: 'calc(100% + 5px)', left: 0, background: 'linear-gradient(180deg,#141428 0%,#080812 100%)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: 5, width: 'max-content', zIndex: 999, boxShadow: '0 16px 48px rgba(0,0,0,0.95),inset 0 1px 0 rgba(255,255,255,0.08)' }}>
-                        {items.map(item => {
-                          const active = rrgUniqueness === item.val; return (
-                            <div key={item.val} onClick={() => { setRrgUniqueness(active ? null : item.val); setRrgDropdownOpen(null) }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, cursor: 'pointer', background: active ? `${item.col}18` : 'transparent' }}>
-                              <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${active ? item.col : 'rgba(255,255,255,0.3)'}`, background: active ? item.col : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{active && <span style={{ color: item.val >= 0.45 ? '#000' : '#fff', fontSize: 11, fontWeight: 900 }}>✓</span>}</div>
-                              <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 700, color: active ? item.col : '#fff' }}>{item.label}</span>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )
-              })()}
-            </div>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 14px 8px', overflowX: 'auto', WebkitOverflowScrolling: 'touch' as any, msOverflowStyle: 'none' as any }}>
-              {/* All Tickers */}
-              <button
-                onClick={() => { setSearchTicker('ALL'); setIsAllScan(true); fetchTickerFlow('ALL') }}
-                disabled={loading}
-                style={{ flexShrink: 0, height: 28, padding: '0 11px', background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.2) 100%)', border: '1px solid #666', borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#d4d4d4', cursor: loading ? 'not-allowed' : 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: 'JetBrains Mono, monospace' }}
-              >ALL</button>
-              {/* Gamma Line + Bull/Bear pills "” single ticker only */}
-              {analysis && !isAllScan && (
-                <>
-                  <button
-                    onClick={() => setShowGammaLine(v => !v)}
-                    style={{
-                      flexShrink: 0, height: 28, padding: '0 11px',
-                      background: showGammaLine ? 'linear-gradient(180deg,rgba(0,0,0,0.7) 0%,rgba(0,0,0,0.9) 100%)' : 'linear-gradient(180deg,rgba(20,20,20,0.9) 0%,rgba(0,0,0,1) 100%)',
-                      border: showGammaLine ? '1px solid #ff8500' : '1px solid rgba(255,133,0,0.4)',
-                      borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#ff8500',
-                      cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap',
-                      fontFamily: 'JetBrains Mono, monospace',
-                      boxShadow: showGammaLine ? '0 0 8px rgba(255,133,0,0.3),inset 0 0 6px rgba(0,0,0,0.6)' : undefined,
-                    }}
-                  >GAMMA LINE</button>
-                  <button
-                    onClick={() => setShowBullBear(v => !v)}
-                    style={{
-                      flexShrink: 0, height: 28, padding: '0 11px',
-                      background: showBullBear ? 'linear-gradient(180deg,rgba(0,0,0,0.7) 0%,rgba(0,0,0,0.9) 100%)' : 'linear-gradient(180deg,rgba(20,20,20,0.9) 0%,rgba(0,0,0,1) 100%)',
-                      border: showBullBear ? '1px solid #a78bfa' : '1px solid rgba(167,139,250,0.4)',
-                      borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#a78bfa',
-                      cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap',
-                      fontFamily: 'JetBrains Mono, monospace',
-                      boxShadow: showBullBear ? '0 0 8px rgba(167,139,250,0.3),inset 0 0 6px rgba(0,0,0,0.6)' : undefined,
-                    }}
-                  >BULL/BEAR</button>
-                </>
+
+              {/* RRG button — desktop only in Row 3, mobile has it in Row 1 */}
+              {!isMobile && (
+                <button
+                  onClick={() => setActiveTab(activeTab === 'flowbias' ? 'algoflow' : 'flowbias')}
+                  style={{ height: 28, padding: '0 11px', background: activeTab === 'flowbias' ? 'linear-gradient(180deg,rgba(124,58,237,0.3),rgba(0,0,0,0.4))' : 'linear-gradient(180deg,rgba(255,255,255,0.1),rgba(0,0,0,0.4))', border: activeTab === 'flowbias' ? '1px solid #7c3aed' : '1px solid #555', borderRadius: 20, fontSize: 11, fontWeight: 800, color: activeTab === 'flowbias' ? '#a78bfa' : '#fff', cursor: 'pointer', letterSpacing: '0.5px', fontFamily: 'JetBrains Mono,monospace', whiteSpace: 'nowrap', boxShadow: activeTab === 'flowbias' ? '0 0 8px rgba(124,58,237,0.3)' : 'inset 0 1px 0 rgba(255,255,255,0.07)', flexShrink: 0 }}
+                >
+                  RRG
+                </button>
               )}
-              {([
-                { f: '45d', label: '45D', color: '#ffffff', borderColor: 'rgba(255,255,255,0.6)', glowColor: 'rgba(255,255,255,0.15)' },
-                { f: 'weekly', label: 'WEEKLY', color: '#facc15', borderColor: '#facc15', glowColor: 'rgba(250,204,21,0.25)' },
-                { f: '0dte', label: '0DTE', color: '#c084fc', borderColor: '#c084fc', glowColor: 'rgba(192,132,252,0.25)' },
-              ] as const).map(({ f, label, color, borderColor, glowColor }) => {
-                const active = expiryFilter === f
-                return (
-                  <button key={f} onClick={() => setExpiryFilter(active ? 'all' : f)}
-                    style={{ flexShrink: 0, height: 28, padding: '0 11px', background: active ? `linear-gradient(180deg, ${glowColor} 0%, rgba(0,0,0,0.15) 100%)` : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.2) 100%)', border: active ? `1px solid ${borderColor}` : '1px solid #555', borderRadius: 20, fontSize: 11, fontWeight: 700, color: color, cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: 'JetBrains Mono, monospace' }}
-                  >{label}</button>
-                )
-              })}
-              <button onClick={() => { setExcludeMag7(v => !v); setExcludeEtf(false) }}
-                style={{ flexShrink: 0, height: 28, padding: '0 11px', background: excludeMag7 ? 'rgba(251,146,60,0.18)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.2) 100%)', border: excludeMag7 ? '1px solid #fb923c' : '1px solid #555', borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#fb923c', cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: 'JetBrains Mono, monospace' }}
-              >MAG7</button>
-              <button onClick={() => { setExcludeEtf(v => !v); setExcludeMag7(false) }}
-                style={{ flexShrink: 0, height: 28, padding: '0 11px', background: excludeEtf ? 'rgba(52,211,153,0.18)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.2) 100%)', border: excludeEtf ? '1px solid #34d399' : '1px solid #555', borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#34d399', cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: 'JetBrains Mono, monospace' }}
-              >ETFs</button>
-              <button onClick={() => { const both = excludeMag7 && excludeEtf; setExcludeMag7(!both); setExcludeEtf(!both) }}
-                style={{ flexShrink: 0, height: 28, padding: '0 11px', background: (excludeMag7 && excludeEtf) ? 'rgba(96,165,250,0.18)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.2) 100%)', border: (excludeMag7 && excludeEtf) ? '1px solid #60a5fa' : '1px solid #555', borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#60a5fa', cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: 'JetBrains Mono, monospace' }}
-              >STOCKS</button>
-              <button onClick={() => setExcludeIndex(v => !v)}
-                style={{ flexShrink: 0, height: 28, padding: '0 11px', background: excludeIndex ? 'rgba(167,139,250,0.18)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.2) 100%)', border: excludeIndex ? '1px solid #a78bfa' : '1px solid #555', borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#a78bfa', cursor: 'pointer', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: 'JetBrains Mono, monospace' }}
-              >-INDEX</button>
             </div>
-          )}
+          ) : null}
         </div>
       ) : (
         /* -- DESKTOP HEADER -- */
@@ -2865,22 +2996,15 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               font-size: 14px;
               font-weight: 800;
               letter-spacing: 1px;
-              color: #ccc;
+              color: #fff;
               cursor: pointer;
               white-space: nowrap;
-              transition: all 0.12s ease;
+              transition: color 0.12s;
               outline: none;
               flex-shrink: 0;
             }
-            .af-btn:hover { background: linear-gradient(180deg, #242424 0%, #111 60%, #060606 100%); color: #fff; border-top-color: rgba(255,255,255,0.38); }
-            .af-btn.af-active-orange { background: linear-gradient(180deg, #2a1500 0%, #150a00 60%, #0a0500 100%); border-color: #ff8500; border-top-color: #ffaa44; color: #ff8500; box-shadow: inset 0 1px 0 rgba(255,133,0,0.18), inset 0 -1px 0 rgba(0,0,0,0.7), 0 0 8px rgba(255,133,0,0.3); }
-            .af-btn.af-active-yellow { background: linear-gradient(180deg, #1a1400 0%, #0d0a00 60%, #060500 100%); border-color: #facc15; border-top-color: #ffe050; color: #facc15; box-shadow: inset 0 1px 0 rgba(250,204,21,0.15), inset 0 -1px 0 rgba(0,0,0,0.7), 0 0 8px rgba(250,204,21,0.25); }
-            .af-btn.af-active-purple { background: linear-gradient(180deg, #150d22 0%, #0a0614 60%, #050308 100%); border-color: #c084fc; border-top-color: #d8a0ff; color: #c084fc; box-shadow: inset 0 1px 0 rgba(192,132,252,0.15), inset 0 -1px 0 rgba(0,0,0,0.7), 0 0 8px rgba(192,132,252,0.25); }
-            .af-btn.af-active-green { background: linear-gradient(180deg, #001a0d 0%, #000e07 60%, #000603 100%); border-color: #34d399; border-top-color: #5cf0b8; color: #34d399; box-shadow: inset 0 1px 0 rgba(52,211,153,0.15), inset 0 -1px 0 rgba(0,0,0,0.7), 0 0 8px rgba(52,211,153,0.25); }
-            .af-btn.af-active-blue { background: linear-gradient(180deg, #001022 0%, #000a14 60%, #000508 100%); border-color: #60a5fa; border-top-color: #8ec4ff; color: #60a5fa; box-shadow: inset 0 1px 0 rgba(96,165,250,0.15), inset 0 -1px 0 rgba(0,0,0,0.7), 0 0 8px rgba(96,165,250,0.25); }
-            .af-btn.af-active-violet { background: linear-gradient(180deg, #100d1f 0%, #080612 60%, #040308 100%); border-color: #a78bfa; border-top-color: #c4aeff; color: #a78bfa; box-shadow: inset 0 1px 0 rgba(167,139,250,0.15), inset 0 -1px 0 rgba(0,0,0,0.7), 0 0 8px rgba(167,139,250,0.25); }
-            .af-btn.af-active-lime { background: linear-gradient(180deg, #0a1400 0%, #060a00 60%, #030500 100%); border-color: #84cc16; border-top-color: #aeff22; color: #84cc16; box-shadow: inset 0 1px 0 rgba(132,204,22,0.15), inset 0 -1px 0 rgba(0,0,0,0.7), 0 0 8px rgba(132,204,22,0.25); }
-            .af-btn.af-active-emerald { background: linear-gradient(180deg, #001a0a 0%, #000e06 60%, #000602 100%); border-color: #22c55e; border-top-color: #40ff80; color: #22c55e; box-shadow: inset 0 1px 0 rgba(34,197,94,0.15), inset 0 -1px 0 rgba(0,0,0,0.7), 0 0 8px rgba(34,197,94,0.3); }
+            .af-btn:hover { color: #ff8500; }
+            .af-btn.af-active-orange,.af-btn.af-active-yellow,.af-btn.af-active-purple,.af-btn.af-active-green,.af-btn.af-active-blue,.af-btn.af-active-violet,.af-btn.af-active-lime,.af-btn.af-active-emerald { color: #ff8500; }
             .af-tab { height: 32px; padding: 0 14px; background: transparent; border: 1px solid transparent; border-radius: 6px; font-family: JetBrains Mono,monospace; font-size: 14px; font-weight: 800; letter-spacing: 1px; cursor: pointer; white-space: nowrap; transition: all 0.12s; flex-shrink: 0; }
             .af-sep { width: 1px; height: 24px; background: rgba(255,255,255,0.1); flex-shrink: 0; margin: 0 2px; }
           `}</style>
@@ -2889,14 +3013,6 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
           {onBack && (
             <button className="af-btn" onClick={onBack}>← BACK</button>
           )}
-
-          {/* Tabs */}
-          <div style={{ display: 'flex', gap: 3, background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: 3, flexShrink: 0 }}>
-            <button className="af-tab" onClick={() => setActiveTab('algoflow')}
-              style={{ background: 'linear-gradient(180deg,#ff8500,#cc5500)', color: '#000', border: 'none' }}>
-              ALGOFLOW
-            </button>
-          </div>
 
           <div className="af-sep" />
 
@@ -2915,6 +3031,12 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
 
           <div className="af-sep" />
 
+          {/* REGIME + GROUPING toggles */}
+          <button className={`af-btn${showRegime ? ' af-active-violet' : ''}`} onClick={() => setShowRegime(v => !v)} title="Show regime circles on Flow Matrix">REGIME</button>
+          <button className={`af-btn${showRegimeGrouping ? ' af-active-blue' : ''}`} onClick={() => setShowRegimeGrouping(v => !v)} title="Show grouping ellipses on Flow Matrix">GROUPING</button>
+
+          <div className="af-sep" />
+
           {/* Chart overlays — single ticker only */}
           {analysis && !isAllScan && (<>
             <button className={`af-btn${showGammaLine ? ' af-active-orange' : ''}`} onClick={() => setShowGammaLine(v => !v)} title="Cumulative gamma from flow">GAMMA</button>
@@ -2926,6 +3048,43 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
           <button className={`af-btn${ticker === 'ALL' ? ' af-active-orange' : ''}`}
             onClick={() => { setSearchTicker('ALL'); setIsAllScan(true); fetchTickerFlow('ALL') }}
             disabled={loading} title="Scan all tickers">ALL TICKERS</button>
+
+          {/* SECTORS */}
+          {sectorPopupOpen && <div onClick={() => setSectorPopupOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 398 }} />}
+          <div style={{ position: 'relative', zIndex: sectorPopupOpen ? 400 : undefined, flexShrink: 0 }}>
+            <button className={`af-btn${sectorFilter ? ' af-active-green' : ''}`}
+              onClick={() => setSectorPopupOpen(o => !o)}
+              title="Filter by sector or industry ETF">
+              {sectorFilter ? sectorFilter : 'SECTORS'} {sectorPopupOpen ? '▲' : '▾'}
+            </button>
+            {sectorPopupOpen && (
+              <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, background: 'linear-gradient(180deg,#0d1420 0%,#060810 100%)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: '6px 0', width: 220, zIndex: 999, boxShadow: '0 16px 48px rgba(0,0,0,0.95)', maxHeight: '70vh', overflowY: 'auto' }}>
+                <div style={{ padding: '5px 14px 3px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#34d399', letterSpacing: '0.2em', fontWeight: 800 }}>SECTORS</div>
+                {SECTORS.map(({ etf, label }) => {
+                  const active = sectorFilter === etf
+                  return <div key={etf} onClick={() => handleSectorSelect(etf)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', background: active ? 'rgba(52,211,153,0.1)' : 'transparent' }}>
+                    <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${active ? '#34d399' : 'rgba(255,255,255,0.3)'}`, background: active ? '#34d399' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{active && <span style={{ color: '#000', fontSize: 10, fontWeight: 900 }}>✓</span>}</div>
+                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 700, color: active ? '#34d399' : '#fff' }}>{etf} <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>{label}</span></span>
+                  </div>
+                })}
+                <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
+                <div style={{ padding: '5px 14px 3px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#a78bfa', letterSpacing: '0.2em', fontWeight: 800 }}>INDUSTRIES</div>
+                {INDUSTRIES.map(({ etf, label }) => {
+                  const active = sectorFilter === etf
+                  return <div key={etf} onClick={() => handleSectorSelect(etf)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', background: active ? 'rgba(167,139,250,0.1)' : 'transparent' }}>
+                    <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${active ? '#a78bfa' : 'rgba(255,255,255,0.3)'}`, background: active ? '#a78bfa' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{active && <span style={{ color: '#fff', fontSize: 10, fontWeight: 900 }}>✓</span>}</div>
+                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 700, color: active ? '#a78bfa' : '#fff' }}>{etf} <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>{label}</span></span>
+                  </div>
+                })}
+                {sectorFilter && (
+                  <>
+                    <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
+                    <div onClick={() => { setSectorFilter(null); setSectorPopupOpen(false); if (allScanCacheRef.current) { setFlowData(allScanCacheRef.current.flowData); setAnalysis(allScanCacheRef.current.analysis) } }} style={{ padding: '8px 14px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 700, color: '#ef4444' }}>✕ CLEAR SECTOR</div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* ALL TICKERS LIVE */}
           <button className={`af-btn${isAlgoLive && algoLiveTicker === 'ALL' ? ' af-active-emerald' : ''}`}
@@ -2963,10 +3122,10 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             <option value="252">252 DAYS</option>
           </select>
 
-          {/* ANALYZE */}
+          {/* SCAN */}
           <button onClick={handleSearch} disabled={loading || isAnalyzing || !ticker.trim()}
-            style={{ height: 32, padding: '0 18px', background: loading || isAnalyzing ? 'linear-gradient(180deg,#1a1a1a,#080808)' : 'linear-gradient(180deg,#ff9500 0%,#cc5500 60%,#992200 100%)', border: loading || isAnalyzing ? '1px solid #333' : '1px solid #ff6600', borderTop: loading || isAnalyzing ? '1px solid #444' : '1px solid #ffaa44', borderRadius: 6, color: loading || isAnalyzing ? '#555' : '#000', fontFamily: 'JetBrains Mono,monospace', fontSize: 15, fontWeight: 800, letterSpacing: '1.5px', cursor: loading || isAnalyzing || !ticker.trim() ? 'not-allowed' : 'pointer', boxShadow: loading || isAnalyzing ? 'none' : 'inset 0 1px 0 rgba(255,200,100,0.35),inset 0 -1px 0 rgba(0,0,0,0.6),0 2px 8px rgba(255,100,0,0.4)', display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap', flexShrink: 0, opacity: !ticker.trim() || loading || isAnalyzing ? 0.6 : 1 }}>
-            {isAnalyzing ? (<><div className="animate-spin" style={{ width: 10, height: 10, borderRadius: '50%', border: '2px solid #22d3ee', borderTopColor: 'transparent' }} />ANALYZING {flowData.length.toLocaleString()}</>) : loading ? 'SCANNING...' : 'ANALYZE'}
+            style={{ height: 32, padding: '0 18px', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 60%,#040404 100%)', border: '1px solid rgba(255,255,255,0.14)', borderTop: '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: loading || isAnalyzing ? '#555' : '#ff8500', fontFamily: 'JetBrains Mono,monospace', fontSize: 15, fontWeight: 800, letterSpacing: '1.5px', cursor: loading || isAnalyzing || !ticker.trim() ? 'not-allowed' : 'pointer', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.10),inset 0 -1px 0 rgba(0,0,0,0.7),0 2px 4px rgba(0,0,0,0.9)', display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap', flexShrink: 0, opacity: !ticker.trim() || loading || isAnalyzing ? 0.6 : 1 }}>
+            {isAnalyzing ? (<><div className="animate-spin" style={{ width: 10, height: 10, borderRadius: '50%', border: '2px solid #ff8500', borderTopColor: 'transparent' }} />SCANNING {flowData.length.toLocaleString()}</>) : loading ? 'SCANNING...' : 'SCAN'}
           </button>
 
           {/* Per-ticker LIVE */}
@@ -2991,8 +3150,8 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       {/* Main content: flex row — left scrollable content | right RRG panel */}
       <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: 0, overflow: 'hidden', alignItems: 'stretch' }}>
 
-        {/* LEFT: scrollable content */}
-        <div className="flex-1 overflow-y-auto min-h-0" style={{ padding: isMobile ? '8px 10px 80px' : '12px 20px 20px', flex: 1, minWidth: 0 }}>
+        {/* LEFT: scrollable content — hidden on mobile when RRG tab is active */}
+        <div className="flex-1 overflow-y-auto min-h-0" style={{ padding: isMobile ? '8px 10px 80px' : '12px 20px 20px', flex: 1, minWidth: 0, display: (isMobile && activeTab === 'flowbias') ? 'none' : undefined }}>
 
           {/* Drill-down re-analysis overlay */}
           {isAnalyzing && drilledTicker && analysis && (
@@ -3011,15 +3170,11 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               {/* LEFT: scrollable chart + table */}
               <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-                {/* â”€â”€ ROW 2: METRICS + CHART SIDE BY SIDE (stacked on mobile) â”€â”€ */}
+                {/* ── ROW 2: METRICS + CHART SIDE BY SIDE (stacked on mobile) ── */}
                 <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 0, borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
 
                   {/* LEFT: Stats sidebar */}
                   <div className="algo-sidebar-inner" style={{
-                    width: isMobile ? '100%' : 232,
-                    flexShrink: 0,
-                    borderRight: isMobile ? 'none' : '1px solid rgba(255,255,255,0.08)',
-                    borderBottom: isMobile ? '1px solid rgba(255,255,255,0.1)' : 'none',
                     display: isMobile ? 'grid' : 'flex',
                     gridTemplateColumns: isMobile ? '1fr 1fr' : undefined,
                     flexDirection: isMobile ? undefined : 'column',
@@ -3049,23 +3204,9 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                     </div>
 
                     {/* P/C + Execution "” compact single row on mobile, full panels on desktop */}
-                    {isMobile ? (
-                      <div style={{ gridColumn: '1 / -1', borderBottom: '1px solid rgba(255,255,255,0.08)', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 0, flexWrap: 'nowrap', overflow: 'hidden', background: 'rgba(0,0,0,0.3)' }}>
-                        {([
-                          { label: 'B/B', value: analysis.callPutRatio.toFixed(2), color: analysis.callPutRatio > 1.2 ? '#10b981' : analysis.callPutRatio < 0.8 ? '#ef4444' : '#fff' },
-                          { label: 'Calls', value: fmtCompact(displayAnalysis?.totalCallPremium ?? 0), color: '#10b981' },
-                          { label: 'Puts', value: fmtCompact(displayAnalysis?.totalPutPremium ?? 0), color: '#ef4444' },
-                          { label: 'Sweeps', value: analysis.sweepCount.toLocaleString(), color: '#eab308' },
-                          { label: 'Blocks', value: analysis.blockCount.toLocaleString(), color: '#22d3ee' },
-                        ] as const).map((item, idx) => (
-                          <React.Fragment key={item.label}>
-                            {idx > 0 && <span style={{ color: 'rgba(255,255,255,0.35)', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, padding: '0 5px', flexShrink: 0 }}>·</span>}
-                            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#ffffff', fontWeight: 600, flexShrink: 0 }}>{item.label}:</span>
-                            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: item.color, fontWeight: 900, marginLeft: 3, flexShrink: 0 }}>{item.value}</span>
-                          </React.Fragment>
-                        ))}
-                      </div>
-                    ) : (
+                    {/* P/C + Execution — desktop only, removed from mobile */}
+                    {null /* DEBUG: B/B row removed for mobile */}
+                    {!isMobile && (
                       <>
                         {/* P/C calls/puts bars */}
                         <div style={{
@@ -3178,7 +3319,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                   </div>
 
                   {/* RIGHT: Chart — fills remaining left column */}
-                  <div style={{ flex: 1, minWidth: 0, width: isMobile ? '100%' : undefined }}>
+                  <div style={{ flex: isMobile ? 'none' : 1, minWidth: 0, width: isMobile ? '100%' : undefined }}>
                     {/* Chart toolbar "” desktop only; mobile controls overlaid inside chart */}
                     <div className="algo-chart-toolbar" style={{ padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: isMobile ? 'none' : 'flex', alignItems: 'center', position: 'relative', minHeight: 36, gap: 0 }}>
                       {/* LEFT: ticker + FLOW + timeframe buttons */}
@@ -3295,66 +3436,56 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       onMouseUp={() => { chartDragRef.current.dragging = false; if (dragMoveRafRef.current) { cancelAnimationFrame(dragMoveRafRef.current); dragMoveRafRef.current = null } }}
                       onMouseLeave={() => { chartDragRef.current.dragging = false; if (dragMoveRafRef.current) { cancelAnimationFrame(dragMoveRafRef.current); dragMoveRafRef.current = null } }}
                     >
-                      {/* Mobile overlay controls "” ticker + timeframe + view mode */}
+                      {/* Mobile overlay controls — Ticker | Timeframe dropdown | Line dropdown | Gamma | Bull/Bear */}
                       {isMobile && (
-                        <div style={{ position: 'absolute', top: 6, left: 6, right: 6, zIndex: 10, display: 'flex', alignItems: 'center', gap: 3, pointerEvents: 'none' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 3, pointerEvents: 'auto' }}>
-                            {drilledTicker && (
-                              <button onClick={() => { if (!allScanCacheRef.current) return; setDrilledTicker(null); setSearchTicker('ALL'); setFlowData(allScanCacheRef.current.flowData); setAnalysis(allScanCacheRef.current.analysis) }} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, padding: '2px 6px', background: 'rgba(255,133,0,0.85)', border: '1px solid #ff8500', color: '#000', cursor: 'pointer', borderRadius: 3 }}>← ALL</button>
-                            )}
-                            <span style={{ color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 900, letterSpacing: '0.1em', background: 'rgba(0,0,0,0.6)', padding: '1px 5px', borderRadius: 3 }}>{analysis.ticker}</span>
+                        <div style={{ position: 'absolute', top: 6, left: 6, right: 6, zIndex: 10, display: 'flex', alignItems: 'center', gap: 4, pointerEvents: 'auto' }}>
+                          {/* Back to ALL drill-down */}
+                          {drilledTicker && (
+                            <button onClick={() => { if (!allScanCacheRef.current) return; setDrilledTicker(null); setSearchTicker('ALL'); setFlowData(allScanCacheRef.current.flowData); setAnalysis(allScanCacheRef.current.analysis) }}
+                              style={{ height: 24, padding: '0 7px', background: 'linear-gradient(180deg,#1c1c1c,#040404)', border: '1px solid #ff8500', borderRadius: 4, fontSize: 10, fontWeight: 800, color: '#ff8500', cursor: 'pointer', flexShrink: 0, fontFamily: 'JetBrains Mono,monospace', outline: 'none' }}>← ALL</button>
+                          )}
+                          {/* Ticker label */}
+                          <span style={{ color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 900, letterSpacing: '0.1em', flexShrink: 0 }}>{analysis.ticker}</span>
+                          {/* Timeframe dropdown */}
+                          <select
+                            value={timeInterval}
+                            onChange={e => { setTimeInterval(e.target.value as typeof timeInterval); setBrushIndices(null) }}
+                            style={{ height: 24, padding: '0 4px', background: '#0a0a0a', border: `1px solid ${timeInterval !== '5min' ? '#ff8500' : 'rgba(255,255,255,0.18)'}`, borderRadius: 4, fontSize: 10, fontWeight: 800, color: timeInterval !== '5min' ? '#ff8500' : '#fff', fontFamily: 'JetBrains Mono,monospace', outline: 'none', flexShrink: 0, cursor: 'pointer' }}
+                          >
                             {(() => {
                               const sd = getScanDays(scanTimeframe)
-                              const opts = sd === 1
-                                ? [{ v: '1min' as const, label: '1MIN' }, { v: '5min' as const, label: '5MIN' }]
-                                : sd <= 5
-                                  ? [{ v: '30min' as const, label: '30M' }, { v: '1hour' as const, label: '1H' }]
-                                  : [{ v: '1day' as const, label: '1D' }]
-                              return opts.map(({ v, label }) => (
-                                <button key={v} onClick={() => { setTimeInterval(v); setBrushIndices(null) }}
-                                  style={{ padding: '2px 5px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, border: '1px solid rgba(255,165,0,0.7)', background: timeInterval === v ? '#ff8500' : 'rgba(0,0,0,0.65)', color: timeInterval === v ? '#000' : '#ff8500', cursor: 'pointer', borderRadius: 2 }}>{label}</button>
-                              ))
+                              if (sd === 1) return <><option value="1min">1MIN</option><option value="5min">5MIN</option></>
+                              if (sd <= 5) return <><option value="30min">30MIN</option><option value="1hour">1HR</option></>
+                              return <option value="1day">1DAY</option>
                             })()}
-                            {brushIndices && (
-                              <button onClick={() => setBrushIndices(null)} style={{ padding: '2px 6px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, border: '1px solid rgba(255,255,255,0.4)', background: 'rgba(0,0,0,0.65)', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', borderRadius: 2 }}>RESET</button>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                      {/* Mobile overlay controls — one clean row: Ticker | Timeframe | ALL | BULL/BEAR | NET */}
-                      {isMobile && (
-                        <div style={{ position: 'absolute', top: 6, left: 6, right: 6, zIndex: 10, display: 'flex', alignItems: 'center', gap: 0, background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '2px 6px', pointerEvents: 'auto' }}>
-                          {drilledTicker && (
-                            <button onClick={() => { if (!allScanCacheRef.current) return; setDrilledTicker(null); setSearchTicker('ALL'); setFlowData(allScanCacheRef.current.flowData); setAnalysis(allScanCacheRef.current.analysis) }} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, padding: '2px 5px 4px', background: 'none', border: 'none', color: '#ff8500', cursor: 'pointer', borderBottom: '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>← ALL</button>
-                          )}
-                          <span style={{ color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 900, letterSpacing: '0.1em', padding: '0 4px' }}>{analysis.ticker}</span>
-                          <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 9, fontFamily: 'JetBrains Mono,monospace', padding: '0 4px', userSelect: 'none' }}>|</span>
-                          {(() => {
-                            const sd = getScanDays(scanTimeframe)
-                            const opts = sd === 1
-                              ? [{ v: '1min' as const, label: '1MIN' }, { v: '5min' as const, label: '5MIN' }]
-                              : sd <= 5
-                                ? [{ v: '30min' as const, label: '30M' }, { v: '1hour' as const, label: '1H' }]
-                                : [{ v: '1day' as const, label: '1D' }]
-                            return opts.map(({ v, label }) => (
-                              <button key={v} onClick={() => { setTimeInterval(v); setBrushIndices(null) }}
-                                style={{ padding: '2px 5px 4px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, border: 'none', background: 'none', color: timeInterval === v ? '#ff8500' : '#ffffff', cursor: 'pointer', whiteSpace: 'nowrap', borderBottom: timeInterval === v ? '2px solid #ff8500' : '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>{label}</button>
-                            ))
-                          })()}
+                          </select>
+                          {/* Line mode dropdown */}
+                          <select
+                            value={chartViewMode}
+                            onChange={e => setChartViewMode(e.target.value as typeof chartViewMode)}
+                            style={{ height: 24, padding: '0 4px', background: '#0a0a0a', border: `1px solid ${chartViewMode !== 'net' ? '#ff8500' : 'rgba(255,255,255,0.18)'}`, borderRadius: 4, fontSize: 10, fontWeight: 800, color: chartViewMode !== 'net' ? '#ff8500' : '#fff', fontFamily: 'JetBrains Mono,monospace', outline: 'none', flexShrink: 0, cursor: 'pointer' }}
+                          >
+                            <option value="net">NET</option>
+                            <option value="detailed">ALL</option>
+                            <option value="simplified">BULL/BEAR</option>
+                          </select>
+                          {/* Gamma Line button */}
+                          <button onClick={() => setShowGammaLine(v => !v)}
+                            style={{ height: 24, padding: '0 8px', background: 'linear-gradient(180deg,#1c1c1c,#040404)', border: `1px solid ${showGammaLine ? '#ff8500' : 'rgba(255,255,255,0.18)'}`, borderRadius: 4, fontSize: 10, fontWeight: 800, color: showGammaLine ? '#ff8500' : '#fff', cursor: 'pointer', flexShrink: 0, fontFamily: 'JetBrains Mono,monospace', whiteSpace: 'nowrap', outline: 'none' }}>GAMMA</button>
+                          {/* Bull/Bear PC button */}
+                          <button onClick={() => setShowBullBear(v => !v)}
+                            style={{ height: 24, padding: '0 8px', background: 'linear-gradient(180deg,#1c1c1c,#040404)', border: `1px solid ${showBullBear ? '#ff8500' : 'rgba(255,255,255,0.18)'}`, borderRadius: 4, fontSize: 10, fontWeight: 800, color: showBullBear ? '#ff8500' : '#fff', cursor: 'pointer', flexShrink: 0, fontFamily: 'JetBrains Mono,monospace', whiteSpace: 'nowrap', outline: 'none' }}>B/B PC</button>
                           {brushIndices && (
-                            <button onClick={() => setBrushIndices(null)} style={{ padding: '2px 5px 4px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, border: 'none', background: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', borderBottom: '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>RESET</button>
+                            <button onClick={() => setBrushIndices(null)}
+                              style={{ height: 24, padding: '0 7px', background: 'linear-gradient(180deg,#1c1c1c,#040404)', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 4, fontSize: 10, fontWeight: 700, color: '#fff', cursor: 'pointer', flexShrink: 0, fontFamily: 'JetBrains Mono,monospace', outline: 'none' }}>↺</button>
                           )}
-                          <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 9, fontFamily: 'JetBrains Mono,monospace', padding: '0 4px', userSelect: 'none' }}>|</span>
-                          {([['detailed', 'ALL'], ['simplified', 'BULL/BEAR'], ['net', 'NET']] as const).map(([mode, lbl]) => (
-                            <button key={mode} onClick={() => setChartViewMode(mode)} style={{ padding: '2px 5px 4px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, border: 'none', background: 'none', color: chartViewMode === mode ? '#ff8500' : '#ffffff', cursor: 'pointer', whiteSpace: 'nowrap', borderBottom: chartViewMode === mode ? '2px solid #ff8500' : '2px solid transparent', lineHeight: 1.1, outline: 'none' }}>{lbl}</button>
-                          ))}
                         </div>
                       )}
                       {/* Glossy top-edge sheen */}
                       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 32, background: 'linear-gradient(180deg, rgba(255,255,255,0.035) 0%, transparent 100%)', pointerEvents: 'none', zIndex: 2 }} />
                       <div ref={mainChartWrapRef} style={{ height: isMobile ? (showBullBear ? 400 : 494) : (embeddedMode ? 440 : (showBullBear ? 445 : 569)), flexShrink: 0, overflow: 'hidden', borderBottom: showBullBear ? '2px solid rgba(167,139,250,0.55)' : 'none' }}>
                         <ResponsiveContainer width="100%" height="100%" debounce={16}>
-                          <ComposedChart data={chartMemo.visibleData} margin={{ top: 10, right: 0, bottom: 0, left: 30 }}>
+                          <ComposedChart data={chartMemo.visibleData} margin={{ top: isMobile ? 36 : 10, right: 0, bottom: 0, left: 30 }}>
                             <XAxis dataKey="timeLabel" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#ffffff', fontSize: isMobile ? 11 : 17, fontWeight: 700 }} height={isMobile ? 22 : 34} interval={Math.max(0, Math.floor(chartMemo.visibleData.length / (isMobile ? 3 : 6)) - 1)} padding={{ left: 10, right: 10 }}
                               tickFormatter={(label: string) => {
                                 if (chartDisplayDays <= 1) return label.includes('/') ? label.replace(/^\d+\/\d+\/\d+ /, '') : label
@@ -3557,8 +3688,8 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                   </div>{/* end chart column */}
                 </div>{/* end ROW 2 */}
 
-                {/* â”€â”€ ROW 3: TRADES TABLE + EFI CHART "” hidden in embedded mode â”€â”€ */}
-                <div style={{ borderTop: '1px solid rgba(255,255,255,0.15)', display: embeddedMode ? 'none' : 'flex', marginTop: isMobile ? -20 : 0 }}>
+                {/* ── ROW 3: TRADES TABLE + EFI CHART "” hidden in embedded mode ── */}
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.15)', display: embeddedMode ? 'none' : 'flex', marginTop: 0 }}>
 
                   {/* Left: Trades table — fills remaining left column */}
                   <div style={{ flex: 1, minWidth: 0, width: isMobile ? '100%' : undefined }}>
@@ -3568,7 +3699,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                           {selectedStrike !== null && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#22d3ee' }}>STRIKE: ${selectedStrike}</span>}
                           {selectedExpiry !== null && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#22d3ee' }}>EXPIRY: {selectedExpiry.split('T')[0]}</span>}
-                          <button onClick={() => { setSelectedStrike(null); setSelectedExpiry(null); }} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#fff', background: 'none', border: 'none', cursor: 'pointer' }}>âœ• CLEAR</button>
+                          <button onClick={() => { setSelectedStrike(null); setSelectedExpiry(null); }} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#fff', background: 'none', border: 'none', cursor: 'pointer' }}>✕ CLEAR</button>
                         </div>
                       )}
                     </div>
@@ -3888,69 +4019,27 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
 
         </div>{/* end left scrollable */}
         {/* RIGHT: RRG Panel */}
-        {!isMobile && (
-          <div style={{ width: '40%', flexShrink: 0, borderLeft: '1px solid rgba(255,255,255,0.1)', background: '#060608', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            {/* Header + filters */}
-            <div style={{ padding: '5px 10px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
-              <button onClick={runRRGScan} disabled={biasRRGLoading} style={{ height: 24, padding: '0 10px', background: biasRRGLoading ? '#1a1a1a' : 'linear-gradient(135deg,#7c3aed,#4c1d95)', color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, letterSpacing: '0.08em', border: 'none', borderRadius: 4, cursor: biasRRGLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                {biasRRGLoading ? <><span style={{ display: 'inline-block', width: 7, height: 7, border: '2px solid #fff', borderTopColor: 'transparent', borderRadius: '50%', animation: 'biasSpin 0.7s linear infinite' }} />...</> : 'RUN SCAN'}
-              </button>
-
-              {/* Separator */}
-              <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />
-
-              {/* Regime filters */}
-              {([
-                { id: 'regime' as const, label: 'REGIME', active: showRegime, set: () => setShowRegime(v => !v), color: '#a78bfa' },
-                { id: 'grouping' as const, label: 'REGIME GROUPING', active: showRegimeGrouping, set: () => setShowRegimeGrouping(v => !v), color: '#94a3b8' },
-              ]).map(({ id, label, active, set, color }) => (
-                <button key={id} onClick={set}
-                  style={{ height: 36, padding: '0 14px', background: active ? `linear-gradient(180deg,rgba(167,139,250,0.18),rgba(0,0,0,0.4))` : 'linear-gradient(180deg,#1c1c1c,#0a0a0a)', border: active ? `1px solid ${color}` : '1px solid rgba(255,255,255,0.14)', borderTop: active ? `1px solid ${color}99` : '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: active ? color : '#aaa', fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, boxShadow: active ? `0 0 10px ${color}44` : 'inset 0 1px 0 rgba(255,255,255,0.08)' }}>
-                  {label}
-                </button>
-              ))}
-
-              {/* Separator */}
-              <div style={{ width: 1, height: 22, background: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />
-
-              {/* Expiry filter pills */}
-              {([
-                { id: 'all', label: 'ALL EXP' },
-                { id: '45d', label: '45D' },
-                { id: 'weekly', label: 'WKL' },
-                { id: '0dte', label: '0DTE' },
-              ] as const).map(({ id, label }) => (
-                <button key={id} onClick={() => setExpiryFilter(id === 'all' ? 'all' : id)}
-                  style={{ height: 36, padding: '0 14px', background: expiryFilter === id ? 'linear-gradient(180deg,#1a1400,#060500)' : 'linear-gradient(180deg,#1c1c1c,#0a0a0a)', border: expiryFilter === id ? '1px solid #facc15' : '1px solid rgba(255,255,255,0.14)', borderTop: expiryFilter === id ? '1px solid #ffe050' : '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: expiryFilter === id ? '#facc15' : '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, boxShadow: expiryFilter === id ? 'inset 0 1px 0 rgba(250,204,21,0.15),0 0 8px rgba(250,204,21,0.2)' : 'inset 0 1px 0 rgba(255,255,255,0.08),inset 0 -1px 0 rgba(0,0,0,0.7)' }}>
-                  {label}
-                </button>
-              ))}
-
-              {/* Separator */}
-              <div style={{ width: 1, height: 22, background: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />
-
-              {/* Uniqueness toggle — cycles through correct threshold values */}
-              <button onClick={() => setRrgUniqueness(v => v === null ? 0.35 : v === 0.35 ? 0.45 : v === 0.45 ? 0.60 : v === 0.60 ? 0.70 : null)}
-                style={{ height: 36, padding: '0 14px', background: rrgUniqueness !== null ? 'linear-gradient(180deg,#001022,#000508)' : 'linear-gradient(180deg,#1c1c1c,#0a0a0a)', border: rrgUniqueness !== null ? '1px solid #60a5fa' : '1px solid rgba(255,255,255,0.14)', borderTop: rrgUniqueness !== null ? '1px solid #8ec4ff' : '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: rrgUniqueness !== null ? '#60a5fa' : '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, boxShadow: rrgUniqueness !== null ? 'inset 0 1px 0 rgba(96,165,250,0.15),0 0 8px rgba(96,165,250,0.2)' : 'inset 0 1px 0 rgba(255,255,255,0.08),inset 0 -1px 0 rgba(0,0,0,0.7)' }}>
-                {rrgUniqueness !== null ? `UNIQ ${Math.round(rrgUniqueness * 100)}%` : 'UNIQUE'}
-              </button>
-
-              {/* Reset zoom */}
-              {(rrgTransform.k !== 1 || rrgTransform.tx !== 0 || rrgTransform.ty !== 0) && (
-                <button onClick={() => setRrgTransform({ tx: 0, ty: 0, k: 1 })} style={{ height: 36, padding: '0 14px', background: 'linear-gradient(180deg,#1c1c1c,#0a0a0a)', border: '1px solid rgba(255,255,255,0.14)', borderTop: '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 800, cursor: 'pointer', marginLeft: 'auto', flexShrink: 0, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08),inset 0 -1px 0 rgba(0,0,0,0.7)' }}>↺</button>
-              )}
-
-              {biasDataStatus && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: '#ff8500', letterSpacing: '0.08em', flexShrink: 0 }}>{biasDataStatus}</span>}
-            </div>
+        {(!isMobile || activeTab === 'flowbias') && (
+          <div style={{ width: isMobile ? '99%' : '40%', height: isMobile ? '86vh' : undefined, flex: isMobile ? 'none' : undefined, marginLeft: isMobile ? 'auto' : undefined, flexShrink: 0, borderLeft: isMobile ? 'none' : '1px solid rgba(255,255,255,0.1)', background: '#060608', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {/* RRG chart */}
             <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+              {/* FLOW MATRIX title overlay */}
+              <div style={{ position: 'absolute', top: 10, left: 0, right: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10, pointerEvents: 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 22, fontWeight: 900, color: '#ff8500', letterSpacing: '0.25em', textTransform: 'uppercase', textShadow: 'none', filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.9))' }}>FLOW MATRIX</span>
+                  {biasRRGLoading && <span style={{ display: 'inline-block', width: 10, height: 10, border: '2px solid #ff8500', borderTopColor: 'transparent', borderRadius: '50%', animation: 'biasSpin 0.7s linear infinite', pointerEvents: 'none' }} />}
+                  {!isMobile && (rrgTransform.k !== 1 || rrgTransform.tx !== 0 || rrgTransform.ty !== 0) && (
+                    <button onClick={() => setRrgTransform({ tx: 0, ty: 0, k: 1 })} style={{ pointerEvents: 'all', height: 22, padding: '0 8px', background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(255,133,0,0.4)', borderRadius: 4, color: '#ff8500', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>↺</button>
+                  )}
+                </div>
+              </div>
               {biasRRGData ? (() => {
-                const W = 1755, H = 875, PAD = { t: 32, r: 32, b: 44, l: 52 }
+                const W = 1755, H = 875, PAD = { t: 32, r: 32, b: 44, l: 90 }
                 const CW = W - PAD.l - PAD.r, CH = H - PAD.t - PAD.b
                 const CX = PAD.l + CW / 2, CY = PAD.t + CH / 2
                 const allTickers: Array<{ ticker: string; x: number; y: number; total: number; quad: string }> = []
                 const allAggs = [...biasRRGData.bullCalls, ...biasRRGData.bearCalls, ...biasRRGData.bullPuts, ...biasRRGData.bearPuts]
-                const uniqThreshold = rrgUniqueness ?? 0.35
+                const uniqThreshold = 0.35
                 for (const a of allAggs) {
                   const dominant = Math.max(a.bullCall / a.total, a.bearCall / a.total, a.bullPut / a.total, a.bearPut / a.total)
                   if (dominant < uniqThreshold) continue  // apply uniqueness filter live
@@ -3959,7 +4048,23 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                   const quad = dominant === a.bullCall / a.total ? 'BC' : dominant === a.bearCall / a.total ? 'CC' : dominant === a.bullPut / a.total ? 'BP' : 'CP'
                   allTickers.push({ ticker: a.ticker, x: xVal, y: yVal, total: a.total, quad })
                 }
-                const toSVG = (x: number, y: number) => ({ sx: CX + x * (CW / 2) * 0.96, sy: CY - y * (CH / 2) * 0.96 })
+                // Auto-scale: find actual data extent so tickers fill the chart
+                // instead of clustering in corners when a high uniqueness % is active.
+                const xVals = allTickers.map(t => t.x)
+                const yVals = allTickers.map(t => t.y)
+                const xAbsMax = allTickers.length > 0 ? Math.max(Math.abs(Math.min(...xVals)), Math.abs(Math.max(...xVals))) : 1
+                const yAbsMax = allTickers.length > 0 ? Math.max(Math.abs(Math.min(...yVals)), Math.abs(Math.max(...yVals))) : 1
+                // Symmetric around 0 so quadrant divider stays centred; 2% padding (tight)
+                const xAxisScale = Math.max(0.05, xAbsMax * 1.02)
+                const yAxisScale = Math.max(0.05, yAbsMax * 1.02)
+                const toSVG = (x: number, y: number) => ({ sx: CX + (x / xAxisScale) * (CW / 2) * 0.99, sy: CY - (y / yAxisScale) * (CH / 2) * 0.99 })
+                // Build 5 evenly-spaced axis ticks that reflect the dynamic range
+                const buildTicks = (scale: number) => {
+                  const step = scale / 2
+                  return [-scale, -step, 0, step, scale].map(v => Math.round(v * 1000) / 1000)
+                }
+                const xTicks = buildTicks(xAxisScale)
+                const yTicks = buildTicks(yAxisScale)
                 const maxPrem = Math.max(...allTickers.map(t => t.total), 1)
                 const dotR = (total: number) => 4 + Math.sqrt(total / maxPrem) * 10
                 const QUAD_COLORS: Record<string, string> = { BC: '#00ff88', CC: '#ff4444', BP: '#4da6ff', CP: '#ffaa00' }
@@ -4025,8 +4130,8 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                     </defs>
                     <rect x={PAD.l} y={PAD.t} width={CW} height={CH} fill="url(#rrg-bg2)" />
                     <rect x={PAD.l} y={PAD.t} width={CW} height={CH} fill="url(#rrg-gloss2)" />
-                    {([-1, -0.5, 0, 0.5, 1]).map(v => { const { sx } = toSVG(v, 0); const col = v > 0 ? '#00ff88' : v < 0 ? '#4da6ff' : 'rgba(255,255,255,0.5)'; return <g key={`xt2-${v}`}><line x1={sx} y1={PAD.t + CH} x2={sx} y2={PAD.t + CH + 5} stroke={col} strokeWidth={1} /><text x={sx} y={PAD.t + CH + 22} textAnchor="middle" fontFamily="JetBrains Mono,monospace" fontSize={14} fill={col} fontWeight={800} filter="url(#rrg-txt-shadow)">{v > 0 ? `+${v}` : v}</text></g> })}
-                    {([-1, -0.5, 0, 0.5, 1]).map(v => { const { sy } = toSVG(0, v); const col = v > 0 ? '#00ff88' : v < 0 ? '#ff4444' : 'rgba(255,255,255,0.5)'; return <g key={`yt2-${v}`}><line x1={PAD.l - 5} y1={sy} x2={PAD.l} y2={sy} stroke={col} strokeWidth={1} /><text x={PAD.l - 10} y={sy + 5} textAnchor="end" fontFamily="JetBrains Mono,monospace" fontSize={14} fill={col} fontWeight={800} filter="url(#rrg-txt-shadow)">{v > 0 ? `+${v}` : v}</text></g> })}
+                    {([-1, -0.5, 0, 0.5, 1]).map(v => { const { sx } = toSVG(v * xAxisScale, 0); const col = v > 0 ? '#00ff88' : v < 0 ? '#4da6ff' : 'rgba(255,255,255,0.5)'; const lbl = v === 0 ? '0' : (v > 0 ? '+' : '') + v; return <g key={`xt2-${v}`}><line x1={sx} y1={PAD.t + CH} x2={sx} y2={PAD.t + CH + 5} stroke={col} strokeWidth={1} /><text x={sx} y={PAD.t + CH + 34} textAnchor="middle" fontFamily="'JetBrains Mono',monospace" fontSize={30} fill={col} fontWeight={900} letterSpacing={1}>{lbl}</text></g> })}
+                    {([-1, -0.5, 0, 0.5, 1]).map(v => { const { sy } = toSVG(0, v * yAxisScale); const col = v > 0 ? '#00ff88' : v < 0 ? '#ff4444' : 'rgba(255,255,255,0.5)'; const lbl = v === 0 ? '0' : (v > 0 ? '+' : '') + v; return <g key={`yt2-${v}`}><line x1={PAD.l - 5} y1={sy} x2={PAD.l} y2={sy} stroke={col} strokeWidth={1} /><text x={PAD.l - 10} y={sy + 10} textAnchor="end" fontFamily="'JetBrains Mono',monospace" fontSize={30} fill={col} fontWeight={900} letterSpacing={1}>{lbl}</text></g> })}
                     <rect x={PAD.l} y={PAD.t} width={CW} height={CH} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
                     <g clipPath="url(#rrg-bias-clip2)">
                       <g transform={`translate(${rrgTransform.tx},${rrgTransform.ty}) scale(${rrgTransform.k})`}>
@@ -4034,7 +4139,8 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                         <rect x={CX} y={PAD.t} width={CW / 2} height={CH / 2} fill="url(#rrg-q-bc)" />
                         <rect x={PAD.l} y={CY} width={CW / 2} height={CH / 2} fill="url(#rrg-q-cp)" />
                         <rect x={CX} y={CY} width={CW / 2} height={CH / 2} fill="url(#rrg-q-cc)" />
-                        {[-0.5, 0, 0.5].map(v => { const { sx } = toSVG(v, 0); const { sy } = toSVG(0, v); return <g key={v}><line x1={sx} y1={PAD.t} x2={sx} y2={PAD.t + CH} stroke={v === 0 ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.06)'} strokeWidth={(v === 0 ? 1.5 : 1) / rrgTransform.k} strokeDasharray={v === 0 ? undefined : '4 8'} /><line x1={PAD.l} y1={sy} x2={PAD.l + CW} y2={sy} stroke={v === 0 ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.06)'} strokeWidth={(v === 0 ? 1.5 : 1) / rrgTransform.k} strokeDasharray={v === 0 ? undefined : '4 8'} /></g> })}
+                        {xTicks.map(v => { const { sx } = toSVG(v, 0); const { sy: sy0 } = toSVG(0, -yAxisScale); const { sy: sy1 } = toSVG(0, yAxisScale); return <g key={`igx-${v}`}><line x1={sx} y1={PAD.t} x2={sx} y2={PAD.t + CH} stroke={v === 0 ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.06)'} strokeWidth={(v === 0 ? 1.5 : 1) / rrgTransform.k} strokeDasharray={v === 0 ? undefined : '4 8'} /></g> })}
+                        {yTicks.map(v => { const { sy } = toSVG(0, v); return <g key={`igy-${v}`}><line x1={PAD.l} y1={sy} x2={PAD.l + CW} y2={sy} stroke={v === 0 ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.06)'} strokeWidth={(v === 0 ? 1.5 : 1) / rrgTransform.k} strokeDasharray={v === 0 ? undefined : '4 8'} /></g> })}
                         {(() => {
                           // Pre-compute all dot positions for overlap detection
                           const tickerPositions = allTickers.map(t => {
@@ -4062,8 +4168,35 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                             const gradId = t.quad === 'BC' ? 'rg-bc2' : t.quad === 'CC' ? 'rg-cc2' : t.quad === 'BP' ? 'rg-bp2' : 'rg-cp2'
                             const col = QUAD_COLORS[t.quad]
                             const agg = allAggs.find(a => a.ticker === t.ticker)
+                            const isHoverActive = hoveredRegimeMembers.size > 0
+                            const isHighlighted = hoveredRegimeMembers.has(t.ticker)
+
+                            // ── Neutrality classification ──
+                            // Use classified-only total (same as popup gauge) so percentages match what's displayed
+                            let neutralLevel: 'neutral' | 'highlighted' | 'normal' = 'normal'
+                            if (agg) {
+                              const classifiedTotal = (agg.bullCall + agg.bearCall + agg.bullPut + agg.bearPut) || 1
+                              const bc = agg.bullCall / classifiedTotal, cc = agg.bearCall / classifiedTotal
+                              const bp = agg.bullPut / classifiedTotal, rp = agg.bearPut / classifiedTotal
+                              // GRAY: same instrument, opposing sentiment — Bull Calls+Bear Calls OR Bull Puts+Bear Puts
+                              // combined ≥60%, min of either ≥25%
+                              const callsNeutral = (bc + cc >= 0.60) && Math.min(bc, cc) >= 0.25
+                              const putsNeutral = (bp + rp >= 0.60) && Math.min(bp, rp) >= 0.25
+                              // HIGHLIGHTED: opposing instruments, same direction — Bull Calls+Bull Puts OR Bear Calls+Bear Puts
+                              // combined ≥65%, min of either ≥25%
+                              const bullHighlight = (bc + bp >= 0.65) && Math.min(bc, bp) >= 0.25
+                              const bearHighlight = (cc + rp >= 0.65) && Math.min(cc, rp) >= 0.25
+                              if (callsNeutral || putsNeutral) neutralLevel = 'neutral'
+                              else if (bullHighlight || bearHighlight) neutralLevel = 'highlighted'
+                            }
+
+                            const baseOpacity = neutralLevel === 'neutral' ? 0.2 : 1
+                            const baseFilter = neutralLevel === 'neutral' ? 'grayscale(1) brightness(0.5)' : neutralLevel === 'highlighted' ? `drop-shadow(0 0 6px ${col}) brightness(1.2)` : undefined
+
+                            const tickerOpacity = isHoverActive ? (isHighlighted ? 1 : 0.1) : baseOpacity
+                            const tickerFilter = isHoverActive ? (isHighlighted ? `drop-shadow(0 0 8px ${col}) brightness(1.4)` : undefined) : baseFilter
                             return (
-                              <g key={t.ticker} style={{ cursor: 'pointer' }} onDoubleClick={() => agg && setRrgPopupTicker(agg)}>
+                              <g key={t.ticker} style={{ cursor: 'pointer', opacity: tickerOpacity, filter: tickerFilter, transition: 'opacity 0.15s, filter 0.15s' }} onDoubleClick={() => agg && setRrgPopupTicker(agg)}>
                                 <circle cx={sx} cy={sy} r={(r + 5) / rrgTransform.k} fill="transparent" />
                                 <circle cx={sx + 1.5 / rrgTransform.k} cy={sy + 1.5 / rrgTransform.k} r={r / rrgTransform.k} fill="rgba(0,0,0,0.5)" />
                                 <circle cx={sx} cy={sy} r={r / rrgTransform.k} fill={`url(#${gradId})`} stroke={col} strokeWidth={1.2 / rrgTransform.k} />
@@ -4072,129 +4205,149 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                             )
                           })
                         })()}
+                        {/* Quadrant labels — inside the transform group so they stay
+                            anchored to their quadrant when the user pans/zooms.
+                            Sizes are divided by k to stay visually constant. */}
+                        {(() => {
+                          const k = rrgTransform.k
+                          const qlabels = [
+                            { label: 'BULL PUTS', g0: '#7dd3fc', g1: '#0ea5e9', x: PAD.l + CW / 4, y: PAD.t + 22 / k },
+                            { label: 'BULL CALLS', g0: '#6ee7b7', g1: '#10b981', x: CX + CW / 4, y: PAD.t + 22 / k },
+                            { label: 'BEAR PUTS', g0: '#fcd34d', g1: '#f59e0b', x: PAD.l + CW / 4, y: PAD.t + CH - 22 / k },
+                            { label: 'BEAR CALLS', g0: '#fca5a5', g1: '#ef4444', x: CX + CW / 4, y: PAD.t + CH - 22 / k },
+                          ]
+                          const tw = 150 / k, th = 24 / k, fs = 17 / k
+                          return qlabels.map(({ label, g0, g1, x, y }, i) => (
+                            <g key={label}>
+                              <defs>
+                                <linearGradient id={`qlg${i}`} x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="0%" stopColor={g0} stopOpacity="1" />
+                                  <stop offset="100%" stopColor={g1} stopOpacity="1" />
+                                </linearGradient>
+                              </defs>
+                              <rect x={x - tw / 2} y={y - th / 2} width={tw} height={th} rx={th / 2} fill={`url(#qlg${i})`} />
+                              <rect x={x - tw / 2 + 3 / k} y={y - th / 2 + 2 / k} width={tw - 6 / k} height={th / 2 - 3 / k} rx={(th / 2 - 3 / k) / 2} fill="rgba(255,255,255,0.32)" />
+                              <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontFamily="'JetBrains Mono',monospace" fontSize={fs} fontWeight={900} fill="#000" letterSpacing={2 / k}>{label}</text>
+                            </g>
+                          ))
+                        })()}
+                        {/* ── Regime & RegimeGrouping overlays ── */}
+                        {(showRegime || showRegimeGrouping) && (() => {
+                          // Group tickers by industry per quadrant
+                          const byIndustryQuad: Record<string, Array<{ t: typeof allTickers[0]; sx: number; sy: number }>> = {}
+                          for (const t of allTickers) {
+                            const industry = RRG_INDUSTRY[t.ticker]
+                            if (!industry) continue
+                            const { sx, sy } = toSVG(t.x, t.y)
+                            const key = `${industry}::${t.quad}`
+                            if (!byIndustryQuad[key]) byIndustryQuad[key] = []
+                            byIndustryQuad[key].push({ t, sx, sy })
+                          }
+
+                          const elements: React.ReactNode[] = []
+                          const titleElements: React.ReactNode[] = []
+                          let regimeGroupColorIdx = 0
+
+                          // ── Regime: 3+ same industry in ONE quadrant ──
+                          if (showRegime) {
+                            Object.entries(byIndustryQuad).forEach(([key, members]) => {
+                              if (members.length < 3) return
+                              const [industry] = key.split('::')
+                              const xs = members.map(m => m.sx), ys = members.map(m => m.sy)
+                              const cx2 = xs.reduce((a, b) => a + b, 0) / xs.length
+                              const cy2 = ys.reduce((a, b) => a + b, 0) / ys.length
+                              const maxDist = Math.max(...members.map(m => Math.sqrt((m.sx - cx2) ** 2 + (m.sy - cy2) ** 2)))
+                              const rad = maxDist + 28 / rrgTransform.k
+                              const animId = `regime-anim-${key.replace(/[^a-z0-9]/gi, '')}`
+                              const memberSymbols = members.map(m => m.t.ticker)
+                              elements.push(
+                                <g key={`regime-${key}`} style={{ pointerEvents: 'none' }}>
+                                  <defs>
+                                    <radialGradient id={`rg-regime-${animId}`} cx="50%" cy="50%" r="50%">
+                                      <stop offset="60%" stopColor="#a78bfa" stopOpacity="0" />
+                                      <stop offset="100%" stopColor="#a78bfa" stopOpacity="0.18" />
+                                    </radialGradient>
+                                  </defs>
+                                  <circle cx={cx2} cy={cy2} r={rad} fill={`url(#rg-regime-${animId})`} />
+                                  <circle cx={cx2} cy={cy2} r={rad} fill="none" stroke="#a78bfa" strokeWidth={2 / rrgTransform.k} strokeDasharray={`${14 / rrgTransform.k} ${7 / rrgTransform.k}`} strokeOpacity={0.85}>
+                                    <animateTransform attributeName="transform" type="rotate" from={`0 ${cx2} ${cy2}`} to={`360 ${cx2} ${cy2}`} dur="8s" repeatCount="indefinite" />
+                                  </circle>
+                                  <circle cx={cx2} cy={cy2} r={rad * 0.88} fill="none" stroke="#c4b5fd" strokeWidth={1 / rrgTransform.k} strokeDasharray={`${7 / rrgTransform.k} ${14 / rrgTransform.k}`} strokeOpacity={0.5}>
+                                    <animateTransform attributeName="transform" type="rotate" from={`360 ${cx2} ${cy2}`} to={`0 ${cx2} ${cy2}`} dur="12s" repeatCount="indefinite" />
+                                  </circle>
+                                </g>
+                              )
+                              titleElements.push(
+                                <g key={`regime-title-${key}`}
+                                  style={{ cursor: 'default' }}
+                                  onMouseEnter={() => setHoveredRegimeMembers(new Set(memberSymbols))}
+                                  onMouseLeave={() => setHoveredRegimeMembers(new Set())}
+                                >
+                                  {(() => { const label = `REGIME · ${industry.toUpperCase()}`; const fs2 = 16 / rrgTransform.k; const pad = 6 / rrgTransform.k; const bw = label.length * fs2 * 0.62; const bh = fs2 + pad * 2; const bx = cx2 - bw / 2; const by = cy2 - rad - 10 / rrgTransform.k - bh; return (<g><rect x={bx} y={by} width={bw} height={bh} rx={3 / rrgTransform.k} fill="#000000" stroke="#a78bfa" strokeWidth={1 / rrgTransform.k} strokeOpacity={0.6} /><text x={cx2} y={by + bh / 2} textAnchor="middle" dominantBaseline="central" fontFamily="system-ui,sans-serif" fontSize={fs2} fontWeight={700} fill="#ffffff">{label}</text></g>) })()}
+                                </g>
+                              )
+                            })
+                          }
+
+                          // ── RegimeGrouping: 2+ same industry across 2 same-side quadrants ──
+                          if (showRegimeGrouping) {
+                            const industries = new Set(Object.values(RRG_INDUSTRY))
+                            const GROUPING_COLORS = ['#94a3b8', '#c084fc', '#67e8f9', '#86efac']
+                            industries.forEach(industry => {
+                              const bullish = [
+                                ...(byIndustryQuad[`${industry}::BC`] ?? []),
+                                ...(byIndustryQuad[`${industry}::BP`] ?? []),
+                              ]
+                              const bearish = [
+                                ...(byIndustryQuad[`${industry}::CC`] ?? []),
+                                ...(byIndustryQuad[`${industry}::CP`] ?? []),
+                              ]
+                              for (const group of [bullish, bearish]) {
+                                // Must span 2 quadrants (tickers in both quads of same side)
+                                const quadsPresent = new Set(group.map(m => m.t.quad))
+                                if (quadsPresent.size < 2 || group.length < 2) return
+                                const xs = group.map(m => m.sx), ys = group.map(m => m.sy)
+                                const cx2 = xs.reduce((a, b) => a + b, 0) / xs.length
+                                const cy2 = ys.reduce((a, b) => a + b, 0) / ys.length
+                                const maxDist = Math.max(...group.map(m => Math.sqrt((m.sx - cx2) ** 2 + (m.sy - cy2) ** 2)))
+                                const rx = (Math.max(...xs) - Math.min(...xs)) / 2 + 40 / rrgTransform.k
+                                const ry = (Math.max(...ys) - Math.min(...ys)) / 2 + 40 / rrgTransform.k
+                                const col = GROUPING_COLORS[regimeGroupColorIdx % GROUPING_COLORS.length]
+                                const gradId = `rg-grp-${industry.replace(/[^a-z0-9]/gi, '')}-${regimeGroupColorIdx}`
+                                const groupSymbols = group.map(m => m.t.ticker)
+                                regimeGroupColorIdx++
+                                elements.push(
+                                  <g key={`grp-${industry}-${[...quadsPresent].join('')}`} style={{ pointerEvents: 'none' }}>
+                                    <defs>
+                                      <radialGradient id={gradId} cx="50%" cy="30%" r="70%">
+                                        <stop offset="0%" stopColor={col} stopOpacity="0.22" />
+                                        <stop offset="55%" stopColor={col} stopOpacity="0.08" />
+                                        <stop offset="100%" stopColor={col} stopOpacity="0" />
+                                      </radialGradient>
+                                    </defs>
+                                    <ellipse cx={cx2} cy={cy2} rx={rx} ry={ry} fill={`url(#${gradId})`} />
+                                    <ellipse cx={cx2} cy={cy2} rx={rx} ry={ry} fill="none" stroke={col} strokeWidth={2.5 / rrgTransform.k} strokeOpacity={0.7} />
+                                    {/* Gloss highlight at top of dome */}
+                                    <ellipse cx={cx2} cy={cy2 - ry * 0.3} rx={rx * 0.6} ry={ry * 0.2} fill={col} opacity={0.12} />
+                                  </g>
+                                )
+                                titleElements.push(
+                                  <g key={`grp-title-${industry}-${[...quadsPresent].join('')}`}
+                                    style={{ cursor: 'default' }}
+                                    onMouseEnter={() => setHoveredRegimeMembers(new Set(groupSymbols))}
+                                    onMouseLeave={() => setHoveredRegimeMembers(new Set())}
+                                  >
+                                    {(() => { const label = `REGIME GROUP · ${industry.toUpperCase()}`; const fs2 = 15 / rrgTransform.k; const pad = 6 / rrgTransform.k; const bw = label.length * fs2 * 0.62; const bh = fs2 + pad * 2; const bx = cx2 - bw / 2; const by = cy2 - ry - 10 / rrgTransform.k - bh; return (<g><rect x={bx} y={by} width={bw} height={bh} rx={3 / rrgTransform.k} fill="#000000" stroke="#ff8800" strokeWidth={1 / rrgTransform.k} strokeOpacity={0.6} /><text x={cx2} y={by + bh / 2} textAnchor="middle" dominantBaseline="central" fontFamily="system-ui,sans-serif" fontSize={fs2} fontWeight={700} fill="#ff8800">{label}</text></g>) })()}
+                                  </g>
+                                )
+                              }
+                            })
+                          }
+
+                          return [...elements, ...titleElements]
+                        })()}
                       </g>
                     </g>
-                    {/* ── Regime & RegimeGrouping overlays ── */}
-                    {(showRegime || showRegimeGrouping) && (() => {
-                      // Group tickers by industry per quadrant
-                      const byIndustryQuad: Record<string, Array<{ t: typeof allTickers[0]; sx: number; sy: number }>> = {}
-                      for (const t of allTickers) {
-                        const industry = RRG_INDUSTRY[t.ticker]
-                        if (!industry) continue
-                        const { sx, sy } = toSVG(t.x, t.y)
-                        const key = `${industry}::${t.quad}`
-                        if (!byIndustryQuad[key]) byIndustryQuad[key] = []
-                        byIndustryQuad[key].push({ t, sx, sy })
-                      }
-
-                      const elements: React.ReactNode[] = []
-                      let regimeGroupColorIdx = 0
-
-                      // ── Regime: 3+ same industry in ONE quadrant ──
-                      if (showRegime) {
-                        Object.entries(byIndustryQuad).forEach(([key, members]) => {
-                          if (members.length < 3) return
-                          const [industry] = key.split('::')
-                          const xs = members.map(m => m.sx), ys = members.map(m => m.sy)
-                          const cx2 = xs.reduce((a, b) => a + b, 0) / xs.length
-                          const cy2 = ys.reduce((a, b) => a + b, 0) / ys.length
-                          const maxDist = Math.max(...members.map(m => Math.sqrt((m.sx - cx2) ** 2 + (m.sy - cy2) ** 2)))
-                          const rad = maxDist + 28 / rrgTransform.k
-                          const animId = `regime-anim-${key.replace(/[^a-z0-9]/gi, '')}`
-                          elements.push(
-                            <g key={`regime-${key}`} style={{ pointerEvents: 'none' }}>
-                              <defs>
-                                <radialGradient id={`rg-regime-${animId}`} cx="50%" cy="50%" r="50%">
-                                  <stop offset="60%" stopColor="#a78bfa" stopOpacity="0" />
-                                  <stop offset="100%" stopColor="#a78bfa" stopOpacity="0.18" />
-                                </radialGradient>
-                              </defs>
-                              <circle cx={cx2} cy={cy2} r={rad} fill={`url(#rg-regime-${animId})`} />
-                              <circle cx={cx2} cy={cy2} r={rad} fill="none" stroke="#a78bfa" strokeWidth={2 / rrgTransform.k} strokeDasharray={`${14 / rrgTransform.k} ${7 / rrgTransform.k}`} strokeOpacity={0.85}>
-                                <animateTransform attributeName="transform" type="rotate" from={`0 ${cx2} ${cy2}`} to={`360 ${cx2} ${cy2}`} dur="8s" repeatCount="indefinite" />
-                              </circle>
-                              <circle cx={cx2} cy={cy2} r={rad * 0.88} fill="none" stroke="#c4b5fd" strokeWidth={1 / rrgTransform.k} strokeDasharray={`${7 / rrgTransform.k} ${14 / rrgTransform.k}`} strokeOpacity={0.5}>
-                                <animateTransform attributeName="transform" type="rotate" from={`360 ${cx2} ${cy2}`} to={`0 ${cx2} ${cy2}`} dur="12s" repeatCount="indefinite" />
-                              </circle>
-                              <text x={cx2} y={cy2 - rad - 8 / rrgTransform.k} textAnchor="middle" fontFamily="system-ui,sans-serif" fontSize={16 / rrgTransform.k} fontWeight={700} fill="#c4b5fd" opacity={0.9}>{`REGIME · ${industry.toUpperCase()}`}</text>
-                            </g>
-                          )
-                        })
-                      }
-
-                      // ── RegimeGrouping: 2+ same industry across 2 same-side quadrants ──
-                      if (showRegimeGrouping) {
-                        const industries = new Set(Object.values(RRG_INDUSTRY))
-                        const GROUPING_COLORS = ['#94a3b8', '#c084fc', '#67e8f9', '#86efac']
-                        industries.forEach(industry => {
-                          const bullish = [
-                            ...(byIndustryQuad[`${industry}::BC`] ?? []),
-                            ...(byIndustryQuad[`${industry}::BP`] ?? []),
-                          ]
-                          const bearish = [
-                            ...(byIndustryQuad[`${industry}::CC`] ?? []),
-                            ...(byIndustryQuad[`${industry}::CP`] ?? []),
-                          ]
-                          for (const group of [bullish, bearish]) {
-                            // Must span 2 quadrants (tickers in both quads of same side)
-                            const quadsPresent = new Set(group.map(m => m.t.quad))
-                            if (quadsPresent.size < 2 || group.length < 2) return
-                            const xs = group.map(m => m.sx), ys = group.map(m => m.sy)
-                            const cx2 = xs.reduce((a, b) => a + b, 0) / xs.length
-                            const cy2 = ys.reduce((a, b) => a + b, 0) / ys.length
-                            const maxDist = Math.max(...group.map(m => Math.sqrt((m.sx - cx2) ** 2 + (m.sy - cy2) ** 2)))
-                            const rx = (Math.max(...xs) - Math.min(...xs)) / 2 + 40 / rrgTransform.k
-                            const ry = (Math.max(...ys) - Math.min(...ys)) / 2 + 40 / rrgTransform.k
-                            const col = GROUPING_COLORS[regimeGroupColorIdx % GROUPING_COLORS.length]
-                            const gradId = `rg-grp-${industry.replace(/[^a-z0-9]/gi, '')}-${regimeGroupColorIdx}`
-                            regimeGroupColorIdx++
-                            elements.push(
-                              <g key={`grp-${industry}-${[...quadsPresent].join('')}`} style={{ pointerEvents: 'none' }}>
-                                <defs>
-                                  <radialGradient id={gradId} cx="50%" cy="30%" r="70%">
-                                    <stop offset="0%" stopColor={col} stopOpacity="0.22" />
-                                    <stop offset="55%" stopColor={col} stopOpacity="0.08" />
-                                    <stop offset="100%" stopColor={col} stopOpacity="0" />
-                                  </radialGradient>
-                                </defs>
-                                <ellipse cx={cx2} cy={cy2} rx={rx} ry={ry} fill={`url(#${gradId})`} />
-                                <ellipse cx={cx2} cy={cy2} rx={rx} ry={ry} fill="none" stroke={col} strokeWidth={2.5 / rrgTransform.k} strokeOpacity={0.7} />
-                                {/* Gloss highlight at top of dome */}
-                                <ellipse cx={cx2} cy={cy2 - ry * 0.3} rx={rx * 0.6} ry={ry * 0.2} fill={col} opacity={0.12} />
-                                <text x={cx2} y={cy2 - ry - 8 / rrgTransform.k} textAnchor="middle" fontFamily="system-ui,sans-serif" fontSize={15 / rrgTransform.k} fontWeight={700} fill={col} opacity={0.9}>{`REGIME GROUP · ${industry.toUpperCase()}`}</text>
-                              </g>
-                            )
-                          }
-                        })
-                      }
-
-                      return elements
-                    })()}
-                    {(() => {
-                      const qlabels = [
-                        { label: 'BULL PUTS', g0: '#7dd3fc', g1: '#0ea5e9', x: PAD.l + CW / 4, y: PAD.t + 22 },
-                        { label: 'BULL CALLS', g0: '#6ee7b7', g1: '#10b981', x: CX + CW / 4, y: PAD.t + 22 },
-                        { label: 'BEAR PUTS', g0: '#fcd34d', g1: '#f59e0b', x: PAD.l + CW / 4, y: PAD.t + CH - 22 },
-                        { label: 'BEAR CALLS', g0: '#fca5a5', g1: '#ef4444', x: CX + CW / 4, y: PAD.t + CH - 22 },
-                      ]
-                      const tw = 150, th = 24
-                      return qlabels.map(({ label, g0, g1, x, y }, i) => (
-                        <g key={label}>
-                          <defs>
-                            <linearGradient id={`qlg${i}`} x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor={g0} stopOpacity="1" />
-                              <stop offset="100%" stopColor={g1} stopOpacity="1" />
-                            </linearGradient>
-                          </defs>
-                          {/* Glossy pill background */}
-                          <rect x={x - tw / 2} y={y - th / 2} width={tw} height={th} rx={th / 2} fill={`url(#qlg${i})`} />
-                          {/* Top gloss highlight */}
-                          <rect x={x - tw / 2 + 3} y={y - th / 2 + 2} width={tw - 6} height={th / 2 - 3} rx={(th / 2 - 3) / 2} fill="rgba(255,255,255,0.32)" />
-                          {/* Label text */}
-                          <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontFamily="'JetBrains Mono',monospace" fontSize={17} fontWeight={900} fill="#000" letterSpacing={2}>{label}</text>
-                        </g>
-                      ))
-                    })()}
                   </svg>
                 )
               })() : (
@@ -4208,27 +4361,290 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             {/* Double-click popup */}
             {rrgPopupTicker && (() => {
               const p = rrgPopupTicker
-              const total = p.total || 1
-              const score = (p.bullCall + p.bullPut - p.bearCall - p.bearPut) / total
+              const classifiedTotal = (p.bullCall + p.bearCall + p.bullPut + p.bearPut) || 1
+              const score = (p.bullCall + p.bullPut - p.bearCall - p.bearPut) / classifiedTotal
               const dominant = Math.max(p.bullCall, p.bearCall, p.bullPut, p.bearPut)
               const col = dominant === p.bullCall ? '#00ff88' : dominant === p.bearCall ? '#ff4444' : dominant === p.bullPut ? '#4da6ff' : '#ffaa00'
               const quadLabel = dominant === p.bullCall ? 'BULL CALLS' : dominant === p.bearCall ? 'BEAR CALLS' : dominant === p.bullPut ? 'BULL PUTS' : 'BEAR PUTS'
+
+              // Build intraday time-series from raw trade data
+              const rawTrades = allScanCacheRef.current?.flowData ?? []
+              const tickerTrades = rawTrades.filter(t => t.underlying_ticker === p.ticker)
+              // Bucket by 30-min slots
+              const buckets = new Map<number, { bc: number; cc: number; bp: number; rp: number; total: number }>()
+              for (const t of tickerTrades) {
+                const ts = typeof t.trade_timestamp === 'number' ? t.trade_timestamp : new Date(t.trade_timestamp).getTime()
+                const slot = Math.floor(ts / (30 * 60 * 1000)) * (30 * 60 * 1000)
+                if (!buckets.has(slot)) buckets.set(slot, { bc: 0, cc: 0, bp: 0, rp: 0, total: 0 })
+                const b = buckets.get(slot)!
+                const prem = t.total_premium || 0
+                const fs = (t as any).fill_style as string | undefined
+                const isCall = t.type?.toLowerCase() === 'call'
+                const isBull = !fs || fs === 'N/A' || fs === 'A' || fs === 'AA'
+                const isBear = fs === 'B' || fs === 'BB'
+                b.total += prem
+                if (isCall) { if (isBull) b.bc += prem; else if (isBear) b.cc += prem }
+                else { if (isBull) b.bp += prem; else if (isBear) b.rp += prem }
+              }
+              const slots = [...buckets.entries()].sort((a, b) => a[0] - b[0])
+              // Build cumulative series
+              let cumBc = 0, cumCc = 0, cumBp = 0, cumRp = 0
+              const series = slots.map(([ts, b]) => {
+                cumBc += b.bc; cumCc += b.cc; cumBp += b.bp; cumRp += b.rp
+                const tot = cumBc + cumCc + cumBp + cumRp || 1
+                return { ts, bcPct: cumBc / tot * 100, ccPct: cumCc / tot * 100, bpPct: cumBp / tot * 100, rpPct: cumRp / tot * 100, slotTotal: b.total }
+              })
+
+              // Stats
+              const FLOW_COLORS = { bc: '#00ff88', cc: '#ff4444', bp: '#4da6ff', rp: '#ffaa00' }
+              const stats = [
+                { key: 'bc', label: 'BULL CALLS', val: p.bullCall / classifiedTotal * 100, color: FLOW_COLORS.bc },
+                { key: 'cc', label: 'BEAR CALLS', val: p.bearCall / classifiedTotal * 100, color: FLOW_COLORS.cc },
+                { key: 'bp', label: 'BULL PUTS', val: p.bullPut / classifiedTotal * 100, color: FLOW_COLORS.bp },
+                { key: 'rp', label: 'BEAR PUTS', val: p.bearPut / classifiedTotal * 100, color: FLOW_COLORS.rp },
+              ].sort((a, b) => b.val - a.val)
+
+              // Chart: 25% bigger, tight right label
+              const CW = 520, CH = 300, LABEL_W = 38
+              const keys: Array<keyof typeof FLOW_COLORS> = ['bc', 'cc', 'bp', 'rp']
+              const maxY = 100
+
+              // Zoom/pan state lives in the IIFE via refs trick — use local vars updated by handlers
+              // We store zoom+pan as a viewBox offset
+              const chartContainerRef = { panX: 0, zoom: 1 } // dummy — real state below
+
+              const toX = (i: number) => series.length < 2 ? CW / 2 : (i / (series.length - 1)) * CW
+              const toY = (pct: number) => 4 + (CH - 8) * (1 - pct / maxY)
+
+              // Inline 1-row liquid boxes (same color/fill logic as FlowQuadrantGauge)
+              const BW = 128, BH = 90, Bamp = 5
+              const bSpeeds = [2.0, 2.6, 1.8, 2.3]
+              const boxTotal = (p.bullCall + p.bearCall + p.bullPut + p.bearPut) || 1
+              const rowBoxes = [
+                { id: 'bc', lbl: 'BULL CALLS', val: p.bullCall, color: '#10b981' },
+                { id: 'cc', lbl: 'BEAR CALLS', val: p.bearCall, color: '#ef4444' },
+                { id: 'bp', lbl: 'BULL PUTS', val: p.bullPut, color: '#3b82f6' },
+                { id: 'rp', lbl: 'BEAR PUTS', val: p.bearPut, color: '#f97316' },
+              ]
+              const absScore = Math.abs(score)
+              const scoreColor2 = absScore < 0.2 ? '#eab308' : score > 0 ? '#10b981' : '#ef4444'
+
               return (
-                <div onClick={() => setRrgPopupTicker(null)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-                  <div onClick={e => e.stopPropagation()} style={{ background: '#0a0a10', border: `1px solid ${col}44`, borderRadius: 16, padding: '32px 40px', minWidth: 400, maxWidth: '90%', boxShadow: `0 0 60px ${col}22` }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <div style={{ width: 14, height: 14, borderRadius: '50%', background: col, boxShadow: `0 0 10px ${col}` }} />
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 28, fontWeight: 900, color: '#fff' }}>{p.ticker}</span>
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 900, color: col, padding: '4px 12px', border: `1px solid ${col}55`, borderRadius: 6 }}>{quadLabel}</span>
+                <div onClick={() => setRrgPopupTicker(null)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+                  <div onClick={e => e.stopPropagation()} style={{ background: 'linear-gradient(160deg,#0d0d14 0%,#060608 100%)', border: `1px solid ${col}33`, borderRadius: 16, padding: '28px 32px', width: 660, maxWidth: '95vw', boxShadow: `0 0 80px ${col}18, inset 0 1px 0 rgba(255,255,255,0.06)` }}>
+
+                    {/* Header */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ width: 12, height: 12, borderRadius: '50%', background: col }} />
+                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 26, fontWeight: 900, color: '#fff', letterSpacing: '0.05em' }}>{p.ticker}</span>
+                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, fontWeight: 900, color: col, padding: '3px 10px', border: `1px solid ${col}55`, borderRadius: 4 }}>{quadLabel}</span>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 18, color: '#fff' }}>${(total / 1e6).toFixed(1)}M</span>
-                        <button onClick={() => setRrgPopupTicker(null)} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 18, fontWeight: 700, padding: '4px 14px', cursor: 'pointer' }}>✕</button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 16, color: score > 0 ? '#00ff88' : '#ff4444', fontWeight: 800 }}>${(p.total / 1e6).toFixed(1)}M</span>
+                        <button onClick={() => setRrgPopupTicker(null)} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 700, padding: '3px 12px', cursor: 'pointer' }}>✕</button>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'center' }}>
-                      <FlowQuadrantGauge bullCall={p.bullCall} bearCall={p.bearCall} bullPut={p.bullPut} bearPut={p.bearPut} score={score} label={p.ticker} />
+
+                    {/* 1-row liquid boxes */}
+                    <div style={{ marginBottom: 20 }}>
+                      <svg width="100%" viewBox={`0 0 ${(BW + 6) * 4 - 6} ${BH}`} style={{ overflow: 'visible', display: 'block' }}>
+                        <style>{`
+                          @keyframes bw0{from{transform:translateX(0)}to{transform:translateX(-${BW}px)}}
+                          @keyframes bw1{from{transform:translateX(0)}to{transform:translateX(-${BW}px)}}
+                          @keyframes bw2{from{transform:translateX(0)}to{transform:translateX(-${BW}px)}}
+                          @keyframes bw3{from{transform:translateX(0)}to{transform:translateX(-${BW}px)}}
+                        `}</style>
+                        {rowBoxes.map((b, i) => {
+                          const fill = b.val / boxTotal
+                          const liquidH = fill * BH
+                          const bx = i * (BW + 6)
+                          const waveY = BH - liquidH
+                          const wx = -BW
+                          const wp = `M${wx} ${waveY} q${BW / 4} ${-Bamp} ${BW / 2} 0 q${BW / 4} ${Bamp} ${BW / 2} 0 q${BW / 4} ${-Bamp} ${BW / 2} 0 q${BW / 4} ${Bamp} ${BW / 2} 0 q${BW / 4} ${-Bamp} ${BW / 2} 0 q${BW / 4} ${Bamp} ${BW / 2} 0 V${BH} H${wx} Z`
+                          const clipId = `pb${i}`
+                          return (
+                            <g key={b.id} transform={`translate(${bx},0)`}>
+                              <defs><clipPath id={clipId}><rect x={0} y={0} width={BW} height={BH} rx="4" /></clipPath></defs>
+                              <rect x={0} y={0} width={BW} height={BH} rx="4" fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.07)" strokeWidth="0.5" />
+                              <g clipPath={`url(#${clipId})`}>
+                                {fill > 0.005 && (<>
+                                  <rect x={0} y={Math.max(0, waveY + Bamp)} width={BW} height={Math.max(0, BH - Math.max(0, waveY + Bamp))} fill={b.color} opacity={0.35} />
+                                  <g style={{ animationName: `bw${i}`, animationDuration: `${bSpeeds[i]}s`, animationTimingFunction: 'linear', animationIterationCount: 'infinite' }}>
+                                    <path d={wp} fill={b.color} opacity={0.65} />
+                                  </g>
+                                </>)}
+                              </g>
+                              <text x={BW / 2} y={18} textAnchor="middle" fill="#fff" fontSize="12" fontFamily="JetBrains Mono,monospace" fontWeight="700">{b.lbl}</text>
+                              <text x={BW / 2} y={BH - 10} textAnchor="middle" fill="#fff" fontSize="26" fontFamily="JetBrains Mono,monospace" fontWeight="800">{(fill * 100).toFixed(0)}%</text>
+                            </g>
+                          )
+                        })}
+                        {/* Center NEU score overlay */}
+                        <circle cx={(BW + 6) * 2 - 3} cy={BH / 2} r={22} fill="rgba(4,4,12,0.92)" stroke="rgba(255,255,255,0.13)" strokeWidth="1" />
+                        <text x={(BW + 6) * 2 - 3} y={BH / 2 - 7} textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize="11" fontFamily="JetBrains Mono,monospace" fontWeight="700">NEU</text>
+                        <text x={(BW + 6) * 2 - 3} y={BH / 2 + 8} textAnchor="middle" dominantBaseline="middle" fill={scoreColor2} fontSize="13" fontFamily="JetBrains Mono,monospace" fontWeight="800">{score.toFixed(2)}</text>
+                      </svg>
+                    </div>
+
+                    {/* Intraday chart with zoom/pan */}
+                    <div>
+                      <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 15, color: '#fff', fontWeight: 800, letterSpacing: '0.2em', marginBottom: 8, textAlign: 'center' }}>INTRADAY FLOW COMPOSITION</div>
+                      {series.length < 2 ? (
+                        <div style={{ height: CH, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 13 }}>NOT ENOUGH DATA</div>
+                      ) : (() => {
+                        // All data drawn at full width; zoom/pan via <g transform> + clip. No viewBox manipulation.
+                        const PAD_L = 14, PAD_R = 58
+                        const chartW = CW - PAD_L  // data area width
+                        const toXd = (i: number) => PAD_L + (series.length < 2 ? chartW / 2 : (i / (series.length - 1)) * chartW)
+
+                        const clipId = `fc-clip-${p.ticker.replace(/[^a-z0-9]/gi, '')}`
+                        const groupId = `fc-g-${p.ticker.replace(/[^a-z0-9]/gi, '')}`
+                        const labId = `fc-lab-${p.ticker.replace(/[^a-z0-9]/gi, '')}`
+                        const axId = `fc-ax-${p.ticker.replace(/[^a-z0-9]/gi, '')}`
+
+                        // Ref callback: attach wheel + drag listeners once, manipulate DOM directly
+                        const svgRef = (svg: SVGSVGElement | null) => {
+                          if (!svg || svg.dataset.zoomInit) return
+                          svg.dataset.zoomInit = '1'
+                          let z = 1, panX = 0
+                          const totalW = CW + PAD_R
+                          const g = svg.querySelector<SVGGElement>(`#${groupId}`)!
+                          const labG = svg.querySelector<SVGGElement>(`#${labId}`)!
+                          const axG = svg.querySelector<SVGGElement>(`#${axId}`)!
+
+                          const update = () => {
+                            // Transform: scale then shift so data at panX maps to x=0
+                            g.setAttribute('transform', `scale(${z},1) translate(${-panX / z * (z > 1 ? 1 : 1)},0)`)
+                            // Actually correct: screen_x = (dataX - panX) * z
+                            // => transform on g: translate(-panX,0) then scale around origin... easier as matrix
+                            // Use: translate then scale
+                            g.setAttribute('transform', `translate(${-panX * z},0) scale(${z},1)`)
+
+                            // Reposition end-of-line % labels to stay at right edge in screen coords
+                            keys.forEach(k => {
+                              const pctKey = `${k}Pct` as keyof typeof series[0]
+                              const lastI = series.length - 1
+                              const dataX = toXd(lastI)
+                              const screenX = (dataX - panX) * z  // wait, wrong since g is already translated
+                              // Actually with transform translate(-panX*z,0) scale(z,1):
+                              // a point at dataX maps to: dataX * z - panX * z = (dataX - panX) * z
+                              const sx = Math.min(CW - 2, Math.max(PAD_L, (dataX - panX) * z))
+                              const lastVal = series[lastI][pctKey] as number
+                              const labelEl = labG.querySelector<SVGTextElement>(`[data-key="${k}"]`)
+                              const dotEl = labG.querySelector<SVGCircleElement>(`[data-dot="${k}"]`)
+                              if (labelEl) { labelEl.setAttribute('x', String(sx + 8)); labelEl.setAttribute('visibility', sx < CW - 5 ? 'visible' : 'hidden') }
+                              if (dotEl) { dotEl.setAttribute('cx', String(sx)); dotEl.setAttribute('visibility', sx < CW - 2 && sx > PAD_L ? 'visible' : 'hidden') }
+                            })
+
+                            // Reposition x-axis time labels
+                            axG.querySelectorAll<SVGTextElement>('[data-ts]').forEach(el => {
+                              const i = parseInt(el.dataset.si || '0')
+                              const dataX = toXd(i)
+                              const sx = (dataX - panX) * z
+                              el.setAttribute('x', String(sx))
+                              el.setAttribute('visibility', sx >= PAD_L && sx <= CW ? 'visible' : 'hidden')
+                            })
+                          }
+
+                          svg.addEventListener('wheel', (e) => {
+                            e.preventDefault()
+                            const rect = svg.getBoundingClientRect()
+                            const mouseFrac = (e.clientX - rect.left) / rect.width
+                            // data x under mouse: panX + mouseFrac * (totalW / z)
+                            const dataUnderMouse = panX + mouseFrac * (totalW / z)
+                            const delta = e.deltaY < 0 ? 1.25 : 0.8
+                            z = Math.max(1, Math.min(14, z * delta))
+                            panX = Math.max(0, Math.min(totalW - totalW / z, dataUnderMouse - mouseFrac * (totalW / z)))
+                            update()
+                          }, { passive: false })
+
+                          let dragX = 0, dragging = false, dragPan = 0
+                          svg.addEventListener('mousedown', (e) => { dragging = true; dragX = e.clientX; dragPan = panX; svg.style.cursor = 'grabbing' })
+                          svg.addEventListener('mousemove', (e) => {
+                            if (!dragging) return
+                            const rect = svg.getBoundingClientRect()
+                            const dx = (dragX - e.clientX) * (totalW / z) / rect.width
+                            panX = Math.max(0, Math.min(totalW - totalW / z, dragPan + dx))
+                            update()
+                          })
+                          svg.addEventListener('mouseup', () => { dragging = false; svg.style.cursor = 'grab' })
+                          svg.addEventListener('mouseleave', () => { dragging = false; svg.style.cursor = 'grab' })
+                          update()
+                        }
+
+                        return (
+                          <svg ref={svgRef} width="100%" height={CH + 26}
+                            style={{ display: 'block', borderRadius: 6, background: '#000', cursor: 'grab', userSelect: 'none', overflow: 'hidden' }}>
+                            <defs>
+                              <clipPath id={clipId}>
+                                <rect x={PAD_L} y={0} width={chartW} height={CH + 2} />
+                              </clipPath>
+                            </defs>
+
+                            {/* Y-axis labels — fixed, right side outside clip */}
+                            {[0, 25, 50, 75, 100].map(pct => (
+                              <g key={pct}>
+                                <line x1={PAD_L + chartW} y1={toY(pct)} x2={PAD_L + chartW + 5} y2={toY(pct)} stroke="rgba(255,255,255,0.4)" strokeWidth={1} />
+                                <text x={PAD_L + chartW + 9} y={toY(pct) + 7} textAnchor="start" fontFamily="JetBrains Mono,monospace" fontSize={20} fontWeight={700} fill="#fff">{pct}%</text>
+                              </g>
+                            ))}
+
+                            {/* Zoomable/pannable content group — lines only, clipped */}
+                            <g id={groupId} clipPath={`url(#${clipId})`}>
+                              {keys.map(k => {
+                                const color = FLOW_COLORS[k]
+                                const pctKey = `${k}Pct` as keyof typeof series[0]
+                                const d = series.map((s, i) => `${i === 0 ? 'M' : 'L'}${toXd(i).toFixed(1)},${toY(s[pctKey] as number).toFixed(1)}`).join(' ')
+                                return <path key={k} d={d} fill="none" stroke={color} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
+                              })}
+                            </g>
+
+                            {/* End-of-line labels — unclipped, repositioned by update() */}
+                            <g id={labId}>
+                              {keys.map(k => {
+                                const color = FLOW_COLORS[k]
+                                const pctKey = `${k}Pct` as keyof typeof series[0]
+                                const lastVal = series[series.length - 1][pctKey] as number
+                                const lastY = toY(lastVal)
+                                return (
+                                  <g key={k}>
+                                    <circle data-dot={k} cx={toXd(series.length - 1)} cy={lastY} r={4} fill={color} />
+                                    <text data-key={k} x={toXd(series.length - 1) + 8} y={lastY + 5} fontFamily="JetBrains Mono,monospace" fontSize={15} fontWeight={800} fill={color}>{lastVal.toFixed(0)}%</text>
+                                  </g>
+                                )
+                              })}
+                            </g>
+
+                            {/* X-axis time labels — unclipped, repositioned by update() */}
+                            <g id={axId}>
+                              {series.map((s, i) => {
+                                const step = Math.max(1, Math.floor(series.length / 5))
+                                const show = i === 0 || (i % step === 0 && i < series.length - Math.floor(step * 0.6))
+                                if (!show) return null
+                                return (
+                                  <text key={s.ts} data-ts={s.ts} data-si={i}
+                                    x={toXd(i)} y={CH + 18} textAnchor="middle"
+                                    fontFamily="JetBrains Mono,monospace" fontSize={20} fontWeight={700} fill="#fff">
+                                    {new Date(s.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                                  </text>
+                                )
+                              })}
+                            </g>
+                          </svg>
+                        )
+                      })()}
+                      {/* Legend */}
+                      <div style={{ display: 'flex', gap: 16, marginTop: 10, justifyContent: 'center' }}>
+                        {keys.map(k => (
+                          <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <div style={{ width: 18, height: 2.5, background: FLOW_COLORS[k], borderRadius: 1 }} />
+                            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, color: FLOW_COLORS[k] }}>
+                              {k === 'bc' ? 'BULL CALLS' : k === 'cc' ? 'BEAR CALLS' : k === 'bp' ? 'BULL PUTS' : 'BEAR PUTS'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>

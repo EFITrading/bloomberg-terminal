@@ -8,7 +8,7 @@ interface SeasonalLineChartModalProps {
   onClose: () => void;
   pattern: SeasonalPattern;
   years: number;
-  multiframeYears?: number[]; // e.g. [5, 10, 15] â€” qualifying timeframes from multi-TF scan
+  multiframeYears?: number[]; // e.g. [5, 10, 15] — qualifying timeframes from multi-TF scan
 }
 
 interface YearLineData {
@@ -226,7 +226,7 @@ const SeasonalLineChartModal: React.FC<SeasonalLineChartModalProps> = ({
     });
   };
 
-  // â”€â”€ Chart dimensions & helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Chart dimensions & helpers ────────────────────────────────────────────
   const chartWidth = 1200;
   const chartHeight = 560;
   const padding = { top: 36, right: 140, bottom: 56, left: 60 };
@@ -242,7 +242,7 @@ const SeasonalLineChartModal: React.FC<SeasonalLineChartModalProps> = ({
   const xScale = (d: number) => padding.left + (d / Math.max(maxDays - 1, 1)) * plotWidth;
   const yScale = (v: number) => padding.top + plotHeight - ((v - minReturn) / returnRange) * plotHeight;
 
-  // Multiframe tab helpers â€” filter by enabled TFs
+  // Multiframe tab helpers — filter by enabled TFs
   const visibleTFLines = tfAvgLines.filter(t => enabledTFs.has(t.tf));
   const tfMaxDays = visibleTFLines.length > 0 ? Math.max(...visibleTFLines.map(t => t.avgLine.length), 1) : 1;
   const tfAllReturns = visibleTFLines.flatMap(t => t.avgLine.map(d => d.value));
@@ -252,7 +252,7 @@ const SeasonalLineChartModal: React.FC<SeasonalLineChartModalProps> = ({
   const tfXScale = (d: number) => padding.left + (d / Math.max(tfMaxDays - 1, 1)) * plotWidth;
   const tfYScale = (v: number) => padding.top + plotHeight - ((v - tfMinReturn) / tfReturnRange) * plotHeight;
 
-  // Tab button â€” matches LiquidPanel/WatchPanel style exactly
+  // Tab button — matches LiquidPanel/WatchPanel style exactly
   const renderTabBtn = (label: string, value: 'multiframe' | 'historical') => {
     const isActive = activeTab === value;
     return (
@@ -323,7 +323,7 @@ const SeasonalLineChartModal: React.FC<SeasonalLineChartModalProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
 
-        {/* â”€â”€ TOP BAR: Tabs + Close â€” matches LiquidPanel/WatchPanel â”€â”€ */}
+        {/* ── TOP BAR: Tabs + Close — matches LiquidPanel/WatchPanel ── */}
         <div
           style={{
             display: 'flex',
@@ -340,7 +340,7 @@ const SeasonalLineChartModal: React.FC<SeasonalLineChartModalProps> = ({
             {renderTabBtn('HISTORICAL LINES', 'historical')}
           </div>
 
-          {/* Close button â€” same style as LiquidPanel */}
+          {/* Close button — same style as LiquidPanel */}
           <button
             onClick={onClose}
             style={{
@@ -366,7 +366,7 @@ const SeasonalLineChartModal: React.FC<SeasonalLineChartModalProps> = ({
           </button>
         </div>
 
-        {/* â”€â”€ HEADER: Symbol + Period + TF toggles â”€â”€ */}
+        {/* ── HEADER: Symbol + Period + TF toggles ── */}
         <div
           style={{
             padding: '16px 24px 14px',
@@ -509,7 +509,7 @@ const SeasonalLineChartModal: React.FC<SeasonalLineChartModalProps> = ({
           )}
         </div>
 
-        {/* â”€â”€ CONTENT â”€â”€ */}
+        {/* ── CONTENT ── */}
         <div style={{ padding: '20px 24px 24px', flex: 1 }}>
           {/* Loading / Error */}
           {loading ? (
@@ -522,7 +522,7 @@ const SeasonalLineChartModal: React.FC<SeasonalLineChartModalProps> = ({
             </div>
           ) : (
 
-            /* â”€â”€ MULTI-TF AVERAGES TAB â”€â”€ */
+            /* ── MULTI-TF AVERAGES TAB ── */
             activeTab === 'multiframe' && hasMultiframe ? (
               <>
                 {tfAvgLines.length === 0 ? (
@@ -646,7 +646,7 @@ const SeasonalLineChartModal: React.FC<SeasonalLineChartModalProps> = ({
               </>
             ) : (
 
-              /* â”€â”€ HISTORICAL LINES TAB â”€â”€ */
+              /* ── HISTORICAL LINES TAB ── */
               lineData.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '60px', color: '#999999', fontFamily: 'monospace' }}>
                   No data available

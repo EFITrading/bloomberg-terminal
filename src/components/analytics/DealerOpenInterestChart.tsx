@@ -874,7 +874,7 @@ export default function DealerOpenInterestChart({
           if (totalCallOI === 0 && totalPutOI === 0) {
             setExpectedRangePCRatio('N/A')
           } else if (totalCallOI === 0) {
-            setExpectedRangePCRatio('âˆž (No Calls)')
+            setExpectedRangePCRatio('∞ (No Calls)')
           } else {
             const ratio = totalPutOI / totalCallOI
             setExpectedRangePCRatio(
@@ -951,7 +951,7 @@ export default function DealerOpenInterestChart({
         if (totalCallOI === 0 && totalPutOI === 0) {
           setExpectedRangePCRatio('N/A')
         } else if (totalCallOI === 0) {
-          setExpectedRangePCRatio('âˆž (No Calls)')
+          setExpectedRangePCRatio('∞ (No Calls)')
         } else {
           const ratio = totalPutOI / totalCallOI
           setExpectedRangePCRatio(`${ratio.toFixed(2)} (${put90.toFixed(0)}-${call90.toFixed(0)})`)
@@ -1033,7 +1033,7 @@ export default function DealerOpenInterestChart({
         if (totalCallOI === 0 && totalPutOI === 0) {
           setCumulativePCRatio45Days('N/A')
         } else if (totalCallOI === 0) {
-          setCumulativePCRatio45Days('âˆž (No Calls)')
+          setCumulativePCRatio45Days('∞ (No Calls)')
         } else {
           const ratio = totalPutOI / totalCallOI
           setCumulativePCRatio45Days(`${ratio.toFixed(2)} (${expCount} exp)`)
@@ -1691,7 +1691,7 @@ export default function DealerOpenInterestChart({
         const rightBandX = xScale(rightStrikeStr)
 
         if (centerBandX === undefined || leftBandX === undefined || rightBandX === undefined) {
-          console.warn('âš ï¸ Strike not found in scale for tower:', tower)
+          console.warn('⚠ï¸ Strike not found in scale for tower:', tower)
           return
         }
 
@@ -2288,7 +2288,7 @@ export default function DealerOpenInterestChart({
                     color: (() => {
                       if (expectedRangePCRatio === 'N/A' || expectedRangePCRatio === 'Error')
                         return '#888888'
-                      if (expectedRangePCRatio.startsWith('âˆž')) return '#ff6b6b'
+                      if (expectedRangePCRatio.startsWith('∞')) return '#ff6b6b'
                       const match = expectedRangePCRatio.match(/^([\d.]+)/)
                       if (match) {
                         const pcValue = parseFloat(match[1])
@@ -2352,7 +2352,7 @@ export default function DealerOpenInterestChart({
                     border: '1px solid #333333',
                     borderRadius: '8px',
                     padding: '6px 12px',
-                    color: cumulativePCRatio45Days.startsWith('âˆž')
+                    color: cumulativePCRatio45Days.startsWith('∞')
                       ? '#ff6b6b'
                       : cumulativePCRatio45Days === 'N/A' || cumulativePCRatio45Days === 'Error'
                         ? '#888888'

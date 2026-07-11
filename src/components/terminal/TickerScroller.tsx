@@ -46,12 +46,12 @@ export default function TickerScroller() {
     return () => observer.disconnect()
   }, [])
   useEffect(() => {
-    // Skip bulk REST fetch on analysis-suite â€” no multi-stock scans needed there
+    // Skip bulk REST fetch on analysis-suite — no multi-stock scans needed there
     if (pathname === '/analysis-suite') return
 
     let unsubWS: (() => void) | null = null
 
-    // â”€â”€ 1. Seed prev-day closes once via REST â”€â”€
+    // ── 1. Seed prev-day closes once via REST ──
     const seedPrevCloses = async () => {
       try {
         const apiKey = '' || ''
@@ -74,7 +74,7 @@ export default function TickerScroller() {
               prev.map((d) => (d.symbol === t.ticker ? { ...d, change: changePercent } : d))
             )
           } else {
-            // Weekend/holiday: no new trading â€” show last trading day's own change (openâ†’close)
+            // Weekend/holiday: no new trading — show last trading day's own change (open→close)
             const lastDayOpen = t.prevDay?.o
             const lastDayClose = t.prevDay?.c
             if (lastDayOpen && lastDayClose) {
@@ -91,7 +91,7 @@ export default function TickerScroller() {
       }
     }
 
-    // â”€â”€ 2. Subscribe to shared singleton for real-time AM.* updates â”€â”€
+    // ── 2. Subscribe to shared singleton for real-time AM.* updates ──
     seedPrevCloses().then(() => {
       if (!polygonStocksWS) return
       unsubWS = polygonStocksWS.subscribe('ticker-scroller', {
