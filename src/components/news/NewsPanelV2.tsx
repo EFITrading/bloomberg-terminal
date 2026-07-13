@@ -158,7 +158,12 @@ function _processLogoQueue(apiKey: string) {
     fetch(`/api/polygon/v3/reference/tickers/${ticker}?apiKey=${apiKey}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        const url = data?.results?.branding?.icon_url || data?.results?.branding?.logo_url || null
+        const rawUrl = data?.results?.branding?.icon_url || data?.results?.branding?.logo_url || null
+        // Polygon branding URLs point directly at api.polygon.io and require
+        // the real apiKey query param — proxy them through our own route
+        // (which injects the real server-side key) instead of hitting
+        // Polygon directly with an empty client-side key.
+        const url = rawUrl ? rawUrl.replace('https://api.polygon.io/', '/api/polygon/') : null
         _logoCache[ticker] = url
         const cbs = _logoCallbacks[ticker] ?? []
         delete _logoCallbacks[ticker]
@@ -227,10 +232,13 @@ const CompanyLogo: React.FC<{ ticker: string; size?: number; className?: string;
   const [logoUrl, setLogoUrl] = React.useState<string | null>(
     _logoCache[ticker] !== undefined ? _logoCache[ticker] : null
   )
-  const POLYGON_KEY = '' || ''
+  // Client never holds the real Polygon key — the /api/polygon proxy injects it server-side.
+  const POLYGON_KEY = ''
 
   React.useEffect(() => {
-    if (!ticker || !POLYGON_KEY) return
+    if (!ticker) {
+      return
+    }
     if (_logoCache[ticker] !== undefined) {
       setLogoUrl(_logoCache[ticker])
       return
@@ -239,7 +247,9 @@ const CompanyLogo: React.FC<{ ticker: string; size?: number; className?: string;
     if (!_logoCallbacks[ticker]) {
       _logoCallbacks[ticker] = []
     }
-    _logoCallbacks[ticker].push((url) => setLogoUrl(url))
+    _logoCallbacks[ticker].push((url) => {
+      setLogoUrl(url)
+    })
     _processLogoQueue(POLYGON_KEY)
   }, [ticker, POLYGON_KEY])
 
@@ -277,7 +287,7 @@ const CompanyLogo: React.FC<{ ticker: string; size?: number; className?: string;
   }
   return (
     <img
-      src={`${logoUrl}?apiKey=${POLYGON_KEY}`}
+      src={logoUrl}
       alt={ticker}
       {...(!fluid && { width: size, height: size })}
       className={`rounded object-contain shrink-0 ${className}`}
@@ -548,7 +558,8 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
   const historicalFetchedRef = useRef(false)
   const [generalArticles, setGeneralArticles] = useState<NewsArticle[]>([])
 
-  const POLYGON_KEY = '' || ''
+  // Client never holds the real Polygon key — the /api/polygon proxy injects it server-side.
+  const POLYGON_KEY = ''
 
   // ── Calendar search bar ───────────────────────────────────────────────────
   const [calSearchInput, setCalSearchInput] = useState('')
@@ -847,9 +858,10 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
   // ── Implied Move: exact ChainPanel getProbabilityStrikes logic ──────────────
   const fetchImpliedMove = useCallback(async (ticker: string, earningsDate: Date) => {
     const key = `${ticker}-${earningsDate.toISOString().split('T')[0]}`
-    if (impliedFetchedRef.current.has(key)) return
+    if (impliedFetchedRef.current.has(key)) {
+      return
+    }
     impliedFetchedRef.current.add(key)
-    if (!POLYGON_KEY) return
     try {
       // Friday of the earnings week
       const base = new Date(earningsDate)
@@ -862,19 +874,25 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
       const priceRes = await fetch(
         `/api/polygon/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apikey=${POLYGON_KEY}`
       )
-      if (!priceRes.ok) { return }
+      if (!priceRes.ok) {
+        return
+      }
       const priceData = await priceRes.json()
       const stockPrice: number =
         priceData?.ticker?.lastTrade?.p ||
         priceData?.ticker?.day?.c ||
         priceData?.ticker?.prevDay?.c
-      if (!stockPrice || stockPrice <= 0) { return }
+      if (!stockPrice || stockPrice <= 0) {
+        return
+      }
 
       // 2. Get contracts for the Friday expiry (with fallback) — same as ChainPanel fetchOptionsChain
       const contractsRes = await fetch(
         `/api/polygon/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date=${fridayStr}&limit=500&apikey=${POLYGON_KEY}`
       )
-      if (!contractsRes.ok) { return }
+      if (!contractsRes.ok) {
+        return
+      }
       const contractsData = await contractsRes.json()
       const results: any[] = contractsData?.results ?? []
 
@@ -883,16 +901,24 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         const refRes = await fetch(
           `/api/polygon/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date.gte=${fridayStr}&limit=50&apikey=${POLYGON_KEY}`
         )
-        if (!refRes.ok) { return }
+        if (!refRes.ok) {
+          return
+        }
         const refData = await refRes.json()
-        if (!refData?.results?.length) { return }
+        if (!refData?.results?.length) {
+          return
+        }
         usedExpiry = refData.results[0].expiration_date
         const fallbackRes = await fetch(
           `/api/polygon/v3/reference/options/contracts?underlying_ticker=${ticker}&expiration_date=${usedExpiry}&limit=500&apikey=${POLYGON_KEY}`
         )
-        if (!fallbackRes.ok) { return }
+        if (!fallbackRes.ok) {
+          return
+        }
         const fallbackData = await fallbackRes.json()
-        if (!fallbackData?.results?.length) { return }
+        if (!fallbackData?.results?.length) {
+          return
+        }
         results.push(...fallbackData.results)
       }
 
@@ -906,7 +932,9 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         const pctDiff = Math.abs((opt.strike_price - stockPrice) / stockPrice)
         return pctDiff < 0.05
       })
-      if (atmOptions.length === 0) { return }
+      if (atmOptions.length === 0) {
+        return
+      }
 
       // 5. Fetch IV for all ATM options in small batches (ChainPanel fetches each individually)
       const IV_BATCH = 5
@@ -930,9 +958,13 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
 
       // 6. Average IV of options that have valid IV > 0 — exact ChainPanel getProbabilityStrikes
       const validIVs = atmOptions.map((o: any) => ivMap[o.ticker] ?? 0).filter(iv => iv > 0)
-      if (validIVs.length === 0) { return }
+      if (validIVs.length === 0) {
+        return
+      }
       const avgIV = validIVs.reduce((s: number, v: number) => s + v, 0) / validIVs.length
-      if (avgIV < 0.01 || avgIV > 5) { return }
+      if (avgIV < 0.01 || avgIV > 5) {
+        return
+      }
 
       // 7. DTE from actual used expiry — exact ChainPanel daysToExpiry calc
       // Parse as local midnight to avoid UTC offset shifting the date by 1 day
@@ -968,7 +1000,9 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
   const BATCH_DELAY_MS = 700
 
   const processBatchQueue = useCallback(async () => {
-    if (impliedProcessingRef.current) return
+    if (impliedProcessingRef.current) {
+      return
+    }
     impliedProcessingRef.current = true
     while (impliedQueueRef.current.length > 0) {
       const batch: Array<{ ticker: string; date: Date }> = []
@@ -977,7 +1011,9 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         const key = `${item.ticker}-${item.date.toISOString().split('T')[0]}`
         if (!impliedFetchedRef.current.has(key)) batch.push(item)
       }
-      if (batch.length === 0) break
+      if (batch.length === 0) {
+        break
+      }
       await Promise.all(batch.map(({ ticker, date }) => fetchImpliedMove(ticker, date)))
       if (impliedQueueRef.current.length > 0) {
         await new Promise<void>((r) => setTimeout(r, BATCH_DELAY_MS))
@@ -1295,7 +1331,9 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
   // Scans this week's earnings (top 5 notable tickers per day).
   // On Thursdays also scans next week so the data is ready for Monday.
   useEffect(() => {
-    if (liveCalEvents.length === 0) return
+    if (liveCalEvents.length === 0) {
+      return
+    }
     const extractT = (event: string): string => event.match(/\(([A-Z]{1,5})\)/)?.[1] ?? ''
     const MCAP_RANK: Record<string, number> = {
       MSFT: 1, AAPL: 2, NVDA: 3, GOOGL: 4, GOOG: 5, AMZN: 6, META: 7, TSLA: 8, AVGO: 9, BRK: 10,
@@ -1335,7 +1373,8 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
           .map((ev) => extractT(ev.event))
           .filter((t) => Boolean(t) && t in MCAP_RANK) // notable tickers only
         tickers.sort(mcapSort)
-        tickers.slice(0, 5).forEach((t) => { // top 5 per day
+        const top5 = tickers.slice(0, 5)
+        top5.forEach((t) => { // top 5 per day
           impliedQueueRef.current.push({ ticker: t, date: day })
         })
       })
@@ -2606,11 +2645,11 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                         <div className="grid shrink-0" style={{ gridTemplateColumns: '1fr 1fr', borderBottom: '2px solid #d4af37' }}>
                           <div className="px-2 py-1.5 flex items-center gap-1" style={{ background: 'linear-gradient(90deg,rgba(251,191,36,0.10) 0%,transparent 100%)', borderRight: '2px solid #d4af37' }}>
                             <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                            <span className="text-[13px] font-black uppercase text-amber-300" style={{ letterSpacing: '0.08em', fontFamily: 'var(--font-geist-mono, monospace)' }}>Pre</span>
+                            <span className="text-[16px] font-black uppercase text-amber-300" style={{ letterSpacing: '0.08em', fontFamily: 'var(--font-geist-mono, monospace)' }}>Pre-Market</span>
                           </div>
                           <div className="px-2 py-1.5 flex items-center gap-1" style={{ background: 'linear-gradient(90deg,rgba(0,174,239,0.10) 0%,transparent 100%)' }}>
                             <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
-                            <span className="text-[13px] font-black uppercase text-cyan-300" style={{ letterSpacing: '0.08em', fontFamily: 'var(--font-geist-mono, monospace)' }}>AH</span>
+                            <span className="text-[16px] font-black uppercase text-cyan-300" style={{ letterSpacing: '0.08em', fontFamily: 'var(--font-geist-mono, monospace)' }}>After-Hours</span>
                           </div>
                         </div>
                         {/* 2-col logo grids side by side */}

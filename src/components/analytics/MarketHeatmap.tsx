@@ -1595,7 +1595,11 @@ const MarketHeatmap: React.FC = () => {
             if (response.ok) {
               const data = await response.json()
               const marketCap = data?.results?.market_cap || 0
-              const logoUrl = data?.results?.branding?.icon_url || data?.results?.branding?.logo_url
+              const rawLogoUrl = data?.results?.branding?.icon_url || data?.results?.branding?.logo_url
+              // Polygon branding URLs point directly at api.polygon.io and require
+              // the real apiKey — proxy them through our own route (which injects
+              // the real server-side key) instead of hitting Polygon directly.
+              const logoUrl = rawLogoUrl ? rawLogoUrl.replace('https://api.polygon.io/', '/api/polygon/') : undefined
               if (marketCap > 0) {
                 marketCapMap.set(symbol, { marketCap, logoUrl })
               }
@@ -2192,7 +2196,7 @@ const MarketHeatmap: React.FC = () => {
                         >
                           {stockNode.data.logoUrl && stockWidth > 50 && stockHeight > 50 && (
                             <img
-                              src={`${stockNode.data.logoUrl}?apiKey=${'' || ''}`}
+                              src={stockNode.data.logoUrl}
                               alt={stockNode.data.name}
                               style={{
                                 width: Math.min(stockWidth * 0.4, 32) + 'px',

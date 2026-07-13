@@ -2025,7 +2025,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
         color: '#9ca3af',
 
-        breakdown: `Score: ${confidenceScore}/100\nExpiration: ${scores.expiration}/25\nContract P&L: 0/15\nRelative Strength: 0/10\nCombo Trade: 0/10\nPrice Action: 0/10\nVolume vs OI: 0/15\nStock Reaction: 0/15`,
+        breakdown: `Score: ${confidenceScore}/100\nExpiration: ${scores.expiration}/25\nContract P&L: 0/15\nRelative Strength: 0/15\nCombo Trade: 0/10\nPrice Action: 0/10\nVolume vs OI: 0/10\nStock Reaction: 0/15`,
 
         stdDevError: stdDevFailed.has(trade.underlying_ticker),
 
@@ -2047,7 +2047,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
     confidenceScore += scores.contractPrice
 
-    // 3. Relative Strength Score (10 points max) - Award points if trade aligns with RS
+    // 3. Relative Strength Score (15 points max) - Award points if trade aligns with RS
 
     const rs = relativeStrengthData.get(trade.underlying_ticker)
 
@@ -2064,11 +2064,11 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
         (isCall && (fillStyle === 'B' || fillStyle === 'BB')) ||
         (!isCall && (fillStyle === 'A' || fillStyle === 'AA'))
 
-      // Award 10 points if trade direction aligns with RS
+      // Award 15 points if trade direction aligns with RS
 
       const aligned = (isBullishFlow && rs > 0) || (isBearishFlow && rs < 0)
 
-      if (aligned) scores.relativeStrength = 10
+      if (aligned) scores.relativeStrength = 15
     }
 
     confidenceScore += scores.relativeStrength
@@ -2141,16 +2141,16 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
     confidenceScore += scores.priceAction
 
-    // 7. Volume vs Open Interest Score (15 pts max)
-    // MULTI-LEG: skipped - those 15 pts are folded into the combo score above
+    // 7. Volume vs Open Interest Score (10 pts max)
+    // MULTI-LEG: skipped - those pts are folded into the combo score above
     if (!isMultiLeg) {
       const tradeVolume = trade.volume ?? null
       const tradeOI = trade.open_interest ?? null
       if (tradeVolume !== null && tradeOI !== null && tradeOI > 0) {
         const volOIRatio = tradeVolume / tradeOI
-        if (volOIRatio >= 1.5) scores.volumeOI = 15
-        else if (volOIRatio >= 1.0) scores.volumeOI = 10
-        else if (volOIRatio >= 0.5) scores.volumeOI = 5
+        if (volOIRatio >= 1.5) scores.volumeOI = 10
+        else if (volOIRatio >= 1.0) scores.volumeOI = 7
+        else if (volOIRatio >= 0.5) scores.volumeOI = 3
       }
     }
 
@@ -2230,13 +2230,13 @@ Expiration: ${scores.expiration}/25
 
 Contract P&L: ${scores.contractPrice}/15
 
-Relative Strength: ${scores.relativeStrength}/10
+Relative Strength: ${scores.relativeStrength}/15
 
 Combo Trade: ${scores.combo}/10
 
 Price Action: ${scores.priceAction}/10
 
-Volume vs OI: ${scores.volumeOI}/15
+Volume vs OI: ${scores.volumeOI}/10
 
 Stock Reaction: ${scores.stockReaction}/15`
 
@@ -2529,6 +2529,51 @@ Stock Reaction: ${scores.stockReaction}/15`
   // Backwards-compat aliases (grading functions reference these)
   const meetsEfiCriteria = meetsShortTermCriteria
   const meetsLeapCriteria = meetsLongTermCriteria
+
+  // SweepSense keeps running against LIVE, ever-changing data, but the RS/52wk/seasonal
+  // fetches only ran once (at button-click time) for whatever tickers existed then.
+  // New trades polling in bring NEW tickers that never get RS/52wk/seasonal data,
+  // so their grade score is missing those points and they can never reach A-/A/A+,
+  // making the grade gate wipe out the whole result set. This effect keeps those
+  // maps topped up for any new ticker that enters the SweepSense candidate pool.
+  useEffect(() => {
+    if (!shortTermActive && !longTermActive) return
+    if (!data || data.length === 0) return
+
+    const shortTermTrades = shortTermActive ? data.filter(meetsShortTermCriteria) : []
+    const longTermTrades = longTermActive ? data.filter(meetsLongTermCriteria) : []
+    const longTermTickers = [...new Set(longTermTrades.map((t) => t.underlying_ticker))]
+
+    const missingRS = shortTermTrades.some((t) => !relativeStrengthData.has(t.underlying_ticker))
+    const missingLeapRS = longTermTickers.some((tk) => !leapRsData.has(tk))
+    const missing52wk = longTermTickers.some((tk) => !leap52wkData.has(tk))
+    const missingSeasonal = longTermTickers.some((tk) => !leapSeasonalData.has(tk))
+
+    if (!missingRS && !missingLeapRS && !missing52wk && !missingSeasonal) return
+
+    const debounceTimer = setTimeout(async () => {
+      try {
+        if (missingRS || missingLeapRS) {
+          const { shortTermRS, longTermRS } = await calculateCombinedRS(shortTermTrades, longTermTrades)
+          setRelativeStrengthData((prev) => new Map([...prev, ...shortTermRS]))
+          setLeapRsData((prev) => new Map([...prev, ...longTermRS]))
+        }
+        if (missing52wk || missingSeasonal) {
+          const [wkData, seasonData] = await Promise.all([
+            fetchLeap52wkData(longTermTickers),
+            fetchLeapSeasonalData(longTermTickers),
+          ])
+          setLeap52wkData((prev) => new Map([...prev, ...wkData]))
+          setLeapSeasonalData((prev) => new Map([...prev, ...seasonData]))
+        }
+      } catch (err) {
+        console.error('[SweepSense] backfill error:', err)
+      }
+    }, 1500)
+
+    return () => clearTimeout(debounceTimer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.length, shortTermActive, longTermActive])
 
   // Notable Flow Pick criteria checker (8 criteria)
 
@@ -5879,14 +5924,14 @@ Stock Reaction: ${scores.stockReaction}/15`
                     )
                     try {
                       const { shortTermRS, longTermRS } = await calculateCombinedRS(shortTermTrades, longTermTrades)
-                      setRelativeStrengthData(shortTermRS)
-                      setLeapRsData(longTermRS)
+                      setRelativeStrengthData((prev) => new Map([...prev, ...shortTermRS]))
+                      setLeapRsData((prev) => new Map([...prev, ...longTermRS]))
                       const [wkData, seasonData] = await Promise.all([
                         fetchLeap52wkData(longTermTickers),
                         fetchLeapSeasonalData(longTermTickers),
                       ])
-                      setLeap52wkData(wkData)
-                      setLeapSeasonalData(seasonData)
+                      setLeap52wkData((prev) => new Map([...prev, ...wkData]))
+                      setLeapSeasonalData((prev) => new Map([...prev, ...seasonData]))
                       await fetchCurrentOptionPrices(allUniq)
                     } catch (err) {
                       console.error('[SweepSense] Scan error:', err)
@@ -6594,14 +6639,14 @@ Stock Reaction: ${scores.stockReaction}/15`
                     )
                     try {
                       const { shortTermRS, longTermRS } = await calculateCombinedRS(shortTermTrades, longTermTrades)
-                      setRelativeStrengthData(shortTermRS)
-                      setLeapRsData(longTermRS)
+                      setRelativeStrengthData((prev) => new Map([...prev, ...shortTermRS]))
+                      setLeapRsData((prev) => new Map([...prev, ...longTermRS]))
                       const [wkData, seasonData] = await Promise.all([
                         fetchLeap52wkData(longTermTickers),
                         fetchLeapSeasonalData(longTermTickers),
                       ])
-                      setLeap52wkData(wkData)
-                      setLeapSeasonalData(seasonData)
+                      setLeap52wkData((prev) => new Map([...prev, ...wkData]))
+                      setLeapSeasonalData((prev) => new Map([...prev, ...seasonData]))
                       await fetchCurrentOptionPrices(allUniq)
                     } catch (err) {
                       console.error('[SweepSense] Scan error:', err)

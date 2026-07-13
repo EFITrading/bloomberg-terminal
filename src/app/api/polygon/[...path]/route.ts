@@ -25,6 +25,21 @@ export async function GET(
             signal: AbortSignal.timeout(30_000),
         })
 
+        const contentType = response.headers.get('content-type') || ''
+
+        // Company branding/logo endpoints return binary images, not JSON.
+        // Stream them through as-is instead of trying to parse JSON.
+        if (!contentType.includes('application/json')) {
+            const buffer = await response.arrayBuffer()
+            return new NextResponse(buffer, {
+                status: response.status,
+                headers: {
+                    'Content-Type': contentType || 'application/octet-stream',
+                    'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+                },
+            })
+        }
+
         const data = await response.json()
 
         return NextResponse.json(data, {
