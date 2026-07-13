@@ -302,7 +302,7 @@ export default function DealerGEXChart({
         setLoading(true)
         setError('')
 
-        // Helper: resolve OI � use historical rollback map if available, else snapshot value
+        // Helper: resolve OI - use historical rollback map if available, else snapshot value
         const resolveOI = (snapshotOI: number, strike: number, type: 'call' | 'put', expiry: string): number => {
           if (!liveOIOverride) return snapshotOI
           const key = `${selectedTicker}_${strike}_${type}_${expiry}`
@@ -358,7 +358,7 @@ export default function DealerGEXChart({
 
 
 
-                    const premium = gamma * openInterest * 100 * spotPrice // Gamma Notional: G�OI�100�S
+                    const premium = gamma * openInterest * 100 * spotPrice // Gamma Notional: G-OI-100-S
                     const gex = calculateGammaExposure(openInterest, spotPrice, gamma, 'call')
 
                     if (!strikeMap.has(strikeNum)) {
@@ -385,7 +385,7 @@ export default function DealerGEXChart({
 
 
 
-                  const premium = gamma * openInterest * 100 * spotPrice // Gamma Notional: G�OI�100�S
+                  const premium = gamma * openInterest * 100 * spotPrice // Gamma Notional: G-OI-100-S
                   const gex = calculateGammaExposure(openInterest, spotPrice, gamma, 'put')
 
                   if (!strikeMap.has(strikeNum)) {
@@ -499,7 +499,7 @@ export default function DealerGEXChart({
 
 
 
-                    const premium = gamma * openInterest * 100 * spotPrice // Gamma Notional: G�OI�100�S
+                    const premium = gamma * openInterest * 100 * spotPrice // Gamma Notional: G-OI-100-S
                     const gex = calculateGammaExposure(openInterest, spotPrice, gamma, 'call')
 
                     if (!strikeMap.has(strikeNum)) {
@@ -526,7 +526,7 @@ export default function DealerGEXChart({
 
 
 
-                  const premium = gamma * openInterest * 100 * spotPrice // Gamma Notional: G�OI�100�S
+                  const premium = gamma * openInterest * 100 * spotPrice // Gamma Notional: G-OI-100-S
                   const gex = calculateGammaExposure(openInterest, spotPrice, gamma, 'put')
 
                   if (!strikeMap.has(strikeNum)) {
@@ -620,7 +620,7 @@ export default function DealerGEXChart({
               const strikeNum = parseFloat(strike)
               const openInterest = resolveOI(callData.open_interest || 0, strikeNum, 'call', selectedExpiration)
               const gamma = callData.greeks?.gamma || 0
-              const premium = gamma * openInterest * 100 * spotPrice // Gamma Notional: G�OI�100�S
+              const premium = gamma * openInterest * 100 * spotPrice // Gamma Notional: G-OI-100-S
               const gex = calculateGammaExposure(openInterest, spotPrice, gamma, 'call')
 
               if (!strikeMap.has(strikeNum)) {
@@ -638,7 +638,7 @@ export default function DealerGEXChart({
               const strikeNum = parseFloat(strike)
               const openInterest = resolveOI(putData.open_interest || 0, strikeNum, 'put', selectedExpiration)
               const gamma = putData.greeks?.gamma || 0
-              const premium = gamma * openInterest * 100 * spotPrice // Gamma Notional: G�OI�100�S
+              const premium = gamma * openInterest * 100 * spotPrice // Gamma Notional: G-OI-100-S
               const gex = calculateGammaExposure(openInterest, spotPrice, gamma, 'put')
 
               if (!strikeMap.has(strikeNum)) {

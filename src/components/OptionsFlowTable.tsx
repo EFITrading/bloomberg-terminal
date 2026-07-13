@@ -470,9 +470,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     block: boolean
   }>({ otm: false, weekly: false, premium100k: false, sweep: false, block: false })
 
-  const [efiHighlightsActive, setEfiHighlightsActive] = useState<boolean>(false)
-  const [leapActive, setLeapActive] = useState<boolean>(false)
-  // Tracks the exact array reference loaded from a saved flow — dedup is skipped for this ref
+  const [shortTermActive, setEfiHighlightsActive] = useState<boolean>(false)
+  const [longTermActive, setLeapActive] = useState<boolean>(false)
+  // Tracks the exact array reference loaded from a saved flow - dedup is skipped for this ref
   const loadedDataRef = useRef<OptionsFlowData[] | null>(null)
 
   const [isFlowTrackingOpen, setIsFlowTrackingOpen] = useState<boolean>(false)
@@ -526,7 +526,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [leapRsData, setLeapRsData] = useState<Map<string, { rs5d: number; rs13d: number; rs21d: number }>>(new Map())
   const [leap52wkData, setLeap52wkData] = useState<Map<string, { high52: number; low52: number }>>(new Map())
   const [leapSeasonalData, setLeapSeasonalData] = useState<Map<string, { inSweetSpot: boolean; inPainPoint: boolean }>>(new Map())
-  const [modeLoadingStep, setModeLoadingStep] = useState<{ mode: 'LEAP' | 'EFI'; step: string } | null>(null)
+  const [modeLoadingStep, setModeLoadingStep] = useState<{ mode: 'SHORT' | 'LONG'; step: string } | null>(null)
 
   // ---- Weather particle loading background ----
   const [weatherCanvas, setWeatherCanvas] = useState<HTMLCanvasElement | null>(null)
@@ -671,7 +671,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   const EFI_LOADING_QUOTES = [
     // Market wisdom
-    { text: 'The trend is your friend — until it bends.', author: 'Wall Street Proverb' },
+    { text: 'The trend is your friend - until it bends.', author: 'Wall Street Proverb' },
     { text: 'Markets can remain irrational longer than you can remain solvent.', author: 'John Maynard Keynes' },
     { text: 'In the short run the market is a voting machine. In the long run, a weighing machine.', author: 'Benjamin Graham' },
     { text: 'The stock market is filled with individuals who know the price of everything, but the value of nothing.', author: 'Philip Fisher' },
@@ -696,7 +696,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     { text: 'When sweep orders cluster, the smart money is speaking.', author: 'EFI Research' },
     { text: 'Volume is the weapon of the informed trader.', author: 'EFI Research' },
     { text: 'The best trades come from where conviction meets flow.', author: 'EFI Research' },
-    { text: 'Follow the smart money — it always leaves a trail in options.', author: 'EFI Research' },
+    { text: 'Follow the smart money - it always leaves a trail in options.', author: 'EFI Research' },
     { text: 'Premium doesn\'t lie. Size tells the story.', author: 'EFI Research' },
     { text: 'Unusual options activity today is tomorrow\'s headline.', author: 'EFI Research' },
     { text: 'Every large position started as an idea someone believed in enough to size up.', author: 'EFI Research' },
@@ -711,7 +711,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     { text: 'The most important quality for an investor is temperament, not intellect.', author: 'Warren Buffett' },
     { text: 'Win or lose, everybody gets what they want out of the market.', author: 'Ed Seykota' },
     { text: 'Cut your losses short and let your profits run.', author: 'Trading Maxim' },
-    { text: 'The hard part isn\'t knowing what to do — it\'s sitting on your hands when there\'s nothing to do.', author: 'Jesse Livermore' },
+    { text: 'The hard part isn\'t knowing what to do - it\'s sitting on your hands when there\'s nothing to do.', author: 'Jesse Livermore' },
     { text: 'Never risk more than 1% of your total equity on any single trade.', author: 'Larry Hite' },
     { text: 'Amateurs go broke taking large losses. Professionals go broke taking small profits.', author: 'Thomas Bulkowski' },
     { text: 'The market can do anything. Accept the risk, embrace the uncertainty.', author: 'Mark Douglas' },
@@ -765,6 +765,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   } | null>(null)
 
   const [notableFilterActive, setNotableFilterActive] = useState<boolean>(false)
+  // Grade column sort mode - toggles between long_first (cyan) and short_first (yellow)
+  const [gradeColumnMode, setGradeColumnMode] = useState<'long_first' | 'short_first'>('long_first')
 
   const [selectedNotableTrade, setSelectedNotableTrade] = useState<OptionsFlowData | null>(null)
   const [notableAnalysisLoading, setNotableAnalysisLoading] = useState<boolean>(false)
@@ -1010,7 +1012,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       return dow >= 1 && dow <= 5 && (h > 6 || (h === 6 && m >= 30)) && h < 13
     }
 
-    if (!marketOpen()) return // after hours — no interval needed
+    if (!marketOpen()) return // after hours - no interval needed
 
     const interval = setInterval(() => {
       if (!marketOpen()) return // stop refreshing if market closed mid-interval
@@ -1022,9 +1024,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   }, [data.length])
 
   // Fetch real 30-day stdDevs for all visible tickers (Price Action grading)
-  // Only runs when EFI Highlights or LEAP is active — no point fetching on plain page load
+  // Only runs when EFI Highlights or LEAP is active - no point fetching on plain page load
   useEffect(() => {
-    if (!efiHighlightsActive && !leapActive) return
+    if (!shortTermActive && !longTermActive) return
     if (!data || data.length === 0) return
     const tickers = [...new Set(data.map((t) => t.underlying_ticker))]
     const missing = tickers.filter((t) => !historicalStdDevs.has(t))
@@ -1033,7 +1035,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     const end = new Date().toISOString().split('T')[0]
     const start = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
 
-    // Controlled concurrency — 50 parallel at a time to avoid overwhelming the proxy
+    // Controlled concurrency - 50 parallel at a time to avoid overwhelming the proxy
     const CONCURRENCY = 50
       ; (async () => {
         for (let i = 0; i < missing.length; i += CONCURRENCY) {
@@ -1070,12 +1072,12 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
           )
         }
       })()
-  }, [data.length, efiHighlightsActive, leapActive])
+  }, [data.length, shortTermActive, longTermActive])
 
   // Fetch historical ranges when EFI Highlights is active
 
   useEffect(() => {
-    if (!efiHighlightsActive || !data || data.length === 0) return
+    if (!shortTermActive || !data || data.length === 0) return
 
     const uniqueTickers = [...new Set(data.map((trade) => trade.underlying_ticker))]
 
@@ -1148,7 +1150,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     }
 
     fetchAllRanges()
-  }, [efiHighlightsActive, data.length])
+  }, [shortTermActive, data.length])
 
   // Fetch current option prices for position tracking (only when EFI Highlights is ON)
 
@@ -1167,7 +1169,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     }
 
     // Deduplicate: build unique option tickers so we never fetch the same contract twice
-    const uniqueContracts = new Map<string, string>() // optionTicker → underlying
+    const uniqueContracts = new Map<string, string>() // optionTicker ? underlying
     for (const trade of activeTrades) {
       const expiry = trade.expiry.replace(/-/g, '').slice(2)
       const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
@@ -1553,12 +1555,12 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     try {
       const spyRes = await fetch(
         `/api/polygon/v2/aggs/ticker/SPY/range/1/day/${commonStartStr}/${commonEndStr}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`,
-        { signal: AbortSignal.timeout(5000) }
+        { signal: AbortSignal.timeout(20000) }
       )
       if (spyRes.ok) spyData = await spyRes.json()
-    } catch { /* silent */ }
+    } catch (e: any) { /* silent */ }
 
-    // Controlled concurrency — 50 parallel at a time
+    // Controlled concurrency - 50 parallel at a time
     const RS_CONCURRENCY = 50
     for (let i = 0; i < tickers.length; i += RS_CONCURRENCY) {
       await Promise.allSettled(
@@ -1646,12 +1648,91 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
                 setHistoricalStdDevs((prev) => new Map(prev).set(ticker, stdDev))
               }
             }
-          } catch (error) { /* silent */ }
+          } catch (error: any) { /* silent */ }
         })
       )
     }
 
     return rsMap
+  }
+
+  // Combined RS - single fetch per ticker serves BOTH short-term (5 trading days)
+  // and long-term (5D/13D/21D) RS. Uses limit=30 with sort=desc so actual trading
+  // days are counted - no calendar day math, no holiday gaps.
+  const calculateCombinedRS = async (
+    shortTermTrades: OptionsFlowData[],
+    longTermTrades: OptionsFlowData[]
+  ): Promise<{
+    shortTermRS: Map<string, number>
+    longTermRS: Map<string, { rs5d: number; rs13d: number; rs21d: number }>
+  }> => {
+    const shortTermRS = new Map<string, number>()
+    const longTermRS = new Map<string, { rs5d: number; rs13d: number; rs21d: number }>()
+
+    const shortSet = new Set(shortTermTrades.map(t => t.underlying_ticker))
+    const longSet = new Set(longTermTrades.map(t => t.underlying_ticker))
+    const allTickers = [...new Set([...shortSet, ...longSet])]
+
+    // Wide date range - just needs to cover 30+ trading days back from today
+    const today = new Date().toISOString().split('T')[0]
+    const threeMonthsAgo = new Date(Date.now() - 90 * 86400000).toISOString().split('T')[0]
+    const url = (ticker: string) =>
+      `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${threeMonthsAgo}/${today}?adjusted=true&sort=desc&limit=30&apiKey=${POLYGON_API_KEY}`
+
+    // Fetch SPY once
+    let spyBars: Array<{ c: number }> = []
+    try {
+      const res = await fetch(url('SPY'), { signal: AbortSignal.timeout(20000) })
+      const json = await res.json()
+      spyBars = (json.results || []).reverse() // reverse so index 0 = oldest, last = most recent
+      console.log(`[CombinedRS] SPY: ${spyBars.length} trading days`)
+    } catch (e: any) { /* silent */ }
+
+    if (spyBars.length < 6) {
+      return { shortTermRS, longTermRS }
+    }
+
+    const pct = (arr: Array<{ c: number }>, n: number) => {
+      if (arr.length < n + 1) return null
+      return ((arr[arr.length - 1].c - arr[arr.length - 1 - n].c) / arr[arr.length - 1 - n].c) * 100
+    }
+    const spy5 = pct(spyBars, Math.min(5, spyBars.length - 1))
+    const spy13 = pct(spyBars, Math.min(13, spyBars.length - 1))
+    const spy21 = pct(spyBars, Math.min(21, spyBars.length - 1))
+
+    // Batch fetch all tickers - 30 at a time so proxy doesn't saturate
+    const BATCH = 30
+    let resolved = 0, failed = 0
+    for (let i = 0; i < allTickers.length; i += BATCH) {
+      const batch = allTickers.slice(i, i + BATCH)
+      await Promise.allSettled(batch.map(async (ticker) => {
+        try {
+          const res = await fetch(url(ticker), { signal: AbortSignal.timeout(12000) })
+          if (!res.ok) { failed++; return }
+          const json = await res.json()
+          const bars: Array<{ c: number }> = (json.results || []).reverse()
+          if (bars.length < 6) { failed++; return }
+
+          // Short-term: 5 trading-day RS
+          if (shortSet.has(ticker)) {
+            const s5 = pct(bars, Math.min(5, bars.length - 1))
+            if (s5 !== null && spy5 !== null) shortTermRS.set(ticker, s5 - spy5)
+          }
+
+          // Long-term: 5D/13D/21D RS
+          if (longSet.has(ticker)) {
+            longTermRS.set(ticker, {
+              rs5d: (pct(bars, Math.min(5, bars.length - 1)) ?? 0) - (spy5 ?? 0),
+              rs13d: (pct(bars, Math.min(13, bars.length - 1)) ?? 0) - (spy13 ?? 0),
+              rs21d: (pct(bars, Math.min(21, bars.length - 1)) ?? 0) - (spy21 ?? 0),
+            })
+          }
+          resolved++
+        } catch (e: any) { failed++; console.warn(`[CombinedRS] ${ticker} threw:`, e?.message) }
+      }))
+    }
+    console.log(`[CombinedRS] resolved:${resolved} failed:${failed} / total:${allTickers.length} | ST:${shortTermRS.size} LT:${longTermRS.size}`)
+    return { shortTermRS, longTermRS }
   }
 
   // Calculate multi-period RS vs SPY for LEAP grading (5D/13D/21D)
@@ -1675,7 +1756,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     try {
       const spyRes = await fetch(
         `/api/polygon/v2/aggs/ticker/SPY/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`,
-        { signal: AbortSignal.timeout(8000) }
+        { signal: AbortSignal.timeout(20000) }
       )
       const spyData = await spyRes.json()
       spyResults = spyData.results || []
@@ -1683,7 +1764,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       // silent fail
     }
 
-    if (spyResults.length < 6) return rsMap
+    if (spyResults.length < 6) { return rsMap }
 
     const pctChange = (arr: Array<{ c: number }>, n: number): number | null => {
       if (arr.length < n + 1) return null
@@ -1696,8 +1777,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     const spy13d = pctChange(spyResults, Math.min(13, spyResults.length - 1))
     const spy21d = pctChange(spyResults, Math.min(21, spyResults.length - 1))
 
-    // Controlled concurrency — 50 parallel, no stagger
+    // Controlled concurrency - 50 parallel, no stagger
     const BATCH_SIZE = 50
+    let _rsResolved = 0, _rsFailed = 0, _rsTooFewBars = 0
     for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
       const batch = tickers.slice(i, i + BATCH_SIZE)
       await Promise.all(
@@ -1707,10 +1789,10 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
               `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`,
               { signal: AbortSignal.timeout(8000) }
             )
-            if (!stockRes.ok) return
+            if (!stockRes.ok) { _rsFailed++; return }
             const stockData = await stockRes.json()
             const stockResults: Array<{ c: number }> = stockData.results || []
-            if (stockResults.length < 6) return
+            if (stockResults.length < 6) { _rsTooFewBars++; return }
 
             const stock5d = pctChange(stockResults, Math.min(5, stockResults.length - 1))
             const stock13d = pctChange(stockResults, Math.min(13, stockResults.length - 1))
@@ -1721,7 +1803,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
               rs13d: stock13d !== null && spy13d !== null ? stock13d - spy13d : 0,
               rs21d: stock21d !== null && spy21d !== null ? stock21d - spy21d : 0,
             })
-          } catch { /* silent */ }
+            _rsResolved++
+          } catch (e: any) { _rsFailed++ }
         })
       )
     }
@@ -1734,7 +1817,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const fetchLeap52wkData = async (tickers: string[]): Promise<Map<string, { high52: number; low52: number }>> => {
     const result = new Map<string, { high52: number; low52: number }>()
     const _t0 = performance.now()
-    const BATCH_SIZE = 25  // was 5 — proxy handles 25 concurrent fine
+    const BATCH_SIZE = 25  // was 5 - proxy handles 25 concurrent fine
     for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
       const batch = tickers.slice(i, i + BATCH_SIZE)
       await Promise.allSettled(
@@ -1755,7 +1838,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
         })
       )
       if (i + BATCH_SIZE < tickers.length) {
-        // no delay — parallel batches don't need staggering
+        // no delay - parallel batches don't need staggering
       }
     }
     void _t0
@@ -1778,7 +1861,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       return Math.floor(diff / (1000 * 60 * 60 * 24))
     }
 
-    const SEASONAL_BATCH_SIZE = 10  // was 3 — 15yr data is large but proxy handles 10 fine
+    const SEASONAL_BATCH_SIZE = 10  // was 3 - 15yr data is large but proxy handles 10 fine
     for (let bi = 0; bi < tickersToScan.length; bi += SEASONAL_BATCH_SIZE) {
       const batch = tickersToScan.slice(bi, bi + SEASONAL_BATCH_SIZE)
       await Promise.allSettled(
@@ -1840,7 +1923,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
         })
       )
       if (bi + SEASONAL_BATCH_SIZE < tickersToScan.length) {
-        // no delay — remove artificial wait
+        // no delay - remove artificial wait
       }
     }
     void _t0
@@ -1879,9 +1962,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       stockReaction: number
     }
   } => {
-    // ETFs and index products — skip grading, return N/A
+    // ETFs and index products - skip grading, return N/A
     if (ETF_INDEX_EXCLUSIONS.has(trade.underlying_ticker.toUpperCase())) {
-      return { grade: 'N/A', score: 0, color: '#9ca3af', breakdown: 'ETF/Index — not graded', stdDevError: false, scores: { expiration: 0, contractPrice: 0, relativeStrength: 0, combo: 0, priceAction: 0, volumeOI: 0, stockReaction: 0 } }
+      return { grade: 'N/A', score: 0, color: '#9ca3af', breakdown: 'ETF/Index - not graded', stdDevError: false, scores: { expiration: 0, contractPrice: 0, relativeStrength: 0, combo: 0, priceAction: 0, volumeOI: 0, stockReaction: 0 } }
     }
 
     // Get option ticker for current price lookup
@@ -1933,7 +2016,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     // 2. Contract Price Score (25 points max) - based on position P&L
 
     if (!currentPrice || currentPrice <= 0) {
-      // Return early — option price not yet available
+      // Return early - option price not yet available
 
       return {
         grade: 'N/A',
@@ -1990,15 +2073,18 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
     confidenceScore += scores.relativeStrength
 
-    // 4. Combo Trade Score (10 points max) - using pre-computed map for O(1) lookup
-
+    // 4. Combo Trade Score - 10 pts normally; 25 pts for MULTI-LEG with buy+sell pair
     const fillStyle = trade.fill_style || ''
-
     const comboLookupKey = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${fillStyle}`
-
     const hasComboTrade = comboMap.get(comboLookupKey) || false
+    const isMultiLeg = (trade.classification || trade.trade_type || '').toUpperCase() === 'MULTI-LEG'
 
-    if (hasComboTrade) scores.combo = 10
+    if (isMultiLeg) {
+      // Multi-leg: combo replaces vol/OI entirely (25 pts = 10 combo + 15 vol/OI)
+      if (hasComboTrade) scores.combo = 25
+    } else {
+      if (hasComboTrade) scores.combo = 10
+    }
 
     confidenceScore += scores.combo
 
@@ -2055,26 +2141,17 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
     confidenceScore += scores.priceAction
 
-    // 7. Volume vs Open Interest Score (15 points max)
-    // Rewards high relative volume vs open interest on the traded strike
-    const tradeVolume = trade.volume ?? null
-    const tradeOI = trade.open_interest ?? null
-
-    if (tradeVolume !== null && tradeOI !== null && tradeOI > 0) {
-      const volOIRatio = tradeVolume / tradeOI
-
-      if (volOIRatio >= 1.5) {
-        scores.volumeOI = 15 // Volume > OI by 50%+
-      } else if (volOIRatio >= 1.0) {
-        scores.volumeOI = 10 // Volume >= OI but < 150% of OI
-      } else if (volOIRatio >= 0.5) {
-        scores.volumeOI = 5 // Volume >= half of OI but < OI
-      } else {
-        scores.volumeOI = 0 // Volume < half of OI
+    // 7. Volume vs Open Interest Score (15 pts max)
+    // MULTI-LEG: skipped - those 15 pts are folded into the combo score above
+    if (!isMultiLeg) {
+      const tradeVolume = trade.volume ?? null
+      const tradeOI = trade.open_interest ?? null
+      if (tradeVolume !== null && tradeOI !== null && tradeOI > 0) {
+        const volOIRatio = tradeVolume / tradeOI
+        if (volOIRatio >= 1.5) scores.volumeOI = 15
+        else if (volOIRatio >= 1.0) scores.volumeOI = 10
+        else if (volOIRatio >= 0.5) scores.volumeOI = 5
       }
-
-    } else {
-      scores.volumeOI = 0
     }
 
     confidenceScore += scores.volumeOI
@@ -2168,7 +2245,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     return { grade, score: confidenceScore, color: scoreColor, breakdown, scores, stdDevError }
   }
 
-  // LEAP grading system · 4 criteria, normalized to 100
+  // LEAP grading system - 4 criteria, normalized to 100
 
   const calculateLeapGrade = (
     trade: OptionsFlowData,
@@ -2188,9 +2265,9 @@ Stock Reaction: ${scores.stockReaction}/15`
       seasonalBonus: number
     }
   } => {
-    // ETFs and index products — skip grading, return N/A
+    // ETFs and index products - skip grading, return N/A
     if (ETF_INDEX_EXCLUSIONS.has(trade.underlying_ticker.toUpperCase())) {
-      return { grade: 'N/A', score: 0, color: '#9ca3af', breakdown: 'ETF/Index — not graded', stdDevError: false, scores: { contractPrice: 0, relativeStrength: 0, volumeOI: 0, stockReaction: 0, bonus52w: 0, seasonalBonus: 0 } }
+      return { grade: 'N/A', score: 0, color: '#9ca3af', breakdown: 'ETF/Index - not graded', stdDevError: false, scores: { contractPrice: 0, relativeStrength: 0, volumeOI: 0, stockReaction: 0, bonus52w: 0, seasonalBonus: 0 } }
     }
     const expiry = trade.expiry.replace(/-/g, '').slice(2)
     const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
@@ -2229,15 +2306,15 @@ Stock Reaction: ${scores.stockReaction}/15`
     const rawPct = ((currentPrice - entryPrice) / entryPrice) * 100
     const pct = isSoldToOpen ? -rawPct : rawPct
 
-    if (pct <= -40) scores.contractPrice = -7.5       // blown up · penalize
+    if (pct <= -40) scores.contractPrice = -7.5       // blown up - penalize
     else if (pct <= -20) scores.contractPrice = 7.5   // down 20-40%: half points
     else if (pct <= -15) scores.contractPrice = 15    // down 15-20%: sweet spot, full points
     else if (pct <= -10) scores.contractPrice = 8     // down 10-15%: partial
-    else if (pct <= 10) scores.contractPrice = 0      // flat ·10%: no points
+    else if (pct <= 10) scores.contractPrice = 0      // flat -10%: no points
     else if (pct <= 20) scores.contractPrice = 3      // up 10-20%: small reward
     else scores.contractPrice = 5                     // up 20%+: 1/3 of max (5 pts)
 
-    // 2. Relative Strength (30 pts max) · weighted 5D·30% + 13D·40% + 21D·30%
+    // 2. Relative Strength (30 pts max) - weighted 5D-30% + 13D-40% + 21D-30%
     const leapRs = leapRsData.get(trade.underlying_ticker)
     if (leapRs) {
       const { rs5d, rs13d, rs21d } = leapRs
@@ -2263,16 +2340,24 @@ Stock Reaction: ${scores.stockReaction}/15`
     }
 
     // 3. Volume vs OI (15 pts max)
-    const tradeVolume = trade.volume ?? null
-    const tradeOI = trade.open_interest ?? null
-    if (tradeVolume !== null && tradeOI !== null && tradeOI > 0) {
-      const ratio = tradeVolume / tradeOI
-      if (ratio >= 1.5) scores.volumeOI = 15
-      else if (ratio >= 1.0) scores.volumeOI = 7.5
-      else if (ratio >= 0.5) scores.volumeOI = 5
+    // MULTI-LEG: skipped - replaced by buy+sell combo detection below
+    const isLeapMultiLeg = (trade.classification || trade.trade_type || '').toUpperCase() === 'MULTI-LEG'
+    if (!isLeapMultiLeg) {
+      const tradeVolume = trade.volume ?? null
+      const tradeOI = trade.open_interest ?? null
+      if (tradeVolume !== null && tradeOI !== null && tradeOI > 0) {
+        const ratio = tradeVolume / tradeOI
+        if (ratio >= 1.5) scores.volumeOI = 15
+        else if (ratio >= 1.0) scores.volumeOI = 7.5
+        else if (ratio >= 0.5) scores.volumeOI = 5
+      }
+    } else {
+      // Multi-leg: 15 pts if buy+sell pair detected (combo)
+      const leapComboKey = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${tradeFillStyle}`
+      if (_comboMap.get(leapComboKey)) scores.volumeOI = 15
     }
 
-    // 4. Stock Reaction (15 pts max) · 4hr and 1d checkpoints
+    // 4. Stock Reaction (15 pts max) - 4hr and 1d checkpoints
     const isCall = trade.type === 'call'
     const fill = tradeFillStyle
     const currentStockPrice = currentPrices[trade.underlying_ticker]
@@ -2399,53 +2484,74 @@ Stock Reaction: ${scores.stockReaction}/15`
     'SPX', 'SPXW', 'NDX', 'NDXP', 'RUT', 'RUTW', 'VIX', 'VIXW', 'XSP',
   ])
 
-  const meetsLeapCriteria = (trade: OptionsFlowData): boolean => {
-    // Exclude ETFs and index products — not suitable for LEAP picks
-    if (ETF_INDEX_EXCLUSIONS.has(trade.underlying_ticker.toUpperCase())) return false
-    // 1. Expiry: 30·180 days
-    if (trade.days_to_expiry < 30 || trade.days_to_expiry > 180) return false
-    // 2. Premium: $250k·$2m
-    if (trade.total_premium < 250000 || trade.total_premium > 2000000) return false
-    // 3. Contracts: 300+
-    if (trade.trade_size < 300) return false
-    // 4. ATM or OTM only
-    if (!trade.moneyness || !['ATM', 'OTM'].includes(trade.moneyness)) return false
+  // Cash-settled indexes only - ETFs are allowed for long-term
+  const INDEX_ONLY_EXCLUSIONS = new Set([
+    'SPX', 'SPXW', 'NDX', 'NDXP', 'RUT', 'RUTW', 'VIX', 'VIXW', 'XSP', 'DJX',
+  ])
+
+  // Large-cap tickers that require elevated premium thresholds
+  const LARGE_CAP_PREMIUM_TICKERS = new Set(['AAPL', 'NVDA', 'TSLA', 'MSFT', 'GOOGL', 'GOOG', 'LLY', 'META', 'SPCX', 'TSM', 'AVGO', 'MU', 'AMD'])
+
+  // Long-Term criteria: 35-120 DTE, OTM, indexes excluded
+  // Large-caps: $900K+ premium; others: $300K-$1.3M
+  const meetsLongTermCriteria = (trade: OptionsFlowData): boolean => {
+    if (INDEX_ONLY_EXCLUSIONS.has(trade.underlying_ticker.toUpperCase())) return false
+    if (trade.days_to_expiry < 35 || trade.days_to_expiry > 120) return false
+    const isLargeCap = LARGE_CAP_PREMIUM_TICKERS.has(trade.underlying_ticker.toUpperCase())
+    const minPremium = isLargeCap ? 900000 : 300000
+    const maxPremium = isLargeCap ? Infinity : 1300000
+    if (trade.total_premium < minPremium || trade.total_premium > maxPremium) return false
+    if (trade.trade_size < 450) return false
+    if (!trade.moneyness || trade.moneyness !== 'OTM') return false
+    // MULTI-LEG trades are excluded from SweepSense entirely
+    const tradeType = (trade.classification || trade.trade_type || '').toUpperCase()
+    if (tradeType === 'MULTI-LEG') return false
     return true
   }
 
-  // EFI Highlights criteria checker
-
-  const meetsEfiCriteria = (trade: OptionsFlowData): boolean => {
-    // Exclude ETFs and index products
+  // Short-Term criteria: 0-28 DTE, OTM, SWEEP/BLOCK only (MULTI-LEG excluded), ETFs+indexes excluded
+  // Large-caps: $450K+ premium; others: $99K-$340K
+  const meetsShortTermCriteria = (trade: OptionsFlowData): boolean => {
     if (ETF_INDEX_EXCLUSIONS.has(trade.underlying_ticker.toUpperCase())) return false
-    // 1. Check expiration (0-35 trading days)
-
-    if (trade.days_to_expiry < 0 || trade.days_to_expiry > 35) {
-      return false
-    }
-
-    // 2. Check premium ($85k - $690k)
-
-    if (trade.total_premium < 85000 || trade.total_premium > 690000) {
-      return false
-    }
-
-    // 3. Check contracts (350 minimum, no max)
-
-    if (trade.trade_size < 350) {
-      return false
-    }
-
-    // 4. Check OTM status
-
-    if (!trade.moneyness || trade.moneyness !== 'OTM') {
-      return false
-    }
-
+    if (trade.days_to_expiry < 0 || trade.days_to_expiry > 28) return false
+    const isLargeCap = LARGE_CAP_PREMIUM_TICKERS.has(trade.underlying_ticker.toUpperCase())
+    const minPremium = isLargeCap ? 450000 : 99000
+    const maxPremium = isLargeCap ? Infinity : 340000
+    if (trade.total_premium < minPremium || trade.total_premium > maxPremium) return false
+    if (trade.trade_size < 650) return false
+    if (!trade.moneyness || trade.moneyness !== 'OTM') return false
+    const tradeType = (trade.classification || trade.trade_type || '').toUpperCase()
+    // MULTI-LEG trades are excluded from SweepSense entirely
+    if (!['SWEEP', 'BLOCK'].includes(tradeType)) return false
     return true
   }
+
+  // Backwards-compat aliases (grading functions reference these)
+  const meetsEfiCriteria = meetsShortTermCriteria
+  const meetsLeapCriteria = meetsLongTermCriteria
 
   // Notable Flow Pick criteria checker (8 criteria)
+
+  const meetsLeapNotableCriteria = (trade: OptionsFlowData): boolean => {
+    // Must pass base LEAP criteria first (30-180 DTE, $250k+, 300+ contracts, not ETF)
+    if (!meetsLeapCriteria(trade)) return false
+    // LEAP Notable: OTM only, premium $150k-$1.5m
+    if (!trade.moneyness || trade.moneyness !== 'OTM') return false
+    if (trade.total_premium < 150000 || trade.total_premium > 1500000) return false
+    // Grade gate: B+ or above required
+    if (!optionPricesFetching && Object.keys(currentOptionPrices).length > 0) {
+      const expiry = trade.expiry.replace(/-/g, '').slice(2)
+      const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
+      const optType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
+      const optKey = `O:${trade.underlying_ticker.replace(/\./g, '')}${expiry}${optType}${strikeFormatted}`
+      const optPrice = currentOptionPrices[optKey]
+      if (!optPrice) return false
+      const gradeData = calculateLeapGrade(trade, comboTradeMap)
+      const validGrades = ['B+', 'A-', 'A', 'A+']
+      if (!validGrades.includes(gradeData.grade)) return false
+    }
+    return true
+  }
 
   const meetsNotableCriteria = (trade: OptionsFlowData): boolean => {
     // 1. Expiration: 0-21 days
@@ -2503,7 +2609,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     return true
   }
 
-  // Notable Trade Analysis · targets + dealer zones
+  // Notable Trade Analysis - targets + dealer zones
   const openNotableAnalysis = async (trade: OptionsFlowData) => {
     setSelectedNotableTrade(trade)
     setNotableAnalysisLoading(true)
@@ -2723,13 +2829,17 @@ Stock Reaction: ${scores.stockReaction}/15`
   const addToFlowTracking = async (trade: OptionsFlowData) => {
     const flowId = generateFlowId(trade)
     // Store original data with timestamp - only current price and grade will update
-    const gradeResult = leapActive
+    // SweepSense: grade the trade with the scorer that matches its criteria
+    const useLeapForTrade = longTermActive && shortTermActive
+      ? meetsLeapCriteria(trade)
+      : longTermActive
+    const gradeResult = useLeapForTrade
       ? calculateLeapGrade(trade, comboTradeMap)
       : calculatePositioningGrade(trade, comboTradeMap)
 
     const flowToTrack = {
       ...trade,
-      gradeMode: leapActive ? 'leap' : 'standard',
+      gradeMode: useLeapForTrade ? 'leap' : 'standard',
 
       addedAt: new Date().toISOString(),
 
@@ -2929,7 +3039,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       if (!response.ok) {
         const errText = await response.text().catch(() => '(no body)')
         console.error('[DeleteFlow] Error body:', errText)
-        throw new Error(`HTTP ${response.status} · ${errText}`)
+        throw new Error(`HTTP ${response.status} - ${errText}`)
       }
 
       const result = await response.json().catch(() => ({}))
@@ -3028,7 +3138,7 @@ Stock Reaction: ${scores.stockReaction}/15`
   }, [tradesWithFillStyles])
 
   const filteredAndSortedData = useMemo(() => {
-    // In live mode: data is already pre-enriched — skip tradesWithFillStyles merge entirely
+    // In live mode: data is already pre-enriched - skip tradesWithFillStyles merge entirely
     // (avoids the one-render lag that causes double-compute flicker on every flush)
     let sourceData: OptionsFlowData[]
 
@@ -3060,7 +3170,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       })
     }
 
-    // Patch moneyness for live trades — use currentPrices (or spot_price) to compute real ITM/OTM/ATM
+    // Patch moneyness for live trades - use currentPrices (or spot_price) to compute real ITM/OTM/ATM
     // Also handles DB-loaded live trades that have spot_price > 0 but no moneyness field (collector omits it)
     sourceData = sourceData.map((trade) => {
       if (trade.spot_price > 0 && trade.moneyness) return trade
@@ -3078,7 +3188,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       return { ...trade, moneyness }
     })
 
-    // Live mode ITM depth filter — exclude trades that are too deep in the money.
+    // Live mode ITM depth filter - exclude trades that are too deep in the money.
     // Uses currentPrices (already fetched). Stocks: max 10% ITM. ETFs: max 5% ITM.
     if (isLiveMode) {
       const ITM_ETF_MAX = 0.05   // 5%
@@ -3089,7 +3199,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         'IBB', 'SOXX', 'ARKK', 'RSP', 'MDY', 'IWF', 'IWD', 'USO', 'IBIT', 'MSTR'])
       sourceData = sourceData.filter((trade) => {
         const spot = currentPrices[trade.underlying_ticker]
-        if (!spot || spot <= 0) return true // no price data — let it through
+        if (!spot || spot <= 0) return true // no price data - let it through
         const isEtf = etfSetItm.has(trade.underlying_ticker.toUpperCase())
         const maxItm = isEtf ? ITM_ETF_MAX : ITM_STOCK_MAX
         // ITM depth: how far in the money is this contract?
@@ -3103,11 +3213,11 @@ Stock Reaction: ${scores.stockReaction}/15`
       })
     }
 
-    // Step 1: Fast deduplication using Set (O(n) instead of O(n·))
-    // Skipped when data was loaded from a saved flow — it's already clean
+    // Step 1: Fast deduplication using Set (O(n) instead of O(n-))
+    // Skipped when data was loaded from a saved flow - it's already clean
     let deduplicatedData: OptionsFlowData[]
     if (data === loadedDataRef.current) {
-      // Exact same array reference that came from a saved load — skip dedup
+      // Exact same array reference that came from a saved load - skip dedup
       deduplicatedData = sourceData
     } else {
       const seen = new Set<string>()
@@ -3120,7 +3230,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     }
 
     // Step 2: Bundle small trades (<$500) for same contract within 1 minute
-    // Skipped in live mode — every print shows as its own individual row
+    // Skipped in live mode - every print shows as its own individual row
     let bundledData: OptionsFlowData[]
     if (isLiveMode) {
       bundledData = deduplicatedData
@@ -3166,13 +3276,27 @@ Stock Reaction: ${scores.stockReaction}/15`
     } // end !isLiveMode bundling block
 
     let filtered = bundledData
-    if (efiHighlightsActive) {
+    // SweepSense mode: both active simultaneously - union (OR) so no trades are lost
+    if (shortTermActive && longTermActive) {
+      filtered = filtered.filter((trade) => meetsEfiCriteria(trade) || meetsLeapCriteria(trade))
+    } else if (shortTermActive) {
       filtered = filtered.filter((trade) => meetsEfiCriteria(trade))
+    } else if (longTermActive) {
+      // LEAP filter - when active alone, show ONLY trades that meet LEAP criteria
+      filtered = filtered.filter((trade) => meetsLeapCriteria(trade))
     }
 
-    // LEAP filter - when active, show ONLY trades that meet LEAP criteria
-    if (leapActive) {
-      filtered = filtered.filter((trade) => meetsLeapCriteria(trade))
+    // Grade gate: once option prices are loaded, keep only A-, A, A+ trades
+    if ((shortTermActive || longTermActive) && !optionPricesFetching && Object.keys(currentOptionPrices).length > 0) {
+      filtered = filtered.filter((trade) => {
+        const useLeap = (shortTermActive && longTermActive)
+          ? meetsLongTermCriteria(trade)
+          : longTermActive
+        const g = useLeap
+          ? calculateLeapGrade(trade, comboTradeMap)
+          : calculatePositioningGrade(trade, comboTradeMap)
+        return ['A-', 'A', 'A+'].includes(g.grade)
+      })
     }
 
     // Apply filters - Option Type (checkbox)
@@ -3181,7 +3305,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       filtered = filtered.filter((trade) => selectedOptionTypes.includes(trade.type))
     }
 
-    // Order side filter — matches fill_style directly from button values
+    // Order side filter - matches fill_style directly from button values
     if (selectedOrderSides.length > 0) {
       const fillStyleMap: Record<string, string[]> = {
         buy_a: ['A'], buy_aa: ['AA'], sell_b: ['B'], sell_bb: ['BB'],
@@ -3265,7 +3389,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         'FXI', 'KWEB', 'MCHI', 'ASHR', 'VGK', 'EWJ', 'EWZ', 'EWC', 'EWG', 'EWU',
         'EURL', 'HEDJ', 'DBJP', 'DBEF'])
 
-      // Compute overblown tickers once before the filter loop (O(n) not O(n²))
+      // Compute overblown tickers once before the filter loop (O(n) not O(n-))
       let overblownSet: Set<string> | null = null
       if (selectedTickerFilters.includes('OVERBLOWN_TICKERS')) {
         const tradeCounts = new Map<string, number>()
@@ -3316,7 +3440,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       })
     }
 
-    // Unique filters — trade type visibility (desktop legacy checkboxes, not the new exclusive buttons)
+    // Unique filters - trade type visibility (desktop legacy checkboxes, not the new exclusive buttons)
     const hasDeselected = ALL_UNIQUE_FILTERS.some(f => !selectedUniqueFilters.includes(f))
     if (hasDeselected) {
       filtered = filtered.filter((trade) => {
@@ -3338,7 +3462,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       filtered = filtered.filter((trade) => typeFilter.includes(trade.trade_type))
     }
 
-    // Weekly Expiry — show only ≤7 day expiries
+    // Weekly Expiry - show only =7 day expiries
     if (selectedUniqueFilters.includes('WEEKLY_ONLY')) {
       filtered = filtered.filter((trade) => {
         const expiryDate = new Date(trade.expiry)
@@ -3348,7 +3472,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       })
     }
 
-    // Monthly Expiry — show only contracts expiring on the 3rd Friday of a month
+    // Monthly Expiry - show only contracts expiring on the 3rd Friday of a month
     if (selectedUniqueFilters.includes('MONTHLY_ONLY')) {
       filtered = filtered.filter((trade) => {
         const d = new Date(trade.expiry)
@@ -3362,7 +3486,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       })
     }
 
-    // Quadwitching — 3rd Friday of Mar/Jun/Sep/Dec
+    // Quadwitching - 3rd Friday of Mar/Jun/Sep/Dec
     if (selectedUniqueFilters.includes('QUAD_WITCHING')) {
       filtered = filtered.filter((trade) => {
         const d = new Date(trade.expiry)
@@ -3378,7 +3502,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       })
     }
 
-    // 0DTE — expiring today
+    // 0DTE - expiring today
     if (selectedUniqueFilters.includes('ZERO_DTE')) {
       const todayStr = new Date().toISOString().split('T')[0]
       filtered = filtered.filter((trade) => {
@@ -3387,7 +3511,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       })
     }
 
-    // Sector filters — opt-in: if any selected, show only matching tickers
+    // Sector filters - opt-in: if any selected, show only matching tickers
     const activeSectors = ['GROWTH_ONLY', 'VALUE_ONLY', 'DEFENSIVES_ONLY'].filter(f => selectedUniqueFilters.includes(f))
     if (activeSectors.length > 0) {
       const growthSet = new Set(['XLK', 'XLY', 'XLC', 'ARKK', 'ARKW', 'ARKQ', 'ARKG', 'ARKF', 'SKYY', 'CLOU', 'BOTZ', 'ROBO', 'SOXX', 'SMH', 'QQQ', 'TQQQ', 'AAPL', 'MSFT', 'NVDA', 'META', 'GOOGL', 'GOOG', 'AMZN', 'TSLA', 'AMD', 'AVGO', 'ORCL', 'ADBE', 'CRM', 'SNOW', 'PLTR', 'NET', 'DDOG', 'ZS', 'CRWD', 'PANW', 'MU', 'AMAT', 'LRCX', 'KLAC', 'MRVL', 'QCOM', 'INTC', 'TXN', 'NFLX', 'SPOT', 'SHOP', 'SQ', 'PYPL', 'UBER', 'LYFT', 'ABNB', 'DASH', 'COIN', 'MSTR', 'ROKU', 'PINS', 'SNAP', 'RBLX', 'U', 'TTWO', 'EA', 'MTCH', 'ZM', 'DOCU', 'TWLO', 'MDB', 'GTLB', 'PATH', 'AI', 'GENI', 'APP', 'CELH', 'DXCM', 'ISRG', 'VEEV'])
@@ -3470,36 +3594,69 @@ Stock Reaction: ${scores.stockReaction}/15`
       filtered = filtered.filter((trade) => trade.underlying_ticker === selectedTickerFilter)
     }
 
-    // Notable Flow Pick filter (only active when EFI Highlights is on AND prices are loaded)
+    // -- SweepSense dedup -----------------------------------------------------
+    // Two-pass reduction ? exactly 1 trade per ticker.
+    //
+    // Pass 1: same ticker + same expiry + same type + same fill group (A=AA, B=BB)
+    //         ? keep only the highest-scoring one.
+    //         Eliminates "IREN call A $42 / $44 / $45 same expiry" ? keeps A+ one.
+    //
+    // Pass 2: from all survivors for the same ticker (across all expiries/types)
+    //         ? keep the single highest-scoring trade.
+    if ((shortTermActive || longTermActive) && !selectedTickerFilter) {
 
-    if (efiHighlightsActive && notableFilterActive && !optionPricesFetching) {
-      filtered = filtered.filter((trade) => meetsNotableCriteria(trade))
+      const score = (t: OptionsFlowData): number => {
+        const fq = t.fill_style === 'AA' ? 4 : t.fill_style === 'A' ? 3
+          : t.fill_style === 'BB' ? 2 : t.fill_style === 'B' ? 1 : 0
+        const voi = t.vol_oi_ratio ?? 0
+        return t.total_premium * fq * (voi >= 1.5 ? 1.3 : voi >= 1.0 ? 1.15 : 1.0)
+      }
+
+      // Pass 1: one winner per (ticker + expiry + type + fill-group)
+      const p1 = new Map<string, OptionsFlowData>()
+      for (const t of filtered) {
+        const f = t.fill_style ?? ''
+        const fg = (f === 'A' || f === 'AA') ? 'buy' : (f === 'B' || f === 'BB') ? 'sell' : f
+        const k = `${t.underlying_ticker}||${t.expiry}||${t.type}||${fg}`
+        const ex = p1.get(k)
+        if (!ex || score(t) > score(ex)) p1.set(k, t)
+      }
+
+      // Pass 2: one winner per ticker across all expiries/types
+      const p2 = new Map<string, OptionsFlowData>()
+      for (const t of p1.values()) {
+        const ex = p2.get(t.underlying_ticker)
+        if (!ex || score(t) > score(ex)) p2.set(t.underlying_ticker, t)
+      }
+
+      filtered = Array.from(p2.values())
     }
+    // -- end SweepSense dedup -------------------------------------------------
 
     // Apply sorting
 
     filtered.sort((a, b) => {
-      // Special handling for positioning grade sorting (can't use cache due to initialization order)
+      // Grade column: 3-mode sort
+      if (sortField === 'positioning_grade' || sortField === 'leap_grade') {
+        const scoreOf = (t: OptionsFlowData) => {
+          const useLeap = (shortTermActive && longTermActive) ? meetsLongTermCriteria(t) : longTermActive
+          return useLeap ? calculateLeapGrade(t, comboTradeMap).score : calculatePositioningGrade(t, comboTradeMap).score
+        }
+        const isLong = (t: OptionsFlowData) => longTermActive && meetsLongTermCriteria(t)
+        const isShort = (t: OptionsFlowData) => shortTermActive && meetsShortTermCriteria(t)
 
-      if (sortField === 'positioning_grade') {
-        const gradeA = calculatePositioningGrade(a, comboTradeMap)
-
-        const gradeB = calculatePositioningGrade(b, comboTradeMap)
-
-        // Use the numeric score for sorting (higher score = better grade)
-
-        // DESC: High to Low (A+ to F), ASC: Low to High (F to A+)
-
-        const result =
-          sortDirection === 'desc' ? gradeB.score - gradeA.score : gradeA.score - gradeB.score
-
-        return result
-      }
-
-      if (sortField === 'leap_grade') {
-        const gradeA = calculateLeapGrade(a, comboTradeMap)
-        const gradeB = calculateLeapGrade(b, comboTradeMap)
-        return sortDirection === 'desc' ? gradeB.score - gradeA.score : gradeA.score - gradeB.score
+        if (gradeColumnMode === 'long_first') {
+          // Long-term (cyan) first by score, then short-term (yellow) by score
+          const aLong = isLong(a), bLong = isLong(b)
+          if (aLong && !bLong) return -1
+          if (!aLong && bLong) return 1
+          return scoreOf(b) - scoreOf(a)
+        }
+        // short_first: Short-term (yellow) first by score, then long-term (cyan) by score
+        const aShort = isShort(a), bShort = isShort(b)
+        if (aShort && !bShort) return -1
+        if (!aShort && bShort) return 1
+        return scoreOf(b) - scoreOf(a)
       }
 
       const aValue = a[sortField as keyof OptionsFlowData]
@@ -3537,12 +3694,15 @@ Stock Reaction: ${scores.stockReaction}/15`
     blacklistEnabled,
     selectedOrderSides,
     tradesWithFillStyles,
-    efiHighlightsActive,
-    leapActive,
+    shortTermActive,
+    longTermActive,
     quickFilters,
-    notableFilterActive,
     currentPrices,
+    currentOptionPrices,
+    optionPricesFetching,
+    gradeColumnMode,
     isLiveMode,
+    dealerZoneCache,
   ])
 
   // Memoize all grade calculations - massive performance boost for 100+ trades
@@ -3551,23 +3711,20 @@ Stock Reaction: ${scores.stockReaction}/15`
     const cache = new Map<string, ReturnType<typeof calculatePositioningGrade> | ReturnType<typeof calculateLeapGrade>>()
     // Skip while fetching OR while highlights/leap is on but prices haven't loaded yet
     if (optionPricesFetching) return cache
-    if ((efiHighlightsActive || leapActive) && Object.keys(currentOptionPrices).length === 0) return cache
+    if ((shortTermActive || longTermActive) && Object.keys(currentOptionPrices).length === 0) return cache
 
     filteredAndSortedData.forEach((trade) => {
       const tradeId = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_timestamp}`
-      const result = leapActive
+      // SweepSense: grade each trade with the scorer matching its criteria.
+      // LEAP-qualified trades ? LEAP grader; EFI-only trades ? EFI grader.
+      // When only one mode is active fall back to that mode's grader.
+      const useLeapGrader = longTermActive && shortTermActive
+        ? meetsLeapCriteria(trade)          // SweepSense: pick per trade
+        : longTermActive                         // single mode
+      const result = useLeapGrader
         ? calculateLeapGrade(trade, comboTradeMap)
         : calculatePositioningGrade(trade, comboTradeMap)
       cache.set(tradeId, result)
-
-      if (efiHighlightsActive && meetsEfiCriteria(trade)) {
-        const expiry = trade.expiry.replace(/-/g, '').slice(2)
-        const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
-        const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
-        const normalizedTicker = (trade.underlying_ticker || '').replace(/\./g, '')
-        const opTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
-
-      }
     })
 
     return cache
@@ -3580,7 +3737,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     comboTradeMap,
     relativeStrengthData,
     leapRsData,
-    leapActive,
+    longTermActive,
     historicalStdDevs,
     leap52wkData,
     leapSeasonalData,
@@ -3592,9 +3749,12 @@ Stock Reaction: ${scores.stockReaction}/15`
   const getCachedGrade = (trade: OptionsFlowData) => {
     const tradeId = `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_timestamp}`
 
+    const useLeapGrader = longTermActive && shortTermActive
+      ? meetsLeapCriteria(trade)
+      : longTermActive
     return (
       gradesCache.get(tradeId) ||
-      (leapActive
+      (useLeapGrader
         ? calculateLeapGrade(trade, comboTradeMap)
         : calculatePositioningGrade(trade, comboTradeMap))
     )
@@ -3624,12 +3784,14 @@ Stock Reaction: ${scores.stockReaction}/15`
 
   const totalPages = Math.ceil(filteredAndSortedData.length / itemsPerPage)
 
-  // Auto-fetch dealer zones for all visible notable trades
+  // Auto-fetch dealer zones for highlighted rows (short-term + long-term picks)
+  // Skip while a scan is in progress - dealer zones fetch after the scan completes
   useEffect(() => {
+    if (modeLoadingStep !== null) return
     const notableTrades = paginatedData.filter(
-      (t) => notableFilterActive || (efiHighlightsActive && meetsNotableCriteria(t))
+      (t) => (shortTermActive && meetsShortTermCriteria(t)) || (longTermActive && meetsLongTermCriteria(t))
     )
-    // Deduplicate by ticker · one fetch covers ALL expirations for the ticker
+    // Deduplicate by ticker - one fetch covers ALL expirations for the ticker
     const seenTickers = new Set<string>()
     for (const trade of notableTrades) {
       const key = trade.underlying_ticker
@@ -3656,7 +3818,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       setDealerZoneCache((prev) =>
         key in prev ? prev : { ...prev, [key]: { golden: null, purple: null, atmIV: null } }
       )
-      // Delegate entirely to the dealer-zones API · same computation as DealerAttraction
+      // Delegate entirely to the dealer-zones API - same computation as DealerAttraction
       fetch(`/api/dealer-zones?ticker=${trade.underlying_ticker}`)
         .then((r) => r.json())
         .then((result: any) => {
@@ -3674,7 +3836,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         .catch(() => { })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paginatedData, notableFilterActive, efiHighlightsActive])
+  }, [paginatedData, shortTermActive, longTermActive, modeLoadingStep])
 
   // Reset to page 1 when filters change
 
@@ -3700,10 +3862,10 @@ Stock Reaction: ${scores.stockReaction}/15`
   // For LEAP: option prices are fetched inside the button handler (after RS+52wk+seasonal)
   // so we only auto-fetch here for EFI Highlights and for data refreshes while already active.
   useEffect(() => {
-    if ((efiHighlightsActive || leapActive) && filteredAndSortedData.length > 0) {
-      // Skip auto-fetch for LEAP when the loading screen is active — button handler does it
-      if (leapActive && modeLoadingStep !== null) return
-      const activeMode = leapActive ? 'LEAP' : 'EFI'
+    if ((shortTermActive || longTermActive) && filteredAndSortedData.length > 0) {
+      // Skip auto-fetch for LEAP when the loading screen is active - button handler does it
+      if (longTermActive && modeLoadingStep !== null) return
+      const activeMode = longTermActive ? 'LONG' : 'SHORT'
       const datasetHash = `${activeMode}-${data.length}-${data
         .slice(0, 5)
         .map((d) => d.underlying_ticker)
@@ -3713,7 +3875,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         setPricesFetchedForDataset(datasetHash)
       }
     }
-  }, [efiHighlightsActive, leapActive, data.length])
+  }, [shortTermActive, longTermActive, data.length])
 
   // Fetch chart data for tracked flows when EFI is active or flows are added
 
@@ -3764,7 +3926,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       const FOOTER_H = 34
       const PAD = 14
 
-      // columns · grade col appended only when EFI active
+      // columns - grade col appended only when EFI active
       const baseCols = [
         { label: 'TIME', w: 118 },
         { label: 'SYMBOL', w: 80 },
@@ -3776,12 +3938,12 @@ Stock Reaction: ${scores.stockReaction}/15`
         { label: 'SPOT >> CURRENT', w: 200 },
         { label: 'TYPE', w: 110 },
       ]
-      const gradeCol = { label: 'POSITION', w: 100 }
+      const gradeCol = { label: 'GRADE', w: 100 }
       const targetsCol = { label: 'TARGETS', w: 140 }
       const dealerCol = { label: 'DEALER', w: 170 }
       let cols = [...baseCols]
-      if (efiHighlightsActive) cols = [...cols, gradeCol]
-      if (notableFilterActive) cols = [...cols, targetsCol, dealerCol]
+      if (shortTermActive) cols = [...cols, gradeCol]
+      if (false) cols = [...cols, targetsCol, dealerCol]
 
       const totalW = PAD + cols.reduce((s, c) => s + c.w + 6, 0) + PAD
       const dateStr = new Date().toISOString().split('T')[0]
@@ -3832,13 +3994,13 @@ Stock Reaction: ${scores.stockReaction}/15`
         ctx.font = 'bold 21px "Courier New", monospace'
         ctx.textAlign = 'left'
         ctx.textBaseline = 'middle'
-        ctx.fillText('? EFI OPTIONS FLOW', PAD, TITLE_H / 2)
+        ctx.fillText('? SWEEPSENSE OPTIONS FLOW', PAD, TITLE_H / 2)
         ctx.fillStyle = '#ffffff'
         ctx.font = '15px "Courier New", monospace'
         ctx.textAlign = 'right'
         ctx.fillText(
           new Date().toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) +
-          (totalPages > 1 ? `   ${page + 1}/${totalPages}  ·  ${allTrades.length} TRADES` : `   ${allTrades.length} TRADES`),
+          (totalPages > 1 ? `   ${page + 1}/${totalPages}  -  ${allTrades.length} TRADES` : `   ${allTrades.length} TRADES`),
           totalW - PAD, TITLE_H / 2
         )
 
@@ -3904,7 +4066,7 @@ Stock Reaction: ${scores.stockReaction}/15`
           ctx.fillText(new Date(trade.trade_timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }), rx, mid)
           rx += cols[0].w + 6
 
-          // SYMBOL · orange ticker style matching the UI
+          // SYMBOL - orange ticker style matching the UI
           ctx.fillStyle = '#ff8500'
           ctx.font = 'bold 15px "Courier New", monospace'
           ctx.fillText(trade.underlying_ticker, rx, mid)
@@ -3923,7 +4085,7 @@ Stock Reaction: ${scores.stockReaction}/15`
           ctx.fillText(`$${trade.strike}`, rx, mid)
           rx += cols[3].w + 6
 
-          // SIZE · "1,234 @ 3.40 A"
+          // SIZE - "1,234 @ 3.40 A"
           const sizeStr = trade.trade_size.toLocaleString()
           const priceStr = trade.premium_per_contract.toFixed(2)
           ctx.fillStyle = '#00ccff'
@@ -3956,14 +4118,14 @@ Stock Reaction: ${scores.stockReaction}/15`
           rx += cols[6].w + 6
 
           // SPOT >> CURRENT
-          const spotStr = `$${trade.spot_price?.toFixed(2) ?? '—'}`
+          const spotStr = `$${trade.spot_price?.toFixed(2) ?? '-'}`
           ctx.fillStyle = '#ffffff'
           ctx.fillText(spotStr, rx, mid)
           const spW = ctx.measureText(spotStr).width
           ctx.fillStyle = '#ffffff'
           ctx.fillText(' >> ', rx + spW, mid)
           const arrW = ctx.measureText(' >> ').width
-          const curStr = curPx ? `$${curPx.toFixed(2)}` : '—'
+          const curStr = curPx ? `$${curPx.toFixed(2)}` : '-'
           ctx.fillStyle = curPx > trade.spot_price ? '#00ff88' : '#ff3333'
           ctx.font = 'bold 15px "Courier New", monospace'
           ctx.fillText(curStr, rx + spW + arrW, mid)
@@ -3978,7 +4140,7 @@ Stock Reaction: ${scores.stockReaction}/15`
           rx += cols[8].w + 6
 
           // POSITION / GRADE (only when EFI active)
-          if (efiHighlightsActive) {
+          if (shortTermActive) {
             const gradeData = calculatePositioningGrade(trade, comboTradeMap)
             if (gradeData && gradeData.grade !== 'N/A') {
               const { grade } = gradeData
@@ -4011,73 +4173,11 @@ Stock Reaction: ${scores.stockReaction}/15`
               ctx.fillStyle = '#ffffff'
               ctx.font = '15px "Courier New", monospace'
               ctx.textAlign = 'left'
-              ctx.fillText('—', rx, mid)
+              ctx.fillText('-', rx, mid)
             }
             rx += gradeCol.w + 6
           }
 
-          // TARGETS (only when notable active)
-          if (notableFilterActive) {
-            const isCall = trade.type === 'call'
-            const isSoldToOpen = (trade as any).fill_style === 'B' || (trade as any).fill_style === 'BB'
-            const targetIsUpside = (isCall && !isSoldToOpen) || (!isCall && isSoldToOpen)
-            const cachedIV = dealerZoneCache[trade.underlying_ticker]?.atmIV
-            const sigma = cachedIV && cachedIV > 0
-              ? cachedIV
-              : (trade.implied_volatility && trade.implied_volatility > 0 ? trade.implied_volatility : 0)
-            const t1 = sigma > 0 ? bsStrikeForProb(trade.spot_price, sigma, trade.days_to_expiry, 80, targetIsUpside) : null
-            const t2 = sigma > 0 ? bsStrikeForProb(trade.spot_price, sigma, trade.days_to_expiry, 90, targetIsUpside) : null
-            ctx.font = '15px "Courier New", monospace'
-            ctx.textAlign = 'left'
-            if (t1 && t2) {
-              ctx.fillStyle = '#00ff88'
-              ctx.font = 'bold 12px "Courier New", monospace'
-              ctx.fillText('T1', rx, mid - 8)
-              ctx.fillStyle = '#ffffff'
-              ctx.font = 'bold 15px "Courier New", monospace'
-              ctx.fillText(`$${t1.toFixed(2)}`, rx + 22, mid - 8)
-              ctx.fillStyle = '#ff8800'
-              ctx.font = 'bold 12px "Courier New", monospace'
-              ctx.fillText('T2', rx, mid + 8)
-              ctx.fillStyle = '#ffffff'
-              ctx.font = 'bold 15px "Courier New", monospace'
-              ctx.fillText(`$${t2.toFixed(2)}`, rx + 22, mid + 8)
-            } else {
-              ctx.fillStyle = '#ffffff'
-              ctx.font = '15px "Courier New", monospace'
-              ctx.fillText('—', rx, mid)
-            }
-            rx += targetsCol.w + 6
-          }
-
-          // DEALER (only when notable active)
-          if (notableFilterActive) {
-            const zones = dealerZoneCache[trade.underlying_ticker]
-            ctx.textAlign = 'left'
-            if (zones) {
-              // Build combined price+expiry strings so no measureText font mismatch
-              const magnetVal = zones.golden != null
-                ? `$${zones.golden}${zones.goldenExpiry ? '  ' + zones.goldenExpiry.slice(5).replace('-', '/') : ''}`
-                : '—'
-              const pivotVal = zones.purple != null
-                ? `$${zones.purple}${zones.purpleExpiry ? '  ' + zones.purpleExpiry.slice(5).replace('-', '/') : ''}`
-                : '—'
-              ctx.font = 'bold 11px "Courier New", monospace'
-              ctx.fillStyle = '#FFD700'
-              ctx.fillText('MAGNET', rx, mid - 8)
-              ctx.font = 'bold 14px "Courier New", monospace'
-              ctx.fillText(magnetVal, rx + 60, mid - 8)
-              ctx.font = 'bold 11px "Courier New", monospace'
-              ctx.fillStyle = '#a855f7'
-              ctx.fillText('PIVOT', rx, mid + 8)
-              ctx.font = 'bold 14px "Courier New", monospace'
-              ctx.fillText(pivotVal, rx + 60, mid + 8)
-            } else {
-              ctx.fillStyle = '#ffffff'
-              ctx.font = '15px "Courier New", monospace'
-              ctx.fillText('—', rx, mid)
-            }
-          }
         })
 
         // -- Footer --
@@ -4091,7 +4191,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         ctx.font = '14px "Courier New", monospace'
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
-        ctx.fillText('EFI TRADING  ·  efitrading.com', totalW / 2, fY + FOOTER_H / 2)
+        ctx.fillText('EFI TRADING  -  efitrading.com', totalW / 2, fY + FOOTER_H / 2)
 
         // -- Download --
         const dataUrl = canvas.toDataURL('image/png')
@@ -4142,7 +4242,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
       // Only fetch if flows were added (length increased) or EFI is active
 
-      if (efiHighlightsActive || trackedFlows.length > prevTrackedFlowsLength.current) {
+      if (shortTermActive || trackedFlows.length > prevTrackedFlowsLength.current) {
         // Fetch option prices for grading
 
         fetchCurrentOptionPrices(trackedFlows)
@@ -4176,7 +4276,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         prevTrackedFlowsLength.current = trackedFlows.length
       }
     }
-  }, [trackedFlows.length, efiHighlightsActive])
+  }, [trackedFlows.length, shortTermActive])
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -4342,7 +4442,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     return null
   }
 
-  // Compact toolbar sizing for tablet + mobile — applied directly to inline styles
+  // Compact toolbar sizing for tablet + mobile - applied directly to inline styles
   const tbH = isTabletView ? '26px' : isMobileView ? '22px' : undefined
   const tbHn = isTabletView ? '26px' : isMobileView ? '22px' : undefined   // numeric-safe alias
   const tbPad = isTabletView ? '0 8px' : isMobileView ? '0 6px' : undefined
@@ -4351,7 +4451,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
   return (
     <div style={{ display: 'flex', width: '100%', alignItems: 'flex-start' }}>
-      {/* Quick Grade Popup — fixed overlay, same design as grade column */}
+      {/* Quick Grade Popup - fixed overlay, same design as grade column */}
       {quickGradePopup && (() => {
         const { trade: qt, isLeap, anchorTop, anchorLeft } = quickGradePopup
 
@@ -4399,9 +4499,9 @@ Stock Reaction: ${scores.stockReaction}/15`
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span style={{ color: '#ffffff', fontWeight: 800, fontSize: '23px', letterSpacing: '0.5px' }}>{qt.underlying_ticker}</span>
                   <span style={{ color: qt.type === 'call' ? '#22c55e' : '#ef4444', fontSize: '19px', fontWeight: 700 }}>{qt.type.toUpperCase()}</span>
-                  <span style={{ color: '#ffffff', fontSize: '18px' }}>${qt.strike} · {qt.expiry.slice(5).replace('-', '/')}</span>
+                  <span style={{ color: '#ffffff', fontSize: '18px' }}>${qt.strike} - {qt.expiry.slice(5).replace('-', '/')}</span>
                 </div>
-                <button onClick={() => setQuickGradePopup(null)} style={{ background: 'none', border: 'none', color: '#ffffff', cursor: 'pointer', fontSize: '23px', lineHeight: 1, padding: '0 2px' }}>✕</button>
+                <button onClick={() => setQuickGradePopup(null)} style={{ background: 'none', border: 'none', color: '#ffffff', cursor: 'pointer', fontSize: '23px', lineHeight: 1, padding: '0 2px' }}>?</button>
               </div>
               {/* Grade circle + price info */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '24px', padding: '20px 22px', borderBottom: `1px solid #1f2937` }}>
@@ -4436,7 +4536,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       )}
                     </>
                   ) : (
-                    <div style={{ color: '#ffffff', fontSize: '18px' }}>Prices loading…</div>
+                    <div style={{ color: '#ffffff', fontSize: '18px' }}>Prices loading-</div>
                   )}
                 </div>
               </div>
@@ -4850,12 +4950,12 @@ Stock Reaction: ${scores.stockReaction}/15`
                             )
                           })}
                         </div>
-                        {/* Sector filters — full-width single-column rows */}
+                        {/* Sector filters - full-width single-column rows */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
                           {[
-                            { label: 'Growth  XLK · XLY · XLC · ARKK', value: 'GROWTH_ONLY' },
-                            { label: 'Value  XLI · XLF · XLB', value: 'VALUE_ONLY' },
-                            { label: 'Defensives  XLV · XLRE · XLP · XLU', value: 'DEFENSIVES_ONLY' },
+                            { label: 'Growth  XLK - XLY - XLC - ARKK', value: 'GROWTH_ONLY' },
+                            { label: 'Value  XLI - XLF - XLB', value: 'VALUE_ONLY' },
+                            { label: 'Defensives  XLV - XLRE - XLP - XLU', value: 'DEFENSIVES_ONLY' },
                           ].map(({ label, value }) => {
                             const sectorActive = selectedUniqueFilters.includes(value)
                             return (
@@ -5202,12 +5302,12 @@ Stock Reaction: ${scores.stockReaction}/15`
                                   onClick={() => inc && toggle(inc, incActive)}
                                   disabled={!inc}
                                   style={{ padding: '7px 0', borderRadius: '7px', border: `1px solid ${incActive ? '#22c55e' : 'rgba(255,255,255,0.07)'}`, background: incActive ? 'rgba(34,197,94,0.14)' : 'rgba(255,255,255,0.02)', boxShadow: incActive ? '0 0 8px rgba(34,197,94,0.25)' : 'none', cursor: inc ? 'pointer' : 'not-allowed', opacity: inc ? 1 : 0.2, fontSize: '12px', fontWeight: 800, color: incActive ? '#22c55e' : 'rgba(255,255,255,0.3)', textAlign: 'center' as const, transition: 'all 0.15s ease' }}
-                                >{incActive ? '✓ YES' : 'YES'}</button>
+                                >{incActive ? '? YES' : 'YES'}</button>
                                 <button
                                   onClick={() => exc && toggle(exc, excActive)}
                                   disabled={!exc}
                                   style={{ padding: '7px 0', borderRadius: '7px', border: `1px solid ${excActive ? '#ef4444' : 'rgba(255,255,255,0.07)'}`, background: excActive ? 'rgba(239,68,68,0.14)' : 'rgba(255,255,255,0.02)', boxShadow: excActive ? '0 0 8px rgba(239,68,68,0.25)' : 'none', cursor: exc ? 'pointer' : 'not-allowed', opacity: exc ? 1 : 0.2, fontSize: '12px', fontWeight: 800, color: excActive ? '#ef4444' : 'rgba(255,255,255,0.3)', textAlign: 'center' as const, transition: 'all 0.15s ease' }}
-                                >{excActive ? '✓ NO' : 'NO'}</button>
+                                >{excActive ? '? NO' : 'NO'}</button>
                               </div>
                             )
                           })}
@@ -5407,7 +5507,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                   FLOW HISTORY
                 </span>
               </div>
-              {/* Close ×  pinned to right */}
+              {/* Close -  pinned to right */}
               <button
                 onClick={() => setIsHistoryDialogOpen(false)}
                 style={{
@@ -5455,7 +5555,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       ? flow.date.slice(0, 10)
                       : new Date(flow.date).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
                     const [yr, mo, dy] = dateStr.split('-').map(Number)
-                    const tradingDate = new Date(yr, mo - 1, dy) // local midnight · no shift
+                    const tradingDate = new Date(yr, mo - 1, dy) // local midnight - no shift
                     const dateLabel = tradingDate.toLocaleDateString('en-US', {
                       weekday: 'short',
                       month: 'short',
@@ -5513,7 +5613,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                             >
                               {tradeCount != null
                                 ? `${tradeCount.toLocaleString()} TRADES`
-                                : '· TRADES'}
+                                : '- TRADES'}
                             </span>
                             <span
                               className="flow-hist-saved"
@@ -5671,7 +5771,7 @@ Stock Reaction: ${scores.stockReaction}/15`
               <div
                 className="relative"
                 style={{
-                  width: efiHighlightsActive ? '59px' : '99px',
+                  width: shortTermActive ? '59px' : '99px',
                   flexShrink: 0,
                   transition: 'width 0.2s',
                 }}
@@ -5699,13 +5799,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       const ticker = inputTicker.trim()
-                      onTickerChange(ticker)
-                      onRefresh?.(ticker)
+                      setSelectedTickerFilter(ticker)
                     }
                     if (e.key === 'Escape') {
                       setInputTicker('')
-                      onTickerChange('')
-                      onRefresh?.('')
+                      setSelectedTickerFilter('')
                     }
                   }}
                   placeholder="TICKER"
@@ -5747,199 +5845,87 @@ Stock Reaction: ${scores.stockReaction}/15`
                       padding: '2px',
                     }}
                     title="Clear ticker filter"
-                  >✕</button>
+                  >?</button>
                 )}
               </div>
 
-              {/* Right side buttons — order: PICKS, ALGO, TRACK, FILTER, ⋮ */}
+              {/* Right side buttons - order: PICKS, ALGO, TRACK, FILTER, ? */}
 
               <div className="flex items-center gap-px">
-                {/* PICKS Dropdown — Leap Picks + Swing Picks */}
-                <div style={{ position: 'relative' }}>
-                  <button
-                    onClick={() => setShowMobilePicksDropdown(v => !v)}
-                    className="px-2 font-black uppercase transition-all duration-200 flex items-center gap-1 focus:outline-none"
-                    style={{
-                      height: '40px',
-                      background: leapActive
-                        ? 'linear-gradient(180deg, #00b4d8 0%, #0077b6 100%)'
-                        : efiHighlightsActive
-                          ? 'linear-gradient(180deg, #f5c518 0%, #d4a017 100%)'
-                          : 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
-                      border: leapActive
-                        ? '1px solid #00d4ff'
-                        : efiHighlightsActive
-                          ? '1px solid #f5c518'
-                          : '2px solid #2a2a2a',
-                      borderRadius: '4px',
-                      fontSize: '10px',
-                      letterSpacing: '0.5px',
-                      fontWeight: '900',
-                      color: (leapActive || efiHighlightsActive) ? '#000' : '#fff',
-                      boxShadow: (leapActive || efiHighlightsActive)
-                        ? 'inset 0 1px 0 rgba(255,255,255,0.35), 0 2px 8px rgba(0,0,0,0.6)'
-                        : 'inset 0 2px 8px rgba(0,0,0,0.9)',
-                    }}
-                  >
-                    {/* icon */}
-                    {leapActive ? (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" /><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
-                      </svg>
-                    ) : efiHighlightsActive ? (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" />
-                      </svg>
-                    ) : (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" /><path d="M17 8l1.5-1.5M19 5l-1.5 1.5" /><circle cx="19" cy="5" r="1" fill="currentColor" stroke="none" />
-                      </svg>
-                    )}
-                    <span style={{ whiteSpace: 'nowrap' }}>{leapActive ? 'LEAP' : efiHighlightsActive ? 'SWING' : 'A+ Picks'}</span>
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M6 9l6 6 6-6" />
-                    </svg>
-                  </button>
-                  {showMobilePicksDropdown && (
-                    <div
+                {/* SweepSense Button - mobile, combines LEAP + EFI in parallel */}
+                {(() => {
+                  const sweepSenseActive = shortTermActive && longTermActive
+                  const handleMobileSweepSense = async () => {
+                    if (modeLoadingStep !== null) return
+                    const newState = !sweepSenseActive
+                    setEfiHighlightsActive(newState)
+                    setLeapActive(newState)
+                    if (!newState) {
+                      setModeLoadingStep(null)
+                      setNotableFilterActive(false)
+                      return
+                    }
+                    setModeLoadingStep({ mode: 'SHORT', step: 'SweepSense - Scanning Short-Term & Long-Term...' })
+                    await new Promise<void>(r => setTimeout(r, 0))
+                    // Use raw data prop - short-term and long-term scan independently
+                    const shortTermTrades = data.filter(meetsShortTermCriteria)
+                    const longTermTrades = data.filter(meetsLongTermCriteria)
+                    const longTermTickers = [...new Set(longTermTrades.map(t => t.underlying_ticker))]
+                    // All unique contracts for option price fetch
+                    const allUniq = [...shortTermTrades, ...longTermTrades].filter(
+                      (t, i, arr) => arr.findIndex(x =>
+                        x.underlying_ticker === t.underlying_ticker && x.strike === t.strike &&
+                        x.expiry === t.expiry && x.type === t.type) === i
+                    )
+                    try {
+                      const { shortTermRS, longTermRS } = await calculateCombinedRS(shortTermTrades, longTermTrades)
+                      setRelativeStrengthData(shortTermRS)
+                      setLeapRsData(longTermRS)
+                      const [wkData, seasonData] = await Promise.all([
+                        fetchLeap52wkData(longTermTickers),
+                        fetchLeapSeasonalData(longTermTickers),
+                      ])
+                      setLeap52wkData(wkData)
+                      setLeapSeasonalData(seasonData)
+                      await fetchCurrentOptionPrices(allUniq)
+                    } catch (err) {
+                      console.error('[SweepSense] Scan error:', err)
+                    }
+                    setModeLoadingStep(null)
+                  }
+                  return (
+                    <button
+                      onClick={handleMobileSweepSense}
+                      disabled={modeLoadingStep !== null}
+                      className="px-2 font-black uppercase transition-all duration-200 flex items-center gap-1 focus:outline-none"
                       style={{
-                        position: 'absolute',
-                        top: '44px',
-                        left: 0,
-                        zIndex: 9999,
-                        background: '#0d0d0d',
-                        border: '1px solid #252525',
-                        borderRadius: '8px',
-                        minWidth: '160px',
-                        boxShadow: '0 12px 32px rgba(0,0,0,0.95)',
+                        height: '40px',
+                        background: sweepSenseActive
+                          ? 'linear-gradient(180deg, #0d0d0d 0%, #050505 45%, #000000 100%)'
+                          : 'linear-gradient(180deg, #101008 0%, #060604 50%, #000000 100%)',
+                        border: sweepSenseActive ? '1px solid #a8ff3e' : '1px solid #3d6a12',
+                        borderTop: sweepSenseActive ? '1px solid #c8ff60' : '1px solid #3d6a12',
+                        borderRadius: '4px',
+                        fontSize: '10px',
+                        letterSpacing: '0.5px',
+                        fontWeight: '900',
+                        color: sweepSenseActive ? '#a8ff3e' : '#4a8018',
+                        boxShadow: sweepSenseActive
+                          ? 'inset 0 1px 0 rgba(168,255,62,0.15), inset 0 -2px 0 rgba(0,0,0,0.9), 0 0 12px rgba(168,255,62,0.18), 0 2px 6px rgba(0,0,0,0.9)'
+                          : 'inset 0 1px 0 rgba(168,255,62,0.04), inset 0 -2px 0 rgba(0,0,0,0.9)',
+                        position: 'relative',
                         overflow: 'hidden',
                       }}
                     >
-                      {/* Leap Picks */}
-                      <button
-                        onClick={async () => {
-                          console.log(`[LEAP-DROPDOWN] CLICK — leapActive=${leapActive} filteredCount=${filteredAndSortedData.length}`)
-                          if (modeLoadingStep !== null) return // already loading — ignore click
-                          setShowMobilePicksDropdown(false)
-                          const newState = !leapActive
-                          setLeapActive(newState)
-                          if (efiHighlightsActive) { setEfiHighlightsActive(false); setNotableFilterActive(false) }
-                          if (newState) {
-                            const _t0 = performance.now()
-                            setModeLoadingStep({ mode: 'LEAP', step: 'Analyzing LEAP Trades...' })
-                            await new Promise<void>(r => setTimeout(r, 0))
-                            const leapQualified = filteredAndSortedData.filter(meetsLeapCriteria)
-                            const tickers = [...new Set(leapQualified.map(t => t.underlying_ticker))]
-                            const [rsData, wkData, seasonData] = await Promise.all([
-                              calculateLeapRS(leapQualified),
-                              fetchLeap52wkData(tickers),
-                              fetchLeapSeasonalData(tickers),
-                            ])
-                            setLeapRsData(rsData)
-                            setLeap52wkData(wkData)
-                            setLeapSeasonalData(seasonData)
-                            await fetchCurrentOptionPrices(leapQualified)
-                            setModeLoadingStep(null)
-                          } else {
-                            setModeLoadingStep(null)
-                          }
-                        }}
-                        style={{
-                          width: '100%',
-                          padding: '11px 14px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '10px',
-                          background: leapActive ? 'rgba(0,180,216,0.15)' : 'transparent',
-                          border: 'none',
-                          borderBottom: '1px solid #1c1c1c',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {/* Cyan rocket icon */}
-                        <span style={{ display: 'flex', alignItems: 'center', color: '#00b4d8', flexShrink: 0 }}>
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" /><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
-                          </svg>
-                        </span>
-                        <span style={{ color: leapActive ? '#00d4ff' : '#ccc', fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', textTransform: 'uppercase' }}>Leap Picks</span>
-                        {leapActive && (
-                          <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', color: '#00d4ff' }}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                          </span>
-                        )}
-                      </button>
-                      {/* Swing Picks */}
-                      <button
-                        onClick={async () => {
-                          setShowMobilePicksDropdown(false)
-                          const newState = !efiHighlightsActive
-                          setEfiHighlightsActive(newState)
-                          if (newState) {
-                            setLeapActive(false)
-                            setModeLoadingStep({ mode: 'EFI', step: 'Calculating Relative Strength...' })
-                            await new Promise<void>(r => setTimeout(r, 0))
-                            const efiTrades = filteredAndSortedData.filter(meetsEfiCriteria)
-                            const rsData = await calculateRelativeStrength(efiTrades)
-                            setRelativeStrengthData(rsData)
-                            setModeLoadingStep(null)
-                          } else {
-                            setModeLoadingStep(null)
-                            setNotableFilterActive(false)
-                          }
-                        }}
-                        style={{
-                          width: '100%',
-                          padding: '11px 14px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '10px',
-                          background: efiHighlightsActive ? 'rgba(245,197,24,0.12)' : 'transparent',
-                          border: 'none',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {/* Gold trending-up icon */}
-                        <span style={{ display: 'flex', alignItems: 'center', color: '#f5c518', flexShrink: 0 }}>
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" />
-                          </svg>
-                        </span>
-                        <span style={{ color: efiHighlightsActive ? '#f5c518' : '#ccc', fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', textTransform: 'uppercase' }}>Swing Picks</span>
-                        {efiHighlightsActive && (
-                          <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', color: '#f5c518' }}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                          </span>
-                        )}
-                      </button>
-                    </div>
-                  )}
-                </div>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                      </svg>
+                      <span style={{ whiteSpace: 'nowrap' }}>SweepSense</span>
+                    </button>
+                  )
+                })()}
 
-                {/* Notable Button - shown when Swing Picks active */}
-                {efiHighlightsActive && (
-                  <button
-                    onClick={() => setNotableFilterActive(!notableFilterActive)}
-                    className="px-2 font-black uppercase transition-all duration-200 flex items-center focus:outline-none"
-                    style={{
-                      height: '40px',
-                      background: notableFilterActive
-                        ? 'linear-gradient(180deg, #FFD700 0%, #FFA500 100%)'
-                        : 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
-                      border: notableFilterActive ? '2px solid #FFD700' : '2px solid #2a2a2a',
-                      borderRadius: '4px',
-                      fontSize: '10px',
-                      letterSpacing: '0.5px',
-                      fontWeight: '900',
-                      boxShadow: notableFilterActive
-                        ? '0 0 10px rgba(255,215,0,0.5), inset 0 2px 8px rgba(0,0,0,0.3)'
-                        : 'inset 0 2px 8px rgba(0,0,0,0.9)',
-                      color: notableFilterActive ? '#000' : '#FFD700',
-                    }}
-                  >
-                    NOTABLE
-                  </button>
-                )}
+                {/* Notable Button removed - SweepSense activates it automatically */}
 
                 {/* Algo Flow Button */}
                 {onAlgoFlowClick && (
@@ -6268,14 +6254,12 @@ Stock Reaction: ${scores.stockReaction}/15`
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         const ticker = inputTicker.trim()
-                        onTickerChange(ticker)
-                        onRefresh?.(ticker)
+                        setSelectedTickerFilter(ticker)
                         setIsInputFocused(false)
                       }
                       if (e.key === 'Escape') {
                         setInputTicker('')
-                        onTickerChange('')
-                        onRefresh?.('')
+                        setSelectedTickerFilter('')
                         setIsInputFocused(false)
                       }
                     }}
@@ -6308,8 +6292,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     <button
                       onClick={() => {
                         setInputTicker('')
-                        onTickerChange('')
-                        onRefresh?.('')
+                        setSelectedTickerFilter('')
                       }}
                       style={{
                         position: 'absolute',
@@ -6326,7 +6309,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                         zIndex: 20,
                       }}
                       title="Clear ticker filter"
-                    >✕</button>
+                    >?</button>
                   )}
 
                   {/* Scan quick-pick dropdown arrow */}
@@ -6339,7 +6322,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                         color: '#555', fontSize: '10px', lineHeight: 1, padding: '2px', zIndex: 20,
                       }}
                       title="Quick scan"
-                    >▾</button>
+                    >?</button>
                   )}
 
                   {/* Scan dropdown */}
@@ -6395,8 +6378,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                   const rangeStart = parts[0] || ''
                   const rangeEnd = parts[1] || ''
                   const displayLabel = isRange && rangeStart && rangeEnd
-                    ? rangeStart === rangeEnd ? rangeStart : `${rangeStart} → ${rangeEnd}`
-                    : calPickStart ? `${calPickStart} → ?` : 'SELECT DATES'
+                    ? rangeStart === rangeEnd ? rangeStart : `${rangeStart} ? ${rangeEnd}`
+                    : calPickStart ? `${calPickStart} ? ?` : 'SELECT DATES'
 
                   const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate()
                   const firstDow = new Date(calYear, calMonth, 1).getDay()
@@ -6404,7 +6387,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                   const toDs = (y: number, m: number, d: number) => `${y}-${pad(m + 1)}-${pad(d)}`
                   const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
-                  // Highlight helpers — use calPickStart during selection, rangeStart/End when committed
+                  // Highlight helpers - use calPickStart during selection, rangeStart/End when committed
                   const effStart = calPickStart || rangeStart
                   const effEnd = calPickStart ? (calHover || calPickStart) : rangeEnd
                   const isInRange = (ds: string) => { if (!effStart || !effEnd) return false; const s = effStart < effEnd ? effStart : effEnd; const e = effStart < effEnd ? effEnd : effStart; return ds >= s && ds <= e }
@@ -6412,11 +6395,11 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                   const handleDayClick = (ds: string) => {
                     if (!calPickStart) {
-                      // First click — set start, wait for end
+                      // First click - set start, wait for end
                       setCalPickStart(ds)
                       setCalHover(ds)
                     } else {
-                      // Second click — commit range
+                      // Second click - commit range
                       const s = ds < calPickStart ? ds : calPickStart
                       const e = ds < calPickStart ? calPickStart : ds
                       onHistoricalDaysChange(`range:${s}:${e}`)
@@ -6450,7 +6433,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                           borderRadius: 5, outline: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
                           fontFamily: 'JetBrains Mono, monospace',
                         }}
-                      >{displayLabel} ▾</button>
+                      >{displayLabel} ?</button>
 
                       {calOpen && calRect && (
                         <div
@@ -6468,10 +6451,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                           {/* Month nav */}
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 15 }}>
                             <button onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(y => y - 1) } else setCalMonth(m => m - 1) }}
-                              style={{ background: 'none', border: 'none', color: '#ff8500', cursor: 'pointer', fontSize: 27, padding: '0 9px', lineHeight: 1 }}>‹</button>
+                              style={{ background: 'none', border: 'none', color: '#ff8500', cursor: 'pointer', fontSize: 27, padding: '0 9px', lineHeight: 1 }}>-</button>
                             <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 19, fontWeight: 800, color: '#fff', letterSpacing: '0.1em' }}>{monthNames[calMonth]} {calYear}</span>
                             <button onClick={() => { if (calMonth === 11) { setCalMonth(0); setCalYear(y => y + 1) } else setCalMonth(m => m + 1) }}
-                              style={{ background: 'none', border: 'none', color: '#ff8500', cursor: 'pointer', fontSize: 27, padding: '0 9px', lineHeight: 1 }}>›</button>
+                              style={{ background: 'none', border: 'none', color: '#ff8500', cursor: 'pointer', fontSize: 27, padding: '0 9px', lineHeight: 1 }}>-</button>
                           </div>
                           {/* Day headers */}
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 3, marginBottom: 6 }}>
@@ -6508,7 +6491,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                           {/* Footer */}
                           <div style={{ marginTop: 15, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12 }}>
                             <span style={{ fontSize: 15, color: '#fff', fontFamily: 'JetBrains Mono, monospace' }}>
-                              {calPickStart ? `start: ${calPickStart} — click end` : rangeStart && rangeEnd ? `${rangeStart} → ${rangeEnd}` : 'click start date'}
+                              {calPickStart ? `start: ${calPickStart} - click end` : rangeStart && rangeEnd ? `${rangeStart} ? ${rangeEnd}` : 'click start date'}
                             </span>
                             <button onClick={() => { onHistoricalDaysChange('1D'); setCalPickStart(null); setCalHover(null); setCalOpen(false) }}
                               style={{ fontSize: 15, background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace' }}>CLEAR</button>
@@ -6519,7 +6502,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                   )
                 })()}
 
-                {/* Live Mode Indicator — shown instead of scan shortcuts when markets are open */}
+                {/* Live Mode Indicator - shown instead of scan shortcuts when markets are open */}
                 {isLiveMode && (
                   <div className="hidden md:flex items-center gap-3">
                     <div style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.14)' }} />
@@ -6562,7 +6545,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                   </div>
                 )}
 
-                {/* Divider + Scan Shortcuts — removed, now in ticker dropdown */}
+                {/* Divider + Scan Shortcuts - removed, now in ticker dropdown */}
 
                 {/* Divider */}
 
@@ -6573,32 +6556,9 @@ Stock Reaction: ${scores.stockReaction}/15`
                   ></div>
                 )}
 
-                {/* Quick Filters */}
+                {/* Quick Filters - Notable button removed, auto-activated by SweepSense */}
 
                 <div className="hidden md:flex items-center gap-2">
-                  {efiHighlightsActive && (
-                    <button
-                      onClick={() => setNotableFilterActive(!notableFilterActive)}
-                      className="toolbar-pill font-bold uppercase transition-all duration-150"
-                      style={{
-                        height: tbH || '31px',
-                        padding: tbPad || '0 13px',
-                        background: notableFilterActive ? 'linear-gradient(180deg, rgba(255,215,0,0.3) 0%, rgba(255,215,0,0.09) 55%, rgba(255,215,0,0.18) 100%)' : 'linear-gradient(180deg, rgba(255,215,0,0.12) 0%, rgba(255,215,0,0.03) 100%)',
-                        border: notableFilterActive ? '1px solid #ffd700' : '1px solid #c8a500',
-                        borderRadius: '20px',
-                        fontSize: tbFs || '11px',
-                        letterSpacing: tbLs || '1.5px',
-                        fontWeight: '700',
-                        boxShadow: notableFilterActive ? 'inset 0 1px 0 rgba(255,255,255,0.22), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 10px rgba(255,215,0,0.22)' : 'inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.35)',
-                        outline: 'none',
-                        color: notableFilterActive ? '#ffd700' : '#c8a500',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
-                      }}
-                    >
-                      NOTABLE
-                    </button>
-                  )}
                 </div>
 
                 {/* Divider */}
@@ -6608,113 +6568,93 @@ Stock Reaction: ${scores.stockReaction}/15`
                   style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.14)' }}
                 ></div>
 
-                {/* LEAP Toggle */}
-                <button
-                  onClick={async () => {
-                    console.log(`[LEAP-DESKTOP] CLICK — leapActive=${leapActive} filteredCount=${filteredAndSortedData.length}`)
-                    if (modeLoadingStep !== null) return // already loading — ignore click
-                    const newState = !leapActive
-                    setLeapActive(newState)
-                    if (efiHighlightsActive) { setEfiHighlightsActive(false); setNotableFilterActive(false) }
-                    if (newState) {
-                      const _t0 = performance.now()
-                      setModeLoadingStep({ mode: 'LEAP', step: 'Analyzing LEAP Trades...' })
-                      await new Promise<void>(r => setTimeout(r, 0))
-                      const leapQualified = filteredAndSortedData.filter(meetsLeapCriteria)
-                      const tickers = [...new Set(leapQualified.map(t => t.underlying_ticker))]
-                      const [rsData, wkData, seasonData] = await Promise.all([
-                        calculateLeapRS(leapQualified),
-                        fetchLeap52wkData(tickers),
-                        fetchLeapSeasonalData(tickers),
-                      ])
-                      setLeapRsData(rsData)
-                      setLeap52wkData(wkData)
-                      setLeapSeasonalData(seasonData)
-                      // Fetch option prices before clearing loading — keeps single loading screen
-                      await fetchCurrentOptionPrices(leapQualified)
-                      setModeLoadingStep(null)
-                    } else {
-                      setModeLoadingStep(null)
-                    }
-                  }}
-                  disabled={modeLoadingStep !== null}
-                  className={`toolbar-mode${leapActive ? ' toolbar-mode--active' : ''} flex items-center gap-1.5 font-bold uppercase transition-all duration-150 focus:outline-none${(modeLoadingStep !== null || !data || data.length === 0 || loading || stockPricesLoading) ? ' opacity-40 cursor-not-allowed' : ''}`}
-                  style={{
-                    height: tbH || '35px',
-                    padding: tbPad || '0 15px',
-                    background: leapActive
-                      ? 'linear-gradient(180deg, rgba(0,212,255,0.24) 0%, rgba(0,150,200,0.08) 55%, rgba(0,0,0,0.2) 100%)'
-                      : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
-                    border: leapActive ? '1px solid #00d4ff' : '1px solid #0099bb',
-                    borderRadius: '7px',
-                    fontSize: tbFs || '12px',
-                    letterSpacing: tbLs || '1.5px',
-                    fontWeight: '700',
-                    boxShadow: leapActive ? 'inset 0 1px 0 rgba(255,255,255,0.22), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 14px rgba(0,200,255,0.28)' : 'inset 0 1px 0 rgba(255,255,255,0.09), inset 0 -1px 0 rgba(0,0,0,0.4)',
-                    color: '#00d4ff',
-                    cursor: (!data || data.length === 0 || loading || stockPricesLoading) ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  <span className="tb-icon" style={{ display: 'flex', alignItems: 'center' }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
-                      <polyline points="17 6 23 6 23 12" />
-                    </svg>
-                  </span>
-                  Leap Picks
-                </button>
-
-                {/* Premium EFI Highlights Toggle */}
-
-                <button
-                  onClick={async () => {
-                    const newState = !efiHighlightsActive
+                {/* SweepSense Toggle - combines LEAP Picks + EFI Highlights, runs both in parallel */}
+                {(() => {
+                  const sweepSenseActive = shortTermActive && longTermActive
+                  const handleSweepSense = async () => {
+                    if (modeLoadingStep !== null) return
+                    const newState = !sweepSenseActive
                     setEfiHighlightsActive(newState)
-                    if (newState) {
-                      setLeapActive(false)
-                      setModeLoadingStep({ mode: 'EFI', step: 'Calculating Relative Strength...' })
-                      await new Promise<void>(r => setTimeout(r, 0))
-                      const efiTrades = filteredAndSortedData.filter(meetsEfiCriteria)
-                      const rsData = await calculateRelativeStrength(efiTrades)
-                      setRelativeStrengthData(rsData)
-                      setModeLoadingStep(null)
-                    } else {
+                    setLeapActive(newState)
+                    if (!newState) {
                       setModeLoadingStep(null)
                       setNotableFilterActive(false)
+                      return
                     }
-                  }}
-                  className={`toolbar-mode${efiHighlightsActive ? ' toolbar-mode--active' : ''} flex items-center gap-1.5 font-bold uppercase transition-all duration-150 focus:outline-none${(!data || data.length === 0 || loading || stockPricesLoading) ? ' opacity-40 cursor-not-allowed' : ''}`}
-                  style={{
-                    height: tbH || '35px',
-                    padding: tbPad || '0 15px',
-                    background: efiHighlightsActive
-                      ? 'linear-gradient(180deg, rgba(245,166,35,0.24) 0%, rgba(245,133,0,0.08) 55%, rgba(0,0,0,0.2) 100%)'
-                      : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.25) 100%)',
-                    border: efiHighlightsActive ? '1px solid #f5a623' : '1px solid #b87010',
-                    borderRadius: '7px',
-                    fontSize: tbFs || '12px',
-                    letterSpacing: tbLs || '1.5px',
-                    fontWeight: '700',
-                    boxShadow: efiHighlightsActive ? 'inset 0 1px 0 rgba(255,255,255,0.2), inset 0 -1px 0 rgba(0,0,0,0.45), 0 0 14px rgba(245,166,35,0.25)' : 'inset 0 1px 0 rgba(255,255,255,0.09), inset 0 -1px 0 rgba(0,0,0,0.4)',
-                    color: '#f5a623',
-                    cursor: (!data || data.length === 0 || loading || stockPricesLoading) ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  <span className="tb-icon" style={{ display: 'flex', alignItems: 'center' }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                      <circle cx="12" cy="12" r="3" fill={efiHighlightsActive ? 'currentColor' : 'none'} strokeWidth={efiHighlightsActive ? 0 : 2} />
-                    </svg>
-                  </span>
+                    setModeLoadingStep({ mode: 'SHORT', step: 'SweepSense - Scanning Short-Term & Long-Term...' })
+                    await new Promise<void>(r => setTimeout(r, 0))
+                    // Use raw data prop - short-term and long-term scan independently
+                    const shortTermTrades = data.filter(meetsShortTermCriteria)
+                    const longTermTrades = data.filter(meetsLongTermCriteria)
+                    const longTermTickers = [...new Set(longTermTrades.map(t => t.underlying_ticker))]
+                    const allUniq = [...shortTermTrades, ...longTermTrades].filter(
+                      (t, i, arr) => arr.findIndex(x =>
+                        x.underlying_ticker === t.underlying_ticker && x.strike === t.strike &&
+                        x.expiry === t.expiry && x.type === t.type) === i
+                    )
+                    try {
+                      const { shortTermRS, longTermRS } = await calculateCombinedRS(shortTermTrades, longTermTrades)
+                      setRelativeStrengthData(shortTermRS)
+                      setLeapRsData(longTermRS)
+                      const [wkData, seasonData] = await Promise.all([
+                        fetchLeap52wkData(longTermTickers),
+                        fetchLeapSeasonalData(longTermTickers),
+                      ])
+                      setLeap52wkData(wkData)
+                      setLeapSeasonalData(seasonData)
+                      await fetchCurrentOptionPrices(allUniq)
+                    } catch (err) {
+                      console.error('[SweepSense] Scan error:', err)
+                    }
+                    setModeLoadingStep(null)
+                  }
+                  return (
+                    <button
+                      onClick={handleSweepSense}
+                      disabled={modeLoadingStep !== null}
+                      className={`toolbar-mode${sweepSenseActive ? ' toolbar-mode--active' : ''} flex items-center gap-1.5 font-bold uppercase transition-all duration-150 focus:outline-none${(modeLoadingStep !== null || !data || data.length === 0 || loading || stockPricesLoading) ? ' opacity-40 cursor-not-allowed' : ''}`}
+                      style={{
+                        height: tbH || '35px',
+                        padding: tbPad || '0 16px',
+                        background: sweepSenseActive
+                          ? 'linear-gradient(180deg, #0d0d0d 0%, #060606 45%, #000000 100%)'
+                          : 'linear-gradient(180deg, #101008 0%, #060604 45%, #000000 100%)',
+                        border: sweepSenseActive ? '1px solid #a8ff3e' : '1px solid #4a7a1a',
+                        borderTop: sweepSenseActive ? '1px solid #c8ff60' : '1px solid #4a7a1a',
+                        borderRadius: '7px',
+                        fontSize: tbFs || '12px',
+                        letterSpacing: tbLs || '1.5px',
+                        fontWeight: '900',
+                        color: sweepSenseActive ? '#a8ff3e' : '#5a9a20',
+                        boxShadow: sweepSenseActive
+                          ? 'inset 0 1px 0 rgba(168,255,62,0.18), inset 0 -2px 0 rgba(0,0,0,0.85), inset 2px 0 0 rgba(0,0,0,0.4), inset -2px 0 0 rgba(0,0,0,0.4), 0 0 18px rgba(168,255,62,0.22), 0 2px 8px rgba(0,0,0,0.9)'
+                          : 'inset 0 1px 0 rgba(168,255,62,0.06), inset 0 -2px 0 rgba(0,0,0,0.85), 0 2px 6px rgba(0,0,0,0.8)',
+                        cursor: (!data || data.length === 0 || loading || stockPricesLoading) ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.15s ease',
+                        position: 'relative',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      {sweepSenseActive && (
+                        <span style={{
+                          position: 'absolute', top: 0, left: '-60%', width: '40%', height: '100%',
+                          background: 'linear-gradient(90deg, transparent, rgba(168,255,62,0.08), transparent)',
+                          animation: 'sweepShine 2.8s ease-in-out infinite',
+                          pointerEvents: 'none',
+                        }} />
+                      )}
+                      <style>{`@keyframes sweepShine { 0% { left: -60% } 100% { left: 160% } }`}</style>
+                      <span className="tb-icon" style={{ display: 'flex', alignItems: 'center' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                        </svg>
+                      </span>
+                      <span>SweepSense</span>
+                    </button>
+                  )
+                })()}
 
-                  <span>HIGHLIGHTS</span>
-
-                  {/* Status badge removed: showing ON/OFF text was disabled */}
-                </button>
-
-                {/* Grading Progress — now shown in fullscreen overlay, hidden from header */}
+                {/* Grading Progress - now shown in fullscreen overlay, hidden from header */}
 
                 {/* Active Ticker Filter */}
 
@@ -6732,7 +6672,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                         className="text-orange-400 hover:text-white hover:bg-orange-500 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold transition-all duration-200"
                         title="Clear filter"
                       >
-                        ·
+                        -
                       </button>
                     </div>
                   </div>
@@ -7166,7 +7106,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       <span style={{ color: '#777', fontSize: '10px', letterSpacing: '0.12em', textTransform: 'uppercase' }}>trades</span>
                     </div>
 
-                    {/* Pagination Info + Controls — hidden on tablet/laptop (shown at table bottom instead) */}
+                    {/* Pagination Info + Controls - hidden on tablet/laptop (shown at table bottom instead) */}
 
                     <div style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '3px', color: '#8a8a8a', fontFamily: 'monospace' }} className={windowWidth < 1440 ? 'hidden' : ''}>
                       <span>{currentPage}</span>
@@ -7184,7 +7124,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                           className="flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150"
                           style={{ width: '24px', height: '24px', background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)', border: '1px solid rgba(255,255,255,0.16)', borderRadius: '4px', color: '#aaa', fontSize: '13px', cursor: currentPage === 1 ? 'not-allowed' : 'pointer', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.3)' }}
                         >
-                          ‹
+                          -
                         </button>
 
                         {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
@@ -7230,7 +7170,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                           className="flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150"
                           style={{ width: '24px', height: '24px', background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)', border: '1px solid rgba(255,255,255,0.16)', borderRadius: '4px', color: '#aaa', fontSize: '13px', cursor: currentPage === totalPages ? 'not-allowed' : 'pointer', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.3)' }}
                         >
-                          ›
+                          -
                         </button>
                       </div>
                     )}
@@ -7277,7 +7217,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
         <div className="bg-black border border-gray-800 flex-1 options-flow-table-container" style={{ position: 'relative' }}>
 
-          {/* Fullscreen scan loading overlay — shown while streaming with no data yet */}
+          {/* Fullscreen scan loading overlay - shown while streaming with no data yet */}
           {loading && data.length === 0 && (
             <div style={{
               position: 'absolute', inset: 0, zIndex: 49,
@@ -7346,21 +7286,21 @@ Stock Reaction: ${scores.stockReaction}/15`
                 {/* Deep noise texture base */}
                 <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 120% 80% at 55% 60%, rgba(0,40,90,0.45) 0%, transparent 60%), radial-gradient(ellipse 80% 60% at 20% 30%, rgba(0,20,60,0.3) 0%, transparent 55%)' }} />
 
-                {/* Aurora band 1 — wide cyan sweep across top */}
+                {/* Aurora band 1 - wide cyan sweep across top */}
                 <div style={{
                   position: 'absolute', top: '-12%', left: '-10%', width: '120%', height: '50%',
                   background: 'linear-gradient(180deg, transparent 0%, rgba(0,140,255,0.04) 30%, rgba(0,90,200,0.065) 60%, transparent 100%)',
                   animation: 'scanAurora1 9s ease-in-out infinite',
                   transformOrigin: '50% 50%',
                 }} />
-                {/* Aurora band 2 — mid teal */}
+                {/* Aurora band 2 - mid teal */}
                 <div style={{
                   position: 'absolute', top: '32%', left: '-10%', width: '120%', height: '38%',
                   background: 'linear-gradient(180deg, transparent 0%, rgba(0,200,170,0.028) 40%, rgba(0,130,120,0.048) 70%, transparent 100%)',
                   animation: 'scanAurora2 12s ease-in-out infinite',
                   transformOrigin: '50% 50%',
                 }} />
-                {/* Aurora band 3 — deep violet bottom */}
+                {/* Aurora band 3 - deep violet bottom */}
                 <div style={{
                   position: 'absolute', bottom: '-8%', left: '-10%', width: '120%', height: '32%',
                   background: 'linear-gradient(0deg, transparent 0%, rgba(50,30,130,0.04) 50%, transparent 100%)',
@@ -7368,7 +7308,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                   transformOrigin: '50% 50%',
                 }} />
 
-                {/* Wave layer 1 — deep slow */}
+                {/* Wave layer 1 - deep slow */}
                 <div style={{ position: 'absolute', bottom: 0, left: '-5%', width: '110%', height: '200px', animation: 'scanWave1 14s ease-in-out infinite' }}>
                   <svg viewBox="0 0 1440 200" preserveAspectRatio="none" style={{ width: '100%', height: '100%', display: 'block' }}>
                     <path d="M0,100 C180,165 360,35 540,100 C720,165 900,35 1080,100 C1260,165 1380,75 1440,100 L1440,200 L0,200 Z" fill="rgba(0,100,185,0.05)" />
@@ -7380,14 +7320,14 @@ Stock Reaction: ${scores.stockReaction}/15`
                     <path d="M0,78 C240,128 480,28 720,78 C960,128 1200,28 1440,78 L1440,155 L0,155 Z" fill="rgba(0,155,225,0.038)" />
                   </svg>
                 </div>
-                {/* Wave layer 3 — surface sheen */}
+                {/* Wave layer 3 - surface sheen */}
                 <div style={{ position: 'absolute', bottom: 0, left: '-5%', width: '110%', height: '110px', animation: 'scanWave3 7.5s ease-in-out infinite' }}>
                   <svg viewBox="0 0 1440 110" preserveAspectRatio="none" style={{ width: '100%', height: '100%', display: 'block' }}>
                     <path d="M0,55 C360,95 720,15 1080,55 C1260,75 1380,40 1440,55 L1440,110 L0,110 Z" fill="rgba(0,210,255,0.028)" />
                   </svg>
                 </div>
 
-                {/* Glass shards — clipped polygons with crystalline borders */}
+                {/* Glass shards - clipped polygons with crystalline borders */}
                 <div style={{ position: 'absolute', top: '4%', left: '2%', width: '185px', height: '155px', clipPath: 'polygon(18% 0%, 92% 7%, 100% 58%, 58% 100%, 0% 73%)', background: 'linear-gradient(135deg, rgba(80,185,255,0.07) 0%, rgba(0,55,120,0) 100%)', border: '1px solid rgba(120,215,255,0.13)', animation: 'scanShardA 5.2s ease-in-out infinite' }} />
                 <div style={{ position: 'absolute', top: '12%', right: '4%', width: '165px', height: '205px', clipPath: 'polygon(48% 0%, 100% 22%, 88% 92%, 14% 100%, 0% 52%)', background: 'linear-gradient(148deg, rgba(0,225,200,0.065) 0%, rgba(0,75,100,0) 100%)', border: '1px solid rgba(75,225,200,0.11)', animation: 'scanShardB 6.5s ease-in-out infinite 1.2s' }} />
                 <div style={{ position: 'absolute', bottom: '18%', left: '6%', width: '145px', height: '185px', clipPath: 'polygon(8% 4%, 82% 0%, 100% 68%, 62% 100%, 4% 83%)', background: 'linear-gradient(122deg, rgba(40,165,255,0.065) 0%, rgba(0,45,140,0) 100%)', border: '1px solid rgba(100,195,255,0.11)', animation: 'scanShardA 7.2s ease-in-out infinite 2.3s' }} />
@@ -7446,7 +7386,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                 ))}
               </div>
 
-              {/* === LOADING ART PANEL — rendered after abstract bg so same zIndex wins (later in DOM = on top) === */}
+              {/* === LOADING ART PANEL - rendered after abstract bg so same zIndex wins (later in DOM = on top) === */}
               <div key={0} style={{ position: 'absolute', inset: 0, zIndex: 0, opacity: 0.72, animation: 'artFadeIn 1.4s ease-in-out', pointerEvents: 'none' }}>
                 {LoadingScenePanel()}
               </div>
@@ -7487,7 +7427,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                   </div>
                 </div>
 
-                {/* Status text — solid white, Worker prefix stripped */}
+                {/* Status text - solid white, Worker prefix stripped */}
                 <div style={{ fontSize: '16px', fontWeight: 600, color: '#ffffff', letterSpacing: '0.5px', textAlign: 'center', maxWidth: '600px', textShadow: '0 0 20px rgba(255,255,255,0.3)' }}>
                   {streamingStatus
                     ? streamingStatus.replace(/^Worker\s+\d+:\s*/i, '')
@@ -7509,18 +7449,18 @@ Stock Reaction: ${scores.stockReaction}/15`
                     &ldquo;{EFI_LOADING_QUOTES[loadingQuoteIndex % EFI_LOADING_QUOTES.length].text}&rdquo;
                   </div>
                   <div style={{ fontSize: 'clamp(11px, 3vw, 15px)', color: 'rgba(255,255,255,0.5)', fontWeight: 600, marginTop: '16px', letterSpacing: '0.5px' }}>
-                    — {EFI_LOADING_QUOTES[loadingQuoteIndex % EFI_LOADING_QUOTES.length].author}
+                    - {EFI_LOADING_QUOTES[loadingQuoteIndex % EFI_LOADING_QUOTES.length].author}
                   </div>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Fullscreen loading overlay — only when user actively triggered LEAP/EFI (not auto-refresh on mount) */}
-          {(modeLoadingStep !== null || (gradingProgress !== null && (efiHighlightsActive || leapActive))) && (
+          {/* Fullscreen loading overlay - SweepSense Vision */}
+          {(modeLoadingStep !== null || (gradingProgress !== null && (shortTermActive || longTermActive))) && (
             <div style={{
               position: 'absolute', inset: 0, zIndex: 50,
-              background: 'radial-gradient(ellipse at 50% 40%, rgba(20,10,0,0.98) 0%, rgba(0,0,0,0.99) 70%)',
+              background: 'radial-gradient(ellipse at 50% 40%, rgba(0,12,4,0.98) 0%, rgba(0,0,0,0.99) 70%)',
               backdropFilter: 'blur(8px)',
               display: 'flex', flexDirection: 'column',
               alignItems: 'center', justifyContent: 'center',
@@ -7549,8 +7489,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                   100% { transform: translateX(400%) skewX(-20deg); }
                 }
                 @keyframes efiSpinnerGlow {
-                  0%, 100% { box-shadow: 0 0 14px rgba(255,149,0,0.5); }
-                  50% { box-shadow: 0 0 28px rgba(255,149,0,0.85); }
+                  0%, 100% { box-shadow: 0 0 14px rgba(168,255,62,0.5); }
+                  50% { box-shadow: 0 0 28px rgba(168,255,62,0.85); }
                 }
               `}</style>
 
@@ -7558,21 +7498,21 @@ Stock Reaction: ${scores.stockReaction}/15`
               <div style={{
                 position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0,
                 backgroundImage: `
-                  linear-gradient(rgba(255,149,0,0.028) 1px, transparent 1px),
-                  linear-gradient(90deg, rgba(255,149,0,0.028) 1px, transparent 1px)
+                  linear-gradient(rgba(168,255,62,0.025) 1px, transparent 1px),
+                  linear-gradient(90deg, rgba(168,255,62,0.025) 1px, transparent 1px)
                 `,
                 backgroundSize: '44px 44px',
               }}>
                 {/* Radial glow blobs */}
-                <div style={{ position: 'absolute', top: '-140px', left: '-100px', width: '460px', height: '460px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,149,0,0.09) 0%, transparent 70%)', animation: 'efiBlobPulse 4.5s ease-in-out infinite' }} />
-                <div style={{ position: 'absolute', bottom: '-140px', right: '-100px', width: '460px', height: '460px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,102,0,0.09) 0%, transparent 70%)', animation: 'efiBlobPulse 4.5s ease-in-out infinite 2.2s' }} />
+                <div style={{ position: 'absolute', top: '-140px', left: '-100px', width: '460px', height: '460px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(168,255,62,0.08) 0%, transparent 70%)', animation: 'efiBlobPulse 4.5s ease-in-out infinite' }} />
+                <div style={{ position: 'absolute', bottom: '-140px', right: '-100px', width: '460px', height: '460px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(100,220,20,0.08) 0%, transparent 70%)', animation: 'efiBlobPulse 4.5s ease-in-out infinite 2.2s' }} />
                 {/* Floating data stream labels */}
-                {['0xA4F1 ? SWEEP +23.4%', '0xB2E3 ? BLOCK 847K', '0xC1D5 ? OI RATIO 2.14', '0xD3F7 ? IV RANK 0.77', '0xE5A9 ? DELTA 0.38', '0xF6B2 ? GAMMA 0.021'].map((txt, i) => (
+                {['SHORT-TERM - SWEEP', 'LONG-TERM - BLOCK', 'RS ALIGNED - +3.2%', 'VOL/OI - 1.8x', 'SEASONAL - SWEET SPOT', '52W HIGH - BREAKOUT'].map((txt, i) => (
                   <div key={i} style={{
                     position: 'absolute',
                     left: `${6 + i * 15}%`,
                     top: `${10 + (i % 3) * 28}%`,
-                    fontSize: '11px', color: 'rgba(255,149,0,0.16)', fontFamily: 'monospace', fontWeight: 500,
+                    fontSize: '11px', color: 'rgba(168,255,62,0.14)', fontFamily: 'monospace', fontWeight: 500,
                     animation: `${i % 2 === 0 ? 'efiFloatUp' : 'efiFloatDown'} ${5 + i * 1.2}s ease-in-out infinite`,
                     whiteSpace: 'nowrap',
                   }}>{txt}</div>
@@ -7585,66 +7525,57 @@ Stock Reaction: ${scores.stockReaction}/15`
                 {/* 3D Glossy Title */}
                 <div style={{ textAlign: 'center' }}>
                   <div style={{
-                    fontSize: 'clamp(40px, 15vw, 84px)', fontWeight: 900, color: '#ffb347', letterSpacing: 'clamp(2px, 1.5vw, 6px)', lineHeight: 1,
+                    fontSize: 'clamp(34px, 12vw, 72px)', fontWeight: 900, color: '#a8ff3e', letterSpacing: 'clamp(2px, 1.5vw, 6px)', lineHeight: 1,
                     animation: 'efiTitlePulse 2.5s ease-in-out infinite',
-                    textShadow: '0 1px 0 #e08000, 0 2px 0 #cc7000, 0 3px 0 #b86000, 0 4px 0 #a45000, 0 5px 0 #904000, 0 6px 12px rgba(0,0,0,0.7), 0 10px 30px rgba(255,149,0,0.25)',
-                    WebkitTextStroke: '0.5px rgba(255,200,80,0.3)',
-                  }}>FLOW</div>
+                    textShadow: '0 1px 0 #6dcc00, 0 2px 0 #5ab800, 0 3px 0 #48a400, 0 4px 0 #369000, 0 5px 0 #247c00, 0 6px 12px rgba(0,0,0,0.7), 0 10px 30px rgba(168,255,62,0.2)',
+                    WebkitTextStroke: '0.5px rgba(200,255,100,0.3)',
+                  }}>SweepSense</div>
                   <div style={{
-                    fontSize: 'clamp(14px, 5.5vw, 31px)', fontWeight: 800, color: '#ffffff', letterSpacing: 'clamp(3px, 2.5vw, 11px)', marginTop: '10px',
-                    textShadow: '0 1px 0 #888, 0 2px 4px rgba(0,0,0,0.8), 0 0 20px rgba(255,255,255,0.08)',
-                  }}>HIGHLIGHTS</div>
+                    fontSize: 'clamp(12px, 4.5vw, 26px)', fontWeight: 800, color: '#ffffff', letterSpacing: 'clamp(3px, 2.5vw, 11px)', marginTop: '10px',
+                    textShadow: '0 1px 0 #444, 0 2px 4px rgba(0,0,0,0.8), 0 0 20px rgba(168,255,62,0.12)',
+                  }}>VISION</div>
                 </div>
 
                 {/* Glossy dual-ring spinner */}
                 <div style={{ position: 'relative', width: '136px', height: '136px' }}>
                   <div style={{
                     position: 'absolute', inset: 0, borderRadius: '50%',
-                    border: '6px solid rgba(255,149,0,0.08)',
-                    borderTopColor: '#ff9500',
+                    border: '6px solid rgba(168,255,62,0.08)',
+                    borderTopColor: '#a8ff3e',
                     animation: 'spin 0.85s linear infinite, efiSpinnerGlow 1.7s ease-in-out infinite',
                   }} />
                   <div style={{
                     position: 'absolute', inset: '17px', borderRadius: '50%',
-                    border: '5px solid rgba(255,102,0,0.08)',
-                    borderTopColor: '#ff6600',
+                    border: '5px solid rgba(100,220,20,0.08)',
+                    borderTopColor: '#6dcc00',
                     animation: 'spin 1.3s linear infinite reverse',
-                    boxShadow: '0 0 10px rgba(255,102,0,0.4)',
+                    boxShadow: '0 0 10px rgba(100,220,20,0.4)',
                   }} />
                   {/* Centre dot */}
                   <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'radial-gradient(circle, #ffb347 0%, #ff6600 100%)', boxShadow: '0 0 12px rgba(255,149,0,0.9)' }} />
+                    <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'radial-gradient(circle, #c8ff60 0%, #a8ff3e 100%)', boxShadow: '0 0 12px rgba(168,255,62,0.9)' }} />
                   </div>
-                </div>
-
-                {/* Step label */}
-                <div style={{
-                  fontSize: 'clamp(13px, 4.5vw, 22px)', fontWeight: 700, color: '#ff9500', letterSpacing: 'clamp(1px, 0.5vw, 2px)', textTransform: 'uppercase',
-                  textShadow: '0 0 20px rgba(255,149,0,0.5)',
-                }}>
-                  {modeLoadingStep?.step ?? 'Grading Flows...'}
                 </div>
 
                 {/* Progress bar */}
                 {gradingProgress && (
                   <div style={{ width: 'min(552px, 90vw)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-                      <span style={{ fontSize: 'clamp(13px, 4vw, 19px)', color: '#ffffff', fontWeight: 700, textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>Analyzing trades</span>
-                      <span style={{ fontSize: 'clamp(14px, 4.5vw, 22px)', fontWeight: 900, color: '#ffffff', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
+                      <span style={{ fontSize: 'clamp(13px, 4vw, 19px)', color: '#ffffff', fontWeight: 700, textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>Grading trades</span>
+                      <span style={{ fontSize: 'clamp(14px, 4.5vw, 22px)', fontWeight: 900, color: '#a8ff3e', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
                         {Math.round((gradingProgress.current / gradingProgress.total) * 100)}%
                       </span>
                     </div>
-                    {/* 3D glossy bar track */}
                     <div style={{
                       height: '9px', borderRadius: '5px', overflow: 'hidden',
                       background: 'linear-gradient(180deg, #0d0d0d 0%, #1a1a1a 100%)',
-                      border: '1px solid rgba(255,149,0,0.15)',
-                      boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.8), inset 0 -1px 2px rgba(255,149,0,0.05)',
+                      border: '1px solid rgba(168,255,62,0.15)',
+                      boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.8)',
                       position: 'relative',
                     }}>
                       <div style={{
                         height: '100%',
-                        background: 'linear-gradient(180deg, #ffb347 0%, #ff9500 50%, #e07500 100%)',
+                        background: 'linear-gradient(180deg, #c8ff60 0%, #a8ff3e 50%, #6dcc00 100%)',
                         borderRadius: '5px',
                         transition: 'width 0.4s ease',
                         width: `${(gradingProgress.current / gradingProgress.total) * 100}%`,
@@ -7663,23 +7594,22 @@ Stock Reaction: ${scores.stockReaction}/15`
                   </div>
                 )}
 
-                {/* Rotating quote — glossy glass card */}
+                {/* Rotating quote - glossy glass card */}
                 <div style={{
                   maxWidth: 'min(810px, 90vw)', textAlign: 'center',
                   padding: 'clamp(14px, 4vw, 38px) clamp(14px, 5vw, 46px)',
                   borderRadius: '16px',
-                  border: '1px solid rgba(255,149,0,0.22)',
-                  background: 'linear-gradient(160deg, rgba(255,149,0,0.10) 0%, rgba(255,80,0,0.04) 55%, rgba(0,0,0,0.35) 100%)',
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.4), 0 16px 50px rgba(0,0,0,0.6), 0 4px 20px rgba(255,149,0,0.1)',
+                  border: '1px solid rgba(168,255,62,0.18)',
+                  background: 'linear-gradient(160deg, rgba(168,255,62,0.07) 0%, rgba(100,220,20,0.03) 55%, rgba(0,0,0,0.35) 100%)',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.4), 0 16px 50px rgba(0,0,0,0.6), 0 4px 20px rgba(168,255,62,0.08)',
                   position: 'relative', overflow: 'hidden',
                 }}>
-                  {/* Glass top-edge highlight */}
-                  <div style={{ position: 'absolute', top: 0, left: '10%', right: '10%', height: '1px', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent)' }} />
+                  <div style={{ position: 'absolute', top: 0, left: '10%', right: '10%', height: '1px', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent)' }} />
                   <div style={{ fontSize: 'clamp(13px, 4vw, 24px)', fontStyle: 'italic', color: '#f3f4f6', lineHeight: 1.65, fontWeight: 400, textShadow: '0 1px 6px rgba(0,0,0,0.5)' }}>
                     &ldquo;{EFI_LOADING_QUOTES[loadingQuoteIndex % EFI_LOADING_QUOTES.length].text}&rdquo;
                   </div>
-                  <div style={{ fontSize: 'clamp(12px, 3.2vw, 19px)', color: '#ff9500', fontWeight: 700, marginTop: '22px', letterSpacing: '0.5px', textShadow: '0 0 12px rgba(255,149,0,0.4)' }}>
-                    — {EFI_LOADING_QUOTES[loadingQuoteIndex % EFI_LOADING_QUOTES.length].author}
+                  <div style={{ fontSize: 'clamp(12px, 3.2vw, 19px)', color: '#a8ff3e', fontWeight: 700, marginTop: '22px', letterSpacing: '0.5px', textShadow: '0 0 12px rgba(168,255,62,0.4)' }}>
+                    - {EFI_LOADING_QUOTES[loadingQuoteIndex % EFI_LOADING_QUOTES.length].author}
                   </div>
                 </div>
               </div>
@@ -7816,7 +7746,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg className="hidden md:block" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
-                        <span className="hidden md:inline">SPOT → CURR</span>
+                        <span className="hidden md:inline">SPOT ? CURR</span>
                         <span className="md:hidden" style={{ fontWeight: 900, fontSize: '11px' }}>SPOT</span>
                         <span className="hidden md:inline-flex" style={{ alignItems: 'center', marginLeft: 1 }}>
                           {sortField === 'spot_price' && (
@@ -7826,7 +7756,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       </div>
                     </th>
 
-                    {/* VOL/OI — not sortable */}
+                    {/* VOL/OI - not sortable */}
                     <th className="col-hdr col-vol-oi hidden md:table-cell text-left">
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="6" y1="20" x2="6" y2="14" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="18" y1="20" x2="18" y2="10" /></svg>
@@ -7849,18 +7779,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                       </div>
                     </th>
 
-                    {/* Conditional: TARGETS */}
-                    {notableFilterActive && (
-                      <th className="col-hdr col-targets hidden md:table-cell text-left">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" fill="#10b981" /></svg>
-                          TARGETS
-                        </div>
-                      </th>
-                    )}
-
-                    {/* Conditional: DEALER */}
-                    {notableFilterActive && (
+                    {/* Dealer column - shown when SweepSense active */}
+                    {(shortTermActive || longTermActive) && (
                       <th className="col-hdr col-dealer hidden md:table-cell text-left">
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#c084fc" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 21V8l9-6 9 6v13" /><path d="M9 21V12h6v9" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
@@ -7869,21 +7789,23 @@ Stock Reaction: ${scores.stockReaction}/15`
                       </th>
                     )}
 
-                    {/* Conditional: GRADE / LEAP */}
-                    {(efiHighlightsActive || leapActive) && (
+                    {/* Conditional: GRADE column - toggles long first ? short first */}
+                    {(shortTermActive || longTermActive) && (
                       <th
                         className="col-hdr col-sortable text-left"
-                        onClick={() => handleSort(leapActive ? 'leap_grade' : 'positioning_grade')}
+                        onClick={() => {
+                          setSortField('positioning_grade')
+                          setGradeColumnMode(prev => prev === 'long_first' ? 'short_first' : 'long_first')
+                        }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                           <svg className="hidden md:block" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><polyline points="9 12 11 14 15 10" /></svg>
-                          <span className="hidden md:inline">{leapActive ? 'LEAP' : 'POSITION'}</span>
-                          <span className="md:hidden" style={{ fontSize: 10 }}>GRD</span>
-                          <span className="hidden md:inline-flex" style={{ alignItems: 'center', marginLeft: 1 }}>
-                            {sortField === (leapActive ? 'leap_grade' : 'positioning_grade') && (
-                              <svg width="7" height="8" viewBox="0 0 7 8" fill="currentColor" aria-hidden="true">{sortDirection === 'asc' ? <path d="M3.5 1L7 7H0Z" /> : <path d="M3.5 7L0 1H7Z" />}</svg>
-                            )}
+                          <span className="hidden md:inline" style={{
+                            color: gradeColumnMode === 'long_first' ? '#00e5ff' : '#FFD700'
+                          }}>
+                            {gradeColumnMode === 'long_first' ? 'LONG FIRST' : 'SHORT FIRST'}
                           </span>
+                          <span className="md:hidden" style={{ fontSize: 10 }}>GRD</span>
                         </div>
                       </th>
                     )}
@@ -7891,13 +7813,72 @@ Stock Reaction: ${scores.stockReaction}/15`
                 </thead>
 
                 <tbody>
+                  {/* Lightning winner highlight - uses a real CSS outline around the whole
+                      row (not per-cell box-shadow) so there's a single clean border with
+                      no seams between columns. Glow kept subtle (~50% of earlier intensity). */}
+                  <style>{`
+                    @keyframes sweepsense-lightning {
+                      0%   { outline-color: #ff4dd2; box-shadow: 0 0 4px 1px #ff4dd2; }
+                      20%  { outline-color: #00e5ff; box-shadow: 0 0 6px 1px #00e5ff; }
+                      40%  { outline-color: #a855f7; box-shadow: 0 0 4px 1px #a855f7; }
+                      60%  { outline-color: #00e5ff; box-shadow: 0 0 7px 2px #0ea5e9; }
+                      80%  { outline-color: #ff4dd2; box-shadow: 0 0 4px 1px #ff4dd2; }
+                      100% { outline-color: #ff4dd2; box-shadow: 0 0 4px 1px #ff4dd2; }
+                    }
+                    tr.sweepsense-winner {
+                      position: relative;
+                      z-index: 3;
+                      outline: 2px solid #ff4dd2;
+                      outline-offset: -2px;
+                      animation: sweepsense-lightning 1.4s ease-in-out infinite;
+                    }
+                  `}</style>
+
+                  {(() => {
+                    // Compute which trade is the SweepSense winner for the selected ticker.
+                    // Winner = highest conviction score among all visible trades.
+                    if (!selectedTickerFilter || !(shortTermActive || longTermActive)) return null
+                    const scoreW = (t: OptionsFlowData): number => {
+                      const fq = t.fill_style === 'AA' ? 4 : t.fill_style === 'A' ? 3
+                        : t.fill_style === 'BB' ? 2 : t.fill_style === 'B' ? 1 : 0
+                      const voi = t.vol_oi_ratio ?? 0
+                      return t.total_premium * fq * (voi >= 1.5 ? 1.3 : voi >= 1.0 ? 1.15 : 1.0)
+                    }
+                      // Store winner key in a ref-like variable accessible to the row map below
+                      ; (window as any).__sweepsenseWinnerKey = paginatedData.length > 0
+                        ? paginatedData.reduce((best, t) => scoreW(t) > scoreW(best) ? t : best, paginatedData[0])
+                        : null
+                    return null
+                  })()}
+
                   {paginatedData.map((trade, index) => {
-                    const isEfiHighlight = efiHighlightsActive && meetsEfiCriteria(trade)
+                    const isEfiHighlight = shortTermActive && meetsShortTermCriteria(trade)
 
-                    const isNotablePick =
-                      notableFilterActive || (efiHighlightsActive && meetsNotableCriteria(trade))
+                    // Short-term pick: meets criteria + grade A-, A, or A+
+                    const isShortTermPick = shortTermActive && meetsShortTermCriteria(trade) && (() => {
+                      if (optionPricesFetching || Object.keys(currentOptionPrices).length === 0) return false
+                      const g = getCachedGrade(trade)
+                      return ['A-', 'A', 'A+'].includes(g.grade)
+                    })()
 
-                    // Determine if EFI highlight is bullish or bearish
+                    // Long-term pick: meets criteria + grade A-, A, or A+
+                    const isLongTermPick = longTermActive && meetsLongTermCriteria(trade) && (() => {
+                      if (optionPricesFetching || Object.keys(currentOptionPrices).length === 0) return false
+                      const g = getCachedGrade(trade)
+                      return ['A-', 'A', 'A+'].includes(g.grade)
+                    })()
+
+                    const isAnyNotable = isShortTermPick || isLongTermPick
+
+                    // Row color helper
+                    const notableColor = (fallback?: string) =>
+                      isLongTermPick ? '#00e5ff' : isShortTermPick ? '#FFD700' : (fallback || undefined)
+
+                    // Keep legacy alias so downstream row JSX that references isNotablePick still works
+                    const isNotablePick = isShortTermPick
+                    const isLeapNotable = isLongTermPick
+
+                    // Determine if short-term highlight is bullish or bearish
 
                     let isBullishEfi = false
 
@@ -7928,9 +7909,15 @@ Stock Reaction: ${scores.stockReaction}/15`
                         key={`${trade.ticker}-${trade.strike}-${trade.trade_timestamp}-${trade.trade_size}-${index}`}
                       >
                         <tr
-                          className="border-b border-slate-700/50 transition-all duration-150"
+                          className={[
+                            'border-b border-slate-700/50 transition-all duration-150',
+                            selectedTickerFilter && (shortTermActive || longTermActive) &&
+                              (window as any).__sweepsenseWinnerKey === trade
+                              ? 'sweepsense-winner'
+                              : '',
+                          ].join(' ')}
                           onClick={() => {
-                            if (isNotablePick) openNotableAnalysis(trade)
+                            if (isAnyNotable) openNotableAnalysis(trade)
                           }}
                           onMouseEnter={(e) => {
                             const el = e.currentTarget
@@ -7952,7 +7939,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                             el.style.background = index % 2 === 0 ? '#000000' : '#0a0a0a'
                           }}
                           style={{
-                            cursor: isNotablePick ? 'pointer' : 'default',
+                            cursor: isAnyNotable ? 'pointer' : 'default',
                             backgroundColor: index % 2 === 0 ? '#000000' : '#0a0a0a',
 
                             position: 'relative' as const,
@@ -7966,10 +7953,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                             <div className="md:hidden flex flex-col items-center space-y-1">
                               <div className="flex items-center justify-center gap-2">
                                 {/* Quick Grade Pen Icon (Mobile) */}
-                                {!INDEX_TICKERS.has(trade.underlying_ticker) && !efiHighlightsActive && !leapActive && (
+                                {!INDEX_TICKERS.has(trade.underlying_ticker) && !shortTermActive && !longTermActive && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleQuickGrade(trade, e) }}
-                                    title={`Quick Grade (${trade.days_to_expiry <= 35 ? 'EFI' : 'LEAP'} logic)`}
+                                    title={`Quick Grade (${trade.days_to_expiry <= 35 ? 'Short-Term' : 'Long-Term'} logic)`}
                                     className="quick-grade-pen"
                                     style={{
                                       background: 'none',
@@ -8019,8 +8006,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                               <div
                                 className="text-xs"
                                 style={
-                                  isNotablePick
-                                    ? { color: '#FFD700', fontWeight: 'bold' }
+                                  isAnyNotable
+                                    ? { color: notableColor(), fontWeight: 'bold' }
                                     : { color: '#d1d5db' }
                                 }
                               >
@@ -8032,9 +8019,9 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             <div
                               className="hidden md:block"
-                              style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : {}}
+                              style={isAnyNotable ? { color: notableColor(), fontWeight: 'bold' } : {}}
                             >
-                              {notableFilterActive ? formatTimeWithSeconds(trade.trade_timestamp) : formatTimeWithSeconds(trade.trade_timestamp)}
+                              {formatTimeWithSeconds(trade.trade_timestamp)}
                             </div>
                           </td>
 
@@ -8064,7 +8051,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                             })()}
                             <div className="flex items-center justify-center gap-2">
                               {/* Quick Grade Pen Icon (Desktop) */}
-                              {!INDEX_TICKERS.has(trade.underlying_ticker) && !efiHighlightsActive && !leapActive && (
+                              {!INDEX_TICKERS.has(trade.underlying_ticker) && !shortTermActive && !longTermActive && (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); handleQuickGrade(trade, e) }}
                                   title={`Quick Grade (${trade.days_to_expiry <= 35 ? 'EFI' : 'LEAP'} logic)`}
@@ -8091,7 +8078,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                   : ''
                                   }`}
                                 style={
-                                  isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : {}
+                                  isAnyNotable ? { color: notableColor(), fontWeight: 'bold' } : {}
                                 }
                               >
                                 {trade.underlying_ticker}
@@ -8127,8 +8114,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                               <div
                                 className="text-xs font-semibold"
                                 style={
-                                  isNotablePick
-                                    ? { color: '#FFD700', fontWeight: 'bold' }
+                                  isAnyNotable
+                                    ? { color: notableColor(), fontWeight: 'bold' }
                                     : { color: 'white' }
                                 }
                               >
@@ -8148,8 +8135,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                           <td
                             className="hidden md:table-cell p-2 md:p-6 text-xs md:text-xl font-semibold border-r border-gray-700/30 strike-cell text-center"
                             style={
-                              isNotablePick
-                                ? { color: '#FFD700', fontWeight: 'bold' }
+                              isAnyNotable
+                                ? { color: notableColor(), fontWeight: 'bold' }
                                 : { color: 'white' }
                             }
                           >
@@ -8259,8 +8246,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                               <div
                                 className="text-xs font-semibold"
                                 style={
-                                  isNotablePick
-                                    ? { color: '#FFD700', fontWeight: 'bold' }
+                                  isAnyNotable
+                                    ? { color: notableColor(), fontWeight: 'bold' }
                                     : { color: 'white' }
                                 }
                               >
@@ -8281,7 +8268,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             <div
                               className="hidden md:block"
-                              style={isNotablePick ? { color: '#FFD700', fontWeight: 'bold' } : {}}
+                              style={isAnyNotable ? { color: notableColor(), fontWeight: 'bold' } : {}}
                             >
                               {formatDate(trade.expiry)}
                             </div>
@@ -8294,7 +8281,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                               <div className="text-xs">
                                 <span className="font-bold" style={{ color: 'white' }}>
                                   $
-                                  {(notableFilterActive || efiHighlightsActive || leapActive) && isMobileView
+                                  {(shortTermActive || longTermActive) && isMobileView
                                     ? fmt4sig(typeof trade.spot_price === 'number' ? trade.spot_price : parseFloat(trade.spot_price))
                                     : (typeof trade.spot_price === 'number'
                                       ? trade.spot_price.toFixed(2)
@@ -8309,7 +8296,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                   $
                                   {(() => {
                                     const cp = (currentPrices[trade.underlying_ticker] || trade.current_price) ?? 0
-                                    return (notableFilterActive || efiHighlightsActive || leapActive) && isMobileView
+                                    return (shortTermActive || longTermActive) && isMobileView
                                       ? fmt4sig(cp)
                                       : cp.toFixed(2)
                                   })()}
@@ -8327,7 +8314,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                 }
                                 isLoading={priceLoadingState[trade.underlying_ticker]}
                                 ticker={trade.underlying_ticker}
-                                isNotablePick={isNotablePick}
+                                isNotablePick={isAnyNotable}
                               />
                             </div>
                           </td>
@@ -8379,239 +8366,45 @@ Stock Reaction: ${scores.stockReaction}/15`
                             </span>
                           </td>
 
-                          {/* -- Targets column -- */}
-                          {notableFilterActive &&
+                          {/* -- Dealer column -- */}
+                          {(shortTermActive || longTermActive) &&
                             (() => {
-                              const isCall = trade.type === 'call'
-                              const fillStyle = trade.fill_style || ''
-                              const isSoldToOpen = fillStyle === 'B' || fillStyle === 'BB'
-                              // A/AA: directional · calls go up, puts go down
-                              // B/BB: inversed  · calls go down (sold call = bearish), puts go up (sold put = bullish)
-                              const targetIsUpside =
-                                (isCall && !isSoldToOpen) || (!isCall && isSoldToOpen)
-                              const cacheKeyT = trade.underlying_ticker
-                              const cachedIV = dealerZoneCache[cacheKeyT]?.atmIV
-                              const sigma =
-                                cachedIV && cachedIV > 0
-                                  ? cachedIV
-                                  : trade.implied_volatility && trade.implied_volatility > 0
-                                    ? trade.implied_volatility
-                                    : 0
-                              const t1 =
-                                sigma > 0
-                                  ? bsStrikeForProb(
-                                    trade.spot_price,
-                                    sigma,
-                                    trade.days_to_expiry,
-                                    80,
-                                    targetIsUpside
-                                  )
-                                  : null
-                              const t2 =
-                                sigma > 0
-                                  ? bsStrikeForProb(
-                                    trade.spot_price,
-                                    sigma,
-                                    trade.days_to_expiry,
-                                    90,
-                                    targetIsUpside
-                                  )
-                                  : null
+                              const zones = dealerZoneCache[trade.underlying_ticker]
                               return (
                                 <td className="hidden md:table-cell p-3 md:p-5 border-r border-gray-700/30 align-middle">
-                                  {t1 && t2 ? (
-                                    <div
-                                      style={{
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        gap: '5px',
-                                      }}
-                                    >
-                                      <div
-                                        style={{
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          gap: '6px',
-                                        }}
-                                      >
-                                        <span
-                                          style={{
-                                            fontSize: '12px',
-                                            fontWeight: 700,
-                                            color: '#00ff88',
-                                            letterSpacing: '1px',
-                                            minWidth: '22px',
-                                          }}
-                                        >
-                                          T1
+                                  {zones ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        <span style={{ fontSize: '11px', fontWeight: 700, color: '#FFD700', letterSpacing: '0.5px', minWidth: '46px' }}>MAGNET</span>
+                                        <span style={{ fontSize: '15px', fontWeight: 900, color: '#FFD700' }}>
+                                          {zones.golden != null ? `$${zones.golden}` : '-'}
                                         </span>
-                                        <span
-                                          style={{
-                                            fontSize: '17px',
-                                            fontWeight: 900,
-                                            color: '#ffffff',
-                                            letterSpacing: '-0.5px',
-                                          }}
-                                        >
-                                          ${t1.toFixed(2)}
-                                        </span>
+                                        {zones.goldenExpiry && (
+                                          <span style={{ fontSize: '15px', fontWeight: 900, color: '#FFD700' }}>
+                                            {zones.goldenExpiry.slice(5).replace('-', '/')}
+                                          </span>
+                                        )}
                                       </div>
-                                      <div
-                                        style={{
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          gap: '6px',
-                                        }}
-                                      >
-                                        <span
-                                          style={{
-                                            fontSize: '12px',
-                                            fontWeight: 700,
-                                            color: '#FFA500',
-                                            letterSpacing: '1px',
-                                            minWidth: '22px',
-                                          }}
-                                        >
-                                          T2
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        <span style={{ fontSize: '11px', fontWeight: 700, color: '#a855f7', letterSpacing: '0.5px', minWidth: '46px' }}>PIVOT</span>
+                                        <span style={{ fontSize: '15px', fontWeight: 900, color: '#a855f7' }}>
+                                          {zones.purple != null ? `$${zones.purple}` : '-'}
                                         </span>
-                                        <span
-                                          style={{
-                                            fontSize: '17px',
-                                            fontWeight: 900,
-                                            color: '#ffffff',
-                                            letterSpacing: '-0.5px',
-                                          }}
-                                        >
-                                          ${t2.toFixed(2)}
-                                        </span>
+                                        {zones.purpleExpiry && (
+                                          <span style={{ fontSize: '15px', fontWeight: 900, color: '#a855f7' }}>
+                                            {zones.purpleExpiry.slice(5).replace('-', '/')}
+                                          </span>
+                                        )}
                                       </div>
                                     </div>
                                   ) : (
-                                    <span style={{ color: '#333', fontSize: '12px' }}>·</span>
+                                    <span style={{ color: '#444', fontSize: '11px' }}>loading...</span>
                                   )}
                                 </td>
                               )
                             })()}
 
-                          {/* -- Dealer column -- */}
-                          {notableFilterActive &&
-                            (() => {
-                              const cacheKey = trade.underlying_ticker
-                              const zones = dealerZoneCache[cacheKey]
-                              const isNotableRow =
-                                notableFilterActive ||
-                                (efiHighlightsActive && meetsNotableCriteria(trade))
-                              return (
-                                <td className="hidden md:table-cell p-3 md:p-5 border-r border-gray-700/30 align-middle">
-                                  {isNotableRow ? (
-                                    zones ? (
-                                      <div
-                                        style={{
-                                          display: 'flex',
-                                          flexDirection: 'column',
-                                          gap: '5px',
-                                        }}
-                                      >
-                                        <div
-                                          style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '6px',
-                                          }}
-                                        >
-                                          <span
-                                            style={{
-                                              fontSize: '12px',
-                                              fontWeight: 700,
-                                              color: '#FFD700',
-                                              letterSpacing: '1px',
-                                              minWidth: '42px',
-                                            }}
-                                          >
-                                            MAGNET
-                                          </span>
-                                          <span
-                                            style={{
-                                              fontSize: '17px',
-                                              fontWeight: 900,
-                                              color: '#FFD700',
-                                              letterSpacing: '-0.5px',
-                                            }}
-                                          >
-                                            {zones.golden != null ? `$${zones.golden}` : '—'}
-                                          </span>
-                                          {zones.goldenExpiry && (
-                                            <span
-                                              style={{
-                                                fontSize: '13px',
-                                                fontWeight: 700,
-                                                color: '#FFD700',
-                                              }}
-                                            >
-                                              {zones.goldenExpiry.slice(5).replace('-', '/')}
-                                            </span>
-                                          )}
-                                        </div>
-                                        <div
-                                          style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '6px',
-                                          }}
-                                        >
-                                          <span
-                                            style={{
-                                              fontSize: '12px',
-                                              fontWeight: 700,
-                                              color: '#a855f7',
-                                              letterSpacing: '1px',
-                                              minWidth: '42px',
-                                            }}
-                                          >
-                                            PIVOT
-                                          </span>
-                                          <span
-                                            style={{
-                                              fontSize: '17px',
-                                              fontWeight: 900,
-                                              color: '#a855f7',
-                                              letterSpacing: '-0.5px',
-                                            }}
-                                          >
-                                            {zones.purple != null ? `$${zones.purple}` : '—'}
-                                          </span>
-                                          {zones.purpleExpiry && (
-                                            <span
-                                              style={{
-                                                fontSize: '13px',
-                                                fontWeight: 700,
-                                                color: '#a855f7',
-                                              }}
-                                            >
-                                              {zones.purpleExpiry.slice(5).replace('-', '/')}
-                                            </span>
-                                          )}
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      <span
-                                        style={{
-                                          color: '#555',
-                                          fontSize: '10px',
-                                          letterSpacing: '1px',
-                                        }}
-                                      >
-                                        ...
-                                      </span>
-                                    )
-                                  ) : (
-                                    <span style={{ color: '#333', fontSize: '12px' }}>·</span>
-                                  )}
-                                </td>
-                              )
-                            })()}
-
-                          {(efiHighlightsActive || leapActive) &&
+                          {(shortTermActive || longTermActive) &&
                             (() => {
                               const expiry = trade.expiry.replace(/-/g, '').slice(2)
 
@@ -8705,413 +8498,120 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                                 const { grade, color: scoreColor, breakdown } = gradeData
 
+                                // Compute dealer signal + educator-style entry plan
+                                const _zone = dealerZoneCache[trade.underlying_ticker]
+                                const _spot = currentPrices[trade.underlying_ticker]
+                                const _magnet = _zone?.golden ?? null
+                                const _pivot = _zone?.purple ?? null
+                                let _sigCode = grade
+                                let _sigSub = ''
+                                let _sigColor = scoreColor
+                                let _planText = 'Waiting on dealer zone data to build an entry plan.'
+                                if (_spot && _spot > 0 && (_magnet !== null || _pivot !== null)) {
+                                  const _near = 0.025
+                                  if (_magnet !== null && _pivot !== null && Math.abs(_magnet - _pivot) / _spot < 0.015) {
+                                    _sigCode = `Break $${_magnet.toFixed(0)}`; _sigColor = '#ff8500'
+                                    _planText = `Magnet and pivot are stacked at the same level ($${_magnet.toFixed(2)}). Wait for a clean break of that level with volume before entering — trade the breakout, not the chop around it.`
+                                  } else if (_pivot !== null && Math.abs(_spot - _pivot) / _spot <= _near) {
+                                    _sigCode = 'Take Action Now'; _sigSub = `Pivot $${_pivot.toFixed(0)}`; _sigColor = '#00ff88'
+                                    _planText = `Price is sitting right on the pivot ($${_pivot.toFixed(2)}). This is your entry zone — take the trade now with a tight stop just beyond the pivot, don't wait for confirmation or you'll chase it.`
+                                  } else if (_magnet !== null && Math.abs(_spot - _magnet) / _spot <= _near) {
+                                    _sigCode = 'Take Action Now'; _sigSub = `Magnet $${_magnet.toFixed(0)}`; _sigColor = '#00ff88'
+                                    _planText = `Price is right at the magnet ($${_magnet.toFixed(2)}). This is your entry zone — take the trade now with a tight stop, this level tends to react fast.`
+                                  } else if (_magnet !== null && _pivot !== null) {
+                                    const _lo = Math.min(_magnet, _pivot)
+                                    const _hi = Math.max(_magnet, _pivot)
+                                    if (_spot > _lo && _spot < _hi) {
+                                      _sigCode = `Liquidate $${_lo.toFixed(0)} / Break $${_hi.toFixed(0)}`; _sigColor = '#fbbf24'
+                                      _planText = `Price is boxed between $${_lo.toFixed(2)} and $${_hi.toFixed(2)}. Enter on a liquidation move below $${_lo.toFixed(2)}, or on a confirmed breakout above $${_hi.toFixed(2)} — don't buy the middle of the range, let it show its hand first.`
+                                    } else {
+                                      const _dM = Math.abs(_spot - _magnet), _dP = Math.abs(_spot - _pivot)
+                                      if (_dM <= _dP) {
+                                        _sigCode = `Enter → Magnet`; _sigSub = `Target $${_magnet.toFixed(0)}`; _sigColor = '#00e5ff'
+                                        _planText = `You're already close to the magnet ($${_magnet.toFixed(2)}) — the pivot is far away and less relevant right now. Enter here and trade this move toward the magnet as your target.`
+                                      } else {
+                                        _sigCode = `Wait for Pivot`; _sigSub = `$${_pivot.toFixed(0)}`; _sigColor = '#a855f7'
+                                        _planText = `You're still far from both levels but closer to the pivot ($${_pivot.toFixed(2)}). Be patient — wait for price to approach the pivot before entering, entering here is too early and lowers your edge.`
+                                      }
+                                    }
+                                  }
+                                }
+
                                 return (
                                   <td
                                     className="p-2 md:p-6 border-r border-gray-700/30"
                                     style={{
                                       position: 'relative',
-
                                       zIndex: hoveredGradeIndex === index ? 99999 : 'auto',
                                     }}
                                   >
-                                    {/* Mobile: Compact grade + percentage */}
-
+                                    {/* Mobile: Compact price + percentage (grade letter hidden) */}
                                     <div className="md:hidden flex flex-col items-center space-y-1">
-                                      <span
-                                        style={{
-                                          color: scoreColor,
-
-                                          fontWeight: 'bold',
-
-                                          fontSize: '14px',
-
-                                          textShadow: `0 1px 2px rgba(0, 0, 0, 0.8)`,
-                                        }}
-                                      >
-                                        {grade}
-                                      </span>
-
-                                      <span
-                                        style={{
-                                          color,
-
-                                          fontWeight: 'bold',
-
-                                          fontSize: '12px',
-                                        }}
-                                      >
-                                        {priceHigher ? '+' : ''}
-                                        {percentChange.toFixed(1)}%
-                                      </span>
+                                      <span style={{ color, fontWeight: 'bold', fontSize: '13px' }}>${currentPrice.toFixed(2)}</span>
+                                      <span style={{ color, fontWeight: 600, fontSize: '11px' }}>{formatValue(currentValue)}</span>
+                                      <span style={{ color, fontWeight: 'bold', fontSize: '12px' }}>{priceHigher ? '+' : ''}{percentChange.toFixed(1)}%</span>
                                     </div>
 
-                                    {/* Desktop: Original large circle display */}
-
+                                    {/* Desktop: Price info + Plan Entry button (grade letter/circle hidden) */}
                                     <div className="hidden md:flex items-center gap-2">
-                                      <div
-                                        style={{
-                                          display: 'inline-flex',
-
-                                          alignItems: 'center',
-
-                                          justifyContent: 'center',
-
-                                          width: '78px',
-
-                                          height: '78px',
-
-                                          border: `6px solid ${scoreColor}`,
-
-                                          borderRadius: '50%',
-
-                                          background: `linear-gradient(135deg, ${scoreColor}20 0%, ${scoreColor}05 50%, ${scoreColor}30 100%)`,
-
-                                          marginLeft: '10px',
-
-                                          transform: 'rotate(-12deg)',
-
-                                          boxShadow: `
-
- 0 8px 16px rgba(0, 0, 0, 0.6),
-
- inset 0 -3px 8px rgba(0, 0, 0, 0.7),
-
- inset 0 3px 8px rgba(255, 255, 255, 0.1)
-
- `,
-
-                                          position: 'relative',
-                                        }}
-                                      >
-                                        <div
-                                          style={{
-                                            position: 'absolute',
-
-                                            top: '3px',
-
-                                            left: '3px',
-
-                                            right: '3px',
-
-                                            bottom: '3px',
-
-                                            border: `2px dashed ${scoreColor}80`,
-
-                                            borderRadius: '50%',
-                                          }}
-                                        ></div>
-
-                                        <span
-                                          style={{
-                                            color: scoreColor,
-
-                                            fontWeight: 'normal',
-
-                                            fontSize: '20px',
-
-                                            fontStyle: 'italic',
-
-                                            fontFamily: 'Impact, Georgia, serif',
-
-                                            textShadow: `
-
- 0 3px 0 rgba(0, 0, 0, 0.8),
-
- 0 -1px 0 rgba(255, 255, 255, 0.3),
-
- 2px 2px 4px rgba(0, 0, 0, 0.9)
-
- `,
-
-                                            transform: 'rotate(12deg)',
-
-                                            letterSpacing: '1px',
-
-                                            filter: 'drop-shadow(0 2px 3px rgba(0, 0, 0, 0.8))',
-
-                                            WebkitTextStroke: `0.5px ${scoreColor}`,
-
-                                            position: 'relative',
-                                          }}
-                                        >
-                                          {grade}
-
-                                          {false &&
-                                            (index < 3 ? (
-                                              <div
-                                                style={{
-                                                  position: 'absolute',
-
-                                                  top: '100%',
-
-                                                  left: '50%',
-
-                                                  transform: 'translateX(-50%) translateY(12px)',
-
-                                                  backgroundColor: '#000000',
-
-                                                  color: '#ffffff',
-
-                                                  padding: '16px 20px',
-
-                                                  borderRadius: '12px',
-
-                                                  fontSize: '15px',
-
-                                                  fontFamily: 'monospace',
-
-                                                  fontStyle: 'normal',
-
-                                                  fontWeight: 'normal',
-
-                                                  whiteSpace: 'pre-line',
-
-                                                  zIndex: 99999,
-
-                                                  minWidth: '280px',
-
-                                                  boxShadow: `
-
- 0 8px 32px rgba(0, 0, 0, 0.8),
-
- 0 0 0 2px ${scoreColor}40
-
- `,
-
-                                                  border: `2px solid ${scoreColor}`,
-
-                                                  lineHeight: '1.8',
-
-                                                  letterSpacing: '0.5px',
-
-                                                  textShadow: 'none',
-
-                                                  WebkitTextStroke: '0',
-
-                                                  pointerEvents: 'none',
-                                                }}
-                                              >
-                                                <div style={{ marginBottom: '8px', fontWeight: 'bold', fontSize: '16px' }}>
-                                                  {leapActive ? 'LEAP' : ''} Score:{' '}
-                                                  <span style={{ color: scoreColor }}>{gradeData.score}/75</span>
-                                                </div>
-
-                                                {leapActive ? (
-                                                  <>
-                                                    {([['Contract P&L', gradeData.scores.contractPrice, 15], ['Rel. Strength', gradeData.scores.relativeStrength, 30], ['Vol / OI', gradeData.scores.volumeOI, 15], ['Stock Reaction', gradeData.scores.stockReaction, 15]] as [string, number, number][]).map(([label, val, max]) => (
-                                                      <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
-                                                        <span>{label}</span>
-                                                        <span style={{ color: val <= 0 ? '#ff0000' : val >= max ? '#00ff00' : '#fbbf24' }}>
-                                                          {val}/{max}
-                                                        </span>
-                                                      </div>
-                                                    ))}
-                                                    {(gradeData.scores as any).bonus52w > 0 && (
-                                                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', color: '#00e5ff' }}>
-                                                        <span>52W Breakout Bonus</span>
-                                                        <span>+{(gradeData.scores as any).bonus52w}</span>
-                                                      </div>
-                                                    )}
-                                                    {(gradeData.scores as any).seasonalBonus > 0 && (
-                                                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', color: '#a78bfa' }}>
-                                                        <span>Seasonality Bonus</span>
-                                                        <span>+{(gradeData.scores as any).seasonalBonus}</span>
-                                                      </div>
-                                                    )}
-                                                  </>
-                                                ) : (
-                                                  <>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                      <span>Expiration:</span>
-                                                      <span style={{ color: (gradeData.scores as any).expiration === 0 ? '#ff0000' : (gradeData.scores as any).expiration === 25 ? '#00ff00' : '#ffffff' }}>{(gradeData.scores as any).expiration}/25</span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                      <span>Rel. Strength:</span>
-                                                      <span style={{ color: gradeData.scores.relativeStrength === 0 ? '#ff0000' : gradeData.scores.relativeStrength === 10 ? '#00ff00' : '#ffffff' }}>{gradeData.scores.relativeStrength}/10</span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                      <span>Contract P&L:</span>
-                                                      <span style={{ color: gradeData.scores.contractPrice === 0 ? '#ff0000' : gradeData.scores.contractPrice === 15 ? '#00ff00' : '#ffffff' }}>{gradeData.scores.contractPrice}/15</span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                      <span>Combo Trade:</span>
-                                                      <span style={{ color: (gradeData.scores as any).combo === 0 ? '#ff0000' : (gradeData.scores as any).combo === 10 ? '#00ff00' : '#ffffff' }}>{(gradeData.scores as any).combo}/10</span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                      <span>Price Action:</span>
-                                                      <span style={{ color: (gradeData.scores as any).priceAction === 0 ? '#ff0000' : (gradeData.scores as any).priceAction === 10 ? '#00ff00' : '#ffffff' }}>{(gradeData.scores as any).priceAction}/10</span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                      <span>Volume vs OI:</span>
-                                                      <span style={{ color: gradeData.scores.volumeOI === 0 ? '#ff0000' : gradeData.scores.volumeOI === 15 ? '#00ff00' : '#ffffff' }}>{gradeData.scores.volumeOI}/15</span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                      <span>Stock Reaction:</span>
-                                                      <span style={{ color: gradeData.scores.stockReaction === 0 ? '#ff0000' : gradeData.scores.stockReaction === 15 ? '#00ff00' : '#ffffff' }}>{gradeData.scores.stockReaction}/15</span>
-                                                    </div>
-                                                    {gradeData.stdDevError && (
-                                                      <div style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontStyle: 'italic' }}>? StdDev fetch failed &#8212; Price Action unscored</div>
-                                                    )}
-                                                  </>
-                                                )}
-
-                                                <div style={{ position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)', width: 0, height: 0, borderLeft: '10px solid transparent', borderRight: '10px solid transparent', borderBottom: `10px solid ${scoreColor}` }}></div>
-                                              </div>
-                                            ) : (
-                                              <div
-                                                style={{
-                                                  position: 'absolute',
-
-                                                  bottom: '100%',
-
-                                                  left: '50%',
-
-                                                  transform: 'translateX(-50%) translateY(-12px)',
-
-                                                  backgroundColor: '#000000',
-
-                                                  color: '#ffffff',
-
-                                                  padding: '16px 20px',
-
-                                                  borderRadius: '12px',
-
-                                                  fontSize: '15px',
-
-                                                  fontFamily: 'monospace',
-
-                                                  fontStyle: 'normal',
-
-                                                  fontWeight: 'normal',
-
-                                                  whiteSpace: 'pre-line',
-
-                                                  zIndex: 99999,
-
-                                                  minWidth: '280px',
-
-                                                  boxShadow: `
-
- 0 8px 32px rgba(0, 0, 0, 0.8),
-
- 0 0 0 2px ${scoreColor}40
-
- `,
-
-                                                  border: `2px solid ${scoreColor}`,
-
-                                                  lineHeight: '1.8',
-
-                                                  letterSpacing: '0.5px',
-
-                                                  textShadow: 'none',
-
-                                                  WebkitTextStroke: '0',
-
-                                                  pointerEvents: 'none',
-                                                }}
-                                              >
-                                                <div style={{ marginBottom: '8px', fontWeight: 'bold', fontSize: '16px' }}>
-                                                  {leapActive ? 'LEAP' : ''} Score:{' '}
-                                                  <span style={{ color: scoreColor }}>{gradeData.score}/75</span>
-                                                </div>
-
-                                                {leapActive ? (
-                                                  <>
-                                                    {([['Contract P&L', gradeData.scores.contractPrice, 15], ['Rel. Strength', gradeData.scores.relativeStrength, 30], ['Vol / OI', gradeData.scores.volumeOI, 15], ['Stock Reaction', gradeData.scores.stockReaction, 15]] as [string, number, number][]).map(([label, val, max]) => (
-                                                      <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
-                                                        <span>{label}</span>
-                                                        <span style={{ color: val <= 0 ? '#ff0000' : val >= max ? '#00ff00' : '#fbbf24' }}>
-                                                          {val}/{max}
-                                                        </span>
-                                                      </div>
-                                                    ))}
-                                                    {(gradeData.scores as any).bonus52w > 0 && (
-                                                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', color: '#00e5ff' }}>
-                                                        <span>52W Breakout Bonus</span>
-                                                        <span>+{(gradeData.scores as any).bonus52w}</span>
-                                                      </div>
-                                                    )}
-                                                    {(gradeData.scores as any).seasonalBonus > 0 && (
-                                                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', color: '#a78bfa' }}>
-                                                        <span>Seasonality Bonus</span>
-                                                        <span>+{(gradeData.scores as any).seasonalBonus}</span>
-                                                      </div>
-                                                    )}
-                                                  </>
-                                                ) : (
-                                                  <>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                      <span>Expiration:</span>
-                                                      <span style={{ color: (gradeData.scores as any).expiration === 0 ? '#ff0000' : (gradeData.scores as any).expiration === 25 ? '#00ff00' : '#ffffff' }}>{(gradeData.scores as any).expiration}/25</span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                      <span>Rel. Strength:</span>
-                                                      <span style={{ color: gradeData.scores.relativeStrength === 0 ? '#ff0000' : gradeData.scores.relativeStrength === 10 ? '#00ff00' : '#ffffff' }}>{gradeData.scores.relativeStrength}/10</span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                      <span>Contract P&L:</span>
-                                                      <span style={{ color: gradeData.scores.contractPrice === 0 ? '#ff0000' : gradeData.scores.contractPrice === 15 ? '#00ff00' : '#ffffff' }}>{gradeData.scores.contractPrice}/15</span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                      <span>Combo Trade:</span>
-                                                      <span style={{ color: (gradeData.scores as any).combo === 0 ? '#ff0000' : (gradeData.scores as any).combo === 10 ? '#00ff00' : '#ffffff' }}>{(gradeData.scores as any).combo}/10</span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                      <span>Price Action:</span>
-                                                      <span style={{ color: (gradeData.scores as any).priceAction === 0 ? '#ff0000' : (gradeData.scores as any).priceAction === 10 ? '#00ff00' : '#ffffff' }}>{(gradeData.scores as any).priceAction}/10</span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                      <span>Volume vs OI:</span>
-                                                      <span style={{ color: gradeData.scores.volumeOI === 0 ? '#ff0000' : gradeData.scores.volumeOI === 15 ? '#00ff00' : '#ffffff' }}>{gradeData.scores.volumeOI}/15</span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                      <span>Stock Reaction:</span>
-                                                      <span style={{ color: gradeData.scores.stockReaction === 0 ? '#ff0000' : gradeData.scores.stockReaction === 15 ? '#00ff00' : '#ffffff' }}>{gradeData.scores.stockReaction}/15</span>
-                                                    </div>
-                                                    {gradeData.stdDevError && (
-                                                      <div style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontStyle: 'italic' }}>? StdDev fetch failed · Price Action unscored</div>
-                                                    )}
-                                                  </>
-                                                )}
-
-                                                <div style={{ position: 'absolute', bottom: '-10px', left: '50%', transform: 'translateX(-50%)', width: 0, height: 0, borderLeft: '10px solid transparent', borderRight: '10px solid transparent', borderTop: `10px solid ${scoreColor}` }}></div>
-                                              </div>
-                                            ))}
-                                        </span>
+                                      {/* Price info + Plan Entry */}
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', whiteSpace: 'nowrap' }}>
+                                          <span style={{ color, fontWeight: 'bold', fontSize: '16.8px' }}>${currentPrice.toFixed(2)}</span>
+                                          <span style={{ color, fontWeight: 700, fontSize: '13px' }}>{formatValue(currentValue)}</span>
+                                          <span style={{ color, fontWeight: 'bold', fontSize: '14.4px' }}>{priceHigher ? '+' : ''}{percentChange.toFixed(1)}%</span>
+                                        </div>
+
+                                        {/* Plan Entry button — only when dealer zones are loaded */}
+                                        {(_magnet !== null || _pivot !== null) && (
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              // Toggle a mini popup anchored to this button
+                                              const id = `pe-${index}`
+                                              const existing = document.getElementById(id)
+                                              if (existing) { existing.remove(); return }
+                                              const popup = document.createElement('div')
+                                              popup.id = id
+                                              popup.style.cssText = `position:fixed;z-index:999999;background:#000;border:1px solid ${_sigColor};border-radius:16px;padding:23px 29px;font-family:system-ui,-apple-system,sans-serif;font-size:21.1px;color:#fff;max-width:455px;box-shadow:0 8px 32px rgba(0,0,0,0.9);`
+                                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                                              popup.style.top = `${rect.bottom + 6}px`
+                                              popup.style.left = `${Math.min(rect.left, window.innerWidth - 480)}px`
+                                              popup.innerHTML = `<div style="color:${_sigColor};font-weight:900;font-size:22.75px;margin-bottom:13px;font-family:monospace">${_sigCode}</div><div style="color:#e5e5e5;line-height:1.5;font-size:20.3px">${_planText}</div>`
+                                              document.body.appendChild(popup)
+                                              const close = (ev: MouseEvent) => { if (!popup.contains(ev.target as Node)) { popup.remove(); document.removeEventListener('click', close) } }
+                                              setTimeout(() => document.addEventListener('click', close), 50)
+                                            }}
+                                            style={{
+                                              marginTop: '2px',
+                                              padding: '7px 14px',
+                                              background: `linear-gradient(180deg, ${_sigColor}22 0%, rgba(0,0,0,0.3) 100%)`,
+                                              border: `1px solid ${_sigColor}88`,
+                                              borderRadius: '6px',
+                                              color: _sigColor,
+                                              fontSize: '13px',
+                                              fontWeight: 700,
+                                              fontFamily: 'monospace',
+                                              letterSpacing: '0.5px',
+                                              cursor: 'pointer',
+                                              whiteSpace: 'nowrap',
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: '6px',
+                                            }}
+                                          >
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={_sigColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                                              <path d="M12 20h9" />
+                                              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                            </svg>
+                                            Plan Entry
+                                          </button>
+                                        )}
                                       </div>
-
-                                      <span
-                                        style={{
-                                          color,
-                                          fontWeight: 'bold',
-                                          fontSize: '16.8px',
-                                          whiteSpace: 'nowrap',
-                                        }}
-                                      >
-                                        ${currentPrice.toFixed(2)}
-                                      </span>
-
-                                      <span
-                                        style={{ color, fontSize: '14.4px', whiteSpace: 'nowrap' }}
-                                      >
-                                        {formatValue(currentValue)}
-                                      </span>
-
-                                      <span
-                                        style={{
-                                          color,
-                                          fontWeight: 'bold',
-                                          fontSize: '15.6px',
-                                          whiteSpace: 'nowrap',
-                                        }}
-                                      >
-                                        {priceHigher ? '+' : ''}
-                                        {percentChange.toFixed(1)}%
-                                      </span>
                                     </div>
                                   </td>
                                 )
+
                               } else {
                                 const todayLocal = new Date().toLocaleDateString('en-CA')
                                 const isExpired = trade.expiry < todayLocal
@@ -9126,9 +8626,9 @@ Stock Reaction: ${scores.stockReaction}/15`
                             })()}
                         </tr>
 
-                        {/* Mobile 3rd row: T1 / T2 / Magnet / Pivot · only for notable picks on mobile */}
+                        {/* Mobile 3rd row: T1 / T2 / Magnet / Pivot - only for notable picks on mobile */}
                         {isMobileView &&
-                          isNotablePick &&
+                          isAnyNotable &&
                           (() => {
                             const isCall2 = trade.type === 'call'
                             const fillStyle2 = (trade as any).fill_style || ''
@@ -9210,7 +8710,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                           color: '#ffffff',
                                         }}
                                       >
-                                        {t1m ? `$${t1m.toFixed(2)}` : '—'}
+                                        {t1m ? `$${t1m.toFixed(2)}` : '-'}
                                       </span>
                                     </div>
                                     {/* T2 */}
@@ -9244,7 +8744,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                           color: '#ffffff',
                                         }}
                                       >
-                                        {t2m ? `$${t2m.toFixed(2)}` : '—'}
+                                        {t2m ? `$${t2m.toFixed(2)}` : '-'}
                                       </span>
                                     </div>
                                     {/* Magnet */}
@@ -9278,7 +8778,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                           color: '#FFD700',
                                         }}
                                       >
-                                        {zones2?.golden != null ? `$${zones2.golden}` : '—'}
+                                        {zones2?.golden != null ? `$${zones2.golden}` : '-'}
                                         {zones2?.goldenExpiry && (
                                           <span
                                             style={{
@@ -9323,7 +8823,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                           color: '#dd44ff',
                                         }}
                                       >
-                                        {zones2?.purple != null ? `$${zones2.purple}` : '—'}
+                                        {zones2?.purple != null ? `$${zones2.purple}` : '-'}
                                         {zones2?.purpleExpiry && (
                                           <span
                                             style={{
@@ -9367,7 +8867,7 @@ Stock Reaction: ${scores.stockReaction}/15`
           </div>
         </div>
 
-        {/* Bottom pagination bar — tablet/laptop only (< 1440px) */}
+        {/* Bottom pagination bar - tablet/laptop only (< 1440px) */}
         {windowWidth < 1440 && !isMobileView && (
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
@@ -9389,13 +8889,13 @@ Stock Reaction: ${scores.stockReaction}/15`
               disabled={currentPage === 1}
               className="disabled:opacity-30 disabled:cursor-not-allowed"
               style={{ width: '26px', height: '26px', background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)', border: '1px solid rgba(255,255,255,0.16)', borderRadius: '4px', color: '#aaa', fontSize: '12px', cursor: currentPage === 1 ? 'not-allowed' : 'pointer' }}
-            >«</button>
+            >-</button>
             <button
               onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
               disabled={currentPage === 1}
               className="disabled:opacity-30 disabled:cursor-not-allowed"
               style={{ width: '26px', height: '26px', background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)', border: '1px solid rgba(255,255,255,0.16)', borderRadius: '4px', color: '#aaa', fontSize: '14px', cursor: currentPage === 1 ? 'not-allowed' : 'pointer' }}
-            >‹</button>
+            >-</button>
 
             {Array.from({ length: Math.min(7, totalPages) }, (_, i) => {
               let pageNum
@@ -9425,13 +8925,13 @@ Stock Reaction: ${scores.stockReaction}/15`
               disabled={currentPage === totalPages}
               className="disabled:opacity-30 disabled:cursor-not-allowed"
               style={{ width: '26px', height: '26px', background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)', border: '1px solid rgba(255,255,255,0.16)', borderRadius: '4px', color: '#aaa', fontSize: '14px', cursor: currentPage === totalPages ? 'not-allowed' : 'pointer' }}
-            >›</button>
+            >-</button>
             <button
               onClick={() => setCurrentPage(totalPages)}
               disabled={currentPage === totalPages}
               className="disabled:opacity-30 disabled:cursor-not-allowed"
               style={{ width: '26px', height: '26px', background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)', border: '1px solid rgba(255,255,255,0.16)', borderRadius: '4px', color: '#aaa', fontSize: '12px', cursor: currentPage === totalPages ? 'not-allowed' : 'pointer' }}
-            >»</button>
+            >-</button>
           </div>
         )}
       </div>
@@ -10750,7 +10250,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       {/* Tablet: slide-in Flow Tracking Panel toggle button + drawer */}
       {!isSidebarPanel && isTabletView && (
         <>
-          {/* Tab button — fixed on the right edge */}
+          {/* Tab button - fixed on the right edge */}
           <button
             onClick={() => setTabletPanelOpen((v) => !v)}
             style={{
@@ -10783,7 +10283,7 @@ Stock Reaction: ${scores.stockReaction}/15`
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ff8500" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
             </svg>
-            {tabletPanelOpen ? '✕' : 'A+'}
+            {tabletPanelOpen ? '?' : 'A+'}
           </button>
 
           {/* Backdrop */}
@@ -10828,7 +10328,7 @@ Stock Reaction: ${scores.stockReaction}/15`
               <button
                 onClick={() => setTabletPanelOpen(false)}
                 style={{ background: 'none', border: 'none', color: '#888', fontSize: '20px', cursor: 'pointer', lineHeight: 1 }}
-              >✕</button>
+              >?</button>
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
               <FlowTrackingPanel
@@ -10849,7 +10349,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         </>
       )}
 
-      {/* Mobile Pagination Bar — fixed just above the bottom tab bar */}
+      {/* Mobile Pagination Bar - fixed just above the bottom tab bar */}
       {isMobileView && !isSidebarPanel && !isFlowTrackingOpen && (
         <div
           style={{
@@ -10902,7 +10402,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                   flexShrink: 0,
                 }}
               >
-                ‹
+                -
               </button>
 
               {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
@@ -10949,7 +10449,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                   flexShrink: 0,
                 }}
               >
-                ›
+                -
               </button>
             </div>
           )}
