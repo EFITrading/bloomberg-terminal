@@ -1,6 +1,6 @@
 ﻿'use client'
 
-import { TbStar, TbStarFilled, TbPencil } from 'react-icons/tb'
+import { TbStar, TbStarFilled } from 'react-icons/tb'
 import * as XLSX from 'xlsx'
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -273,6 +273,97 @@ function bsStrikeForProb(
     return (lo + hi) / 2
   }
 }
+
+// -- Plan Entry: the exact Magnet/Pivot entry-plan decision tree used in the Dealer column.
+// Extracted as a pure function so the SweepSense tab can reuse the IDENTICAL logic instead
+// of reimplementing it.
+function computePlanEntry(params: {
+  spot: number
+  magnet: number | null
+  pivot: number | null
+  sigma: number
+  dte: number
+  type: 'call' | 'put'
+  fillStyle?: string
+  grade: string
+  gradeColor: string
+}): { sigCode: string; sigColor: string; planText: string } {
+  const { spot, magnet, pivot, sigma, dte, type, fillStyle, grade, gradeColor } = params
+  let sigCode = grade
+  let sigColor = gradeColor
+  let planText = 'Waiting on dealer magnet/pivot data to build an entry plan.'
+
+  if (!(spot && spot > 0) || (magnet === null && pivot === null)) {
+    return { sigCode, sigColor, planText: 'No Plan detected.' }
+  }
+  if (sigma <= 0) {
+    return { sigCode, sigColor, planText: 'No Plan detected.' }
+  }
+  const call80 = bsStrikeForProb(spot, sigma, dte, 80, true)
+  const put80 = bsStrikeForProb(spot, sigma, dte, 80, false)
+  if (call80 === null || put80 === null) {
+    return { sigCode, sigColor, planText: 'No Plan detected.' }
+  }
+  const lo80 = Math.min(put80, call80)
+  const hi80 = Math.max(put80, call80)
+
+  let impliedBullish = type === 'call'
+  if (fillStyle === 'B' || fillStyle === 'BB') impliedBullish = !impliedBullish
+
+  const magnetInRange = magnet !== null && magnet >= lo80 && magnet <= hi80
+  const pivotInRange = pivot !== null && pivot >= lo80 && pivot <= hi80
+  const magnetAbove = magnet !== null ? magnet > spot : false
+  const pivotAbove = pivot !== null ? pivot > spot : false
+  const magnetAligned = magnet !== null && ((magnetAbove && impliedBullish) || (!magnetAbove && !impliedBullish))
+  const pivotAligned = pivot !== null && ((pivotAbove && impliedBullish) || (!pivotAbove && !impliedBullish))
+
+  const near = 0.025
+
+  type Lvl = { label: 'magnet' | 'pivot'; value: number; aligned: boolean; dist: number }
+  const candidates: Lvl[] = []
+  if (magnetInRange) candidates.push({ label: 'magnet', value: magnet!, aligned: magnetAligned, dist: Math.abs(magnet! - spot) })
+  if (pivotInRange) candidates.push({ label: 'pivot', value: pivot!, aligned: pivotAligned, dist: Math.abs(pivot! - spot) })
+  candidates.sort((a, b) => a.dist - b.dist)
+  const primary = candidates[0] ?? null
+  const secondary = candidates[1] ?? null
+
+  if (!primary) {
+    return { sigCode: grade, sigColor: gradeColor, planText: 'No Plan detected.' }
+  }
+
+  if (primary.aligned) {
+    const primaryLabel = primary.label
+    const hasStretchTarget = secondary !== null && secondary.aligned
+    if (primary.dist / spot <= near) {
+      if (spot < primary.value) {
+        sigCode = `Break Above $${primary.value.toFixed(0)}`; sigColor = '#00e5ff'
+        planText = `Price sits just below the ${primaryLabel} ($${primary.value.toFixed(2)}). Wait for a clean break above ${primary.value.toFixed(2)} with momentum/volume; on confirmed break expect continuation higher — enter on breakout.`
+      } else {
+        sigCode = `Break Below $${primary.value.toFixed(0)}`; sigColor = '#ff0000'
+        planText = `Price sits just above the ${primaryLabel} ($${primary.value.toFixed(2)}). Wait for a clean break below ${primary.value.toFixed(2)} with momentum/volume; on confirmed breakdown expect continuation lower — enter on breakdown.`
+      }
+    } else {
+      sigCode = `Target $${primary.value.toFixed(0)}`; sigColor = '#ff8500'
+      planText = `The ${primaryLabel} at $${primary.value.toFixed(2)} aligns with the flow intent. You can enter and trade toward ${primary.value.toFixed(2)} as your target.`
+    }
+    if (hasStretchTarget) {
+      sigCode = impliedBullish ? `Long ? $${secondary!.value.toFixed(0)}` : `Short ? $${secondary!.value.toFixed(0)}`
+      planText += ` On a confirmed break past $${primary.value.toFixed(2)}, add/enter more targeting the ${secondary!.label} at $${secondary!.value.toFixed(2)}.`
+    }
+  } else {
+    const primaryLabel = primary.label
+    if (impliedBullish) {
+      sigCode = `Reversal Long $${primary.value.toFixed(0)}`; sigColor = '#00e5ff'
+      planText = `The ${primaryLabel} at $${primary.value.toFixed(2)} sits against the bullish flow intent. Wait for price to approach down to $${primary.value.toFixed(2)} and buy there for entry.`
+    } else {
+      sigCode = `Reversal Short $${primary.value.toFixed(0)}`; sigColor = '#ff0000'
+      planText = `The ${primaryLabel} at $${primary.value.toFixed(2)} sits against the bearish flow intent. Wait for price to run up to approach $${primary.value.toFixed(2)} and short there for entry.`
+    }
+  }
+
+  return { sigCode, sigColor, planText }
+}
+
 interface OptionsFlowTableProps {
   data: OptionsFlowData[]
 
@@ -472,6 +563,10 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   const [shortTermActive, setEfiHighlightsActive] = useState<boolean>(false)
   const [longTermActive, setLeapActive] = useState<boolean>(false)
+  // Dedicated flag for the SweepSense tab's background scan/enrichment ONLY.
+  // Deliberately kept separate from shortTermActive/longTermActive so the main table's
+  // row filtering/criteria (which read those two) is never touched by the tab's auto-scan.
+  const [sweepSenseBgActive, setSweepSenseBgActive] = useState<boolean>(false)
   // Tracks the exact array reference loaded from a saved flow - dedup is skipped for this ref
   const loadedDataRef = useRef<OptionsFlowData[] | null>(null)
 
@@ -484,6 +579,11 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const stockPricesLoading = Object.values(priceLoadingState).some(v => v)
 
   const [currentOptionPrices, setCurrentOptionPrices] = useState<Record<string, number>>({})
+
+  // Live volume/OI refreshed from the SAME Polygon snapshot call as currentOptionPrices -
+  // fixes trade.volume/open_interest being frozen at whatever the collector saw once at
+  // insert time. Keyed by option ticker (same key shape as currentOptionPrices).
+  const [currentOptionVolOi, setCurrentOptionVolOi] = useState<Record<string, { volume: number; open_interest: number }>>({})
 
   const [optionPricesFetching, setOptionPricesFetching] = useState<boolean>(false)
 
@@ -510,6 +610,12 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [isMounted, setIsMounted] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const { isMobileView, isTabletView, windowWidth } = useOptionsFlowTableMobile()
+  // Above 1800px of raw window width, always show the persistent Flow Tracking sidebar
+  // (never the slide-in drawer/button). Below that, use the drawer + toggle button.
+  const rootRef = useRef<HTMLDivElement>(null)
+  const MIN_WINDOW_WIDTH_FOR_SIDEBAR = 1800
+  const showFlowSidebar = !isMobileView && !isTabletView && windowWidth >= MIN_WINDOW_WIDTH_FOR_SIDEBAR
+  const showFlowDrawer = !isMobileView && !showFlowSidebar
 
 
 
@@ -756,15 +862,13 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     )
   }, [])
   const [hoveredGradeIndex, setHoveredGradeIndex] = useState<number | null>(null)
-  const [quickGradePopup, setQuickGradePopup] = useState<{
-    id: string
-    trade: OptionsFlowData
-    isLeap: boolean
-    anchorTop: number
-    anchorLeft: number
-  } | null>(null)
 
   const [notableFilterActive, setNotableFilterActive] = useState<boolean>(false)
+  // Mobile SweepSense filter button - when active, the main table shows ONLY the trades
+  // that qualified for the SweepSense tab (sweepSenseDataStable), hiding everything else.
+  const [sweepSenseFilterActive, setSweepSenseFilterActive] = useState<boolean>(false)
+  // Mobile: which SweepSense row (if any) is expanded to reveal its breakdown % + Plan Entry
+  const [expandedSweepSenseRowId, setExpandedSweepSenseRowId] = useState<string | null>(null)
   // Grade column sort mode - toggles between long_first (cyan) and short_first (yellow)
   const [gradeColumnMode, setGradeColumnMode] = useState<'long_first' | 'short_first'>('long_first')
 
@@ -794,6 +898,17 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       }
     >
   >({})
+
+  // Per-expiry ATM IV cache for Plan Entry expected-range gate.
+  // Key = `${ticker}_${expiry}` - matches the trade's OWN expiration (not a multi-expiry
+  // aggregate like dealerZoneCache.atmIV), same computation as openNotableAnalysis /
+  // options-chain page: avg IV of calls+puts within 5% of spot for that specific expiry.
+  const [expiryIVCache, setExpiryIVCache] = useState<Record<string, number>>({})
+
+  // Long-term (LEAP) expected-range cache - keyed by ticker only. Long-term/LEAP trades use the
+  // expiry CLOSEST to 45 days out (not the trade's own far-dated expiry) for the ATM IV + DTE used
+  // in the Plan Entry / Magnet-Pivot range gate, matching the 45-day window convention.
+  const [longTermIVCache, setLongTermIVCache] = useState<Record<string, { iv: number; dte: number }>>({})
 
   const [pricesFetchedForDataset, setPricesFetchedForDataset] = useState<string>('') // Track if prices were fetched for current dataset
 
@@ -1024,9 +1139,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   }, [data.length])
 
   // Fetch real 30-day stdDevs for all visible tickers (Price Action grading)
-  // Only runs when EFI Highlights or LEAP is active - no point fetching on plain page load
+  // Only runs once the SweepSense background scan is active - no point fetching on plain page load
   useEffect(() => {
-    if (!shortTermActive && !longTermActive) return
+    if (!sweepSenseBgActive) return
     if (!data || data.length === 0) return
     const tickers = [...new Set(data.map((t) => t.underlying_ticker))]
     const missing = tickers.filter((t) => !historicalStdDevs.has(t))
@@ -1072,12 +1187,12 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
           )
         }
       })()
-  }, [data.length, shortTermActive, longTermActive])
+  }, [data.length, sweepSenseBgActive])
 
-  // Fetch historical ranges when EFI Highlights is active
+  // Fetch historical ranges when the SweepSense background scan is active
 
   useEffect(() => {
-    if (!shortTermActive || !data || data.length === 0) return
+    if (!sweepSenseBgActive || !data || data.length === 0) return
 
     const uniqueTickers = [...new Set(data.map((trade) => trade.underlying_ticker))]
 
@@ -1150,8 +1265,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     }
 
     fetchAllRanges()
-  }, [shortTermActive, data.length])
-
+  }, [sweepSenseBgActive, data.length])
   // Fetch current option prices for position tracking (only when EFI Highlights is ON)
 
   const fetchCurrentOptionPrices = async (trades: OptionsFlowData[]) => {
@@ -1185,6 +1299,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     setOptionPricesFetching(true)
     setGradingProgress({ current: 0, total: uniqueTickers.length })
 
+    const volOiUpdate: Record<string, { volume: number; open_interest: number }> = {}
+
     // Bulk snapshot: up to 250 tickers per request, all batches fired in parallel
     const BATCH_SIZE = 250
     const batches: string[][] = []
@@ -1211,6 +1327,13 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
                 const mid = (bid + ask) / 2
                 if (mid > 0) pricesUpdate[ticker] = mid
                 else if ((r.last_trade?.price ?? 0) > 0) pricesUpdate[ticker] = r.last_trade.price
+
+                // Live volume/OI - same response, just previously ignored. Refreshes the
+                // frozen collector-time snapshot every time prices are re-fetched (scans,
+                // grading, SweepSense, etc).
+                const liveVolume = r.day?.volume ?? 0
+                const liveOi = r.open_interest ?? 0
+                volOiUpdate[ticker] = { volume: liveVolume, open_interest: liveOi }
               }
             }
           } catch { /* silent */ }
@@ -1219,6 +1342,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
       )
 
       setCurrentOptionPrices((prev) => ({ ...prev, ...pricesUpdate }))
+      setCurrentOptionVolOi((prev) => ({ ...prev, ...volOiUpdate }))
     } finally {
       setOptionPricesFetching(false)
       setGradingProgress(null)
@@ -2144,8 +2268,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     // 7. Volume vs Open Interest Score (10 pts max)
     // MULTI-LEG: skipped - those pts are folded into the combo score above
     if (!isMultiLeg) {
-      const tradeVolume = trade.volume ?? null
-      const tradeOI = trade.open_interest ?? null
+      const liveVolOi = currentOptionVolOi[optionTicker]
+      const tradeVolume = liveVolOi?.volume ?? trade.volume ?? null
+      const tradeOI = liveVolOi?.open_interest ?? trade.open_interest ?? null
       if (tradeVolume !== null && tradeOI !== null && tradeOI > 0) {
         const volOIRatio = tradeVolume / tradeOI
         if (volOIRatio >= 1.5) scores.volumeOI = 10
@@ -2343,8 +2468,9 @@ Stock Reaction: ${scores.stockReaction}/15`
     // MULTI-LEG: skipped - replaced by buy+sell combo detection below
     const isLeapMultiLeg = (trade.classification || trade.trade_type || '').toUpperCase() === 'MULTI-LEG'
     if (!isLeapMultiLeg) {
-      const tradeVolume = trade.volume ?? null
-      const tradeOI = trade.open_interest ?? null
+      const liveVolOi = currentOptionVolOi[optionTicker]
+      const tradeVolume = liveVolOi?.volume ?? trade.volume ?? null
+      const tradeOI = liveVolOi?.open_interest ?? trade.open_interest ?? null
       if (tradeVolume !== null && tradeOI !== null && tradeOI > 0) {
         const ratio = tradeVolume / tradeOI
         if (ratio >= 1.5) scores.volumeOI = 15
@@ -2530,6 +2656,48 @@ Stock Reaction: ${scores.stockReaction}/15`
   const meetsEfiCriteria = meetsShortTermCriteria
   const meetsLeapCriteria = meetsLongTermCriteria
 
+  // SweepSense button removed - scan now runs automatically the first time flow data loads.
+  const sweepSenseAutoRanRef = useRef(false)
+  useEffect(() => {
+    if (sweepSenseAutoRanRef.current) return
+    if (!data || data.length === 0) return
+    sweepSenseAutoRanRef.current = true
+
+    const run = async () => {
+      // NOTE: intentionally does NOT call setEfiHighlightsActive/setLeapActive - those
+      // flags drive the main table's row filtering/criteria and must stay untouched so
+      // the table keeps showing its original, unfiltered columns/rows at all times.
+      setSweepSenseBgActive(true)
+      setModeLoadingStep({ mode: 'SHORT', step: 'SweepSense - Scanning Short-Term & Long-Term...' })
+      await new Promise<void>((r) => setTimeout(r, 0))
+      const shortTermTrades = data.filter(meetsShortTermCriteria)
+      const longTermTrades = data.filter(meetsLongTermCriteria)
+      const longTermTickers = [...new Set(longTermTrades.map((t) => t.underlying_ticker))]
+      const allUniq = [...shortTermTrades, ...longTermTrades].filter(
+        (t, i, arr) => arr.findIndex((x) =>
+          x.underlying_ticker === t.underlying_ticker && x.strike === t.strike &&
+          x.expiry === t.expiry && x.type === t.type) === i
+      )
+      try {
+        const { shortTermRS, longTermRS } = await calculateCombinedRS(shortTermTrades, longTermTrades)
+        setRelativeStrengthData((prev) => new Map([...prev, ...shortTermRS]))
+        setLeapRsData((prev) => new Map([...prev, ...longTermRS]))
+        const [wkData, seasonData] = await Promise.all([
+          fetchLeap52wkData(longTermTickers),
+          fetchLeapSeasonalData(longTermTickers),
+        ])
+        setLeap52wkData((prev) => new Map([...prev, ...wkData]))
+        setLeapSeasonalData((prev) => new Map([...prev, ...seasonData]))
+        await fetchCurrentOptionPrices(allUniq)
+      } catch (err) {
+        console.error('[SweepSense] Auto-scan error:', err)
+      }
+      setModeLoadingStep(null)
+    }
+    run()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data])
+
   // SweepSense keeps running against LIVE, ever-changing data, but the RS/52wk/seasonal
   // fetches only ran once (at button-click time) for whatever tickers existed then.
   // New trades polling in bring NEW tickers that never get RS/52wk/seasonal data,
@@ -2537,11 +2705,11 @@ Stock Reaction: ${scores.stockReaction}/15`
   // making the grade gate wipe out the whole result set. This effect keeps those
   // maps topped up for any new ticker that enters the SweepSense candidate pool.
   useEffect(() => {
-    if (!shortTermActive && !longTermActive) return
+    if (!sweepSenseBgActive) return
     if (!data || data.length === 0) return
 
-    const shortTermTrades = shortTermActive ? data.filter(meetsShortTermCriteria) : []
-    const longTermTrades = longTermActive ? data.filter(meetsLongTermCriteria) : []
+    const shortTermTrades = data.filter(meetsShortTermCriteria)
+    const longTermTrades = data.filter(meetsLongTermCriteria)
     const longTermTickers = [...new Set(longTermTrades.map((t) => t.underlying_ticker))]
 
     const missingRS = shortTermTrades.some((t) => !relativeStrengthData.has(t.underlying_ticker))
@@ -2573,7 +2741,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
     return () => clearTimeout(debounceTimer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.length, shortTermActive, longTermActive])
+  }, [data.length, sweepSenseBgActive])
 
   // Notable Flow Pick criteria checker (8 criteria)
 
@@ -2840,30 +3008,6 @@ Stock Reaction: ${scores.stockReaction}/15`
     return `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_timestamp}-${trade.trade_size}`
   }
 
-  const handleQuickGrade = (trade: OptionsFlowData, e: React.MouseEvent) => {
-    const id = generateFlowId(trade)
-    if (quickGradePopup?.id === id) {
-      setQuickGradePopup(null)
-      return
-    }
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-    const isLeap = trade.days_to_expiry > 35
-    const anchorTop = rect.bottom + 6
-    const anchorLeft = Math.min(rect.left, window.innerWidth - 480)
-
-    // Build option ticker to check if price is already loaded
-    const expiry = trade.expiry.replace(/-/g, '').slice(2)
-    const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
-    const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
-    const normalizedTk = normalizeTickerForOptions(trade.underlying_ticker)
-    const optionTicker = `O:${normalizedTk}${expiry}${optionType}${strikeFormatted}`
-
-    if (!currentOptionPrices[optionTicker] && !optionPricesFetching) {
-      fetchCurrentOptionPrices([trade])
-    }
-
-    setQuickGradePopup({ id, trade, isLeap, anchorTop, anchorLeft })
-  }
 
   const isInFlowTracking = (trade: OptionsFlowData): boolean => {
     const flowId = generateFlowId(trade)
@@ -3805,6 +3949,215 @@ Stock Reaction: ${scores.stockReaction}/15`
     )
   }
 
+  // SweepSense tab's own qualifying-trade pipeline - computed independently of the main
+  // table's filteredAndSortedData/shortTermActive/longTermActive (which stay untouched and
+  // keep the table showing its original, unfiltered rows). This reuses the EXACT SAME
+  // criteria/grade functions (meetsEfiCriteria, meetsLeapCriteria, calculatePositioningGrade,
+  // calculateLeapGrade) and the exact same 2-pass dedup algorithm the old SweepSense button
+  // used - just run against raw `data` instead of gating the table's own filtering.
+  //
+  // The full candidate pool (pre-grade-gate) - this MUST be the source for all background
+  // enrichment (option prices, dealer zones, IV caches), not the post-gate qualifying list,
+  // otherwise a trade that hasn't been priced yet can never pass the gate to get priced in
+  // the first place (deadlock -> permanent "settling"/infinite loading).
+  const sweepSenseCandidates = useMemo(() => {
+    if (!sweepSenseBgActive || !data || data.length === 0) return [] as OptionsFlowData[]
+    return data.filter((trade) => meetsEfiCriteria(trade) || meetsLeapCriteria(trade))
+  }, [sweepSenseBgActive, data])
+
+  // Grade gate + dedup, applied ONCE per candidate here and reused as-is by sweepSenseData
+  // below (never recalculated a second time) so the gate decision and the displayed grade
+  // can never drift apart from each other as other grading inputs keep changing over time.
+  const sweepSenseQualifyingData = useMemo(() => {
+    if (sweepSenseCandidates.length === 0) return [] as Array<{ trade: OptionsFlowData; grade: string; gradeColor: string }>
+
+    let graded: Array<{ trade: OptionsFlowData; grade: string; gradeColor: string }> = []
+    if (!optionPricesFetching && Object.keys(currentOptionPrices).length > 0) {
+      graded = sweepSenseCandidates
+        .map((trade) => {
+          const useLeap = meetsLongTermCriteria(trade)
+          const g = useLeap ? calculateLeapGrade(trade, comboTradeMap) : calculatePositioningGrade(trade, comboTradeMap)
+          return { trade, grade: g.grade, gradeColor: g.color }
+        })
+        .filter((t) => ['A-', 'A', 'A+'].includes(t.grade))
+    }
+
+    const score = (t: OptionsFlowData): number => {
+      const fq = t.fill_style === 'AA' ? 4 : t.fill_style === 'A' ? 3
+        : t.fill_style === 'BB' ? 2 : t.fill_style === 'B' ? 1 : 0
+      const voi = t.vol_oi_ratio ?? 0
+      return t.total_premium * fq * (voi >= 1.5 ? 1.3 : voi >= 1.0 ? 1.15 : 1.0)
+    }
+    const p1 = new Map<string, { trade: OptionsFlowData; grade: string; gradeColor: string }>()
+    for (const item of graded) {
+      const f = item.trade.fill_style ?? ''
+      const fg = (f === 'A' || f === 'AA') ? 'buy' : (f === 'B' || f === 'BB') ? 'sell' : f
+      const k = `${item.trade.underlying_ticker}||${item.trade.expiry}||${item.trade.type}||${fg}`
+      const ex = p1.get(k)
+      if (!ex || score(item.trade) > score(ex.trade)) p1.set(k, item)
+    }
+    const p2 = new Map<string, { trade: OptionsFlowData; grade: string; gradeColor: string }>()
+    for (const item of p1.values()) {
+      const ex = p2.get(item.trade.underlying_ticker)
+      if (!ex || score(item.trade) > score(ex.trade)) p2.set(item.trade.underlying_ticker, item)
+    }
+    return Array.from(p2.values())
+  }, [sweepSenseCandidates, comboTradeMap, currentOptionPrices, optionPricesFetching])
+
+  // True while any short/long-term candidate is still missing its current option price.
+  // The tab shows only its loading screen the entire time this is true, so partial/incomplete
+  // results never flash on screen while enrichment is still catching up on new tickers.
+  const sweepSenseSettling = useMemo(() => {
+    if (sweepSenseCandidates.length === 0) return false
+    return sweepSenseCandidates.some((trade) => {
+      const expiry = trade.expiry.replace(/-/g, '').slice(2)
+      const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
+      const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
+      const normalizedTicker = normalizeTickerForOptions(trade.underlying_ticker)
+      const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
+      return !(optionTicker in currentOptionPrices)
+    })
+  }, [sweepSenseCandidates, currentOptionPrices])
+
+  // SweepSense tab data - built from `sweepSenseQualifyingData` (above) plus the same
+  // dealerZoneCache (magnet/pivot) and the exact Plan Entry logic (computePlanEntry) used
+  // previously in the Dealer column. Only populated once the background scan has run.
+  const sweepSenseData = useMemo(() => {
+    if (!sweepSenseBgActive) {
+      return null
+    }
+
+    // Per-ticker % buy-call/bear-call/buy-put/bear-put - same bull/bear fill_style
+    // classification AlgoFlowScreener already uses (isBullish = A/AA/no-fill, isBearish = B/BB),
+    // computed from ALL of that ticker's raw flow prints (not reinvented math).
+    const tickerPrem = new Map<string, { buyCalls: number; bearCalls: number; buyPuts: number; bearPuts: number }>()
+    for (const t of data) {
+      const fs = (t.fill_style || '') as string
+      const isCall = t.type === 'call'
+      const isBullish = !fs || fs === 'N/A' || fs === 'A' || fs === 'AA'
+      const isBearish = fs === 'B' || fs === 'BB'
+      const entry = tickerPrem.get(t.underlying_ticker) || { buyCalls: 0, bearCalls: 0, buyPuts: 0, bearPuts: 0 }
+      if (isCall && isBullish) entry.buyCalls += t.total_premium
+      else if (isCall && isBearish) entry.bearCalls += t.total_premium
+      else if (!isCall && isBullish) entry.buyPuts += t.total_premium
+      else if (!isCall && isBearish) entry.bearPuts += t.total_premium
+      tickerPrem.set(t.underlying_ticker, entry)
+    }
+
+    const trades = sweepSenseQualifyingData.map(({ trade, grade, gradeColor }) => {
+      // Grade was already computed once (above, in the gate) - reused as-is here so the
+      // gate decision and the displayed grade can never disagree with each other.
+      const g = { grade, color: gradeColor }
+      const zone = dealerZoneCache[trade.underlying_ticker]
+      const magnet = zone?.golden ?? null
+      const pivot = zone?.purple ?? null
+      const cur = currentPrices[trade.underlying_ticker]
+      const pctMove = trade.spot_price && cur ? ((cur - trade.spot_price) / trade.spot_price) * 100 : null
+
+      const useLongTerm = meetsLongTermCriteria(trade)
+      const sigma = useLongTerm
+        ? (longTermIVCache[trade.underlying_ticker]?.iv ?? 0)
+        : (expiryIVCache[`${trade.underlying_ticker}_${trade.expiry}`] ?? 0)
+      const dte = useLongTerm
+        ? (longTermIVCache[trade.underlying_ticker]?.dte ?? 45)
+        : (trade.days_to_expiry > 0 ? trade.days_to_expiry : 1)
+      const spot = cur ?? trade.spot_price
+      const { sigCode, sigColor, planText } = computePlanEntry({
+        spot, magnet, pivot, sigma, dte, type: trade.type, fillStyle: trade.fill_style, grade: g.grade, gradeColor: g.color,
+      })
+
+      const bd = tickerPrem.get(trade.underlying_ticker) || { buyCalls: 0, bearCalls: 0, buyPuts: 0, bearPuts: 0 }
+      const bdTotal = bd.buyCalls + bd.bearCalls + bd.buyPuts + bd.bearPuts || 1
+
+      // Real CONTRACT (option premium) % change - not stock price - same calc as the grade's
+      // Contract P&L score: current option price vs entry premium, B/BB (sold to open) flips sign.
+      const optExpiry = trade.expiry.replace(/-/g, '').slice(2)
+      const optStrikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
+      const optType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
+      const optTicker = `O:${normalizeTickerForOptions(trade.underlying_ticker)}${optExpiry}${optType}${optStrikeFormatted}`
+      const currentOptionPrice = currentOptionPrices[optTicker] ?? null
+      let contractPctChange: number | null = null
+      if (currentOptionPrice && currentOptionPrice > 0 && trade.premium_per_contract > 0) {
+        const rawPct = ((currentOptionPrice - trade.premium_per_contract) / trade.premium_per_contract) * 100
+        const isSoldToOpen = trade.fill_style === 'B' || trade.fill_style === 'BB'
+        contractPctChange = isSoldToOpen ? -rawPct : rawPct
+      }
+
+      return {
+        trade,
+        grade: g.grade,
+        gradeColor: g.color,
+        pctMove,
+        currentStockPrice: cur ?? null,
+        currentOptionPrice,
+        contractPctChange,
+        magnet,
+        pivot,
+        sigCode,
+        sigColor,
+        planText,
+        breakdown: {
+          buyCallsPct: (bd.buyCalls / bdTotal) * 100,
+          bearCallsPct: (bd.bearCalls / bdTotal) * 100,
+          buyPutsPct: (bd.buyPuts / bdTotal) * 100,
+          bearPutsPct: (bd.bearPuts / bdTotal) * 100,
+        },
+      }
+    })
+
+    // Aggregate stats + bubble map - built from the SAME tickerPrem numbers used for each
+    // card's individual breakdown, just summed across the tickers that actually qualified.
+    let buyCalls = 0, bearCalls = 0, buyPuts = 0, bearPuts = 0
+    const bubbles = trades.map(({ trade }) => {
+      const bd = tickerPrem.get(trade.underlying_ticker) || { buyCalls: 0, bearCalls: 0, buyPuts: 0, bearPuts: 0 }
+      buyCalls += bd.buyCalls
+      bearCalls += bd.bearCalls
+      buyPuts += bd.buyPuts
+      bearPuts += bd.bearPuts
+      const premium = bd.buyCalls + bd.bearCalls + bd.buyPuts + bd.bearPuts
+      const bullPrem = bd.buyCalls + bd.bearPuts
+      const bearPrem = bd.bearCalls + bd.buyPuts
+      return {
+        ticker: trade.underlying_ticker,
+        premium,
+        bias: bullPrem >= bearPrem ? ('bull' as const) : ('bear' as const),
+        biasStrength: Math.abs(bullPrem - bearPrem) / (premium || 1),
+      }
+    })
+    const statsTotal = buyCalls + bearCalls + buyPuts + bearPuts || 1
+    const stats = {
+      buyCallsPct: (buyCalls / statsTotal) * 100,
+      bearCallsPct: (bearCalls / statsTotal) * 100,
+      buyPutsPct: (buyPuts / statsTotal) * 100,
+      bearPutsPct: (bearPuts / statsTotal) * 100,
+    }
+
+    return { trades, stats, bubbles }
+  }, [sweepSenseBgActive, sweepSenseQualifyingData, dealerZoneCache, currentPrices, data, expiryIVCache, longTermIVCache, currentOptionPrices])
+
+  // The tab must only ever show ONE final, settled result - never the churn of intermediate
+  // in-progress computations (which flicker as grades/prices/dealer-zones trickle in). We
+  // freeze the last-committed result and only replace it with the newly computed `sweepSenseData`
+  // once things have gone quiet (no scan in progress, not still settling, and the computed
+  // result hasn't changed for a short debounce window).
+  const [sweepSenseDataStable, setSweepSenseDataStable] = useState<typeof sweepSenseData>(null)
+  useEffect(() => {
+    if (modeLoadingStep !== null || sweepSenseSettling) return
+    const timer = setTimeout(() => {
+      setSweepSenseDataStable(sweepSenseData)
+    }, 900)
+    return () => clearTimeout(timer)
+  }, [sweepSenseData, modeLoadingStep, sweepSenseSettling])
+
+  // When the mobile SweepSense filter button is active, restrict the visible table to ONLY
+  // the trades that qualified for the SweepSense tab - everything else is hidden. Turning the
+  // button back off restores the normal filteredAndSortedData view untouched.
+  const sweepSenseFilteredView = useMemo(() => {
+    if (!sweepSenseFilterActive || !sweepSenseDataStable) return filteredAndSortedData
+    const idSet = new Set(sweepSenseDataStable.trades.map(({ trade }) => generateFlowId(trade)))
+    return filteredAndSortedData.filter((trade) => idSet.has(generateFlowId(trade)))
+  }, [sweepSenseFilterActive, sweepSenseDataStable, filteredAndSortedData])
+
   // Automatically enrich trades with Vol/OI AND Fill Style in ONE combined call - IMMEDIATELY as part of scan
 
   useEffect(() => {
@@ -3824,18 +4177,16 @@ Stock Reaction: ${scores.stockReaction}/15`
 
     const endIndex = startIndex + itemsPerPage
 
-    return filteredAndSortedData.slice(startIndex, endIndex)
-  }, [filteredAndSortedData, currentPage, itemsPerPage])
+    return sweepSenseFilteredView.slice(startIndex, endIndex)
+  }, [sweepSenseFilteredView, currentPage, itemsPerPage])
 
-  const totalPages = Math.ceil(filteredAndSortedData.length / itemsPerPage)
+  const totalPages = Math.ceil(sweepSenseFilteredView.length / itemsPerPage)
 
-  // Auto-fetch dealer zones for highlighted rows (short-term + long-term picks)
+  // Auto-fetch dealer zones for the SweepSense tab's qualifying trades (short-term + long-term picks)
   // Skip while a scan is in progress - dealer zones fetch after the scan completes
   useEffect(() => {
-    if (modeLoadingStep !== null) return
-    const notableTrades = paginatedData.filter(
-      (t) => (shortTermActive && meetsShortTermCriteria(t)) || (longTermActive && meetsLongTermCriteria(t))
-    )
+    if (!sweepSenseBgActive || modeLoadingStep !== null) return
+    const notableTrades = sweepSenseCandidates
     // Deduplicate by ticker - one fetch covers ALL expirations for the ticker
     const seenTickers = new Set<string>()
     for (const trade of notableTrades) {
@@ -3881,7 +4232,103 @@ Stock Reaction: ${scores.stockReaction}/15`
         .catch(() => { })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paginatedData, shortTermActive, longTermActive, modeLoadingStep])
+  }, [sweepSenseCandidates, sweepSenseBgActive, modeLoadingStep])
+
+  // Auto-fetch per-expiry ATM IV for the Plan Entry expected-range gate.
+  // Uses the SAME single-expiry options-chain fetch + ATM-IV averaging as openNotableAnalysis
+  // (the options-chain page's logic) — not the multi-expiry aggregate atmIV from dealer-zones.
+  useEffect(() => {
+    if (!sweepSenseBgActive || modeLoadingStep !== null) return
+    const notableTrades = sweepSenseCandidates
+    const seenKeys = new Set<string>()
+    for (const trade of notableTrades) {
+      const key = `${trade.underlying_ticker}_${trade.expiry}`
+      if (key in expiryIVCache || seenKeys.has(key)) continue
+      seenKeys.add(key)
+
+      fetch(`/api/options-chain?ticker=${trade.underlying_ticker}&expiration=${trade.expiry}`)
+        .then((r) => r.json())
+        .then((result: any) => {
+          if (!result.success || !result.data) return
+          const expData = result.data[trade.expiry] || (Object.values(result.data)[0] as any)
+          if (!expData) return
+          const spot = currentPrices[trade.underlying_ticker] || trade.spot_price
+          if (!spot || spot <= 0) return
+
+          const allContracts: Array<{ strike: number; iv: number }> = []
+          Object.entries(expData.calls || {}).forEach(([s, d]: [string, any]) => {
+            if (d.implied_volatility > 0) allContracts.push({ strike: parseFloat(s), iv: d.implied_volatility })
+          })
+          Object.entries(expData.puts || {}).forEach(([s, d]: [string, any]) => {
+            if (d.implied_volatility > 0) allContracts.push({ strike: parseFloat(s), iv: d.implied_volatility })
+          })
+          const atmContracts = allContracts.filter(
+            (c) => Math.abs((c.strike - spot) / spot) <= 0.05
+          )
+          if (atmContracts.length === 0) return
+          const avgIV = atmContracts.reduce((sum, c) => sum + c.iv, 0) / atmContracts.length
+
+          setExpiryIVCache((prev) => ({ ...prev, [key]: avgIV }))
+        })
+        .catch(() => { })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sweepSenseCandidates, sweepSenseBgActive, modeLoadingStep, currentPrices])
+
+  // Auto-fetch the 45-day-window ATM IV for LONG-TERM (LEAP) trades' expected-range gate.
+  // Long-term picks use the expiry closest to 45 calendar days out - not the trade's own
+  // (much farther-dated) expiry - for the Plan Entry / Magnet-Pivot range calculation.
+  useEffect(() => {
+    if (!sweepSenseBgActive || modeLoadingStep !== null) return
+    const longTermTrades = sweepSenseCandidates.filter(meetsLongTermCriteria)
+    const seenTickers = new Set<string>()
+    for (const trade of longTermTrades) {
+      const ticker = trade.underlying_ticker
+      if (ticker in longTermIVCache || seenTickers.has(ticker)) continue
+      seenTickers.add(ticker)
+
+      fetch(`/api/options-chain?ticker=${ticker}`)
+        .then((r) => r.json())
+        .then((result: any) => {
+          if (!result.success || !result.data) return
+          const spot = currentPrices[ticker] || trade.spot_price
+          if (!spot || spot <= 0) return
+
+          const today = new Date()
+          const expiries = Object.keys(result.data)
+          if (expiries.length === 0) return
+
+          // Pick the expiry whose day-count is closest to 45 calendar days out
+          let bestExpiry = expiries[0]
+          let bestDiff = Infinity
+          let bestDte = 45
+          for (const exp of expiries) {
+            const expDate = new Date(exp + 'T16:00:00')
+            const dte = Math.max(1, Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)))
+            const diff = Math.abs(dte - 45)
+            if (diff < bestDiff) { bestDiff = diff; bestExpiry = exp; bestDte = dte }
+          }
+
+          const expData = result.data[bestExpiry]
+          if (!expData) return
+
+          const allContracts: Array<{ strike: number; iv: number }> = []
+          Object.entries(expData.calls || {}).forEach(([s, d]: [string, any]) => {
+            if (d.implied_volatility > 0) allContracts.push({ strike: parseFloat(s), iv: d.implied_volatility })
+          })
+          Object.entries(expData.puts || {}).forEach(([s, d]: [string, any]) => {
+            if (d.implied_volatility > 0) allContracts.push({ strike: parseFloat(s), iv: d.implied_volatility })
+          })
+          const atmContracts = allContracts.filter((c) => Math.abs((c.strike - spot) / spot) <= 0.05)
+          if (atmContracts.length === 0) return
+          const avgIV = atmContracts.reduce((sum, c) => sum + c.iv, 0) / atmContracts.length
+
+          setLongTermIVCache((prev) => ({ ...prev, [ticker]: { iv: avgIV, dte: bestDte } }))
+        })
+        .catch(() => { })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sweepSenseCandidates, sweepSenseBgActive, modeLoadingStep, currentPrices])
 
   // Reset to page 1 when filters change
 
@@ -3903,24 +4350,24 @@ Stock Reaction: ${scores.stockReaction}/15`
     selectedOrderSides,
   ])
 
-  // Fetch current option prices when EFI Highlights or LEAP is ON
-  // For LEAP: option prices are fetched inside the button handler (after RS+52wk+seasonal)
-  // so we only auto-fetch here for EFI Highlights and for data refreshes while already active.
+  // Fetch current option prices for the SweepSense tab's candidate pool (pre-grade-gate).
+  // The initial fetch happens inside the auto-scan effect (after RS+52wk+seasonal); this just
+  // keeps prices refreshed as new candidates enter the pool - MUST cover the full candidate
+  // pool (not just already-qualifying trades), otherwise a trade missing its price can never
+  // pass the grade gate to get priced in the first place.
   useEffect(() => {
-    if ((shortTermActive || longTermActive) && filteredAndSortedData.length > 0) {
-      // Skip auto-fetch for LEAP when the loading screen is active - button handler does it
-      if (longTermActive && modeLoadingStep !== null) return
-      const activeMode = longTermActive ? 'LONG' : 'SHORT'
-      const datasetHash = `${activeMode}-${data.length}-${data
+    if (sweepSenseBgActive && sweepSenseCandidates.length > 0) {
+      if (modeLoadingStep !== null) return
+      const datasetHash = `SS-${sweepSenseCandidates.length}-${sweepSenseCandidates
         .slice(0, 5)
         .map((d) => d.underlying_ticker)
         .join('-')}`
       if (datasetHash !== pricesFetchedForDataset) {
-        fetchCurrentOptionPrices(filteredAndSortedData)
+        fetchCurrentOptionPrices(sweepSenseCandidates)
         setPricesFetchedForDataset(datasetHash)
       }
     }
-  }, [shortTermActive, longTermActive, data.length])
+  }, [sweepSenseBgActive, sweepSenseCandidates])
 
   // Fetch chart data for tracked flows when EFI is active or flows are added
 
@@ -3956,304 +4403,6 @@ Stock Reaction: ${scores.stockReaction}/15`
     return () => ro.disconnect()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMobileView])
-
-  // Download page as a clean canvas-drawn image
-  const handleDownloadImage = () => {
-    try {
-      const allTrades = filteredAndSortedData
-      if (!allTrades || allTrades.length === 0) return
-
-      const PAGE_SIZE = 15
-      const dpr = 2
-      const ROW_H = 44
-      const HEADER_H = 64
-      const TITLE_H = 53
-      const FOOTER_H = 34
-      const PAD = 14
-
-      // columns - grade col appended only when EFI active
-      const baseCols = [
-        { label: 'TIME', w: 118 },
-        { label: 'SYMBOL', w: 80 },
-        { label: 'C/P', w: 54 },
-        { label: 'STRIKE', w: 72 },
-        { label: 'SIZE', w: 185 },
-        { label: 'PREMIUM', w: 90 },
-        { label: 'EXPIRY', w: 112 },
-        { label: 'SPOT >> CURRENT', w: 200 },
-        { label: 'TYPE', w: 110 },
-      ]
-      const gradeCol = { label: 'GRADE', w: 100 }
-      const targetsCol = { label: 'TARGETS', w: 140 }
-      const dealerCol = { label: 'DEALER', w: 170 }
-      let cols = [...baseCols]
-      if (shortTermActive) cols = [...cols, gradeCol]
-      if (false) cols = [...cols, targetsCol, dealerCol]
-
-      const totalW = PAD + cols.reduce((s, c) => s + c.w + 6, 0) + PAD
-      const dateStr = new Date().toISOString().split('T')[0]
-
-      const fillColor = (fs: string) => {
-        if (fs === 'A' || fs === 'AA') return '#00ff88'
-        if (fs === 'B' || fs === 'BB') return '#ff4444'
-        return '#aaaaaa'
-      }
-      const typeColor = (v: string) => {
-        if (v === 'SWEEP') return '#ffee00'
-        if (v === 'BLOCK') return '#00e5ff'
-        if (v === 'MULTI-LEG') return '#cc44ff'
-        return '#ffffff'
-      }
-      const gradeColor = (g: string) => {
-        if (g.startsWith('A')) return '#00ff00'
-        if (g.startsWith('B')) return '#84cc16'
-        if (g.startsWith('C')) return '#fbbf24'
-        if (g.startsWith('D')) return '#3b82f6'
-        return '#ff0000'
-      }
-
-      const totalPages = Math.ceil(allTrades.length / PAGE_SIZE)
-
-      for (let page = 0; page < 1; page++) {
-        const trades = allTrades.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
-        const totalH = TITLE_H + HEADER_H + trades.length * ROW_H + FOOTER_H
-
-        const canvas = document.createElement('canvas')
-        canvas.width = totalW * dpr
-        canvas.height = totalH * dpr
-        const ctx = canvas.getContext('2d')!
-        ctx.scale(dpr, dpr)
-
-        // -- Background --
-        ctx.fillStyle = '#000000'
-        ctx.fillRect(0, 0, totalW, totalH)
-
-        // -- Title bar --
-        ctx.fillStyle = '#080808'
-        ctx.fillRect(0, 0, totalW, TITLE_H)
-        // orange bottom border
-        ctx.strokeStyle = '#ff8500'
-        ctx.lineWidth = 2
-        ctx.beginPath(); ctx.moveTo(0, TITLE_H); ctx.lineTo(totalW, TITLE_H); ctx.stroke()
-        ctx.fillStyle = '#ff8500'
-        ctx.font = 'bold 21px "Courier New", monospace'
-        ctx.textAlign = 'left'
-        ctx.textBaseline = 'middle'
-        ctx.fillText('? SWEEPSENSE OPTIONS FLOW', PAD, TITLE_H / 2)
-        ctx.fillStyle = '#ffffff'
-        ctx.font = '15px "Courier New", monospace'
-        ctx.textAlign = 'right'
-        ctx.fillText(
-          new Date().toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) +
-          (totalPages > 1 ? `   ${page + 1}/${totalPages}  -  ${allTrades.length} TRADES` : `   ${allTrades.length} TRADES`),
-          totalW - PAD, TITLE_H / 2
-        )
-
-        // -- Header (glossy black) --
-        const hY = TITLE_H
-        // Base black fill
-        ctx.fillStyle = '#050505'
-        ctx.fillRect(0, hY, totalW, HEADER_H)
-        // Glossy gradient overlay
-        const headerGloss = ctx.createLinearGradient(0, hY, 0, hY + HEADER_H)
-        headerGloss.addColorStop(0, 'rgba(255,255,255,0.10)')
-        headerGloss.addColorStop(0.45, 'rgba(255,255,255,0.04)')
-        headerGloss.addColorStop(0.5, 'rgba(0,0,0,0)')
-        headerGloss.addColorStop(1, 'rgba(0,0,0,0.25)')
-        ctx.fillStyle = headerGloss
-        ctx.fillRect(0, hY, totalW, HEADER_H)
-        // Subtle top highlight line
-        ctx.strokeStyle = 'rgba(255,255,255,0.18)'
-        ctx.lineWidth = 1
-        ctx.beginPath(); ctx.moveTo(0, hY + 1); ctx.lineTo(totalW, hY + 1); ctx.stroke()
-        // Orange bottom border
-        ctx.strokeStyle = '#ff8500'
-        ctx.lineWidth = 2
-        ctx.beginPath(); ctx.moveTo(0, hY + HEADER_H); ctx.lineTo(totalW, hY + HEADER_H); ctx.stroke()
-
-        let hx = PAD
-        cols.forEach((col) => {
-          ctx.fillStyle = '#ffffff'
-          ctx.font = 'bold 15px "Courier New", monospace'
-          ctx.textAlign = 'left'
-          ctx.textBaseline = 'middle'
-          // Text shadow effect (draw twice with offset)
-          ctx.font = 'bold 15px "Courier New", monospace'
-          ctx.fillStyle = 'rgba(0,0,0,0.8)'
-          ctx.fillText(col.label, hx + 1, hY + HEADER_H / 2 + 1)
-          ctx.fillStyle = '#ff8500'
-          ctx.fillText(col.label, hx, hY + HEADER_H / 2)
-          hx += col.w + 6
-        })
-
-        // -- Rows --
-        trades.forEach((trade, i) => {
-          const rY = TITLE_H + HEADER_H + i * ROW_H
-          ctx.fillStyle = i % 2 === 0 ? '#050505' : '#0c0c0c'
-          ctx.fillRect(0, rY, totalW, ROW_H)
-          ctx.strokeStyle = '#1c1c1c'
-          ctx.lineWidth = 0.5
-          ctx.beginPath(); ctx.moveTo(0, rY + ROW_H); ctx.lineTo(totalW, rY + ROW_H); ctx.stroke()
-
-          const mid = rY + ROW_H / 2
-          const fs = (trade as any).fill_style || ''
-          const tradeTypeRaw = (trade.classification || trade.trade_type || '').toUpperCase()
-          const curPx = currentPrices[trade.underlying_ticker] ?? trade.current_price ?? 0
-
-          ctx.textBaseline = 'middle'
-          ctx.font = '15px "Courier New", monospace'
-
-          let rx = PAD
-
-          // TIME
-          ctx.fillStyle = '#ffffff'
-          ctx.textAlign = 'left'
-          ctx.fillText(new Date(trade.trade_timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }), rx, mid)
-          rx += cols[0].w + 6
-
-          // SYMBOL - orange ticker style matching the UI
-          ctx.fillStyle = '#ff8500'
-          ctx.font = 'bold 15px "Courier New", monospace'
-          ctx.fillText(trade.underlying_ticker, rx, mid)
-          ctx.font = '15px "Courier New", monospace'
-          rx += cols[1].w + 6
-
-          // C/P
-          ctx.fillStyle = trade.type === 'call' ? '#00ff88' : '#ff3333'
-          ctx.font = 'bold 16px "Courier New", monospace'
-          ctx.fillText(trade.type.toUpperCase(), rx, mid)
-          ctx.font = '15px "Courier New", monospace'
-          rx += cols[2].w + 6
-
-          // STRIKE
-          ctx.fillStyle = '#ffffff'
-          ctx.fillText(`$${trade.strike}`, rx, mid)
-          rx += cols[3].w + 6
-
-          // SIZE - "1,234 @ 3.40 A"
-          const sizeStr = trade.trade_size.toLocaleString()
-          const priceStr = trade.premium_per_contract.toFixed(2)
-          ctx.fillStyle = '#00ccff'
-          ctx.fillText(sizeStr, rx, mid)
-          const sw = ctx.measureText(sizeStr).width
-          ctx.fillStyle = '#ffffff'
-          ctx.fillText(' @ ', rx + sw, mid)
-          const atW = ctx.measureText(' @ ').width
-          ctx.fillStyle = '#ffdd00'
-          ctx.fillText(priceStr, rx + sw + atW, mid)
-          if (fs && fs !== 'N/A') {
-            const prW = ctx.measureText(priceStr).width
-            ctx.fillStyle = fillColor(fs)
-            ctx.font = 'bold 14px "Courier New", monospace'
-            ctx.fillText(fs, rx + sw + atW + prW + 4, mid)
-            ctx.font = '15px "Courier New", monospace'
-          }
-          rx += cols[4].w + 6
-
-          // PREMIUM
-          ctx.fillStyle = '#00ff88'
-          ctx.font = 'bold 16px "Courier New", monospace'
-          ctx.fillText(`$${(trade.total_premium / 1000).toFixed(0)}K`, rx, mid)
-          ctx.font = '15px "Courier New", monospace'
-          rx += cols[5].w + 6
-
-          // EXPIRY
-          ctx.fillStyle = '#ffffff'
-          ctx.fillText(trade.expiry, rx, mid)
-          rx += cols[6].w + 6
-
-          // SPOT >> CURRENT
-          const spotStr = `$${trade.spot_price?.toFixed(2) ?? '-'}`
-          ctx.fillStyle = '#ffffff'
-          ctx.fillText(spotStr, rx, mid)
-          const spW = ctx.measureText(spotStr).width
-          ctx.fillStyle = '#ffffff'
-          ctx.fillText(' >> ', rx + spW, mid)
-          const arrW = ctx.measureText(' >> ').width
-          const curStr = curPx ? `$${curPx.toFixed(2)}` : '-'
-          ctx.fillStyle = curPx > trade.spot_price ? '#00ff88' : '#ff3333'
-          ctx.font = 'bold 15px "Courier New", monospace'
-          ctx.fillText(curStr, rx + spW + arrW, mid)
-          ctx.font = '15px "Courier New", monospace'
-          rx += cols[7].w + 6
-
-          // TYPE
-          ctx.fillStyle = typeColor(tradeTypeRaw)
-          ctx.font = 'bold 14px "Courier New", monospace'
-          ctx.fillText(tradeTypeRaw, rx, mid)
-          ctx.font = '15px "Courier New", monospace'
-          rx += cols[8].w + 6
-
-          // POSITION / GRADE (only when EFI active)
-          if (shortTermActive) {
-            const gradeData = calculatePositioningGrade(trade, comboTradeMap)
-            if (gradeData && gradeData.grade !== 'N/A') {
-              const { grade } = gradeData
-              const gColor = gradeColor(grade)
-              const expiryShort = trade.expiry.replace(/-/g, '').slice(2)
-              const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
-              const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
-              const normalizedTk = trade.underlying_ticker.replace(/[^A-Z]/g, '')
-              const optionKey = `O:${normalizedTk}${expiryShort}${optionType}${strikeFormatted}`
-              const curOptPx = currentOptionPrices[optionKey] ?? null
-              const isSoldToOpen = (trade as any).fill_style === 'B' || (trade as any).fill_style === 'BB'
-              let pctStr = ''
-              if (curOptPx && trade.premium_per_contract) {
-                const raw = ((curOptPx - trade.premium_per_contract) / trade.premium_per_contract) * 100
-                const pct = isSoldToOpen ? -raw : raw
-                pctStr = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%'
-              }
-              ctx.fillStyle = gColor
-              ctx.font = 'italic 20px Impact, Georgia, serif'
-              ctx.textAlign = 'left'
-              ctx.fillText(grade, rx, mid - (pctStr ? 8 : 0))
-              if (pctStr) {
-                const pctColor = pctStr.startsWith('+') ? '#00ff88' : '#ff3333'
-                ctx.fillStyle = pctColor
-                ctx.font = 'bold 14px "Courier New", monospace'
-                ctx.fillText(pctStr, rx, mid + 9)
-              }
-              ctx.font = '15px "Courier New", monospace'
-            } else {
-              ctx.fillStyle = '#ffffff'
-              ctx.font = '15px "Courier New", monospace'
-              ctx.textAlign = 'left'
-              ctx.fillText('-', rx, mid)
-            }
-            rx += gradeCol.w + 6
-          }
-
-        })
-
-        // -- Footer --
-        const fY = TITLE_H + HEADER_H + trades.length * ROW_H
-        ctx.fillStyle = '#080808'
-        ctx.fillRect(0, fY, totalW, FOOTER_H)
-        ctx.strokeStyle = '#ff8500'
-        ctx.lineWidth = 1
-        ctx.beginPath(); ctx.moveTo(0, fY); ctx.lineTo(totalW, fY); ctx.stroke()
-        ctx.fillStyle = '#ffffff'
-        ctx.font = '14px "Courier New", monospace'
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
-        ctx.fillText('EFI TRADING  -  efitrading.com', totalW / 2, fY + FOOTER_H / 2)
-
-        // -- Download --
-        const dataUrl = canvas.toDataURL('image/png')
-        const link = document.createElement('a')
-        link.download = totalPages > 1
-          ? `options-flow-${dateStr}-${page + 1}of${totalPages}.png`
-          : `options-flow-${dateStr}.png`
-        link.href = dataUrl
-        link.style.display = 'none'
-        document.body.appendChild(link)
-        link.click()
-        setTimeout(() => document.body.removeChild(link), 100)
-      }
-    } catch (err) {
-      console.error('[Download] Error:', err)
-    }
-  }
 
   useEffect(() => {
     // Clean up expired flows and only fetch if flows exist
@@ -4495,101 +4644,7 @@ Stock Reaction: ${scores.stockReaction}/15`
   const tbLs = isTabletView ? '0.7px' : isMobileView ? '0.4px' : undefined
 
   return (
-    <div style={{ display: 'flex', width: '100%', alignItems: 'flex-start' }}>
-      {/* Quick Grade Popup - fixed overlay, same design as grade column */}
-      {quickGradePopup && (() => {
-        const { trade: qt, isLeap, anchorTop, anchorLeft } = quickGradePopup
-
-        // Compute grade LIVE so popup reacts when prices load
-        const result = isLeap
-          ? calculateLeapGrade(qt, comboTradeMap)
-          : calculatePositioningGrade(qt, comboTradeMap)
-        const { grade, score, color: scoreColor } = result
-
-        const expiry = qt.expiry.replace(/-/g, '').slice(2)
-        const strikeFormatted = String(Math.round(qt.strike * 1000)).padStart(8, '0')
-        const optionType = qt.type.toLowerCase() === 'call' ? 'C' : 'P'
-        const normalizedTk = normalizeTickerForOptions(qt.underlying_ticker)
-        const optionTicker = `O:${normalizedTk}${expiry}${optionType}${strikeFormatted}`
-        const currentOptionPrice = currentOptionPrices[optionTicker] ?? null
-        const isSoldToOpen = qt.fill_style === 'B' || qt.fill_style === 'BB'
-        let percentChange: number | null = null
-        let currentValue: number | null = null
-        if (currentOptionPrice && currentOptionPrice > 0) {
-          const rawPct = ((currentOptionPrice - qt.premium_per_contract) / qt.premium_per_contract) * 100
-          percentChange = isSoldToOpen ? -rawPct : rawPct
-          currentValue = currentOptionPrice * qt.trade_size * 100
-        }
-        const priceColor = percentChange !== null ? (percentChange > 0 ? '#00ff00' : '#ff0000') : '#ffffff'
-        const formatVal = (v: number) => v >= 1000000 ? `$${(v / 1000000).toFixed(1)}M` : v >= 1000 ? `$${(v / 1000).toFixed(1)}K` : `$${v.toFixed(0)}`
-        return (
-          <>
-            {/* Backdrop */}
-            <div onClick={() => setQuickGradePopup(null)} style={{ position: 'fixed', inset: 0, zIndex: 999990 }} />
-            {/* Card */}
-            <div style={{
-              position: 'fixed',
-              top: anchorTop,
-              left: anchorLeft,
-              zIndex: 999999,
-              background: '#000000',
-              border: `2px solid ${scoreColor}`,
-              borderRadius: '14px',
-              width: '300px',
-              fontFamily: 'monospace',
-              overflow: 'hidden',
-            }}>
-              {/* Header */}
-              <div style={{ background: `linear-gradient(90deg, ${scoreColor}22 0%, transparent 100%)`, borderBottom: `1px solid ${scoreColor}40`, padding: '12px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ color: '#ffffff', fontWeight: 800, fontSize: '23px', letterSpacing: '0.5px' }}>{qt.underlying_ticker}</span>
-                  <span style={{ color: qt.type === 'call' ? '#22c55e' : '#ef4444', fontSize: '19px', fontWeight: 700 }}>{qt.type.toUpperCase()}</span>
-                  <span style={{ color: '#ffffff', fontSize: '18px' }}>${qt.strike} - {qt.expiry.slice(5).replace('-', '/')}</span>
-                </div>
-                <button onClick={() => setQuickGradePopup(null)} style={{ background: 'none', border: 'none', color: '#ffffff', cursor: 'pointer', fontSize: '23px', lineHeight: 1, padding: '0 2px' }}>?</button>
-              </div>
-              {/* Grade circle + price info */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '24px', padding: '20px 22px', borderBottom: `1px solid #1f2937` }}>
-                {/* Circle */}
-                <div style={{
-                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  width: '116px', height: '116px', flexShrink: 0,
-                  border: `8px solid ${scoreColor}`,
-                  borderRadius: '50%',
-                  background: `linear-gradient(135deg, ${scoreColor}20 0%, ${scoreColor}05 50%, ${scoreColor}30 100%)`,
-                  transform: 'rotate(-12deg)',
-                  boxShadow: `0 8px 16px rgba(0,0,0,0.6), inset 0 -3px 8px rgba(0,0,0,0.7), inset 0 3px 8px rgba(255,255,255,0.1)`,
-                  position: 'relative',
-                }}>
-                  <div style={{ position: 'absolute', top: '4px', left: '4px', right: '4px', bottom: '4px', border: `2px dashed ${scoreColor}80`, borderRadius: '50%' }} />
-                  <span style={{
-                    color: scoreColor, fontWeight: 'normal', fontSize: '34px', fontStyle: 'italic',
-                    fontFamily: 'Impact, Georgia, serif',
-                    textShadow: `0 3px 0 rgba(0,0,0,0.8), 0 -1px 0 rgba(255,255,255,0.3), 2px 2px 4px rgba(0,0,0,0.9)`,
-                    transform: 'rotate(12deg)', letterSpacing: '1px',
-                    WebkitTextStroke: `0.5px ${scoreColor}`,
-                  }}>{grade}</span>
-                </div>
-                {/* Price info */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {currentOptionPrice !== null ? (
-                    <>
-                      <div style={{ color: '#ffffff', fontSize: '26px', fontWeight: 700 }}>${currentOptionPrice.toFixed(2)}</div>
-                      {currentValue !== null && <div style={{ color: priceColor, fontSize: '19px' }}>{formatVal(currentValue)}</div>}
-                      {percentChange !== null && (
-                        <div style={{ color: priceColor, fontWeight: 700, fontSize: '23px' }}>{percentChange > 0 ? '+' : ''}{percentChange.toFixed(1)}%</div>
-                      )}
-                    </>
-                  ) : (
-                    <div style={{ color: '#ffffff', fontSize: '18px' }}>Prices loading-</div>
-                  )}
-                </div>
-              </div>
-
-            </div>
-          </>
-        )
-      })()}
+    <div ref={rootRef} style={{ display: 'flex', width: '100%', alignItems: 'flex-start' }}>
 
       {/* Filter Dialog Modal */}
 
@@ -5780,9 +5835,9 @@ Stock Reaction: ${scores.stockReaction}/15`
           minHeight: showFlowTrackingInline ? 'auto' : undefined,
           overflow: showFlowTrackingInline ? undefined : isSidebarPanel ? 'visible' : 'hidden',
 
-          width: isSidebarPanel ? '100%' : (isMobileView || isTabletView) ? '100%' : '74%',
+          width: isSidebarPanel ? '100%' : (isMobileView || !showFlowSidebar) ? '100%' : '74%',
 
-          marginRight: isSidebarPanel || isMobileView || isTabletView ? '0' : '38%',
+          marginRight: isSidebarPanel || isMobileView || !showFlowSidebar ? '0' : '38%',
 
           marginTop: '0',
 
@@ -5897,80 +5952,33 @@ Stock Reaction: ${scores.stockReaction}/15`
               {/* Right side buttons - order: PICKS, ALGO, TRACK, FILTER, ? */}
 
               <div className="flex items-center gap-px">
-                {/* SweepSense Button - mobile, combines LEAP + EFI in parallel */}
-                {(() => {
-                  const sweepSenseActive = shortTermActive && longTermActive
-                  const handleMobileSweepSense = async () => {
-                    if (modeLoadingStep !== null) return
-                    const newState = !sweepSenseActive
-                    setEfiHighlightsActive(newState)
-                    setLeapActive(newState)
-                    if (!newState) {
-                      setModeLoadingStep(null)
-                      setNotableFilterActive(false)
-                      return
-                    }
-                    setModeLoadingStep({ mode: 'SHORT', step: 'SweepSense - Scanning Short-Term & Long-Term...' })
-                    await new Promise<void>(r => setTimeout(r, 0))
-                    // Use raw data prop - short-term and long-term scan independently
-                    const shortTermTrades = data.filter(meetsShortTermCriteria)
-                    const longTermTrades = data.filter(meetsLongTermCriteria)
-                    const longTermTickers = [...new Set(longTermTrades.map(t => t.underlying_ticker))]
-                    // All unique contracts for option price fetch
-                    const allUniq = [...shortTermTrades, ...longTermTrades].filter(
-                      (t, i, arr) => arr.findIndex(x =>
-                        x.underlying_ticker === t.underlying_ticker && x.strike === t.strike &&
-                        x.expiry === t.expiry && x.type === t.type) === i
-                    )
-                    try {
-                      const { shortTermRS, longTermRS } = await calculateCombinedRS(shortTermTrades, longTermTrades)
-                      setRelativeStrengthData((prev) => new Map([...prev, ...shortTermRS]))
-                      setLeapRsData((prev) => new Map([...prev, ...longTermRS]))
-                      const [wkData, seasonData] = await Promise.all([
-                        fetchLeap52wkData(longTermTickers),
-                        fetchLeapSeasonalData(longTermTickers),
-                      ])
-                      setLeap52wkData((prev) => new Map([...prev, ...wkData]))
-                      setLeapSeasonalData((prev) => new Map([...prev, ...seasonData]))
-                      await fetchCurrentOptionPrices(allUniq)
-                    } catch (err) {
-                      console.error('[SweepSense] Scan error:', err)
-                    }
-                    setModeLoadingStep(null)
-                  }
-                  return (
-                    <button
-                      onClick={handleMobileSweepSense}
-                      disabled={modeLoadingStep !== null}
-                      className="px-2 font-black uppercase transition-all duration-200 flex items-center gap-1 focus:outline-none"
-                      style={{
-                        height: '40px',
-                        background: sweepSenseActive
-                          ? 'linear-gradient(180deg, #0d0d0d 0%, #050505 45%, #000000 100%)'
-                          : 'linear-gradient(180deg, #101008 0%, #060604 50%, #000000 100%)',
-                        border: sweepSenseActive ? '1px solid #a8ff3e' : '1px solid #3d6a12',
-                        borderTop: sweepSenseActive ? '1px solid #c8ff60' : '1px solid #3d6a12',
-                        borderRadius: '4px',
-                        fontSize: '10px',
-                        letterSpacing: '0.5px',
-                        fontWeight: '900',
-                        color: sweepSenseActive ? '#a8ff3e' : '#4a8018',
-                        boxShadow: sweepSenseActive
-                          ? 'inset 0 1px 0 rgba(168,255,62,0.15), inset 0 -2px 0 rgba(0,0,0,0.9), 0 0 12px rgba(168,255,62,0.18), 0 2px 6px rgba(0,0,0,0.9)'
-                          : 'inset 0 1px 0 rgba(168,255,62,0.04), inset 0 -2px 0 rgba(0,0,0,0.9)',
-                        position: 'relative',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-                      </svg>
-                      <span style={{ whiteSpace: 'nowrap' }}>SweepSense</span>
-                    </button>
-                  )
-                })()}
+                {/* SweepSense Button removed - scan now runs automatically once flow data loads */}
 
                 {/* Notable Button removed - SweepSense activates it automatically */}
+
+                {/* SweepSense Filter Button (mobile) - shows only SweepSense-qualifying trades */}
+                <button
+                  onClick={() => setSweepSenseFilterActive(!sweepSenseFilterActive)}
+                  className="px-2 font-black uppercase transition-all duration-200 flex items-center gap-1 focus:outline-none"
+                  style={{
+                    height: '40px',
+                    background: sweepSenseFilterActive
+                      ? '#16a34a'
+                      : 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
+                    border: sweepSenseFilterActive ? '2px solid #16a34a' : '2px solid #2a2a2a',
+                    borderRadius: '4px',
+                    fontSize: '10px',
+                    letterSpacing: '0.5px',
+                    fontWeight: '900',
+                    color: sweepSenseFilterActive ? '#000000' : '#16a34a',
+                    boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.9)',
+                  }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 12h4l3 8 4-16 3 8h4" />
+                  </svg>
+                  <span>SweepSense</span>
+                </button>
 
                 {/* Algo Flow Button */}
                 {onAlgoFlowClick && (
@@ -6149,39 +6157,6 @@ Stock Reaction: ${scores.stockReaction}/15`
                 )}
 
                 {/* History Button */}
-
-                {/* Download as Image Button */}
-
-                <button
-                  onClick={handleDownloadImage}
-                  className="hidden md:flex px-2 text-white font-black uppercase transition-all duration-200 items-center gap-1 focus:outline-none hover:scale-[1.02] active:scale-[0.98]"
-                  style={{
-                    height: '40px',
-                    background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
-                    border: '2px solid #22c55e',
-                    borderRadius: '4px',
-                    fontSize: '10px',
-                    letterSpacing: '0.5px',
-                    fontWeight: '900',
-                    boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-                  }}
-                  title="Download page as image"
-                >
-                  <svg
-                    className="w-3 h-3 text-green-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                    strokeWidth={2.5}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                    />
-                  </svg>
-                  <span style={{ color: '#22c55e' }}>IMG</span>
-                </button>
 
                 <button
                   onClick={loadFlowHistory}
@@ -6613,91 +6588,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                   style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.14)' }}
                 ></div>
 
-                {/* SweepSense Toggle - combines LEAP Picks + EFI Highlights, runs both in parallel */}
-                {(() => {
-                  const sweepSenseActive = shortTermActive && longTermActive
-                  const handleSweepSense = async () => {
-                    if (modeLoadingStep !== null) return
-                    const newState = !sweepSenseActive
-                    setEfiHighlightsActive(newState)
-                    setLeapActive(newState)
-                    if (!newState) {
-                      setModeLoadingStep(null)
-                      setNotableFilterActive(false)
-                      return
-                    }
-                    setModeLoadingStep({ mode: 'SHORT', step: 'SweepSense - Scanning Short-Term & Long-Term...' })
-                    await new Promise<void>(r => setTimeout(r, 0))
-                    // Use raw data prop - short-term and long-term scan independently
-                    const shortTermTrades = data.filter(meetsShortTermCriteria)
-                    const longTermTrades = data.filter(meetsLongTermCriteria)
-                    const longTermTickers = [...new Set(longTermTrades.map(t => t.underlying_ticker))]
-                    const allUniq = [...shortTermTrades, ...longTermTrades].filter(
-                      (t, i, arr) => arr.findIndex(x =>
-                        x.underlying_ticker === t.underlying_ticker && x.strike === t.strike &&
-                        x.expiry === t.expiry && x.type === t.type) === i
-                    )
-                    try {
-                      const { shortTermRS, longTermRS } = await calculateCombinedRS(shortTermTrades, longTermTrades)
-                      setRelativeStrengthData((prev) => new Map([...prev, ...shortTermRS]))
-                      setLeapRsData((prev) => new Map([...prev, ...longTermRS]))
-                      const [wkData, seasonData] = await Promise.all([
-                        fetchLeap52wkData(longTermTickers),
-                        fetchLeapSeasonalData(longTermTickers),
-                      ])
-                      setLeap52wkData((prev) => new Map([...prev, ...wkData]))
-                      setLeapSeasonalData((prev) => new Map([...prev, ...seasonData]))
-                      await fetchCurrentOptionPrices(allUniq)
-                    } catch (err) {
-                      console.error('[SweepSense] Scan error:', err)
-                    }
-                    setModeLoadingStep(null)
-                  }
-                  return (
-                    <button
-                      onClick={handleSweepSense}
-                      disabled={modeLoadingStep !== null}
-                      className={`toolbar-mode${sweepSenseActive ? ' toolbar-mode--active' : ''} flex items-center gap-1.5 font-bold uppercase transition-all duration-150 focus:outline-none${(modeLoadingStep !== null || !data || data.length === 0 || loading || stockPricesLoading) ? ' opacity-40 cursor-not-allowed' : ''}`}
-                      style={{
-                        height: tbH || '35px',
-                        padding: tbPad || '0 16px',
-                        background: sweepSenseActive
-                          ? 'linear-gradient(180deg, #0d0d0d 0%, #060606 45%, #000000 100%)'
-                          : 'linear-gradient(180deg, #101008 0%, #060604 45%, #000000 100%)',
-                        border: sweepSenseActive ? '1px solid #a8ff3e' : '1px solid #4a7a1a',
-                        borderTop: sweepSenseActive ? '1px solid #c8ff60' : '1px solid #4a7a1a',
-                        borderRadius: '7px',
-                        fontSize: tbFs || '12px',
-                        letterSpacing: tbLs || '1.5px',
-                        fontWeight: '900',
-                        color: sweepSenseActive ? '#a8ff3e' : '#5a9a20',
-                        boxShadow: sweepSenseActive
-                          ? 'inset 0 1px 0 rgba(168,255,62,0.18), inset 0 -2px 0 rgba(0,0,0,0.85), inset 2px 0 0 rgba(0,0,0,0.4), inset -2px 0 0 rgba(0,0,0,0.4), 0 0 18px rgba(168,255,62,0.22), 0 2px 8px rgba(0,0,0,0.9)'
-                          : 'inset 0 1px 0 rgba(168,255,62,0.06), inset 0 -2px 0 rgba(0,0,0,0.85), 0 2px 6px rgba(0,0,0,0.8)',
-                        cursor: (!data || data.length === 0 || loading || stockPricesLoading) ? 'not-allowed' : 'pointer',
-                        transition: 'all 0.15s ease',
-                        position: 'relative',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      {sweepSenseActive && (
-                        <span style={{
-                          position: 'absolute', top: 0, left: '-60%', width: '40%', height: '100%',
-                          background: 'linear-gradient(90deg, transparent, rgba(168,255,62,0.08), transparent)',
-                          animation: 'sweepShine 2.8s ease-in-out infinite',
-                          pointerEvents: 'none',
-                        }} />
-                      )}
-                      <style>{`@keyframes sweepShine { 0% { left: -60% } 100% { left: 160% } }`}</style>
-                      <span className="tb-icon" style={{ display: 'flex', alignItems: 'center' }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-                        </svg>
-                      </span>
-                      <span>SweepSense</span>
-                    </button>
-                  )
-                })()}
+                {/* SweepSense Toggle removed - scan now runs automatically once flow data loads */}
 
                 {/* Grading Progress - now shown in fullscreen overlay, hidden from header */}
 
@@ -6925,41 +6816,6 @@ Stock Reaction: ${scores.stockReaction}/15`
                       </span>
                     </button>
                   )}
-
-                  {/* Download as Image Button - Desktop Only */}
-
-                  <button
-                    onClick={handleDownloadImage}
-                    title="Download as image"
-                    className="toolbar-btn-img hidden md:flex items-center justify-center transition-all duration-150 focus:outline-none"
-                    style={{
-                      width: tbHn || '42px',
-                      height: tbHn || '42px',
-                      background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)',
-                      border: '1px solid #22c55e',
-                      borderRadius: '7px',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                      color: '#22c55e',
-                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.5)',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = 'rgba(34,197,94,1)'
-                      e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.6), 0 0 14px rgba(34,197,94,0.35)'
-                      e.currentTarget.style.background = 'linear-gradient(180deg, rgba(34,197,94,0.28) 0%, rgba(34,197,94,0.08) 55%, rgba(0,0,0,0.15) 100%)'
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = '#22c55e'
-                      e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.5)'
-                      e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)'
-                    }}
-                  >
-                    <span className="tb-icon" style={{ display: 'flex', alignItems: 'center' }}>
-                      <svg width="17" height="17" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                    </span>
-                  </button>
 
                   {/* Flow Tracking Button - Mobile Only */}
 
@@ -7501,8 +7357,10 @@ Stock Reaction: ${scores.stockReaction}/15`
             </div>
           )}
 
-          {/* Fullscreen loading overlay - SweepSense Vision */}
-          {(modeLoadingStep !== null || (gradingProgress !== null && (shortTermActive || longTermActive))) && (
+          {/* Fullscreen loading overlay removed - SweepSense now scans silently in the
+              background; its loading state is shown only inside the Flow Tracking
+              panel's SweepSense tab (see sweepSenseScanning prop), not over the table. */}
+          {false && (
             <div style={{
               position: 'absolute', inset: 0, zIndex: 50,
               background: 'radial-gradient(ellipse at 50% 40%, rgba(0,12,4,0.98) 0%, rgba(0,0,0,0.99) 70%)',
@@ -7608,7 +7466,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
                       <span style={{ fontSize: 'clamp(13px, 4vw, 19px)', color: '#ffffff', fontWeight: 700, textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>Grading trades</span>
                       <span style={{ fontSize: 'clamp(14px, 4.5vw, 22px)', fontWeight: 900, color: '#a8ff3e', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
-                        {Math.round((gradingProgress.current / gradingProgress.total) * 100)}%
+                        {Math.round(((gradingProgress?.current ?? 0) / (gradingProgress?.total || 1)) * 100)}%
                       </span>
                     </div>
                     <div style={{
@@ -7623,7 +7481,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                         background: 'linear-gradient(180deg, #c8ff60 0%, #a8ff3e 50%, #6dcc00 100%)',
                         borderRadius: '5px',
                         transition: 'width 0.4s ease',
-                        width: `${(gradingProgress.current / gradingProgress.total) * 100}%`,
+                        width: `${((gradingProgress?.current ?? 0) / (gradingProgress?.total || 1)) * 100}%`,
                         position: 'relative',
                         boxShadow: '0 0 10px rgba(255,149,0,0.6)',
                       }}>
@@ -7634,7 +7492,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       </div>
                     </div>
                     <div style={{ textAlign: 'center', marginTop: '12px', fontSize: 'clamp(12px, 4vw, 18px)', fontWeight: 700, color: '#ffffff', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
-                      {gradingProgress.current.toLocaleString()} / {gradingProgress.total.toLocaleString()} trades
+                      {(gradingProgress?.current ?? 0).toLocaleString()} / {(gradingProgress?.total ?? 0).toLocaleString()} trades
                     </div>
                   </div>
                 )}
@@ -7664,10 +7522,10 @@ Stock Reaction: ${scores.stockReaction}/15`
             <div
               className={`table-scroll-container custom-scrollbar overflow-y-auto overflow-x-auto${isTabletView ? ' table-tablet' : ''}`}
               style={{
-                height: isMobileView ? 'calc(100vh - 200px)' : windowWidth < 1440 ? 'calc(100vh - 210px)' : 'calc(100vh - 171px)',
+                height: isMobileView ? 'calc(100dvh - 200px)' : windowWidth < 1440 ? 'calc(100vh - 210px)' : 'calc(100vh - 171px)',
                 overflowY: 'auto',
                 overflowX: 'auto',
-                paddingBottom: '0px',
+                paddingBottom: isMobileView ? '80px' : '0px',
                 scrollBehavior: 'smooth',
               }}
             >
@@ -7824,36 +7682,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                       </div>
                     </th>
 
-                    {/* Dealer column - shown when SweepSense active */}
-                    {(shortTermActive || longTermActive) && (
-                      <th className="col-hdr col-dealer hidden md:table-cell text-left">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#c084fc" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 21V8l9-6 9 6v13" /><path d="M9 21V12h6v9" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
-                          DEALER
-                        </div>
-                      </th>
-                    )}
-
-                    {/* Conditional: GRADE column - toggles long first ? short first */}
-                    {(shortTermActive || longTermActive) && (
-                      <th
-                        className="col-hdr col-sortable text-left"
-                        onClick={() => {
-                          setSortField('positioning_grade')
-                          setGradeColumnMode(prev => prev === 'long_first' ? 'short_first' : 'long_first')
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                          <svg className="hidden md:block" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><polyline points="9 12 11 14 15 10" /></svg>
-                          <span className="hidden md:inline" style={{
-                            color: gradeColumnMode === 'long_first' ? '#00e5ff' : '#FFD700'
-                          }}>
-                            {gradeColumnMode === 'long_first' ? 'LONG FIRST' : 'SHORT FIRST'}
-                          </span>
-                          <span className="md:hidden" style={{ fontSize: 10 }}>GRD</span>
-                        </div>
-                      </th>
-                    )}
+                    {/* Dealer column and Grade (Long First/Short First) columns removed -
+                        this info now lives in the SweepSense tab of the Flow Tracking panel. */}
                   </tr>
                 </thead>
 
@@ -7919,6 +7749,15 @@ Stock Reaction: ${scores.stockReaction}/15`
                     const notableColor = (fallback?: string) =>
                       isLongTermPick ? '#00e5ff' : isShortTermPick ? '#FFD700' : (fallback || undefined)
 
+                    // SweepSense filter (mobile "SweepSense" button) - color the ticker cyan
+                    // (long-term/LEAP) or yellow (short-term) same as the SweepSense tab, and
+                    // surface the Plan Entry text as its own 3rd row below the trade.
+                    const sweepSenseEntry = sweepSenseFilterActive && sweepSenseDataStable
+                      ? sweepSenseDataStable.trades.find((t) => generateFlowId(t.trade) === generateFlowId(trade))
+                      : null
+                    const sweepSenseIsLongTerm = sweepSenseEntry ? meetsLongTermCriteria(trade) : false
+                    const sweepSenseTickerColor = sweepSenseEntry ? (sweepSenseIsLongTerm ? '#00e5ff' : '#ffd400') : null
+
                     // Keep legacy alias so downstream row JSX that references isNotablePick still works
                     const isNotablePick = isShortTermPick
                     const isLeapNotable = isLongTermPick
@@ -7963,6 +7802,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                           ].join(' ')}
                           onClick={() => {
                             if (isAnyNotable) openNotableAnalysis(trade)
+                            if (sweepSenseEntry) {
+                              const id = generateFlowId(trade)
+                              setExpandedSweepSenseRowId((prev) => (prev === id ? null : id))
+                            }
                           }}
                           onMouseEnter={(e) => {
                             const el = e.currentTarget
@@ -7984,7 +7827,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                             el.style.background = index % 2 === 0 ? '#000000' : '#0a0a0a'
                           }}
                           style={{
-                            cursor: isAnyNotable ? 'pointer' : 'default',
+                            cursor: (isAnyNotable || sweepSenseEntry) ? 'pointer' : 'default',
                             backgroundColor: index % 2 === 0 ? '#000000' : '#0a0a0a',
 
                             position: 'relative' as const,
@@ -7997,33 +7840,13 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                             <div className="md:hidden flex flex-col items-center space-y-1">
                               <div className="flex items-center justify-center gap-2">
-                                {/* Quick Grade Pen Icon (Mobile) */}
-                                {!INDEX_TICKERS.has(trade.underlying_ticker) && !shortTermActive && !longTermActive && (
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); handleQuickGrade(trade, e) }}
-                                    title={`Quick Grade (${trade.days_to_expiry <= 35 ? 'Short-Term' : 'Long-Term'} logic)`}
-                                    className="quick-grade-pen"
-                                    style={{
-                                      background: 'none',
-                                      border: 'none',
-                                      cursor: 'pointer',
-                                      padding: '2px',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      animation: quickGradePopup?.id === generateFlowId(trade) ? 'none' : 'penPulse 2.4s ease-in-out infinite',
-                                      color: quickGradePopup?.id === generateFlowId(trade) ? '#ffffff' : '#a78bfa',
-                                      transform: quickGradePopup?.id === generateFlowId(trade) ? 'rotate(-8deg) scale(1.15)' : undefined,
-                                    }}
-                                  >
-                                    <TbPencil style={{ width: '12px', height: '12px' }} />
-                                  </button>
-                                )}
                                 <button
                                   onClick={() => handleTickerClick(trade.underlying_ticker)}
                                   className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 py-1 rounded-lg cursor-pointer border-none shadow-sm text-xs ${selectedTickerFilter === trade.underlying_ticker
                                     ? 'ring-2 ring-orange-500 bg-gray-800/50'
                                     : ''
                                     }`}
+                                  style={sweepSenseTickerColor ? { color: sweepSenseTickerColor, fontWeight: 'bold' } : undefined}
                                 >
                                   {trade.underlying_ticker}
                                 </button>
@@ -8095,27 +7918,6 @@ Stock Reaction: ${scores.stockReaction}/15`
                               )
                             })()}
                             <div className="flex items-center justify-center gap-2">
-                              {/* Quick Grade Pen Icon (Desktop) */}
-                              {!INDEX_TICKERS.has(trade.underlying_ticker) && !shortTermActive && !longTermActive && (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleQuickGrade(trade, e) }}
-                                  title={`Quick Grade (${trade.days_to_expiry <= 35 ? 'EFI' : 'LEAP'} logic)`}
-                                  className="quick-grade-pen"
-                                  style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    padding: '2px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    animation: quickGradePopup?.id === generateFlowId(trade) ? 'none' : 'penPulse 2.4s ease-in-out infinite',
-                                    color: quickGradePopup?.id === generateFlowId(trade) ? '#ffffff' : '#a78bfa',
-                                    transform: quickGradePopup?.id === generateFlowId(trade) ? 'rotate(-8deg) scale(1.15)' : undefined,
-                                  }}
-                                >
-                                  <TbPencil style={{ width: '14px', height: '14px' }} />
-                                </button>
-                              )}
                               <button
                                 onClick={() => handleTickerClick(trade.underlying_ticker)}
                                 className={`ticker-button ${getTickerStyle(trade.underlying_ticker)} hover:bg-gray-900 hover:text-orange-400 transition-all duration-200 px-2 md:px-3 py-1 md:py-2 rounded-lg cursor-pointer border-none shadow-sm text-xs md:text-lg ${selectedTickerFilter === trade.underlying_ticker
@@ -8123,7 +7925,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                                   : ''
                                   }`}
                                 style={
-                                  isAnyNotable ? { color: notableColor(), fontWeight: 'bold' } : {}
+                                  sweepSenseTickerColor ? { color: sweepSenseTickerColor, fontWeight: 'bold' } : isAnyNotable ? { color: notableColor(), fontWeight: 'bold' } : {}
                                 }
                               >
                                 {trade.underlying_ticker}
@@ -8365,39 +8167,50 @@ Stock Reaction: ${scores.stockReaction}/15`
                           </td>
 
                           <td className="col-vol-oi hidden md:table-cell p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 vol-oi-display">
-                            {typeof trade.volume === 'number' &&
-                              typeof trade.open_interest === 'number' ? (
-                              <div className="flex items-center justify-center gap-1">
-                                <span
-                                  className="text-cyan-400 font-bold"
-                                  style={{ fontSize: '19.2px' }}
-                                >
-                                  {trade.volume.toLocaleString()}
-                                </span>
+                            {(() => {
+                              const expiry = trade.expiry.replace(/-/g, '').slice(2)
+                              const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
+                              const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
+                              const optionTicker = `O:${normalizeTickerForOptions(trade.underlying_ticker)}${expiry}${optionType}${strikeFormatted}`
+                              const live = currentOptionVolOi[optionTicker]
+                              const liveVolume = live?.volume ?? trade.volume
+                              const liveOi = live?.open_interest ?? trade.open_interest
+                              if (typeof liveVolume !== 'number' || typeof liveOi !== 'number') {
+                                return (
+                                  <span className="text-gray-500" style={{ fontSize: '19.2px' }}>
+                                    --
+                                  </span>
+                                )
+                              }
+                              return (
+                                <div className="flex items-center justify-center gap-1">
+                                  <span
+                                    className="text-cyan-400 font-bold"
+                                    style={{ fontSize: '19.2px' }}
+                                  >
+                                    {liveVolume.toLocaleString()}
+                                  </span>
 
-                                <span className="text-gray-400" style={{ fontSize: '16.8px' }}>
-                                  /
-                                </span>
+                                  <span className="text-gray-400" style={{ fontSize: '16.8px' }}>
+                                    /
+                                  </span>
 
-                                <span
-                                  className="font-bold"
-                                  style={{
-                                    fontSize: '19.2px',
-                                    color:
-                                      trade.base_open_interest !== undefined &&
-                                        trade.open_interest !== trade.base_open_interest
-                                        ? '#FFD700'
-                                        : '#a855f7',
-                                  }}
-                                >
-                                  {trade.open_interest.toLocaleString()}
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="text-gray-500" style={{ fontSize: '19.2px' }}>
-                                --
-                              </span>
-                            )}
+                                  <span
+                                    className="font-bold"
+                                    style={{
+                                      fontSize: '19.2px',
+                                      color:
+                                        trade.base_open_interest !== undefined &&
+                                          liveOi !== trade.base_open_interest
+                                          ? '#FFD700'
+                                          : '#a855f7',
+                                    }}
+                                  >
+                                    {liveOi.toLocaleString()}
+                                  </span>
+                                </div>
+                              )
+                            })()}
                           </td>
 
                           <td className="col-type hidden md:table-cell p-2 md:p-6 border-r border-gray-700/30 text-center">
@@ -8411,265 +8224,60 @@ Stock Reaction: ${scores.stockReaction}/15`
                             </span>
                           </td>
 
-                          {/* -- Dealer column -- */}
-                          {(shortTermActive || longTermActive) &&
-                            (() => {
-                              const zones = dealerZoneCache[trade.underlying_ticker]
-                              return (
-                                <td className="hidden md:table-cell p-3 md:p-5 border-r border-gray-700/30 align-middle">
-                                  {zones ? (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                        <span style={{ fontSize: '11px', fontWeight: 700, color: '#FFD700', letterSpacing: '0.5px', minWidth: '46px' }}>MAGNET</span>
-                                        <span style={{ fontSize: '15px', fontWeight: 900, color: '#FFD700' }}>
-                                          {zones.golden != null ? `$${zones.golden}` : '-'}
-                                        </span>
-                                        {zones.goldenExpiry && (
-                                          <span style={{ fontSize: '15px', fontWeight: 900, color: '#FFD700' }}>
-                                            {zones.goldenExpiry.slice(5).replace('-', '/')}
-                                          </span>
-                                        )}
-                                      </div>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                        <span style={{ fontSize: '11px', fontWeight: 700, color: '#a855f7', letterSpacing: '0.5px', minWidth: '46px' }}>PIVOT</span>
-                                        <span style={{ fontSize: '15px', fontWeight: 900, color: '#a855f7' }}>
-                                          {zones.purple != null ? `$${zones.purple}` : '-'}
-                                        </span>
-                                        {zones.purpleExpiry && (
-                                          <span style={{ fontSize: '15px', fontWeight: 900, color: '#a855f7' }}>
-                                            {zones.purpleExpiry.slice(5).replace('-', '/')}
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <span style={{ color: '#444', fontSize: '11px' }}>loading...</span>
-                                  )}
-                                </td>
-                              )
-                            })()}
-
-                          {(shortTermActive || longTermActive) &&
-                            (() => {
-                              const expiry = trade.expiry.replace(/-/g, '').slice(2)
-
-                              const strikeFormatted = String(
-                                Math.round(trade.strike * 1000)
-                              ).padStart(8, '0')
-
-                              const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
-
-                              const normalizedTicker = normalizeTickerForOptions(
-                                trade.underlying_ticker
-                              )
-
-                              const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
-
-                              const currentPrice = currentOptionPrices[optionTicker]
-
-                              const entryPrice = trade.premium_per_contract
-
-                              // Only calculate grade when prices are fetched
-
-                              if (optionPricesFetching) {
-                                return (
-                                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-center">
-                                    <div className="inline-flex items-center gap-2">
-                                      <svg
-                                        className="animate-spin h-4 w-4 text-orange-500"
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                      >
-                                        <circle
-                                          className="opacity-25"
-                                          cx="12"
-                                          cy="12"
-                                          r="10"
-                                          stroke="currentColor"
-                                          strokeWidth="4"
-                                        ></circle>
-
-                                        <path
-                                          className="opacity-75"
-                                          fill="currentColor"
-                                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                                        ></path>
-                                      </svg>
-
-                                      <span className="text-gray-400 text-xs">Loading...</span>
-                                    </div>
-                                  </td>
-                                )
-                              }
-
-                              // Calculate grade using the centralized function
-
-                              const gradeData = getCachedGrade(trade)
-
-                              if (currentPrice && currentPrice > 0) {
-                                const currentValue = currentPrice * trade.trade_size * 100
-
-                                const entryValue = trade.total_premium
-
-                                const rawPercentChange =
-                                  ((currentPrice - entryPrice) / entryPrice) * 100
-
-                                // B/BB = sold to open: profit when contract LOSES value, loss when it gains
-                                const displayFillStyle = trade.fill_style || ''
-                                const isSoldToOpenDisplay =
-                                  displayFillStyle === 'B' || displayFillStyle === 'BB'
-                                const percentChange = isSoldToOpenDisplay
-                                  ? -rawPercentChange
-                                  : rawPercentChange
-
-                                // For sold-to-open: profitable when contract price dropped (priceHigher=false = green)
-                                const priceHigher = percentChange > 0
-
-                                // Simple color logic: green if position is in profit, red if in loss
-                                const color = priceHigher ? '#00ff00' : '#ff0000'
-
-                                // Smart formatting for value
-
-                                const formatValue = (val: number): string => {
-                                  if (val >= 1000000) return `$${(val / 1000000).toFixed(1)}M`
-
-                                  if (val >= 1000) return `$${(val / 1000).toFixed(1)}K`
-
-                                  return `$${val.toFixed(0)}`
-                                }
-
-                                // Use calculated grade data
-
-                                const { grade, color: scoreColor, breakdown } = gradeData
-
-                                // Compute dealer signal + educator-style entry plan
-                                const _zone = dealerZoneCache[trade.underlying_ticker]
-                                const _spot = currentPrices[trade.underlying_ticker]
-                                const _magnet = _zone?.golden ?? null
-                                const _pivot = _zone?.purple ?? null
-                                let _sigCode = grade
-                                let _sigSub = ''
-                                let _sigColor = scoreColor
-                                let _planText = 'Waiting on dealer zone data to build an entry plan.'
-                                if (_spot && _spot > 0 && (_magnet !== null || _pivot !== null)) {
-                                  const _near = 0.025
-                                  if (_magnet !== null && _pivot !== null && Math.abs(_magnet - _pivot) / _spot < 0.015) {
-                                    _sigCode = `Break $${_magnet.toFixed(0)}`; _sigColor = '#ff8500'
-                                    _planText = `Magnet and pivot are stacked at the same level ($${_magnet.toFixed(2)}). Wait for a clean break of that level with volume before entering — trade the breakout, not the chop around it.`
-                                  } else if (_pivot !== null && Math.abs(_spot - _pivot) / _spot <= _near) {
-                                    _sigCode = 'Take Action Now'; _sigSub = `Pivot $${_pivot.toFixed(0)}`; _sigColor = '#00ff88'
-                                    _planText = `Price is sitting right on the pivot ($${_pivot.toFixed(2)}). This is your entry zone — take the trade now with a tight stop just beyond the pivot, don't wait for confirmation or you'll chase it.`
-                                  } else if (_magnet !== null && Math.abs(_spot - _magnet) / _spot <= _near) {
-                                    _sigCode = 'Take Action Now'; _sigSub = `Magnet $${_magnet.toFixed(0)}`; _sigColor = '#00ff88'
-                                    _planText = `Price is right at the magnet ($${_magnet.toFixed(2)}). This is your entry zone — take the trade now with a tight stop, this level tends to react fast.`
-                                  } else if (_magnet !== null && _pivot !== null) {
-                                    const _lo = Math.min(_magnet, _pivot)
-                                    const _hi = Math.max(_magnet, _pivot)
-                                    if (_spot > _lo && _spot < _hi) {
-                                      _sigCode = `Liquidate $${_lo.toFixed(0)} / Break $${_hi.toFixed(0)}`; _sigColor = '#fbbf24'
-                                      _planText = `Price is boxed between $${_lo.toFixed(2)} and $${_hi.toFixed(2)}. Enter on a liquidation move below $${_lo.toFixed(2)}, or on a confirmed breakout above $${_hi.toFixed(2)} — don't buy the middle of the range, let it show its hand first.`
-                                    } else {
-                                      const _dM = Math.abs(_spot - _magnet), _dP = Math.abs(_spot - _pivot)
-                                      if (_dM <= _dP) {
-                                        _sigCode = `Enter → Magnet`; _sigSub = `Target $${_magnet.toFixed(0)}`; _sigColor = '#00e5ff'
-                                        _planText = `You're already close to the magnet ($${_magnet.toFixed(2)}) — the pivot is far away and less relevant right now. Enter here and trade this move toward the magnet as your target.`
-                                      } else {
-                                        _sigCode = `Wait for Pivot`; _sigSub = `$${_pivot.toFixed(0)}`; _sigColor = '#a855f7'
-                                        _planText = `You're still far from both levels but closer to the pivot ($${_pivot.toFixed(2)}). Be patient — wait for price to approach the pivot before entering, entering here is too early and lowers your edge.`
-                                      }
-                                    }
-                                  }
-                                }
-
-                                return (
-                                  <td
-                                    className="p-2 md:p-6 border-r border-gray-700/30"
-                                    style={{
-                                      position: 'relative',
-                                      zIndex: hoveredGradeIndex === index ? 99999 : 'auto',
-                                    }}
-                                  >
-                                    {/* Mobile: Compact price + percentage (grade letter hidden) */}
-                                    <div className="md:hidden flex flex-col items-center space-y-1">
-                                      <span style={{ color, fontWeight: 'bold', fontSize: '13px' }}>${currentPrice.toFixed(2)}</span>
-                                      <span style={{ color, fontWeight: 600, fontSize: '11px' }}>{formatValue(currentValue)}</span>
-                                      <span style={{ color, fontWeight: 'bold', fontSize: '12px' }}>{priceHigher ? '+' : ''}{percentChange.toFixed(1)}%</span>
-                                    </div>
-
-                                    {/* Desktop: Price info + Plan Entry button (grade letter/circle hidden) */}
-                                    <div className="hidden md:flex items-center gap-2">
-                                      {/* Price info + Plan Entry */}
-                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', whiteSpace: 'nowrap' }}>
-                                          <span style={{ color, fontWeight: 'bold', fontSize: '16.8px' }}>${currentPrice.toFixed(2)}</span>
-                                          <span style={{ color, fontWeight: 700, fontSize: '13px' }}>{formatValue(currentValue)}</span>
-                                          <span style={{ color, fontWeight: 'bold', fontSize: '14.4px' }}>{priceHigher ? '+' : ''}{percentChange.toFixed(1)}%</span>
-                                        </div>
-
-                                        {/* Plan Entry button — only when dealer zones are loaded */}
-                                        {(_magnet !== null || _pivot !== null) && (
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation()
-                                              // Toggle a mini popup anchored to this button
-                                              const id = `pe-${index}`
-                                              const existing = document.getElementById(id)
-                                              if (existing) { existing.remove(); return }
-                                              const popup = document.createElement('div')
-                                              popup.id = id
-                                              popup.style.cssText = `position:fixed;z-index:999999;background:#000;border:1px solid ${_sigColor};border-radius:16px;padding:23px 29px;font-family:system-ui,-apple-system,sans-serif;font-size:21.1px;color:#fff;max-width:455px;box-shadow:0 8px 32px rgba(0,0,0,0.9);`
-                                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                                              popup.style.top = `${rect.bottom + 6}px`
-                                              popup.style.left = `${Math.min(rect.left, window.innerWidth - 480)}px`
-                                              popup.innerHTML = `<div style="color:${_sigColor};font-weight:900;font-size:22.75px;margin-bottom:13px;font-family:monospace">${_sigCode}</div><div style="color:#e5e5e5;line-height:1.5;font-size:20.3px">${_planText}</div>`
-                                              document.body.appendChild(popup)
-                                              const close = (ev: MouseEvent) => { if (!popup.contains(ev.target as Node)) { popup.remove(); document.removeEventListener('click', close) } }
-                                              setTimeout(() => document.addEventListener('click', close), 50)
-                                            }}
-                                            style={{
-                                              marginTop: '2px',
-                                              padding: '7px 14px',
-                                              background: `linear-gradient(180deg, ${_sigColor}22 0%, rgba(0,0,0,0.3) 100%)`,
-                                              border: `1px solid ${_sigColor}88`,
-                                              borderRadius: '6px',
-                                              color: _sigColor,
-                                              fontSize: '13px',
-                                              fontWeight: 700,
-                                              fontFamily: 'monospace',
-                                              letterSpacing: '0.5px',
-                                              cursor: 'pointer',
-                                              whiteSpace: 'nowrap',
-                                              display: 'inline-flex',
-                                              alignItems: 'center',
-                                              gap: '6px',
-                                            }}
-                                          >
-                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={_sigColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                                              <path d="M12 20h9" />
-                                              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                                            </svg>
-                                            Plan Entry
-                                          </button>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </td>
-                                )
-
-                              } else {
-                                const todayLocal = new Date().toLocaleDateString('en-CA')
-                                const isExpired = trade.expiry < todayLocal
-                                return (
-                                  <td className="p-2 md:p-6 border-r border-gray-700/30">
-                                    <span className="text-gray-500 text-sm">
-                                      {isExpired ? 'Expired' : 'N/A'}
-                                    </span>
-                                  </td>
-                                )
-                              }
-                            })()}
+                          {/* Dealer column and Grade (Long First/Short First) columns removed -
+                              this info now lives in the SweepSense tab of the Flow Tracking panel. */}
                         </tr>
+
+                        {/* Mobile: SweepSense breakdown % (Call Buy/Sell, Put Buy/Sell) + Plan Entry -
+                            only when the row is clicked open, and only while the SweepSense filter is active */}
+                        {isMobileView && sweepSenseEntry && expandedSweepSenseRowId === generateFlowId(trade) && (() => {
+                          const segs = [
+                            { label: 'CALL BUY', pct: sweepSenseEntry.breakdown.buyCallsPct, color: '#00e676' },
+                            { label: 'CALL SELL', pct: sweepSenseEntry.breakdown.bearCallsPct, color: '#ff3d3d' },
+                            { label: 'PUT BUY', pct: sweepSenseEntry.breakdown.buyPutsPct, color: '#22c55e' },
+                            { label: 'PUT SELL', pct: sweepSenseEntry.breakdown.bearPutsPct, color: '#b91c1c' },
+                          ].sort((a, b) => b.pct - a.pct)
+                          return (
+                            <tr className="md:hidden border-b border-slate-700/50" style={{ background: 'rgba(0,0,0,0.6)' }}>
+                              <td colSpan={99} style={{ padding: '6px 10px' }}>
+                                <div style={{
+                                  display: 'flex', height: '26px', borderRadius: '7px', overflow: 'hidden',
+                                  border: '1px solid rgba(255,255,255,0.12)',
+                                }}>
+                                  {segs.map((s) => (
+                                    <div
+                                      key={s.label}
+                                      style={{
+                                        position: 'relative', flex: Math.max(s.pct, 6),
+                                        background: `linear-gradient(180deg, ${s.color}ff 0%, ${s.color}cc 45%, ${s.color}ff 100%)`,
+                                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.5), inset 0 -6px 8px rgba(0,0,0,0.35)',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        borderRight: '1px solid rgba(0,0,0,0.5)', overflow: 'hidden',
+                                      }}
+                                    >
+                                      <span style={{ color: '#ffffff', fontSize: '9px', fontWeight: 900, whiteSpace: 'nowrap', textShadow: '0 1px 1px rgba(0,0,0,0.6)' }}>
+                                        {s.pct >= 10 ? `${s.label} ${s.pct.toFixed(0)}%` : `${s.pct.toFixed(0)}%`}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })()}
+
+                        {/* Mobile 3rd row: Plan Entry - only shown while the SweepSense filter is active, the row is
+                            clicked open, and a plan was actually detected */}
+                        {isMobileView && sweepSenseEntry && expandedSweepSenseRowId === generateFlowId(trade) && sweepSenseEntry.planText !== 'No Plan detected.' && sweepSenseEntry.planText !== 'Waiting on dealer magnet/pivot data to build an entry plan.' && (
+                          <tr className="md:hidden border-b border-slate-700/50" style={{ background: 'rgba(0,0,0,0.6)' }}>
+                            <td colSpan={99} style={{ padding: '6px 10px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ color: '#ffffff', fontSize: '10px', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>Plan Entry:</span>
+                                <span style={{ color: sweepSenseEntry.sigColor || '#ffffff', fontSize: '11px', fontWeight: 700 }}>{sweepSenseEntry.planText}</span>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
 
                         {/* Mobile 3rd row: T1 / T2 / Magnet / Pivot - only for notable picks on mobile */}
                         {isMobileView &&
@@ -10233,7 +9841,7 @@ Stock Reaction: ${scores.stockReaction}/15`
           </div>
         </div>
       )}
-      {!isSidebarPanel && !isMobileView && !isTabletView && (
+      {!isSidebarPanel && showFlowSidebar && (
         <div
           style={{
             width: '38%',
@@ -10258,6 +9866,8 @@ Stock Reaction: ${scores.stockReaction}/15`
             leapSeasonalData={leapSeasonalData}
             parentOptionPrices={currentOptionPrices}
             parentStockPrices={currentPrices}
+            sweepSenseData={sweepSenseDataStable}
+            sweepSenseScanning={modeLoadingStep !== null || sweepSenseSettling || (sweepSenseBgActive && !sweepSenseDataStable)}
           />
         </div>
       )}
@@ -10288,12 +9898,14 @@ Stock Reaction: ${scores.stockReaction}/15`
             leapSeasonalData={leapSeasonalData}
             parentOptionPrices={currentOptionPrices}
             parentStockPrices={currentPrices}
+            sweepSenseData={sweepSenseDataStable}
+            sweepSenseScanning={modeLoadingStep !== null || sweepSenseSettling || (sweepSenseBgActive && !sweepSenseDataStable)}
           />
         </div>
       )}
 
-      {/* Tablet: slide-in Flow Tracking Panel toggle button + drawer */}
-      {!isSidebarPanel && isTabletView && (
+      {/* Tablet/laptop: slide-in Flow Tracking Panel toggle button + drawer */}
+      {!isSidebarPanel && showFlowDrawer && (
         <>
           {/* Tab button - fixed on the right edge */}
           <button
@@ -10388,6 +10000,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                 leapSeasonalData={leapSeasonalData}
                 parentOptionPrices={currentOptionPrices}
                 parentStockPrices={currentPrices}
+                sweepSenseData={sweepSenseDataStable}
+                sweepSenseScanning={modeLoadingStep !== null || sweepSenseSettling || (sweepSenseBgActive && !sweepSenseDataStable)}
               />
             </div>
           </div>

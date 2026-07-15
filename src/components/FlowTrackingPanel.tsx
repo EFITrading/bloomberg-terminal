@@ -121,6 +121,285 @@ function bsStrikeForProbFTP(
   }
 }
 
+// ── SweepSense Tab: rich live view of every SweepSense-qualifying trade, sourced directly
+// from the OptionsFlowTable data to the left. Auto-populates - no scan button needed.
+function SweepSenseTab({
+  data,
+  isScanning,
+}: {
+  data: {
+    trades: Array<{
+      trade: OptionsFlowData
+      grade: string
+      gradeColor: string
+      pctMove: number | null
+      currentStockPrice: number | null
+      currentOptionPrice: number | null
+      contractPctChange: number | null
+      magnet: number | null
+      pivot: number | null
+      sigCode: string
+      sigColor: string
+      planText: string
+      breakdown: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }
+    }>
+    stats: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }
+    bubbles: Array<{ ticker: string; premium: number; bias: 'bull' | 'bear'; biasStrength: number }>
+  } | null
+  isScanning?: boolean
+}) {
+  const fmtPrem = (v: number) => (v >= 1000000 ? `$${(v / 1000000).toFixed(1)}M` : `$${(v / 1000).toFixed(0)}K`)
+
+  if (isScanning) {
+    return (
+      <div style={{
+        flex: 1, position: 'relative', overflow: 'hidden',
+        background: 'radial-gradient(ellipse at 50% 40%, rgba(0,12,4,0.98) 0%, rgba(0,0,0,0.99) 70%)',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '28px',
+      }}>
+        <style>{`
+          @keyframes ssSpinGlow {
+            0%, 100% { box-shadow: 0 0 14px rgba(168,255,62,0.5); }
+            50% { box-shadow: 0 0 28px rgba(168,255,62,0.85); }
+          }
+        `}</style>
+        <div style={{ position: 'relative', width: '96px', height: '96px' }}>
+          <div style={{
+            position: 'absolute', inset: 0, borderRadius: '50%',
+            border: '6px solid rgba(168,255,62,0.08)', borderTopColor: '#a8ff3e',
+            animation: 'spin 0.85s linear infinite, ssSpinGlow 1.7s ease-in-out infinite',
+          }} />
+          <div style={{
+            position: 'absolute', inset: '14px', borderRadius: '50%',
+            border: '5px solid rgba(100,220,20,0.08)', borderTopColor: '#6dcc00',
+            animation: 'spin 1.3s linear infinite reverse',
+          }} />
+        </div>
+        <div style={{ color: '#22ff9c', fontWeight: 900, fontSize: '18px', letterSpacing: '1.5px', textAlign: 'center' }}>
+          SCANNING SHORT-TERM &amp; LONG-TERM FLOW...
+        </div>
+      </div>
+    )
+  }
+
+  if (!data || data.trades.length === 0) {
+    return (
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '10px', padding: '40px' }}>
+        <span style={{ fontSize: '40px' }}>⚡</span>
+        <span style={{ color: '#22ff9c', fontWeight: 900, fontSize: '16px', letterSpacing: '1px' }}>NO FLOWS YET</span>
+        <span style={{ color: '#666', fontSize: '12px', textAlign: 'center' }}>
+          Click the SweepSense button in the table toolbar to scan for short-term + long-term qualifying flows.
+        </span>
+      </div>
+    )
+  }
+
+  const { trades } = data
+
+  return (
+    <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '14px', display: 'flex', flexDirection: 'column', gap: '16px', background: '#000' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        {trades.map(({ trade, pctMove, currentStockPrice, contractPctChange, magnet, pivot, sigCode, sigColor, planText, breakdown }) => {
+          const isCall = trade.type === 'call'
+          const typeColor = isCall ? '#00e676' : '#ff3d3d'
+          const isLongTerm = trade.days_to_expiry >= 30
+          const tickerColor = isLongTerm ? '#00e5ff' : '#ffd400'
+          const fs = trade.fill_style || ''
+          const fillColor = fs === 'A' ? '#4ade80' : fs === 'AA' ? '#86efac' : fs === 'B' ? '#f87171' : fs === 'BB' ? '#fca5a5' : '#fff'
+          // Contract move: the OPTION CONTRACT's own real premium % change (current option price
+          // vs entry premium_per_contract), not the underlying stock's price move. B/BB (sold to
+          // open) flips the sign since profit comes from the contract losing value.
+          const moveColor = contractPctChange === null ? '#fff' : contractPctChange >= 0 ? '#00e676' : '#ff3d3d'
+          const tradeTypeVal = trade.classification || trade.trade_type
+          const isSweepBadge = tradeTypeVal === 'SWEEP'
+          const isBlockBadge = tradeTypeVal === 'BLOCK'
+          // Bullish: call bought (A/AA) or put sold (B/BB). Bearish: call sold (B/BB) or put bought (A/AA).
+          const isBullishIntent = (isCall && (fs === 'A' || fs === 'AA')) || (!isCall && (fs === 'B' || fs === 'BB'))
+          const isBearishIntent = (isCall && (fs === 'B' || fs === 'BB')) || (!isCall && (fs === 'A' || fs === 'AA'))
+          const intentColor = isBullishIntent ? '#00e676' : isBearishIntent ? '#ff3d3d' : 'rgba(255,255,255,0.08)'
+          const breakdownSegs = [
+            { label: 'Call Buying', pct: breakdown.buyCallsPct, color: '#00e676' },
+            { label: 'Call Selling', pct: breakdown.bearCallsPct, color: '#ff3d3d' },
+            { label: 'Put Buying', pct: breakdown.buyPutsPct, color: '#22c55e' },
+            { label: 'Put Selling', pct: breakdown.bearPutsPct, color: '#b91c1c' },
+          ].sort((a, b) => b.pct - a.pct)
+          const hasPlan = planText !== 'No Plan detected.' && planText !== 'Waiting on dealer magnet/pivot data to build an entry plan.'
+          return (
+            <div
+              key={generateFlowId(trade)}
+              style={{
+                position: 'relative', overflow: 'hidden', borderRadius: '14px',
+                background: '#000000',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderLeft: `4px solid ${intentColor}`,
+              }}
+            >
+              {/* Header bar - ticker/type/strike prominent, badge + expiry on the right */}
+              <div style={{
+                position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap',
+                padding: '14px 18px 12px',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '11px', flexWrap: 'wrap' }}>
+                  <span style={{ color: tickerColor, fontWeight: 900, fontSize: '25px', letterSpacing: '0.5px' }}>{trade.underlying_ticker}</span>
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '5px',
+                    color: typeColor, fontWeight: 900, fontSize: '13px', letterSpacing: '0.06em',
+                    background: '#000000', borderRadius: '6px', padding: '4px 9px',
+                    border: `1px solid ${typeColor}66`,
+                  }}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={typeColor} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      {isCall ? <polyline points="18 15 12 9 6 15" /> : <polyline points="6 9 12 15 18 9" />}
+                    </svg>
+                    {trade.type.toUpperCase()}
+                  </span>
+                  <span style={{ color: '#ffffff', fontSize: '21px', fontWeight: 800 }}>${trade.strike}</span>
+                  <span style={{ color: '#ffffff', fontSize: '21px', fontWeight: 800 }}>{formatDate(trade.expiry)}</span>
+                  <span
+                    style={{
+                      display: 'inline-block', fontWeight: 800, fontSize: '21px', letterSpacing: '0.06em',
+                      borderRadius: '9999px', padding: '4px 11px',
+                      background: '#000000',
+                      color: isSweepBadge ? '#FFD700' : isBlockBadge ? '#00e5ff' : '#fff',
+                      border: `1px solid ${isSweepBadge ? 'rgba(255,215,0,0.6)' : isBlockBadge ? 'rgba(0,229,255,0.5)' : 'rgba(255,255,255,0.3)'}`,
+                    }}
+                  >
+                    {tradeTypeVal}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ color: tickerColor, fontWeight: 900, fontSize: '16.25px', letterSpacing: '0.06em' }}>
+                    {isLongTerm ? 'Long-Term' : 'Short Term'}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ position: 'relative', height: '1px', background: 'rgba(255,255,255,0.12)', margin: '0 18px' }} />
+
+              {/* Metric strip - glass chips, each with its own subtle tinted background */}
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'stretch', gap: '8px', padding: '14px 18px', flexWrap: 'wrap' }}>
+                {[
+                  {
+                    label: 'CONTRACTS', tint: '#22d3ee', node: (
+                      <>
+                        <span style={{ color: '#22d3ee' }}>{trade.trade_size.toLocaleString()}</span>
+                        <span style={{ color: '#ffffff' }}> @ </span>
+                        <span style={{ color: '#facc15' }}>${trade.premium_per_contract.toFixed(2)}</span>
+                        {' '}<span style={{ color: fillColor }}>{fs}</span>
+                      </>
+                    )
+                  },
+                  { label: 'PREMIUM', tint: '#4ade80', node: <span style={{ color: '#4ade80' }}>{fmtPrem(trade.total_premium)}</span> },
+                  {
+                    label: 'STOCK PRICE', tint: '#e5e7eb', node: (
+                      <>
+                        <span style={{ color: '#ffffff' }}>${trade.spot_price.toFixed(2)}</span>
+                        <span style={{ color: '#ffffff' }}> {'→'} </span>
+                        <span style={{
+                          color: !currentStockPrice
+                            ? '#ffffff'
+                            : currentStockPrice > trade.spot_price
+                              ? '#4ade80'
+                              : currentStockPrice < trade.spot_price
+                                ? '#f87171'
+                                : '#ffffff',
+                        }}>
+                          {currentStockPrice ? `$${currentStockPrice.toFixed(2)}` : '--'}
+                        </span>
+                      </>
+                    )
+                  },
+                  ...(contractPctChange !== null ? [{
+                    label: 'MOVE', tint: moveColor, node: (
+                      <span style={{ color: moveColor, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                        {contractPctChange >= 0 ? '▲' : '▼'} {Math.abs(contractPctChange).toFixed(2)}%
+                      </span>
+                    )
+                  }] : []),
+                  ...((magnet !== null || pivot !== null) ? [{
+                    label: 'DEALERS INTENTION', tint: '#ffd400', node: (
+                      <>
+                        {magnet !== null && <span style={{ color: '#ffd400' }}>Magnet ${magnet}</span>}
+                        {magnet !== null && pivot !== null && <span style={{ color: '#ffffff' }}>{'  '}</span>}
+                        {pivot !== null && <span style={{ color: '#00e5ff' }}>Pivot ${pivot}</span>}
+                      </>
+                    )
+                  }] : []),
+                ].map((m) => (
+                  <div key={m.label} style={{
+                    display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0,
+                    padding: '8px 12px', borderRadius: '9px',
+                    background: `${m.tint}0d`, border: `1px solid ${m.tint}22`,
+                  }}>
+                    <span style={{ color: '#ffffff', fontSize: '11.9px', fontWeight: 800, letterSpacing: '0.9px' }}>{m.label}</span>
+                    <span style={{ fontSize: '20px', fontWeight: 800, whiteSpace: 'nowrap' }}>{m.node}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Segmented breakdown bar (reduced width) + Flow Bias label sharing the same row.
+                  Flow Bias uses the EXACT same score/threshold logic as the AlgoFlow RRG Flow
+                  Matrix (RrgTickerPopup): score = (bullCall+bullPut - bearCall-bearPut) / total,
+                  |score| < 0.2 = NEUTRAL, score > 0 = BULLISH (green), score < 0 = BEARISH (red). */}
+              <div style={{ position: 'relative', padding: '0 18px 14px', display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <div style={{
+                  display: 'flex', height: '30px', borderRadius: '8px', overflow: 'hidden',
+                  border: '1px solid rgba(255,255,255,0.1)', flex: '0 0 60%', maxWidth: '60%',
+                }}>
+                  {breakdownSegs.map((s) => (
+                    <div
+                      key={s.label}
+                      title={`${s.label}: ${s.pct.toFixed(0)}%`}
+                      style={{
+                        position: 'relative', flex: Math.max(s.pct, 6),
+                        background: `${s.color}bf`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                        borderRight: '1px solid rgba(0,0,0,0.5)', overflow: 'hidden',
+                      }}
+                    >
+                      <span style={{ color: '#ffffff', fontSize: '13.1px', fontWeight: 900, whiteSpace: 'nowrap' }}>
+                        {s.pct >= 10 ? `${s.label} ${s.pct.toFixed(0)}%` : `${s.pct.toFixed(0)}%`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {(() => {
+                  const flowBiasScore = (breakdown.buyCallsPct + breakdown.buyPutsPct - breakdown.bearCallsPct - breakdown.bearPutsPct) / 100
+                  const flowBiasLabel = Math.abs(flowBiasScore) < 0.2 ? 'NEUTRAL' : flowBiasScore > 0 ? 'BULLISH' : 'BEARISH'
+                  const flowBiasColor = Math.abs(flowBiasScore) < 0.2 ? '#eab308' : flowBiasScore > 0 ? '#10b981' : '#ef4444'
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ color: '#ffffff', fontSize: '13px', fontWeight: 700, letterSpacing: '0.06em' }}>Flow Bias is</span>
+                      <span style={{ color: flowBiasColor, fontSize: '17px', fontWeight: 900, letterSpacing: '0.06em' }}>{flowBiasLabel}</span>
+                    </div>
+                  )
+                })()}
+              </div>
+
+              {/* Plan Entry callout - only shown once a real plan (not "waiting"/"no plan") is found */}
+              {hasPlan && (
+                <div style={{
+                  position: 'relative', display: 'flex', gap: '10px', margin: '0 18px 16px', padding: '12px 14px',
+                  borderRadius: '10px', background: `${sigColor}0f`, border: `1px solid ${sigColor}33`,
+                }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={sigColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: '2px' }}>
+                    <circle cx="12" cy="12" r="9" />
+                    <circle cx="12" cy="12" r="5" />
+                    <circle cx="12" cy="12" r="1" fill={sigColor} />
+                  </svg>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ color: sigColor, fontWeight: 900, fontSize: '14.5px', marginBottom: '4px', letterSpacing: '0.2px' }}>{sigCode}</div>
+                    <div style={{ color: '#ffffff', fontSize: '15.6px', lineHeight: 1.55 }}>{planText}</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export default function FlowTrackingPanel({
   onClose,
   relativeStrengthData,
@@ -136,6 +415,8 @@ export default function FlowTrackingPanel({
   algoFlowTicker,
   parentOptionPrices,
   parentStockPrices,
+  sweepSenseData,
+  sweepSenseScanning,
 }: {
   onClose?: () => void
   relativeStrengthData?: Map<string, number>
@@ -160,7 +441,28 @@ export default function FlowTrackingPanel({
   algoFlowTicker?: string
   parentOptionPrices?: Record<string, number>
   parentStockPrices?: Record<string, number>
+  sweepSenseData?: {
+    trades: Array<{
+      trade: OptionsFlowData
+      grade: string
+      gradeColor: string
+      pctMove: number | null
+      currentStockPrice: number | null
+      currentOptionPrice: number | null
+      contractPctChange: number | null
+      magnet: number | null
+      pivot: number | null
+      sigCode: string
+      sigColor: string
+      planText: string
+      breakdown: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }
+    }>
+    stats: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }
+    bubbles: Array<{ ticker: string; premium: number; bias: 'bull' | 'bear'; biasStrength: number }>
+  } | null
+  sweepSenseScanning?: boolean
 } = {}) {
+  const [panelTab, setPanelTab] = useState<'TRACKER' | 'SWEEPSENSE'>('SWEEPSENSE')
   const [isMounted, setIsMounted] = useState(false)
   const [chartSymbol, setChartSymbol] = useState('SPY')
   const [chartContainerHeight, setChartContainerHeight] = useState(600)
@@ -526,31 +828,85 @@ export default function FlowTrackingPanel({
   return (
     <div className="relative bg-black w-full" style={{ ...(isMobile ? { flex: 1, minHeight: 0 } : {}), height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* ── Tab Bar ── */}
-      <div style={{ display: 'flex', alignItems: 'stretch', background: 'linear-gradient(180deg,#0d0d0d 0%,#080808 100%)', flexShrink: 0, position: 'relative', padding: '6px 6px 0', gap: '4px', borderBottom: '1px solid rgba(255,133,0,0.15)', justifyContent: 'flex-end' }}>
+      <div style={{
+        display: 'flex', alignItems: 'stretch', flexShrink: 0, position: 'relative', gap: 0,
+        background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 55%, #0a0a0a 100%)',
+        borderBottom: '2px solid rgba(255,133,0,0.35)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.6)',
+      }}>
+        <div style={{ display: 'flex', flex: 1, gap: '6px', padding: '6px' }}>
+          <button
+            onClick={() => setPanelTab('SWEEPSENSE')}
+            style={{
+              flex: 1, padding: '12px 8px', cursor: 'pointer',
+              border: panelTab === 'SWEEPSENSE' ? '1px solid rgba(255,133,0,0.45)' : '1px solid rgba(255,255,255,0.10)',
+              borderRadius: '10px',
+              background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)',
+              backdropFilter: 'blur(10px)',
+              WebkitBackdropFilter: 'blur(10px)',
+              boxShadow: panelTab === 'SWEEPSENSE'
+                ? '0 0 10px rgba(255,133,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15)'
+                : 'inset 0 1px 0 rgba(255,255,255,0.10)',
+              color: panelTab === 'SWEEPSENSE' ? '#ff8500' : '#ffffff',
+              fontWeight: 900, fontSize: '17px', letterSpacing: '1px', textTransform: 'uppercase',
+              transition: 'all 0.18s ease',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+            }}
+          >
+            ⚡ SWEEPSENSE
+            {sweepSenseData && sweepSenseData.trades.length > 0 && (
+              <span style={{
+                background: 'rgba(255,133,0,0.18)',
+                color: '#ff8500',
+                borderRadius: '9999px', fontSize: '13px', fontWeight: 900, padding: '2px 9px', minWidth: '22px', textAlign: 'center',
+              }}>
+                {sweepSenseData.trades.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setPanelTab('TRACKER')}
+            style={{
+              flex: 1, padding: '12px 8px', cursor: 'pointer',
+              border: panelTab === 'TRACKER' ? '1px solid rgba(255,133,0,0.45)' : '1px solid rgba(255,255,255,0.10)',
+              borderRadius: '10px',
+              background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)',
+              backdropFilter: 'blur(10px)',
+              WebkitBackdropFilter: 'blur(10px)',
+              boxShadow: panelTab === 'TRACKER'
+                ? '0 0 10px rgba(255,133,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15)'
+                : 'inset 0 1px 0 rgba(255,255,255,0.10)',
+              color: panelTab === 'TRACKER' ? '#ff8500' : '#ffffff',
+              fontWeight: 900, fontSize: '17px', letterSpacing: '1px', textTransform: 'uppercase',
+              transition: 'all 0.18s ease',
+            }}
+          >A+ TRACKER</button>
+        </div>
         {onClose && (
           <button
             onClick={onClose}
             style={{
               flexShrink: 0,
-              width: '36px',
-              height: '32px',
-              margin: '4px 2px 0',
+              width: '48px',
+              margin: '6px 6px 6px 0',
               padding: 0,
-              background: '#ff8500',
-              border: '2px solid #ff8500',
-              borderRadius: '6px',
+              borderRadius: '10px',
+              background: 'linear-gradient(180deg, rgba(255,150,20,0.35) 0%, rgba(255,110,0,0.18) 100%)',
+              backdropFilter: 'blur(10px)',
+              WebkitBackdropFilter: 'blur(10px)',
+              border: '1px solid rgba(255,133,0,0.55)',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#000',
-              fontSize: '22px',
+              color: '#ff8500',
+              fontSize: '24px',
               fontWeight: 700,
               lineHeight: 1,
-              transition: 'background 0.15s, border-color 0.15s',
+              transition: 'background 0.15s',
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = '#ff6a00'; e.currentTarget.style.borderColor = '#ff6a00' }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = '#ff8500'; e.currentTarget.style.borderColor = '#ff8500' }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,133,0,0.4)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,150,20,0.35) 0%, rgba(255,110,0,0.18) 100%)' }}
             aria-label="Close"
           >
             &times;
@@ -558,8 +914,13 @@ export default function FlowTrackingPanel({
         )}
       </div>
 
+      {/* ── SWEEPSENSE TAB ── */}
+      {panelTab === 'SWEEPSENSE' && (
+        <SweepSenseTab data={sweepSenseData ?? null} isScanning={sweepSenseScanning} />
+      )}
+
       {/* ── TRACKING TAB ── */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+      <div style={{ flex: 1, display: panelTab === 'TRACKER' ? 'flex' : 'none', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
         {/* Panel Header */}
         <div
           className="ftp-header z-10 border-b border-gray-800"

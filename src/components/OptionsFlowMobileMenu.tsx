@@ -91,32 +91,6 @@ export default function OptionsFlowMobileMenu({
                                 boxShadow: '0 8px 32px rgba(0,0,0,0.9)',
                             }}
                         >
-                            {/* SAVE */}
-                            <button
-                                onClick={() => { onSave(); setIsOpen(false) }}
-                                disabled={savingFlow || !data || data.length === 0}
-                                className="w-full flex items-center justify-center gap-3 group disabled:opacity-40 disabled:cursor-not-allowed"
-                                style={{
-                                    background: 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%)',
-                                    color: '#fff',
-                                    fontWeight: 900,
-                                    fontSize: '16px',
-                                    padding: '13px 10px',
-                                    borderBottom: '1px solid #1e3a8a',
-                                    letterSpacing: '1px',
-                                    transition: 'filter 0.15s ease',
-                                }}
-                                onMouseEnter={(e) => (e.currentTarget.style.filter = 'brightness(1.15)')}
-                                onMouseLeave={(e) => (e.currentTarget.style.filter = 'brightness(1)')}
-                            >
-                                <svg style={{ width: '20px', height: '20px' }} className="group-hover:-translate-y-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
-                                    <polyline strokeLinecap="round" strokeLinejoin="round" points="17 21 17 13 7 13 7 21" />
-                                    <polyline strokeLinecap="round" strokeLinejoin="round" points="7 3 7 8 15 8" />
-                                </svg>
-                                <span>SAVE</span>
-                            </button>
-
                             {/* HISTORY */}
                             <button
                                 onClick={() => { onHistory(); setIsOpen(false) }}
@@ -182,17 +156,6 @@ export default function OptionsFlowMobileMenu({
                 <>
                     <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
                     <div className="absolute right-0 mt-2 w-48 bg-black border border-orange-500 rounded shadow-lg z-50">
-                        <button
-                            onClick={() => { onSave(); setIsOpen(false) }}
-                            disabled={savingFlow || !data || data.length === 0}
-                            className="w-full text-left px-4 py-3 text-white hover:bg-gray-800 flex items-center gap-3 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                            <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-                            </svg>
-                            <span className="font-bold">Save</span>
-                        </button>
-
                         <button
                             onClick={() => { onHistory(); setIsOpen(false) }}
                             disabled={loadingHistory}
