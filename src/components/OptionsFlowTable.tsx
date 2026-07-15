@@ -5900,6 +5900,9 @@ Stock Reaction: ${scores.stockReaction}/15`
                     if (e.key === 'Enter') {
                       const ticker = inputTicker.trim()
                       setSelectedTickerFilter(ticker)
+                      onTickerChange(ticker)
+                      onRefresh?.(ticker)
+                      console.log('[TickerScan] mobile Enter pressed - ticker:', ticker, '| historicalDays:', historicalDays)
                     }
                     if (e.key === 'Escape') {
                       setInputTicker('')
@@ -5945,7 +5948,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                       padding: '2px',
                     }}
                     title="Clear ticker filter"
-                  >?</button>
+                  >×</button>
                 )}
               </div>
 
@@ -6275,7 +6278,10 @@ Stock Reaction: ${scores.stockReaction}/15`
                       if (e.key === 'Enter') {
                         const ticker = inputTicker.trim()
                         setSelectedTickerFilter(ticker)
+                        onTickerChange(ticker)
+                        onRefresh?.(ticker)
                         setIsInputFocused(false)
+                        console.log('[TickerScan] desktop Enter pressed - ticker:', ticker, '| historicalDays:', historicalDays)
                       }
                       if (e.key === 'Escape') {
                         setInputTicker('')
@@ -6329,7 +6335,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                         zIndex: 20,
                       }}
                       title="Clear ticker filter"
-                    >?</button>
+                    >×</button>
                   )}
 
                   {/* Scan quick-pick dropdown arrow */}
@@ -6342,7 +6348,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                         color: '#555', fontSize: '10px', lineHeight: 1, padding: '2px', zIndex: 20,
                       }}
                       title="Quick scan"
-                    >?</button>
+                    >▾</button>
                   )}
 
                   {/* Scan dropdown */}
@@ -6398,8 +6404,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                   const rangeStart = parts[0] || ''
                   const rangeEnd = parts[1] || ''
                   const displayLabel = isRange && rangeStart && rangeEnd
-                    ? rangeStart === rangeEnd ? rangeStart : `${rangeStart} ? ${rangeEnd}`
-                    : calPickStart ? `${calPickStart} ? ?` : 'SELECT DATES'
+                    ? rangeStart === rangeEnd ? rangeStart : `${rangeStart} → ${rangeEnd}`
+                    : calPickStart ? `${calPickStart} → ...` : 'SELECT DATES'
 
                   const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate()
                   const firstDow = new Date(calYear, calMonth, 1).getDay()
@@ -6453,7 +6459,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                           borderRadius: 5, outline: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
                           fontFamily: 'JetBrains Mono, monospace',
                         }}
-                      >{displayLabel} ?</button>
+                      >{displayLabel} ▾</button>
 
                       {calOpen && calRect && (
                         <div
@@ -6511,7 +6517,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                           {/* Footer */}
                           <div style={{ marginTop: 15, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12 }}>
                             <span style={{ fontSize: 15, color: '#fff', fontFamily: 'JetBrains Mono, monospace' }}>
-                              {calPickStart ? `start: ${calPickStart} - click end` : rangeStart && rangeEnd ? `${rangeStart} ? ${rangeEnd}` : 'click start date'}
+                              {calPickStart ? `start: ${calPickStart} - click end` : rangeStart && rangeEnd ? `${rangeStart} → ${rangeEnd}` : 'click start date'}
                             </span>
                             <button onClick={() => { onHistoricalDaysChange('1D'); setCalPickStart(null); setCalHover(null); setCalOpen(false) }}
                               style={{ fontSize: 15, background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace' }}>CLEAR</button>
@@ -9985,7 +9991,7 @@ Stock Reaction: ${scores.stockReaction}/15`
               <button
                 onClick={() => setTabletPanelOpen(false)}
                 style={{ background: 'none', border: 'none', color: '#888', fontSize: '20px', cursor: 'pointer', lineHeight: 1 }}
-              >?</button>
+              >×</button>
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
               <FlowTrackingPanel

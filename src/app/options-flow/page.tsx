@@ -2006,6 +2006,7 @@ export default function OptionsFlowPage() {
   // useEffect removed - scan only on explicit user action
 
   const handleRefresh = (tickerOverride?: string) => {
+    console.log('[handleRefresh] called | tickerOverride:', tickerOverride, '| isLiveMode:', isLiveMode, '| historicalDays:', historicalDays, '| selectedTicker:', selectedTicker)
     if (isLiveMode) {
       // In live mode: filter the existing archive by ticker instantly
       const ticker = (tickerOverride || '').trim().toUpperCase()
