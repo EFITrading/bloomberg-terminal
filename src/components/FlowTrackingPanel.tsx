@@ -1389,36 +1389,59 @@ function SweepSenseTab({
                       to the right at normal compact size, with the gauge nested directly below
                       the text (sized to fit the leftover height so the whole cluster matches the
                       boxes' total height). */}
-                  <div style={{
-                    display: 'flex', flexDirection: 'row',
-                    gap: isMobileCard ? '8px' : '14px', alignItems: 'flex-start', flexWrap: 'nowrap',
-                    marginTop: isMobileCard ? 0 : '-14px', opacity: histLoading ? 0.4 : 1,
-                  }}>
-                    <FlowQuadrantBoxes breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%', height: isMobileCard ? '257px' : undefined }}>
-                      {[
-                        { text: spamLabel, active: spamLabel !== 'No Spammer Detected' && spamLabel !== 'Loading…' },
-                        { text: structuralLabel, active: structuralLabel !== 'No Structural Formation Detected' },
-                        { text: gammaLabel, active: gammaLabel === 'Gamma Squeeze in Formation' },
-                      ].map((row, i) => (
-                        <div key={i} style={{
-                          display: 'flex', alignItems: 'center', padding: '4px 8px', borderRadius: '4px',
-                          background: row.active ? 'rgba(255,140,0,0.1)' : 'rgba(255,255,255,0.03)',
-                          border: `1px solid ${row.active ? 'rgba(255,140,0,0.35)' : 'rgba(255,255,255,0.08)'}`,
-                        }}>
-                          <span style={{ color: row.active ? '#ff8c00' : '#ffffff', fontSize: '11px', fontWeight: 800, whiteSpace: isMobileCard ? 'normal' : 'nowrap' }}>
-                            {row.text}
-                          </span>
-                        </div>
-                      ))}
-                      {isMobileCard && (
+                  {isMobileCard ? (
+                    <div style={{
+                      display: 'flex', flexDirection: 'row',
+                      gap: '8px', alignItems: 'flex-start', flexWrap: 'nowrap',
+                      marginTop: 0, opacity: histLoading ? 0.4 : 1,
+                    }}>
+                      <FlowQuadrantBoxes breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%', height: '257px' }}>
+                        {[
+                          { text: spamLabel, active: spamLabel !== 'No Spammer Detected' && spamLabel !== 'Loading…' },
+                          { text: structuralLabel, active: structuralLabel !== 'No Structural Formation Detected' },
+                          { text: gammaLabel, active: gammaLabel === 'Gamma Squeeze in Formation' },
+                        ].map((row, i) => (
+                          <div key={i} style={{
+                            display: 'flex', alignItems: 'center', padding: '4px 8px', borderRadius: '4px',
+                            background: row.active ? 'rgba(255,140,0,0.1)' : 'rgba(255,255,255,0.03)',
+                            border: `1px solid ${row.active ? 'rgba(255,140,0,0.35)' : 'rgba(255,255,255,0.08)'}`,
+                          }}>
+                            <span style={{ color: row.active ? '#ff8c00' : '#ffffff', fontSize: '11px', fontWeight: 800, whiteSpace: 'normal' }}>
+                              {row.text}
+                            </span>
+                          </div>
+                        ))}
                         <div style={{ display: 'flex', justifyContent: 'center', flex: 1 }}>
                           <FlowSentimentGauge breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />
                         </div>
-                      )}
+                      </div>
                     </div>
-                    {!isMobileCard && <FlowSentimentGauge breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />}
-                  </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'row', gap: '14px', alignItems: 'flex-start', flexWrap: 'nowrap', marginTop: '-14px', opacity: histLoading ? 0.4 : 1 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <FlowQuadrantBoxes breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '228px' }}>
+                          {[
+                            { text: spamLabel, active: spamLabel !== 'No Spammer Detected' && spamLabel !== 'Loading…' },
+                            { text: structuralLabel, active: structuralLabel !== 'No Structural Formation Detected' },
+                            { text: gammaLabel, active: gammaLabel === 'Gamma Squeeze in Formation' },
+                          ].map((row, i) => (
+                            <div key={i} style={{
+                              display: 'flex', alignItems: 'center', padding: '4px 8px', borderRadius: '4px',
+                              background: row.active ? 'rgba(255,140,0,0.1)' : 'rgba(255,255,255,0.03)',
+                              border: `1px solid ${row.active ? 'rgba(255,140,0,0.35)' : 'rgba(255,255,255,0.08)'}`,
+                            }}>
+                              <span style={{ color: row.active ? '#ff8c00' : '#ffffff', fontSize: '11px', fontWeight: 800, whiteSpace: 'normal' }}>
+                                {row.text}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <FlowSentimentGauge breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />
+                    </div>
+                  )}
                 </div>
 
                 {/* Chart */}

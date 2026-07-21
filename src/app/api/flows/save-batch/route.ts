@@ -49,9 +49,10 @@ const directPrisma =
         log: ['error'],
     })
 
-if (process.env.NODE_ENV !== 'production') {
-    globalForDirect.directPrisma = directPrisma
-}
+// Always cache on global, including production — Vercel keeps warm lambda instances
+// alive between invocations, and without this cache every request opens a brand-new
+// DB connection, exhausting the pooled role's connection limit.
+globalForDirect.directPrisma = directPrisma
 
 export async function GET(request: NextRequest) {
     try {

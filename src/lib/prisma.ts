@@ -38,13 +38,16 @@ export const prisma =
     log: ['error'],
     datasources: {
       db: {
-        url: getDirectUrl() + (getDirectUrl().includes('?') ? '&' : '?') + 'connection_limit=1&pool_timeout=20',
+        url: getDirectUrl(),
       },
     },
   });
 
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma;
-}
+// Always cache the client on the global object, even in production. Serverless
+// platforms (Vercel) keep warm lambda instances alive between invocations, and
+// without this cache every single request creates a brand-new PrismaClient
+// (each opening its own DB connection) — that's what was exhausting the
+// "too many connections" limit on the pooled DB role.
+globalForPrisma.prisma = prisma;
 
 export default prisma;
