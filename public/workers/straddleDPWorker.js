@@ -77,7 +77,9 @@ async function scanDay(dateKey, symbol, apiKey, wid) {
         for (let i = 0; i < WIN; i++) {
             const s = rthStartNs + i * winNs
             const e = rthStartNs + (i + 1) * winNs
-            const url = `https://api.polygon.io/v3/trades/${symbol}?timestamp.gte=${s}&timestamp.lte=${e}&limit=10000&order=asc&apiKey=${apiKey}`
+            // Routed through our own /api/polygon proxy (not api.polygon.io directly) so the
+            // real Polygon key stays server-side - see src/app/api/polygon/[...path]/route.ts
+            const url = `/api/polygon/v3/trades/${symbol}?timestamp.gte=${s}&timestamp.lte=${e}&limit=10000&order=asc`
             winResults.push(await fetchWindowStreaming(url))
         }
         const allPrints = winResults.flatMap(w => w.prints).sort((a, b) => b.size * b.price - a.size * a.price)

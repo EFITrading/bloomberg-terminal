@@ -158,7 +158,7 @@ interface ProcessedTrade {
   sequence_number?: number
   conditions: number[]
   trade_timestamp: Date
-  trade_type?: 'SWEEP' | 'BLOCK' | 'MINI' | 'MULTI-LEG'
+  trade_type?: 'SWEEP' | 'BLOCK' | 'MINI' | 'MULTI-LEG' | 'SUPER SWEEP' | 'SUPER BLOCK'
   window_group?: string
   related_trades?: string[]
   moneyness: 'ATM' | 'ITM' | 'OTM'
@@ -942,13 +942,17 @@ export class OptionsFlowService {
       console.log(`[SKIP] Skipping classification - trades already classified`)
     }
 
-    // YOUR ACTUAL CRITERIA - Use existing institutional tiers system
+    // Simple $10K total premium filter (replaces the old institutional-tier system)
     filtered = filtered.filter((trade) => this.passesInstitutionalCriteria(trade))
 
     // Classify trade types ONLY if not already classified
     if (!alreadyClassified) {
       filtered = filtered.map((trade) => this.classifyTradeType(trade))
     }
+
+    // SUPER SWEEP / SUPER BLOCK upgrade: 5+ orders on the same exact contract, each $10K+,
+    // within a few minutes of each other
+    filtered = this.detectSuperSweepsAndBlocks(filtered)
 
     // Filter out overnight dead-zone trades (live market: 1:00 AM – 5:00 PM PST)
     filtered = filtered.filter((trade) => this.isWithinMarketHours(trade.trade_timestamp))
@@ -1055,7 +1059,8 @@ export class OptionsFlowService {
         )
         categorizedTrades.push(sweepTrade)
       } else if (exchanges.length === 1) {
-        // Single exchange: BLOCK if $50K+, MINI if <$50K
+        // Single exchange: BLOCK (no more MINI split - blanket $10K premium filter
+        // downstream handles the size bar). Threshold for the label itself is $10K now.
         // Calculate weighted average price per contract (same logic as sweeps)
         const weightedPrice =
           tradesInGroup.reduce((sum, trade) => {
@@ -1067,34 +1072,80 @@ export class OptionsFlowService {
           trade_size: totalContracts,
           premium_per_contract: weightedPrice, // FIX: Use weighted average, not totalPremium/totalContracts
           total_premium: totalPremium,
-          trade_type: totalPremium >= 50000 ? 'BLOCK' : 'MINI',
+          trade_type: 'BLOCK',
           exchange_name: this.exchangeNames[exchanges[0]] || `Exchange ${exchanges[0]}`,
-          window_group: totalPremium >= 50000 ? `block_${groupKey}` : `mini_${groupKey}`,
+          window_group: `block_${groupKey}`,
           related_trades: [],
         }
 
-        if (totalPremium >= 50000) {
+        if (totalPremium >= 10000) {
           console.log(
             `[BLOCK] BLOCK DETECTED: ${combinedTrade.ticker} $${combinedTrade.strike} ${combinedTrade.type.toUpperCase()}S - ${totalContracts} contracts, $${totalPremium.toLocaleString()} on single exchange`
           )
           blockCount++
-        } else {
-          console.log(
-            `[MINI] MINI DETECTED: ${combinedTrade.ticker} $${combinedTrade.strike} ${combinedTrade.type.toUpperCase()}S - ${totalContracts} contracts, $${totalPremium.toLocaleString()} on single exchange`
-          )
         }
 
         categorizedTrades.push(combinedTrade)
       }
     })
 
-    const miniCount = categorizedTrades.filter((t) => t.trade_type === 'MINI').length
     console.log(
-      `[OK] 3-SECOND WINDOW CLASSIFICATION COMPLETE: Found ${sweepCount} sweeps, ${blockCount} blocks, and ${miniCount} minis from ${unclassifiedTrades.length} individual trades`
+      `[OK] 3-SECOND WINDOW CLASSIFICATION COMPLETE: Found ${sweepCount} sweeps and ${blockCount} blocks from ${unclassifiedTrades.length} individual trades`
     )
 
     // Return multi-leg trades + newly classified trades
     return [...multiLegTrades, ...categorizedTrades]
+  }
+
+  // SUPER SWEEP / SUPER BLOCK: upgrade the label when the SAME contract (ticker + strike +
+  // expiry + type) gets 5+ separate SWEEP/BLOCK orders, each individually $10K+ premium,
+  // within a few minutes of each other. This signals sustained, repeated institutional
+  // interest in one exact strike rather than a single one-off print.
+  private detectSuperSweepsAndBlocks(trades: ProcessedTrade[]): ProcessedTrade[] {
+    const SUPER_WINDOW_MS = 5 * 60 * 1000 // "a few minutes" = 5 minute rolling window
+    const MIN_ORDERS = 5
+    const MIN_PREMIUM_EACH = 10000
+
+    const eligible = trades.filter(
+      (t) => (t.trade_type === 'SWEEP' || t.trade_type === 'BLOCK') && t.total_premium >= MIN_PREMIUM_EACH
+    )
+    if (eligible.length === 0) return trades
+
+    // Group by exact contract
+    const groups = new Map<string, ProcessedTrade[]>()
+    for (const t of eligible) {
+      const key = `${t.underlying_ticker}_${t.strike}_${t.expiry}_${t.type}`
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)!.push(t)
+    }
+
+    const upgradeMap = new Map<ProcessedTrade, 'SUPER SWEEP' | 'SUPER BLOCK'>()
+
+    groups.forEach((group) => {
+      if (group.length < MIN_ORDERS) return
+      const sorted = [...group].sort((a, b) => a.trade_timestamp.getTime() - b.trade_timestamp.getTime())
+
+      // Sliding window: does any span of MIN_ORDERS consecutive trades fit within the window?
+      for (let i = 0; i + MIN_ORDERS <= sorted.length; i++) {
+        const windowTrades = sorted.slice(i, i + MIN_ORDERS)
+        const span = windowTrades[windowTrades.length - 1].trade_timestamp.getTime() - windowTrades[0].trade_timestamp.getTime()
+        if (span <= SUPER_WINDOW_MS) {
+          // Trigger found - upgrade every trade in this contract group (each keeps its own
+          // original sweep/block distinction, just prefixed with SUPER)
+          for (const t of sorted) {
+            upgradeMap.set(t, t.trade_type === 'SWEEP' ? 'SUPER SWEEP' : 'SUPER BLOCK')
+          }
+          console.log(
+            `[SUPER] SUPER ${sorted[0].trade_type} DETECTED: ${sorted[0].ticker} $${sorted[0].strike} ${sorted[0].type.toUpperCase()}S - ${group.length} orders, $10K+ each, within ${SUPER_WINDOW_MS / 60000} min`
+          )
+          break
+        }
+      }
+    })
+
+    if (upgradeMap.size === 0) return trades
+
+    return trades.map((t) => (upgradeMap.has(t) ? { ...t, trade_type: upgradeMap.get(t)! as any } : t))
   }
 
   // MULTI-LEG DETECTION: Identify complex options strategies (spreads, straddles, etc.)
@@ -1229,46 +1280,10 @@ export class OptionsFlowService {
 
   // YOUR ACTUAL INSTITUTIONAL CRITERIA - EXACTLY AS YOU SPECIFIED
   private passesInstitutionalCriteria(trade: ProcessedTrade): boolean {
-    const tradePrice = trade.premium_per_contract
-    const tradeSize = trade.trade_size
-    const totalPremium = trade.total_premium
-
-
-
-    // ENHANCED TIER SYSTEM - More permissive for mini trades
-    const institutionalTiers = [
-      // Tier 1: Premium institutional trades
-      { name: 'Tier 1: Premium institutional', minPrice: 8.0, minSize: 80 },
-      // Tier 2: High-value large volume
-      { name: 'Tier 2: High-value large volume', minPrice: 7.0, minSize: 100 },
-      // Tier 3: Mid-premium bulk trades
-      { name: 'Tier 3: Mid-premium bulk', minPrice: 5.0, minSize: 150 },
-      // Tier 4: Moderate premium large volume
-      { name: 'Tier 4: Moderate premium large', minPrice: 3.5, minSize: 200 },
-      // Tier 5: Lower premium large volume
-      { name: 'Tier 5: Lower premium large', minPrice: 2.5, minSize: 200 },
-      // Tier 6: Small premium massive volume
-      { name: 'Tier 6: Small premium massive', minPrice: 1.0, minSize: 800 },
-      // Tier 7: Penny options massive volume
-      { name: 'Tier 7: Penny options massive', minPrice: 0.5, minSize: 2000 },
-      // Tier 8: Premium bypass (any size if $50K+ total)
-      { name: 'Tier 8: Premium bypass', minPrice: 0.01, minSize: 20, minTotal: 50000 },
-      // NEW TIER 9: Mini trade friendly - smaller trades that still show institutional interest
-      { name: 'Tier 9: Mini institutional', minPrice: 1.0, minSize: 50 },
-      // NEW TIER 10: Very small but significant volume
-      { name: 'Tier 10: Small but significant', minPrice: 0.5, minSize: 100 },
-      // NEW TIER 11: Lower barrier for showing sweeps/blocks
-      { name: 'Tier 11: Sweep/Block friendly', minPrice: 0.25, minSize: 200 },
-    ]
-
-    const passes = institutionalTiers.some((tier) => {
-      const passesPrice = tradePrice >= tier.minPrice
-      const passesSize = tradeSize >= tier.minSize
-      const passesTotal = tier.minTotal ? totalPremium >= tier.minTotal : true
-      return passesPrice && passesSize && passesTotal
-    })
-
-    return passes
+    // Simple $10K total premium filter — replaces the old multi-tier price/size system.
+    // SweepSense has its own separate, more detailed premium/size gating - this is just
+    // the base bar for a trade to show up in the normal flow table at all.
+    return trade.total_premium >= 10000
   }
 
   // YOUR EXACT ITM FILTER: 5% ITM MAX + ALL OTM
@@ -2334,29 +2349,26 @@ export class OptionsFlowService {
       }
     })
 
-    // Step 4: Classify remaining trades as BLOCK or MINI
+    // Step 4: Classify remaining trades as BLOCK (single exchange, no more MINI split -
+    // the blanket $10K premium filter downstream handles the size bar)
     const remainingTrades = sweeps.filter((trade) => {
       const key = `${trade.ticker}_${trade.strike}_${trade.type}_${trade.expiry}_${trade.trade_timestamp?.getTime()}`
       return !classifiedKeys.has(key)
     })
 
     const classifiedRemaining = remainingTrades.map((trade) => {
-      // Classify based on premium threshold
-      const isBlock = trade.total_premium >= 50000
       return {
         ...trade,
-        trade_type: isBlock ? 'BLOCK' : 'MINI',
+        trade_type: 'BLOCK',
       } as ProcessedTrade
     })
 
     const blocks = classifiedRemaining.filter((t) => t.trade_type === 'BLOCK')
-    const minis = classifiedRemaining.filter((t) => t.trade_type === 'MINI')
 
     console.log(`[OK] Classification summary:`)
     console.log(`   - SWEEPS: ${sweeps.length}`)
     console.log(`   - BLOCKS: ${blocks.length}`)
-    console.log(`   - MINIS: ${minis.length}`)
-    console.log(`   - Total: ${sweeps.length + blocks.length + minis.length}`)
+    console.log(`   - Total: ${sweeps.length + blocks.length}`)
 
     // Combine all classified trades
     const allClassified = [...sweeps, ...classifiedRemaining]

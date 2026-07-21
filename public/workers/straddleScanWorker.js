@@ -98,7 +98,11 @@ async function fetchOHLCV(symbol, apiKey, calDays, limit) {
     const from = new Date()
     from.setDate(from.getDate() - calDays)
     const fromDate = from.toISOString().split('T')[0]
-    const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${fromDate}/${toDate}?adjusted=true&sort=asc&limit=${limit}&apiKey=${apiKey}`
+    // Routed through our own /api/polygon proxy (not api.polygon.io directly) so the
+    // real Polygon key stays server-side and is never exposed to this worker/client bundle.
+    // The proxy strips any apiKey/apikey query param it receives and injects the real
+    // server-side key itself - see src/app/api/polygon/[...path]/route.ts
+    const url = `/api/polygon/v2/aggs/ticker/${symbol}/range/1/day/${fromDate}/${toDate}?adjusted=true&sort=asc&limit=${limit}`
 
     for (let attempt = 0; attempt < 3; attempt++) {
         const ac = new AbortController()

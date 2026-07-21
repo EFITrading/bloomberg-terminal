@@ -146,7 +146,7 @@ interface OptionsFlowData {
 
   exchange_name: string
 
-  trade_type: 'SWEEP' | 'BLOCK' | 'MINI' | 'MULTI-LEG'
+  trade_type: 'SWEEP' | 'BLOCK' | 'MINI' | 'MULTI-LEG' | 'SUPER SWEEP' | 'SUPER BLOCK'
 
   trade_timestamp: string
 
@@ -571,6 +571,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const loadedDataRef = useRef<OptionsFlowData[] | null>(null)
 
   const [isFlowTrackingOpen, setIsFlowTrackingOpen] = useState<boolean>(false)
+  // Mobile only: which tab the full-screen FlowTrackingPanel should open to
+  // (SweepSense button vs A+ Tracker button in the mobile control bar).
+  const [mobileFlowInitialTab, setMobileFlowInitialTab] = useState<'TRACKER' | 'SWEEPSENSE'>('SWEEPSENSE')
 
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({})
 
@@ -586,6 +589,12 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [currentOptionVolOi, setCurrentOptionVolOi] = useState<Record<string, { volume: number; open_interest: number }>>({})
 
   const [optionPricesFetching, setOptionPricesFetching] = useState<boolean>(false)
+  // Every option ticker we've ever ATTEMPTED to price, regardless of whether Polygon actually
+  // returned a usable price for it (weekends/holidays/delisted contracts can legitimately come
+  // back with nothing). Used to stop SweepSense's "settling" gate from waiting forever on
+  // contracts that will never resolve - it only needs to know the attempt was made, not that
+  // every single one succeeded.
+  const attemptedOptionPriceTickersRef = useRef<Set<string>>(new Set())
 
   const [gradingProgress, setGradingProgress] = useState<{ current: number; total: number } | null>(
     null
@@ -1283,7 +1292,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     }
 
     // Deduplicate: build unique option tickers so we never fetch the same contract twice
-    const uniqueContracts = new Map<string, string>() // optionTicker ? underlying
+    const uniqueContracts = new Map<string, string>() // optionTicker -> underlying
     for (const trade of activeTrades) {
       const expiry = trade.expiry.replace(/-/g, '').slice(2)
       const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
@@ -1296,48 +1305,77 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     }
 
     const uniqueTickers = Array.from(uniqueContracts.keys())
+    for (const t of uniqueTickers) attemptedOptionPriceTickersRef.current.add(t)
     setOptionPricesFetching(true)
     setGradingProgress({ current: 0, total: uniqueTickers.length })
 
     const volOiUpdate: Record<string, { volume: number; open_interest: number }> = {}
 
-    // Bulk snapshot: up to 250 tickers per request, all batches fired in parallel
-    const BATCH_SIZE = 250
-    const batches: string[][] = []
-    for (let i = 0; i < uniqueTickers.length; i += BATCH_SIZE) {
-      batches.push(uniqueTickers.slice(i, i + BATCH_SIZE))
+    // Group contracts by (underlying, expiry) - the SAME per-underlying options-snapshot
+    // endpoint ChainPanel uses (/v3/snapshot/options/{underlying}?expiration_date=...), which
+    // actually returns day.close/last_trade for closed-market weekends/holidays, unlike the
+    // bulk ticker.any_of universal snapshot endpoint which frequently omits that data entirely
+    // for illiquid contracts.
+    const groups = new Map<string, { underlying: string; expiry: string; wantedTickers: Set<string> }>()
+    for (const trade of activeTrades) {
+      const key = `${trade.underlying_ticker}|${trade.expiry}`
+      if (!groups.has(key)) {
+        groups.set(key, { underlying: trade.underlying_ticker, expiry: trade.expiry, wantedTickers: new Set() })
+      }
+      const expiry = trade.expiry.replace(/-/g, '').slice(2)
+      const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
+      const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
+      const normalizedTicker = normalizeTickerForOptions(trade.underlying_ticker)
+      const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
+      groups.get(key)!.wantedTickers.add(optionTicker)
     }
 
     const _t0 = performance.now()
     try {
       await Promise.allSettled(
-        batches.map(async (batch, batchIdx) => {
+        Array.from(groups.values()).map(async ({ underlying, expiry, wantedTickers }) => {
           try {
-            const tickerList = batch.join(',')
-            const url = `/api/polygon/v3/snapshot?ticker.any_of=${encodeURIComponent(tickerList)}&limit=250&apikey=${POLYGON_API_KEY}`
-            const response = await fetch(url, { signal: AbortSignal.timeout(15000) })
-            if (response.ok) {
-              const data = await response.json()
+            let matched = 0
+            let nextUrl: string | null =
+              `/api/polygon/v3/snapshot/options/${normalizeTickerForOptions(underlying)}?expiration_date=${expiry}&limit=250&apikey=${POLYGON_API_KEY}`
+            while (nextUrl && matched < wantedTickers.size) {
+              const currentUrl: string = nextUrl
+              const response: Response = await fetch(currentUrl, { signal: AbortSignal.timeout(15000) })
+              if (!response.ok) break
+              const data: any = await response.json()
               const results: any[] = data.results ?? []
               for (const r of results) {
-                const ticker = r.details?.ticker ?? r.ticker
-                if (!ticker) continue
+                const ticker = r.details?.ticker
+                if (!ticker || !wantedTickers.has(ticker)) continue
                 const bid = r.last_quote?.bid ?? 0
                 const ask = r.last_quote?.ask ?? 0
                 const mid = (bid + ask) / 2
+                // Weekends/holidays: market is closed so last_quote is stale-zero. Fall back to
+                // last_trade.price, then day.close (day.close IS reliably populated by this
+                // per-underlying endpoint even for illiquid contracts, per ChainPanel's proven
+                // working logic) so the ticker resolves a real settled price.
                 if (mid > 0) pricesUpdate[ticker] = mid
                 else if ((r.last_trade?.price ?? 0) > 0) pricesUpdate[ticker] = r.last_trade.price
+                else if ((r.day?.close ?? 0) > 0) pricesUpdate[ticker] = r.day.close
 
-                // Live volume/OI - same response, just previously ignored. Refreshes the
-                // frozen collector-time snapshot every time prices are re-fetched (scans,
-                // grading, SweepSense, etc).
                 const liveVolume = r.day?.volume ?? 0
                 const liveOi = r.open_interest ?? 0
                 volOiUpdate[ticker] = { volume: liveVolume, open_interest: liveOi }
+                matched++
+              }
+              // Polygon's own next_url is a raw https://api.polygon.io/... URL with a cursor
+              // param - calling it directly from the browser 401s because it has no API key
+              // (the key is only injected server-side by our /api/polygon proxy route). Rewrite
+              // it back through that same proxy instead of following it as-is.
+              if (data.next_url) {
+                const rewritten = data.next_url.replace(/^https:\/\/api\.polygon\.io\//, '/api/polygon/')
+                nextUrl = `${rewritten}${rewritten.includes('?') ? '&' : '?'}apikey=${POLYGON_API_KEY}`
+              } else {
+                nextUrl = null
               }
             }
           } catch { /* silent */ }
-          setGradingProgress((prev) => prev ? { current: Math.min(prev.current + batch.length, prev.total), total: prev.total } : null)
+          setGradingProgress((prev) => prev ? { current: Math.min(prev.current + wantedTickers.size, prev.total), total: prev.total } : null)
         })
       )
 
@@ -2058,7 +2096,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   const calculatePositioningGrade = (
     trade: OptionsFlowData,
-    comboMap: Map<string, boolean>
+    comboMap: Map<string, boolean>,
+    overrides?: { optionPrice?: number; stockPrice?: number; asOf?: Date }
   ): {
     grade: string
 
@@ -2103,7 +2142,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
     const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
 
-    const currentPrice = currentOptionPrices[optionTicker]
+    const currentPrice = overrides?.optionPrice ?? currentOptionPrices[optionTicker]
 
     const entryPrice = trade.premium_per_contract
 
@@ -2214,9 +2253,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
     // Shared variables for sections 5 and 6
     const entryStockPrice = trade.spot_price
-    const currentStockPrice = currentPrices[trade.underlying_ticker]
+    const currentStockPrice = overrides?.stockPrice ?? currentPrices[trade.underlying_ticker]
     const tradeTime = new Date(trade.trade_timestamp)
-    const currentTime = new Date()
+    const currentTime = overrides?.asOf ?? new Date()
     const isCall = trade.type === 'call'
 
     // 5. Price Action Score (10 points max) - Consolidation OR Reversal Bet
@@ -2374,7 +2413,8 @@ Stock Reaction: ${scores.stockReaction}/15`
 
   const calculateLeapGrade = (
     trade: OptionsFlowData,
-    _comboMap: Map<string, boolean>
+    _comboMap: Map<string, boolean>,
+    overrides?: { optionPrice?: number; stockPrice?: number; asOf?: Date }
   ): {
     grade: string
     score: number
@@ -2399,7 +2439,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
     const normalizedTicker = normalizeTickerForOptions(trade.underlying_ticker)
     const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
-    const currentPrice = currentOptionPrices[optionTicker]
+    const currentPrice = overrides?.optionPrice ?? currentOptionPrices[optionTicker]
     const entryPrice = trade.premium_per_contract
 
 
@@ -2486,8 +2526,9 @@ Stock Reaction: ${scores.stockReaction}/15`
     // 4. Stock Reaction (15 pts max) - 4hr and 1d checkpoints
     const isCall = trade.type === 'call'
     const fill = tradeFillStyle
-    const currentStockPrice = currentPrices[trade.underlying_ticker]
+    const currentStockPrice = overrides?.stockPrice ?? currentPrices[trade.underlying_ticker]
     const entryStockPrice = trade.spot_price
+    const asOfTime = overrides?.asOf ?? new Date()
 
     if (currentStockPrice && entryStockPrice) {
       const stockPct = ((currentStockPrice - entryStockPrice) / entryStockPrice) * 100
@@ -2503,7 +2544,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       const chopped = Math.abs(stockPct) < 1.0
 
       const hoursElapsed =
-        (new Date().getTime() - new Date(trade.trade_timestamp).getTime()) / (1000 * 60 * 60)
+        (asOfTime.getTime() - new Date(trade.trade_timestamp).getTime()) / (1000 * 60 * 60)
 
       if (hoursElapsed >= 4) {
         // 4-hour checkpoint
@@ -2522,7 +2563,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
     // Bonus 1: 52-week high/low alignment (+7.5 pts = +10% of 75)
     const wkRange = leap52wkData.get(trade.underlying_ticker)
-    const stockNow = currentPrices[trade.underlying_ticker]
+    const stockNow = overrides?.stockPrice ?? currentPrices[trade.underlying_ticker]
     if (wkRange && stockNow && stockNow > 0) {
       const isBullishFill =
         (isCall && (fill === 'A' || fill === 'AA')) ||
@@ -2616,7 +2657,7 @@ Stock Reaction: ${scores.stockReaction}/15`
   ])
 
   // Large-cap tickers that require elevated premium thresholds
-  const LARGE_CAP_PREMIUM_TICKERS = new Set(['AAPL', 'NVDA', 'TSLA', 'MSFT', 'GOOGL', 'GOOG', 'LLY', 'META', 'SPCX', 'TSM', 'AVGO', 'MU', 'AMD'])
+  const LARGE_CAP_PREMIUM_TICKERS = new Set(['AAPL', 'NVDA', 'TSLA', 'MSFT', 'GOOGL', 'GOOG', 'LLY', 'META', 'SPCX', 'TSM', 'AVGO', 'MU', 'AMD', 'AMZN'])
 
   // Long-Term criteria: 35-120 DTE, OTM, indexes excluded
   // Large-caps: $900K+ premium; others: $300K-$1.3M
@@ -2659,8 +2700,12 @@ Stock Reaction: ${scores.stockReaction}/15`
   // SweepSense button removed - scan now runs automatically the first time flow data loads.
   const sweepSenseAutoRanRef = useRef(false)
   useEffect(() => {
-    if (sweepSenseAutoRanRef.current) return
-    if (!data || data.length === 0) return
+    if (sweepSenseAutoRanRef.current) {
+      return
+    }
+    if (!data || data.length === 0) {
+      return
+    }
     sweepSenseAutoRanRef.current = true
 
     const run = async () => {
@@ -3961,25 +4006,55 @@ Stock Reaction: ${scores.stockReaction}/15`
   // otherwise a trade that hasn't been priced yet can never pass the gate to get priced in
   // the first place (deadlock -> permanent "settling"/infinite loading).
   const sweepSenseCandidates = useMemo(() => {
-    if (!sweepSenseBgActive || !data || data.length === 0) return [] as OptionsFlowData[]
-    return data.filter((trade) => meetsEfiCriteria(trade) || meetsLeapCriteria(trade))
+    if (!sweepSenseBgActive || !data || data.length === 0) {
+      return [] as OptionsFlowData[]
+    }
+    // Already-expired contracts can never get a live price fetched (fetchCurrentOptionPrices
+    // itself excludes them via the same expiry check), so they must never enter the candidate
+    // pool at all - otherwise they sit forever in "neverAttempted" and sweepSenseSettling never
+    // clears, permanently blocking the tab from committing results.
+    const todayStr = new Date().toLocaleDateString('en-CA')
+    const notExpired = data.filter((t) => t.expiry >= todayStr)
+    const shortOnly = notExpired.filter((t) => meetsEfiCriteria(t))
+    const longOnly = notExpired.filter((t) => meetsLeapCriteria(t))
+    const combined = notExpired.filter((trade) => meetsEfiCriteria(trade) || meetsLeapCriteria(trade))
+    return combined
   }, [sweepSenseBgActive, data])
+
+  // Records the first moment (wall-clock time) each trade was actually observed to have an
+  // A-/A/A+ grade, stamped on every grading pass (which reruns on each price poll) - not just
+  // when it happens to win the later per-ticker dedup - so it reflects the real moment the
+  // trade turned into an A grade rather than merely when a scan/dedup cycle picked it up.
+  const sweepSenseQualifiedAtRef = useRef<Map<string, number>>(new Map())
 
   // Grade gate + dedup, applied ONCE per candidate here and reused as-is by sweepSenseData
   // below (never recalculated a second time) so the gate decision and the displayed grade
   // can never drift apart from each other as other grading inputs keep changing over time.
   const sweepSenseQualifyingData = useMemo(() => {
-    if (sweepSenseCandidates.length === 0) return [] as Array<{ trade: OptionsFlowData; grade: string; gradeColor: string }>
+    if (sweepSenseCandidates.length === 0) {
+      return [] as Array<{ trade: OptionsFlowData; grade: string; gradeColor: string; convictionScore: number }>
+    }
 
-    let graded: Array<{ trade: OptionsFlowData; grade: string; gradeColor: string }> = []
+    let graded: Array<{ trade: OptionsFlowData; grade: string; gradeColor: string; convictionScore: number }> = []
     if (!optionPricesFetching && Object.keys(currentOptionPrices).length > 0) {
       graded = sweepSenseCandidates
         .map((trade) => {
           const useLeap = meetsLongTermCriteria(trade)
           const g = useLeap ? calculateLeapGrade(trade, comboTradeMap) : calculatePositioningGrade(trade, comboTradeMap)
-          return { trade, grade: g.grade, gradeColor: g.color }
+          // LEAP grades are scaled 0-75; normalize both onto a common 0-100 conviction scale.
+          const convictionScore = Math.round(useLeap ? (g.score / 75) * 100 : g.score)
+          return { trade, grade: g.grade, gradeColor: g.color, convictionScore }
         })
         .filter((t) => ['A-', 'A', 'A+'].includes(t.grade))
+      // Stamp the instant each trade is FIRST seen with an A-grade - this runs every time prices
+      // are re-polled, so it captures the real moment the trade crossed into A, not just when a
+      // later dedup step happened to surface it.
+      for (const item of graded) {
+        const flowId = generateFlowId(item.trade)
+        if (!sweepSenseQualifiedAtRef.current.has(flowId)) {
+          sweepSenseQualifiedAtRef.current.set(flowId, Date.now())
+        }
+      }
     }
 
     const score = (t: OptionsFlowData): number => {
@@ -3988,7 +4063,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       const voi = t.vol_oi_ratio ?? 0
       return t.total_premium * fq * (voi >= 1.5 ? 1.3 : voi >= 1.0 ? 1.15 : 1.0)
     }
-    const p1 = new Map<string, { trade: OptionsFlowData; grade: string; gradeColor: string }>()
+    const p1 = new Map<string, { trade: OptionsFlowData; grade: string; gradeColor: string; convictionScore: number }>()
     for (const item of graded) {
       const f = item.trade.fill_style ?? ''
       const fg = (f === 'A' || f === 'AA') ? 'buy' : (f === 'B' || f === 'BB') ? 'sell' : f
@@ -3996,20 +4071,34 @@ Stock Reaction: ${scores.stockReaction}/15`
       const ex = p1.get(k)
       if (!ex || score(item.trade) > score(ex.trade)) p1.set(k, item)
     }
-    const p2 = new Map<string, { trade: OptionsFlowData; grade: string; gradeColor: string }>()
+    const p2 = new Map<string, { trade: OptionsFlowData; grade: string; gradeColor: string; convictionScore: number }>()
     for (const item of p1.values()) {
       const ex = p2.get(item.trade.underlying_ticker)
       if (!ex || score(item.trade) > score(ex.trade)) p2.set(item.trade.underlying_ticker, item)
     }
-    return Array.from(p2.values())
+    const finalQualifying = Array.from(p2.values())
+    return finalQualifying
   }, [sweepSenseCandidates, comboTradeMap, currentOptionPrices, optionPricesFetching])
 
-  // True while any short/long-term candidate is still missing its current option price.
-  // The tab shows only its loading screen the entire time this is true, so partial/incomplete
-  // results never flash on screen while enrichment is still catching up on new tickers.
+  // True while any short/long-term candidate has NEVER even had a price fetch attempted yet
+  // (a fresh ticker that just entered the candidate pool), or while a fetch is actively
+  // in-flight. Once a price has been ATTEMPTED for a ticker, it no longer blocks - Polygon
+  // legitimately returns nothing for some contracts on weekends/holidays or if delisted, and
+  // waiting on a guaranteed resolved price for every single one would settle forever.
   const sweepSenseSettling = useMemo(() => {
     if (sweepSenseCandidates.length === 0) return false
-    return sweepSenseCandidates.some((trade) => {
+    if (optionPricesFetching) {
+      return true
+    }
+    const neverAttempted = sweepSenseCandidates.filter((trade) => {
+      const expiry = trade.expiry.replace(/-/g, '').slice(2)
+      const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
+      const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
+      const normalizedTicker = normalizeTickerForOptions(trade.underlying_ticker)
+      const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
+      return !attemptedOptionPriceTickersRef.current.has(optionTicker)
+    })
+    const missingPriced = sweepSenseCandidates.filter((trade) => {
       const expiry = trade.expiry.replace(/-/g, '').slice(2)
       const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
       const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
@@ -4017,7 +4106,112 @@ Stock Reaction: ${scores.stockReaction}/15`
       const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
       return !(optionTicker in currentOptionPrices)
     })
-  }, [sweepSenseCandidates, currentOptionPrices])
+    return neverAttempted.length > 0
+  }, [sweepSenseCandidates, currentOptionPrices, optionPricesFetching])
+
+  // `run()` above only ever fetches prices ONCE (guarded by sweepSenseAutoRanRef) for whatever
+  // candidates existed at that moment. But sweepSenseCandidates is a live useMemo that keeps
+  // recomputing as new trades stream in, so candidates that qualify AFTER that single fetch
+  // would never get a price fetch attempted - permanently stuck in "neverAttempted", which
+  // means sweepSenseSettling never turns false and the tab never commits new results. This
+  // effect tops up the price fetch for exactly those newly-appeared, never-attempted tickers.
+  // Must NOT fire while run()'s own initial fetch (modeLoadingStep set) is still in flight -
+  // both calls independently flip optionPricesFetching/gradingProgress, and running them
+  // concurrently causes one to stomp the other's "fetch finished" state, so grading counts
+  // flip-flop and settling never fully quiets down.
+  useEffect(() => {
+    if (sweepSenseCandidates.length === 0 || optionPricesFetching || modeLoadingStep !== null) return
+    const newlyAppeared = sweepSenseCandidates.filter((trade) => {
+      const expiry = trade.expiry.replace(/-/g, '').slice(2)
+      const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
+      const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
+      const normalizedTicker = normalizeTickerForOptions(trade.underlying_ticker)
+      const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
+      return !attemptedOptionPriceTickersRef.current.has(optionTicker)
+    })
+    if (newlyAppeared.length === 0) return
+    fetchCurrentOptionPrices(newlyAppeared)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sweepSenseCandidates, optionPricesFetching, modeLoadingStep])
+
+  // The REAL moment each trade first graded A-/A/A+, reconstructed by replaying minute-by-minute
+  // historical stock + option prices since the trade was taken and re-running the exact same
+  // grading formula at each point in time - not just whatever moment our own live polling
+  // happened to notice it. Keyed by flowId; resolved asynchronously and cached forever once found.
+  const [sweepSenseHistoricalQualifiedAt, setSweepSenseHistoricalQualifiedAt] = useState<Record<string, number>>({})
+  const sweepSenseHistoricalFetchingRef = useRef<Set<string>>(new Set())
+
+  const fetchHistoricalQualifiedAt = async (trade: OptionsFlowData, comboMap: Map<string, boolean>) => {
+    const flowId = generateFlowId(trade)
+    if (sweepSenseHistoricalFetchingRef.current.has(flowId)) return
+    sweepSenseHistoricalFetchingRef.current.add(flowId)
+    try {
+      const useLeap = meetsLongTermCriteria(trade)
+      const tradeTime = new Date(trade.trade_timestamp)
+      const from = tradeTime.toISOString().split('T')[0]
+      const to = new Date().toISOString().split('T')[0]
+
+      const expiry = trade.expiry.replace(/-/g, '').slice(2)
+      const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
+      const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
+      const normalizedTicker = normalizeTickerForOptions(trade.underlying_ticker)
+      const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
+
+      const [stockRes, optionRes] = await Promise.all([
+        fetch(`/api/polygon/v2/aggs/ticker/${trade.underlying_ticker}/range/1/minute/${from}/${to}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`, { signal: AbortSignal.timeout(15000) }),
+        fetch(`/api/polygon/v2/aggs/ticker/${optionTicker}/range/1/minute/${from}/${to}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_API_KEY}`, { signal: AbortSignal.timeout(15000) }),
+      ])
+      const stockJson = stockRes.ok ? await stockRes.json() : null
+      const optionJson = optionRes.ok ? await optionRes.json() : null
+      const stockBars: Array<{ t: number; c: number }> = (stockJson?.results || []).filter((b: { t: number }) => b.t >= tradeTime.getTime())
+      const optionBars: Array<{ t: number; c: number }> = (optionJson?.results || []).filter((b: { t: number }) => b.t >= tradeTime.getTime())
+
+      if (stockBars.length === 0 && optionBars.length === 0) return
+
+      // Replay a single merged, forward-filled timeline of both series minute-by-minute and
+      // re-run the real grading function at each tick, stopping at the first tick that grades
+      // A-/A/A+ - that tick IS the real historical moment the trade became an A grade.
+      const timestamps = Array.from(new Set([...stockBars.map((b) => b.t), ...optionBars.map((b) => b.t)])).sort((a, b) => a - b)
+      let si = 0, oi = 0
+      let lastStock = trade.spot_price
+      let lastOption = trade.premium_per_contract
+      let foundAt: number | null = null
+
+      for (const t of timestamps) {
+        while (si < stockBars.length && stockBars[si].t <= t) { lastStock = stockBars[si].c; si++ }
+        while (oi < optionBars.length && optionBars[oi].t <= t) { lastOption = optionBars[oi].c; oi++ }
+
+        const g = useLeap
+          ? calculateLeapGrade(trade, comboMap, { optionPrice: lastOption, stockPrice: lastStock, asOf: new Date(t) })
+          : calculatePositioningGrade(trade, comboMap, { optionPrice: lastOption, stockPrice: lastStock, asOf: new Date(t) })
+
+        if (['A-', 'A', 'A+'].includes(g.grade)) {
+          foundAt = t
+          break
+        }
+      }
+
+      if (foundAt !== null) {
+        setSweepSenseHistoricalQualifiedAt((prev) => ({ ...prev, [flowId]: foundAt as number }))
+      }
+    } catch {
+      /* silent - falls back to the live-scan timestamp already recorded */
+    } finally {
+      sweepSenseHistoricalFetchingRef.current.delete(flowId)
+    }
+  }
+
+  // Kick off the historical replay for every newly-qualifying trade we haven't resolved yet.
+  useEffect(() => {
+    if (!sweepSenseBgActive || sweepSenseQualifyingData.length === 0) return
+    sweepSenseQualifyingData.forEach(({ trade }) => {
+      const flowId = generateFlowId(trade)
+      if (flowId in sweepSenseHistoricalQualifiedAt) return
+      if (sweepSenseHistoricalFetchingRef.current.has(flowId)) return
+      fetchHistoricalQualifiedAt(trade, comboTradeMap)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sweepSenseQualifyingData, sweepSenseBgActive, comboTradeMap])
 
   // SweepSense tab data - built from `sweepSenseQualifyingData` (above) plus the same
   // dealerZoneCache (magnet/pivot) and the exact Plan Entry logic (computePlanEntry) used
@@ -4044,7 +4238,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       tickerPrem.set(t.underlying_ticker, entry)
     }
 
-    const trades = sweepSenseQualifyingData.map(({ trade, grade, gradeColor }) => {
+    const trades = sweepSenseQualifyingData.map(({ trade, grade, gradeColor, convictionScore }) => {
       // Grade was already computed once (above, in the gate) - reused as-is here so the
       // gate decision and the displayed grade can never disagree with each other.
       const g = { grade, color: gradeColor }
@@ -4069,6 +4263,15 @@ Stock Reaction: ${scores.stockReaction}/15`
       const bd = tickerPrem.get(trade.underlying_ticker) || { buyCalls: 0, bearCalls: 0, buyPuts: 0, bearPuts: 0 }
       const bdTotal = bd.buyCalls + bd.bearCalls + bd.buyPuts + bd.bearPuts || 1
 
+      // Real moment this trade first graded A-/A/A+, reconstructed from historical minute bars
+      // (fetchHistoricalQualifiedAt) - this is the authoritative value. Falls back to the
+      // live-scan timestamp while the historical replay is still resolving, and finally to
+      // now() only in the unexpected case neither is available yet.
+      const flowId = generateFlowId(trade)
+      const qualifiedAt = sweepSenseHistoricalQualifiedAt[flowId]
+        ?? sweepSenseQualifiedAtRef.current.get(flowId)
+        ?? Date.now()
+
       // Real CONTRACT (option premium) % change - not stock price - same calc as the grade's
       // Contract P&L score: current option price vs entry premium, B/BB (sold to open) flips sign.
       const optExpiry = trade.expiry.replace(/-/g, '').slice(2)
@@ -4087,6 +4290,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         trade,
         grade: g.grade,
         gradeColor: g.color,
+        convictionScore,
         pctMove,
         currentStockPrice: cur ?? null,
         currentOptionPrice,
@@ -4096,6 +4300,12 @@ Stock Reaction: ${scores.stockReaction}/15`
         sigCode,
         sigColor,
         planText,
+        qualifiedAt,
+        // Same resolved ATM IV / DTE / live spot used to build the entry plan above - reused
+        // as-is for Target 1/2 + stop loss so the numbers can never disagree with the plan text.
+        sigma,
+        dte,
+        spot,
         breakdown: {
           buyCallsPct: (bd.buyCalls / bdTotal) * 100,
           bearCallsPct: (bd.bearCalls / bdTotal) * 100,
@@ -4133,7 +4343,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     }
 
     return { trades, stats, bubbles }
-  }, [sweepSenseBgActive, sweepSenseQualifyingData, dealerZoneCache, currentPrices, data, expiryIVCache, longTermIVCache, currentOptionPrices])
+  }, [sweepSenseBgActive, sweepSenseQualifyingData, dealerZoneCache, currentPrices, data, expiryIVCache, longTermIVCache, currentOptionPrices, sweepSenseHistoricalQualifiedAt])
 
   // The tab must only ever show ONE final, settled result - never the churn of intermediate
   // in-progress computations (which flicker as grades/prices/dealer-zones trickle in). We
@@ -4592,17 +4802,32 @@ Stock Reaction: ${scores.stockReaction}/15`
       }
     }
 
-    if (tradeType === 'MINI') {
+    if (tradeType === 'SUPER SWEEP') {
       return {
         className: base,
         style: {
-          backgroundColor: '#052e16',
-          backgroundImage: 'linear-gradient(180deg, #14532d 0%, #052e16 50%, #0f3d22 100%)',
-          color: '#86efac',
-          border: '1px solid rgba(134,239,172,0.4)',
-          boxShadow: glossyOverlay,
+          ...glossyBlack,
+          color: '#FFD700',
+          border: '1px solid #FFD700',
+          boxShadow: `${glossyOverlay}, 0 0 8px rgba(255,215,0,0.6)`,
           borderRadius: '9999px',
           letterSpacing: '0.05em',
+          fontWeight: 900,
+        },
+      }
+    }
+
+    if (tradeType === 'SUPER BLOCK') {
+      return {
+        className: base,
+        style: {
+          ...glossyBlack,
+          color: '#00e5ff',
+          border: '1px solid #00e5ff',
+          boxShadow: `${glossyOverlay}, 0 0 8px rgba(0,229,255,0.6)`,
+          borderRadius: '9999px',
+          letterSpacing: '0.05em',
+          fontWeight: 900,
         },
       }
     }
@@ -5715,17 +5940,6 @@ Stock Reaction: ${scores.stockReaction}/15`
                                 ? `${tradeCount.toLocaleString()} TRADES`
                                 : '- TRADES'}
                             </span>
-                            <span
-                              className="flow-hist-saved"
-                              style={{
-                                color: '#00e5ff',
-                                fontSize: '15px',
-                                fontWeight: 700,
-                                letterSpacing: '0.5px',
-                              }}
-                            >
-                              SAVED {timeLabel}
-                            </span>
                           </div>
                         </div>
 
@@ -5959,21 +6173,25 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                 {/* Notable Button removed - SweepSense activates it automatically */}
 
-                {/* SweepSense Filter Button (mobile) - shows only SweepSense-qualifying trades */}
+                {/* SweepSense Button (mobile) - opens the full SweepSense card view
+                    used on desktop (FlowTrackingPanel's SweepSenseTab, mobile-responsive). */}
                 <button
-                  onClick={() => setSweepSenseFilterActive(!sweepSenseFilterActive)}
+                  onClick={() => {
+                    setMobileFlowInitialTab('SWEEPSENSE')
+                    setIsFlowTrackingOpen(true)
+                  }}
                   className="px-2 font-black uppercase transition-all duration-200 flex items-center gap-1 focus:outline-none"
                   style={{
                     height: '40px',
-                    background: sweepSenseFilterActive
+                    background: isFlowTrackingOpen && mobileFlowInitialTab === 'SWEEPSENSE'
                       ? '#16a34a'
                       : 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
-                    border: sweepSenseFilterActive ? '2px solid #16a34a' : '2px solid #2a2a2a',
+                    border: isFlowTrackingOpen && mobileFlowInitialTab === 'SWEEPSENSE' ? '2px solid #16a34a' : '2px solid #2a2a2a',
                     borderRadius: '4px',
                     fontSize: '10px',
                     letterSpacing: '0.5px',
                     fontWeight: '900',
-                    color: sweepSenseFilterActive ? '#000000' : '#16a34a',
+                    color: isFlowTrackingOpen && mobileFlowInitialTab === 'SWEEPSENSE' ? '#000000' : '#16a34a',
                     boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.9)',
                   }}
                 >
@@ -6007,16 +6225,19 @@ Stock Reaction: ${scores.stockReaction}/15`
                   </button>
                 )}
 
-                {/* Flow Tracking Button */}
+                {/* A+ Tracker Button (mobile) - opens FlowTrackingPanel's TRACKER tab */}
                 <button
-                  onClick={() => setIsFlowTrackingOpen(!isFlowTrackingOpen)}
+                  onClick={() => {
+                    setMobileFlowInitialTab('TRACKER')
+                    setIsFlowTrackingOpen(true)
+                  }}
                   className="px-2 text-white font-black uppercase transition-all duration-200 flex items-center gap-1 focus:outline-none"
                   style={{
                     height: '40px',
-                    background: isFlowTrackingOpen
+                    background: isFlowTrackingOpen && mobileFlowInitialTab === 'TRACKER'
                       ? 'linear-gradient(180deg, #10b981 0%, #059669 100%)'
                       : 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
-                    border: isFlowTrackingOpen ? '2px solid #10b981' : '2px solid #2a2a2a',
+                    border: isFlowTrackingOpen && mobileFlowInitialTab === 'TRACKER' ? '2px solid #10b981' : '2px solid #2a2a2a',
                     borderRadius: '4px',
                     fontSize: '10px',
                     letterSpacing: '0.5px',
@@ -6024,31 +6245,28 @@ Stock Reaction: ${scores.stockReaction}/15`
                     boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.9)',
                   }}
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={isFlowTrackingOpen ? '#000' : '#10b981'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={isFlowTrackingOpen && mobileFlowInitialTab === 'TRACKER' ? '#000' : '#10b981'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
-                  <span>TRACK</span>
+                  <span>A+ Tracker</span>
                 </button>
 
-                {/* Filter Button */}
+                {/* Filter Button - icon only on mobile */}
                 <button
                   onClick={() => setIsFilterDialogOpen(true)}
-                  className="px-2 text-white font-black uppercase transition-all duration-200 flex items-center gap-1 focus:outline-none"
+                  className="px-2 text-white font-black uppercase transition-all duration-200 flex items-center justify-center focus:outline-none"
                   style={{
                     height: '40px',
                     background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
                     border: '2px solid #2a2a2a',
                     borderRadius: '4px',
-                    fontSize: '10px',
-                    letterSpacing: '0.5px',
-                    fontWeight: '900',
                     boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.9)',
                   }}
+                  title="Filter"
                 >
-                  <svg width="12" height="12" fill="none" stroke="#ff8500" viewBox="0 0 24 24" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="14" height="14" fill="none" stroke="#ff8500" viewBox="0 0 24 24" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
                     <path d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
                   </svg>
-                  <span>FILTER</span>
                 </button>
 
                 {/* Mobile Dropdown Menu - see OptionsFlowMobileMenu.tsx */}
@@ -9874,6 +10092,7 @@ Stock Reaction: ${scores.stockReaction}/15`
             parentStockPrices={currentPrices}
             sweepSenseData={sweepSenseDataStable}
             sweepSenseScanning={modeLoadingStep !== null || sweepSenseSettling || (sweepSenseBgActive && !sweepSenseDataStable)}
+            sweepSenseProgress={gradingProgress}
           />
         </div>
       )}
@@ -9894,6 +10113,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         >
           <FlowTrackingPanel
             onClose={() => setIsFlowTrackingOpen(false)}
+            initialTab={mobileFlowInitialTab}
             relativeStrengthData={relativeStrengthData}
             historicalStdDevs={historicalStdDevs}
             comboTradeMap={comboTradeMap}
@@ -9906,6 +10126,7 @@ Stock Reaction: ${scores.stockReaction}/15`
             parentStockPrices={currentPrices}
             sweepSenseData={sweepSenseDataStable}
             sweepSenseScanning={modeLoadingStep !== null || sweepSenseSettling || (sweepSenseBgActive && !sweepSenseDataStable)}
+            sweepSenseProgress={gradingProgress}
           />
         </div>
       )}
@@ -10008,6 +10229,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                 parentStockPrices={currentPrices}
                 sweepSenseData={sweepSenseDataStable}
                 sweepSenseScanning={modeLoadingStep !== null || sweepSenseSettling || (sweepSenseBgActive && !sweepSenseDataStable)}
+                sweepSenseProgress={gradingProgress}
               />
             </div>
           </div>

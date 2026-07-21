@@ -10,6 +10,12 @@ import { useFlowTrackingPanelMobile } from './useFlowTrackingPanelMobile'
 
 const EFIChart = dynamic(() => import('@/components/trading/EFICharting'), { ssr: false })
 const AlgoFlowScreener = dynamic(() => import('@/components/AlgoFlowScreener'), { ssr: false })
+// Same candlestick + SPY/industry ratio chart used by the Market Regimes sidebar - reused
+// here exactly so SweepSense card charts look/behave identically.
+const TradeCardChart = dynamic(
+  () => import('@/components/trading/RegimesPanel').then((m) => m.TradeCardChart),
+  { ssr: false }
+)
 
 const POLYGON_API_KEY = ''
 
@@ -24,7 +30,7 @@ interface OptionsFlowData {
   total_premium: number
   spot_price: number
   exchange_name: string
-  trade_type: 'SWEEP' | 'BLOCK' | 'MINI' | 'MULTI-LEG'
+  trade_type: 'SWEEP' | 'BLOCK' | 'MINI' | 'MULTI-LEG' | 'SUPER SWEEP' | 'SUPER BLOCK'
   trade_timestamp: string
   moneyness: 'ATM' | 'ITM' | 'OTM'
   days_to_expiry: number
@@ -69,6 +75,14 @@ const formatDate = (dateString: string) => {
 
 const generateFlowId = (trade: OptionsFlowData): string =>
   `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_timestamp}-${trade.trade_size}`
+
+// Snap a theoretical Black-Scholes strike to the nearest strike increment actually listed on
+// real option chains (varies by underlying price level), so "Build A Trade" strikes are real,
+// tradable strikes instead of raw decimals like $238.34.
+function roundToRealStrike(k: number, spot: number): number {
+  const inc = spot < 25 ? 0.5 : spot < 200 ? 1 : spot < 500 ? 5 : 10
+  return Math.round(k / inc) * inc
+}
 
 function _bsNCD(x: number): number {
   const a1 = 0.254829592,
@@ -121,17 +135,440 @@ function bsStrikeForProbFTP(
   }
 }
 
+// Full Black-Scholes option price (same formula as blackScholesCalculator.ts / ChainCalculator.tsx
+// used by the options calculator elsewhere in the app) - used to translate a stock price target
+// into the corresponding option premium target.
+function _bsD1FTP(S: number, K: number, r: number, sigma: number, T: number): number {
+  return (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T))
+}
+// ── FlowBias helpers: Spam / Structural / Gamma detection off the raw flow-trade list for
+// the selected TODAY/3D/1W window (same buttons that drive the historical breakdown).
+function computeSpamLabel(
+  rawTrades: Array<{ strike: number; expiry: string; type: string; trade_timestamp: string }>,
+  cardType: 'call' | 'put',
+  formatDate: (d: string) => string
+): string {
+  const groups: Record<string, Array<{ strike: number; expiry: string; type: string; trade_timestamp: string }>> = {}
+  for (const t of rawTrades) {
+    if (t.type !== cardType) continue
+    const key = `${t.strike}|${t.expiry}`
+    if (!groups[key]) groups[key] = []
+    groups[key].push(t)
+  }
+  let best: { key: string; trades: typeof rawTrades } | null = null
+  for (const [key, trades] of Object.entries(groups)) {
+    if (trades.length >= 3 && (!best || trades.length > best.trades.length)) best = { key, trades }
+  }
+  if (!best) return 'No Spammer Detected'
+  const [strikeStr, expiry] = best.key.split('|')
+  const times = best.trades.map((t) => new Date(t.trade_timestamp).getTime()).sort((a, b) => a - b)
+  const getETHour = (ms: number) => {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date(ms))
+    const h = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10)
+    const m = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10)
+    return h + m / 60
+  }
+  const hoursET = times.map(getETHour)
+  let cadence: string
+  if (hoursET.every((h) => h <= 11.5)) cadence = 'At Open'
+  else if (hoursET.every((h) => h >= 15)) cadence = 'Near Close'
+  else {
+    const gaps: number[] = []
+    for (let i = 1; i < times.length; i++) gaps.push((times[i] - times[i - 1]) / 3600000)
+    const avgGap = gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : 0
+    cadence = avgGap <= 1 ? 'All Day' : avgGap <= 3 ? 'Half Day' : 'Scattered'
+  }
+  const label = cardType === 'call' ? 'Calls' : 'Puts'
+  return `Flow Spammer: $${strikeStr} ${label} ${formatDate(expiry)} Expiry - ${cadence}`
+}
+
+function computeStructuralLabel(breakdown: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }): string {
+  if (breakdown.buyCallsPct >= 25 && breakdown.bearCallsPct >= 25) return 'Traders are building Structural Support'
+  if (breakdown.buyPutsPct >= 25 && breakdown.bearPutsPct >= 25) return 'Traders are building Structural Resistance'
+  return 'No Structural Formation Detected'
+}
+
+function computeGammaLabel(
+  rawTrades: Array<{ strike: number; type: string }>,
+  cardType: 'call' | 'put',
+  target1Level: number | null,
+  targetUp: boolean,
+  isLongTerm: boolean
+): string {
+  if (isLongTerm) return 'No Gamma Attack'
+  if (target1Level === null) return 'No Gamma Attack'
+  const candidates = rawTrades.filter((t) => t.type === cardType)
+  if (!candidates.length) return 'No Gamma Attack'
+  const beyond = candidates.filter((t) => (targetUp ? t.strike >= target1Level : t.strike <= target1Level))
+  return beyond.length > candidates.length / 2 ? 'Gamma Squeeze in Formation' : 'No Gamma Attack'
+}
+
+function bsOptionPriceFTP(S: number, K: number, T: number, r: number, sigma: number, isCall: boolean): number {
+  if (T <= 0) return isCall ? Math.max(0, S - K) : Math.max(0, K - S)
+  const d1 = _bsD1FTP(S, K, r, sigma, T)
+  const d2 = d1 - sigma * Math.sqrt(T)
+  return isCall
+    ? S * _bsNCD(d1) - K * Math.exp(-r * T) * _bsNCD(d2)
+    : K * Math.exp(-r * T) * _bsNCD(-d2) - S * _bsNCD(-d1)
+}
+// Inverse-solve for the stock price that produces a given option premium (bisection - the BS
+// price is monotonic in S: increasing for calls, decreasing for puts). Used to express the
+// premium-based stop loss as an equivalent stock price, same as the profit targets.
+function bsStockForPremiumFTP(
+  targetPremium: number,
+  S: number,
+  K: number,
+  T: number,
+  r: number,
+  sigma: number,
+  isCall: boolean,
+  searchDown: boolean
+): number | null {
+  if (!sigma || sigma <= 0 || T <= 0) return null
+  let lo = searchDown ? S * 0.2 : S,
+    hi = searchDown ? S : S * 3
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2
+    const p = bsOptionPriceFTP(mid, K, T, r, sigma, isCall)
+    const tooLow = isCall ? p < targetPremium : p > targetPremium
+    if (tooLow) lo = mid
+    else hi = mid
+  }
+  return (lo + hi) / 2
+}
+
+// Trade direction + profit targets/stop loss - identical logic to the Market Regimes
+// sidebar (RegimesPanel/EFICharting): calls => bullish (up), puts => bearish (down), but a
+// B/BB fill style (sold-to-open / hit-the-bid) flips the read to the opposite direction.
+// Targets are the 80%/90% probability stock-price levels (Black-Scholes), stop loss is the
+// option-premium stop derived from delta/IV/DTE exactly as the Regimes cards compute it.
+// `sigma`/`dte`/`spot` are the resolved ATM IV / DTE / live spot already computed upstream in
+// OptionsFlowTable's SweepSense gate (same values driving the entry plan) - raw flow prints
+// rarely carry `implied_volatility`, so those resolved values are preferred when present.
+function calcTradeManagement(trade: OptionsFlowData, sigmaOverride?: number, dteOverride?: number, spotOverride?: number) {
+  const fs = trade.fill_style || ''
+  const isSoldToOpen = fs === 'B' || fs === 'BB'
+  const isCall = trade.type === 'call'
+  const targetUp = (isCall && !isSoldToOpen) || (!isCall && isSoldToOpen)
+
+  const sigma = sigmaOverride && sigmaOverride > 0
+    ? sigmaOverride
+    : (trade.implied_volatility && trade.implied_volatility > 0 ? trade.implied_volatility : 0)
+  const dte = dteOverride && dteOverride > 0 ? Math.round(dteOverride) : Math.max(0, Math.round(trade.days_to_expiry))
+  const spot = spotOverride && spotOverride > 0 ? spotOverride : trade.spot_price
+  const target1 = sigma > 0 ? bsStrikeForProbFTP(spot, sigma, dte, 80, targetUp) : null
+  const target2 = sigma > 0 ? bsStrikeForProbFTP(spot, sigma, dte, 90, targetUp) : null
+
+  const delta = Math.abs(trade.delta || 0.5)
+  let baseStopPercent = 0.3
+  if (delta > 0.7) baseStopPercent = 0.15
+  else if (delta >= 0.6) baseStopPercent = 0.2
+  else if (delta >= 0.4) baseStopPercent = 0.25
+  else if (delta >= 0.25) baseStopPercent = 0.35
+  else baseStopPercent = 0.4
+  if (dte < 7) baseStopPercent = Math.max(0.1, baseStopPercent - 0.1)
+  else if (dte < 14) baseStopPercent = Math.max(0.15, baseStopPercent - 0.05)
+  const ivAdjustment = sigma ? Math.max(0, (sigma - 0.3) * 0.5) : 0
+  const adjustedStopPercent = Math.min(0.5, baseStopPercent + ivAdjustment)
+  const entryPremium = trade.premium_per_contract
+  const stopLoss = entryPremium > 0 ? entryPremium * (1 - adjustedStopPercent) : null
+  const thetaDecay = Math.abs(trade.theta || 0)
+
+  // ── Option premium at each stock target/stop - same Black-Scholes heatmap-grid reprice
+  // convention as the options calculator (ChainCalculator.tsx heatMapTimeSeries grid): the
+  // baseline is priced at today's full DTE, but the TARGET reprice uses a *decayed* remaining
+  // DTE (not the full current DTE) since price move alone isn't enough - time has to pass to
+  // get there too. Short-dated contracts (<=10 DTE) assume half the time has burned off by the
+  // time price gets there; longer-dated contracts assume 2/3 has burned off (1/3 DTE left).
+  const r = 0.0387
+  const T = dte / 365
+  const K = trade.strike
+  const decayedDte = Math.max(1, dte <= 10 ? Math.round(dte / 2) : Math.round(dte / 3))
+  const Tdecayed = decayedDte / 365
+  const pctVsEntry = (price: number | null) => {
+    if (price === null || entryPremium <= 0) return null
+    const raw = ((price - entryPremium) / entryPremium) * 100
+    return isSoldToOpen ? -raw : raw
+  }
+  const target1OptionPrice = sigma > 0 && target1 !== null ? bsOptionPriceFTP(target1, K, Tdecayed, r, sigma, isCall) : null
+  const target2OptionPrice = sigma > 0 && target2 !== null ? bsOptionPriceFTP(target2, K, Tdecayed, r, sigma, isCall) : null
+  const stopStockPrice =
+    sigma > 0 && stopLoss !== null
+      ? bsStockForPremiumFTP(stopLoss, spot, K, Tdecayed, r, sigma, isCall, targetUp)
+      : null
+  const target1Pct = pctVsEntry(target1OptionPrice)
+  const target2Pct = pctVsEntry(target2OptionPrice)
+  const stopPct = pctVsEntry(stopLoss)
+
+  return {
+    targetUp,
+    target1,
+    target2,
+    stopLoss,
+    thetaDecay,
+    target1OptionPrice,
+    target2OptionPrice,
+    stopStockPrice,
+    target1Pct,
+    target2Pct,
+    stopPct,
+  }
+}
+
+// Flow sentiment gauge - 4 liquid-fill quadrant boxes (Bull/Bear Calls & Puts) plus the arc
+// gauge/needle, identical visual language to the Market Overview / EFI toolbar's Options Flow
+// dropdown "Flow Sentiment Gauge" (EFICharting.tsx), driven off the same breakdown percentages
+// already computed for this trade's flow composition.
+function FlowQuadrantBoxes({ breakdown, isMobileCard = false }: { breakdown: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }; isMobileCard?: boolean }) {
+  const uid = React.useId()
+  const bc = breakdown.buyCallsPct
+  const rc = breakdown.bearCallsPct
+  const bp = breakdown.buyPutsPct
+  const rp = breakdown.bearPutsPct
+  const boxes = [
+    { lbl: 'BULL', sub: 'CALLS', val: bc, color: '#10b981' },
+    { lbl: 'BEAR', sub: 'CALLS', val: rc, color: '#4da6ff' },
+    { lbl: 'BULL', sub: 'PUTS', val: bp, color: '#ffcc00' },
+    { lbl: 'BEAR', sub: 'PUTS', val: rp, color: '#ff2222' },
+  ]
+  const maxVal = Math.max(bc, rc, bp, rp, 0.0001)
+  const boxH = isMobileCard ? 62 : 107
+
+  return (
+    <div style={{
+      display: isMobileCard ? 'grid' : 'flex',
+      gridTemplateColumns: isMobileCard ? '54px' : undefined,
+      flexDirection: isMobileCard ? undefined : 'row',
+      alignItems: isMobileCard ? undefined : 'flex-end',
+      gap: '3px', height: isMobileCard ? `${boxH * 4 + 9}px` : '118px',
+    }}>
+      <style>{`
+        @keyframes ftpfq-glow-${uid} { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.25); } }
+      `}</style>
+      {boxes.map((box, i) => {
+        const pct = Math.max(0, Math.min(100, box.val))
+        const isTop = pct === maxVal && pct > 0
+        const barH = Math.max(8, (pct / 100) * boxH)
+        return (
+          <div key={i} style={{
+            position: 'relative', width: '54px', height: `${boxH}px`, borderRadius: '4px', overflow: 'hidden',
+            background: 'rgba(255,255,255,0.05)', border: `1px solid ${isTop ? box.color : 'rgba(255,255,255,0.1)'}`,
+            boxShadow: isTop ? `0 0 10px ${box.color}55` : 'none',
+            display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+          }}>
+            <div style={{
+              position: 'absolute', bottom: 0, left: 0, right: 0, height: `${barH}px`,
+              background: `linear-gradient(180deg, ${box.color} 0%, ${box.color}99 100%)`,
+              animation: isTop ? `ftpfq-glow-${uid} 1.6s ease-in-out infinite` : 'none',
+            }} />
+            <span style={{
+              position: 'relative', zIndex: 1, color: '#ffffff', fontSize: '10px', fontWeight: 900, letterSpacing: '0.06em',
+              lineHeight: 1.15, textAlign: 'center', padding: '4px 2px 0', textShadow: '0 1px 2px rgba(0,0,0,0.9)',
+            }}>
+              {box.lbl}<br />{box.sub}
+            </span>
+            <span style={{
+              position: 'relative', zIndex: 1, color: '#ffffff', fontSize: '18px', fontWeight: 900, textAlign: 'center',
+              padding: '0 0 5px', textShadow: '0 1px 3px rgba(0,0,0,0.9)',
+            }}>
+              {pct.toFixed(0)}%
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function FlowSentimentGauge({ breakdown, isMobileCard = false }: { breakdown: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }; isMobileCard?: boolean }) {
+  const uid = React.useId()
+  const bc = breakdown.buyCallsPct / 100
+  const rc = breakdown.bearCallsPct / 100
+  const bp = breakdown.buyPutsPct / 100
+  const rp = breakdown.bearPutsPct / 100
+
+  const score = Math.max(-1, Math.min(1, (bc * 0.8 + bp * 0.6 - rc * 0.6 - rp * 0.8) / 0.8))
+  const gaugePercent = (score + 1) / 2
+  const zones = [
+    { start: 0, end: 0.2, color: '#ef4444', label: 'Bear Trend' },
+    { start: 0.2, end: 0.4, color: '#f97316', label: 'Bear Chop' },
+    { start: 0.4, end: 0.6, color: '#eab308', label: 'Neutral' },
+    { start: 0.6, end: 0.8, color: '#84cc16', label: 'Bull Chop' },
+    { start: 0.8, end: 1.0, color: '#22c55e', label: 'Bull Trend' },
+  ]
+  const zone = zones.find((z) => gaugePercent >= z.start && gaugePercent <= z.end) ?? zones[4]
+
+  const gaugeW = isMobileCard ? 290 : 300
+  const tk = 40
+  const radius = (gaugeW - tk) / 2
+  const C = Math.PI * radius
+  const vbW = gaugeW
+  const vbH = Math.round(gaugeW / 2) + 34
+  const svgW = gaugeW
+  const svgH = vbH
+  const arcCY = Math.round(gaugeW / 2)
+  const arcCX = gaugeW / 2
+  const x0 = tk / 2, x1 = vbW - tk / 2
+  const arcPath = `M ${x0} ${arcCY} A ${radius} ${radius} 0 0 1 ${x1} ${arcCY}`
+  const needleAngle = (1 - gaugePercent) * Math.PI
+  const needleLen = radius * 0.74
+  const nx = arcCX + needleLen * Math.cos(needleAngle)
+  const ny = arcCY - needleLen * Math.sin(needleAngle)
+  const pctStr = `${score >= 0 ? '+' : ''}${(score * 100).toFixed(0)}%`
+  const lfs = isMobileCard ? 15 : 16
+  // Fill grows outward from the center (neutral) toward bear (left) or bull (right),
+  // instead of always starting at the bear corner.
+  const fillStart = Math.min(0.5, gaugePercent)
+  const fillLen = Math.abs(gaugePercent - 0.5)
+  const fillDasharray = `${Math.max(0.1, fillLen * C)} ${C * 10}`
+  const fillDashoffset = -fillStart * C
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <svg width={svgW} height={svgH} viewBox={`0 0 ${vbW} ${vbH}`} style={{ display: 'block', overflow: 'visible' }}>
+        <defs>
+          <linearGradient id={`ftp-g-sheen-${uid}`} x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="rgba(255,255,255,0.22)" />
+            <stop offset="55%" stopColor="rgba(255,255,255,0.04)" />
+            <stop offset="100%" stopColor="rgba(0,0,0,0.25)" />
+          </linearGradient>
+          <linearGradient id={`ftp-g-act-${uid}`} x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="rgba(255,255,255,0.30)" />
+            <stop offset="100%" stopColor="rgba(0,0,0,0.20)" />
+          </linearGradient>
+          <filter id={`ftp-glow-${uid}`} x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="4" result="b" />
+            <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+          <filter id={`ftp-glow-sm-${uid}`} x="-15%" y="-15%" width="130%" height="130%">
+            <feGaussianBlur stdDeviation="2" result="b" />
+            <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+        </defs>
+
+        <path d={arcPath} fill="none" stroke="rgba(0,0,0,0.6)" strokeWidth={tk + 6} strokeLinecap="round" />
+        <path d={arcPath} fill="none" stroke="#0d1117" strokeWidth={tk} strokeLinecap="round" />
+        <path d={arcPath} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={tk - 4} strokeLinecap="round" />
+
+        {zones.map((z) => (
+          <path key={z.start} d={arcPath} fill="none"
+            stroke={z.color} strokeWidth={tk - 4} strokeLinecap="butt"
+            strokeDasharray={`${(z.end - z.start) * C} ${C * 10}`}
+            strokeDashoffset={z.start * C}
+            opacity={0.4}
+          />
+        ))}
+
+        {[0.2, 0.4, 0.6, 0.8].map((f) => {
+          const a = (1 - f) * Math.PI
+          const r1 = radius - tk / 2 - 2, r2 = radius + tk / 2 + 2
+          return (
+            <line key={f}
+              x1={arcCX + r1 * Math.cos(a)} y1={arcCY - r1 * Math.sin(a)}
+              x2={arcCX + r2 * Math.cos(a)} y2={arcCY - r2 * Math.sin(a)}
+              stroke="rgba(0,0,0,0.8)" strokeWidth={4}
+            />
+          )
+        })}
+
+        <path d={arcPath} fill="none"
+          stroke={zone.color} strokeWidth={tk - 2} strokeLinecap="round"
+          strokeDasharray={fillDasharray}
+          strokeDashoffset={fillDashoffset}
+          opacity={1}
+          filter={`url(#ftp-glow-${uid})`}
+        />
+        <path d={arcPath} fill="none"
+          stroke={`url(#ftp-g-act-${uid})`} strokeWidth={Math.round((tk - 2) * 0.55)} strokeLinecap="round"
+          strokeDasharray={fillDasharray}
+          strokeDashoffset={fillDashoffset}
+          opacity={0.7}
+        />
+
+        <path d={arcPath} fill="none"
+          stroke={`url(#ftp-g-sheen-${uid})`} strokeWidth={tk - 2} strokeLinecap="round"
+          opacity={0.55}
+        />
+        <path d={arcPath} fill="none"
+          stroke="rgba(255,255,255,0.12)" strokeWidth={3} strokeLinecap="round"
+          style={{ transform: `translate(0, -${tk / 2 - 2}px)` }}
+          opacity={0.8}
+        />
+
+        {zones.map((z) => {
+          const f = (z.start + z.end) / 2
+          const a = (1 - f) * Math.PI
+          const lr = radius
+          const lx = arcCX + lr * Math.cos(a)
+          const ly = arcCY - lr * Math.sin(a)
+          const parts = z.label.split(' ')
+          const lh = lfs
+          return parts.map((word, wi) => {
+            const yo = parts.length > 1 ? (wi - (parts.length - 1) / 2) * lh : 0
+            return (
+              <text key={`${z.start}-${wi}`}
+                x={lx} y={ly + yo}
+                textAnchor="middle" dominantBaseline="middle"
+                fill={z.color} fontSize={lfs - 3}
+                fontFamily="JetBrains Mono,monospace" fontWeight="900"
+                stroke="#000000" strokeWidth={2.5} paintOrder="stroke"
+              >{word}</text>
+            )
+          })
+        })}
+
+        <line x1={arcCX + 1} y1={arcCY + 1} x2={nx + 1} y2={ny + 1}
+          stroke="rgba(0,0,0,0.5)" strokeWidth={5} strokeLinecap="round"
+        />
+        <line x1={arcCX} y1={arcCY} x2={nx} y2={ny}
+          stroke={zone.color} strokeWidth={4.5} strokeLinecap="round"
+          filter={`url(#ftp-glow-sm-${uid})`}
+        />
+        <line x1={arcCX} y1={arcCY} x2={nx} y2={ny}
+          stroke="rgba(255,255,255,0.4)" strokeWidth={2} strokeLinecap="round"
+        />
+
+        <circle cx={arcCX} cy={arcCY} r={18} fill="rgba(0,0,0,0.95)" stroke="rgba(255,255,255,0.15)" strokeWidth="2" />
+        <circle cx={arcCX} cy={arcCY} r={12} fill={zone.color} filter={`url(#ftp-glow-sm-${uid})`} />
+        <circle cx={arcCX - 3.5} cy={arcCY - 3.5} r={4} fill="rgba(255,255,255,0.5)" />
+
+        {!isMobileCard && (
+          <>
+            <text x={x0} y={arcCY + 30} fill="#ef4444" fontSize={16} fontFamily="JetBrains Mono,monospace" fontWeight="900">BEAR</text>
+            <text x={x1} y={arcCY + 30} textAnchor="end" fill="#22c55e" fontSize={16} fontFamily="JetBrains Mono,monospace" fontWeight="900">BULL</text>
+          </>
+        )}
+
+        {!isMobileCard && (
+          <text x={arcCX} y={arcCY + 44} textAnchor="middle"
+            fill="#ffffff" fontSize={23}
+            fontFamily="JetBrains Mono,monospace" fontWeight="900"
+          >{pctStr}</text>
+        )}
+      </svg>
+
+      {!isMobileCard && (
+        <div style={{ textAlign: 'center', fontSize: 15, fontFamily: 'JetBrains Mono,monospace', fontWeight: 900, color: zone.color, letterSpacing: '0.12em' }}>
+          {zone.label.toUpperCase()}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── SweepSense Tab: rich live view of every SweepSense-qualifying trade, sourced directly
 // from the OptionsFlowTable data to the left. Auto-populates - no scan button needed.
 function SweepSenseTab({
   data,
   isScanning,
+  progress,
 }: {
   data: {
     trades: Array<{
       trade: OptionsFlowData
       grade: string
       gradeColor: string
+      convictionScore: number
       pctMove: number | null
       currentStockPrice: number | null
       currentOptionPrice: number | null
@@ -141,14 +578,189 @@ function SweepSenseTab({
       sigCode: string
       sigColor: string
       planText: string
+      qualifiedAt: number
+      sigma?: number
+      dte?: number
+      spot?: number
       breakdown: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }
     }>
     stats: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }
     bubbles: Array<{ ticker: string; premium: number; bias: 'bull' | 'bear'; biasStrength: number }>
   } | null
   isScanning?: boolean
+  progress?: { current: number; total: number } | null
 }) {
   const fmtPrem = (v: number) => (v >= 1000000 ? `$${(v / 1000000).toFixed(1)}M` : `$${(v / 1000).toFixed(0)}K`)
+  const [openCharts, setOpenCharts] = useState<Set<string>>(new Set())
+  const [riskLevel, setRiskLevel] = useState<Record<string, 'PROB' | 'ONAROLE' | 'LUCKY'>>({})
+  // Mobile layout: card grid collapses from a 108px-left-rail layout to a single stacked
+  // column, font sizes shrink, and the ladder/gauge row stacks vertically instead of
+  // side-by-side, below this breakpoint.
+  const [isMobileCard, setIsMobileCard] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobileCard(window.innerWidth < 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+  // Real listed options chain (real strikes/expirations/premiums from Polygon), fetched
+  // on-demand per underlying ticker once a Build A Trade risk level is picked for that card -
+  // no theoretical/rounded/guessed strikes, only what's actually tradable.
+  const [chainData, setChainData] = useState<Record<string, Record<string, { calls: Record<string, any>; puts: Record<string, any> }>>>({})
+  const chainLoadingRef = React.useRef<Set<string>>(new Set())
+  const [chainLoadingTick, setChainLoadingTick] = useState(0)
+
+  const wantedChainTickers = data ? Array.from(new Set(
+    data.trades
+      .filter(({ trade }) => riskLevel[generateFlowId(trade)])
+      .map(({ trade }) => trade.underlying_ticker)
+  )) : []
+
+  useEffect(() => {
+    wantedChainTickers.forEach((ticker) => {
+      if (chainData[ticker] || chainLoadingRef.current.has(ticker)) return
+      chainLoadingRef.current.add(ticker)
+      setChainLoadingTick((t) => t + 1)
+      fetch(`/api/options-chain?ticker=${encodeURIComponent(ticker)}`)
+        .then((r) => r.json())
+        .then((json) => {
+          if (json?.success && json.data) {
+            setChainData((prev) => ({ ...prev, [ticker]: json.data }))
+          }
+        })
+        .catch(() => { /* silent - real chain unavailable, built trade stays hidden */ })
+        .finally(() => {
+          chainLoadingRef.current.delete(ticker)
+          setChainLoadingTick((t) => t + 1)
+        })
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantedChainTickers.join(',')])
+
+  // Historical flow % breakdown - lets each card look back further than "today" (past 3
+  // trading days / past week = 5 trading days) by pulling saved flow batches straight from
+  // the DB (/api/flows/[date]) and re-aggregating the buy/bear call/put premium split.
+  const [historicalRange, setHistoricalRange] = useState<Record<string, '3D' | '1W'>>({})
+  const [historicalBreakdown, setHistoricalBreakdown] = useState<Record<string, { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }>>({})
+  const historicalLoadingRef = React.useRef<Set<string>>(new Set())
+  const [historicalLoadingTick, setHistoricalLoadingTick] = useState(0)
+
+  const getPastTradingDays = (n: number): string[] => {
+    const out: string[] = []
+    const d = new Date()
+    d.setDate(d.getDate() - 1) // start from yesterday - "today" is already the live scan
+    while (out.length < n) {
+      const dow = d.getDay()
+      if (dow !== 0 && dow !== 6) out.push(d.toISOString().slice(0, 10))
+      d.setDate(d.getDate() - 1)
+    }
+    return out
+  }
+
+  const wantedHistoricalKeys = data ? Array.from(new Set(
+    data.trades
+      .map(({ trade }) => ({ ticker: trade.underlying_ticker, flowId: generateFlowId(trade) }))
+      .filter(({ flowId }) => historicalRange[flowId])
+      .map(({ ticker, flowId }) => `${ticker}|${historicalRange[flowId]}`)
+  )) : []
+
+  useEffect(() => {
+    wantedHistoricalKeys.forEach((key) => {
+      if (historicalBreakdown[key] || historicalLoadingRef.current.has(key)) return
+      historicalLoadingRef.current.add(key)
+      setHistoricalLoadingTick((t) => t + 1)
+      const [ticker, range] = key.split('|')
+      const days = getPastTradingDays(range === '1W' ? 5 : 3)
+      Promise.all(
+        days.map((day) =>
+          fetch(`/api/flows/${day}?tickers=${encodeURIComponent(ticker)}`)
+            .then((r) => (r.ok ? r.json() : { data: [] }))
+            .catch(() => ({ data: [] }))
+        )
+      ).then((results) => {
+        let buyCalls = 0, bearCalls = 0, buyPuts = 0, bearPuts = 0
+        for (const res of results) {
+          const trades: any[] = Array.isArray(res?.data) ? res.data : []
+          for (const t of trades) {
+            const fs = (t.fill_style || '') as string
+            const isCall = t.type === 'call'
+            const isBullish = !fs || fs === 'N/A' || fs === 'A' || fs === 'AA'
+            const isBearish = fs === 'B' || fs === 'BB'
+            const prem = t.total_premium || 0
+            if (isCall && isBullish) buyCalls += prem
+            else if (isCall && isBearish) bearCalls += prem
+            else if (!isCall && isBullish) buyPuts += prem
+            else if (!isCall && isBearish) bearPuts += prem
+          }
+        }
+        const total = buyCalls + bearCalls + buyPuts + bearPuts || 1
+        setHistoricalBreakdown((prev) => ({
+          ...prev,
+          [key]: {
+            buyCallsPct: (buyCalls / total) * 100,
+            bearCallsPct: (bearCalls / total) * 100,
+            buyPutsPct: (buyPuts / total) * 100,
+            bearPutsPct: (bearPuts / total) * 100,
+          },
+        }))
+      }).finally(() => {
+        historicalLoadingRef.current.delete(key)
+        setHistoricalLoadingTick((t) => t + 1)
+      })
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantedHistoricalKeys.join(',')])
+
+  // FlowBias (Spam / Structural / Gamma) - needs the RAW trade list (not just aggregated
+  // percentages) for the selected TODAY/3D/1W window, so it fetches independently of the
+  // percentage-only historicalBreakdown above.
+  const [flowBiasRaw, setFlowBiasRaw] = useState<Record<string, Array<{ strike: number; expiry: string; type: string; trade_timestamp: string }>>>({})
+  const flowBiasLoadingRef = React.useRef<Set<string>>(new Set())
+  const [flowBiasLoadingTick, setFlowBiasLoadingTick] = useState(0)
+
+  const wantedFlowBiasKeys = data ? Array.from(new Set(
+    data.trades.map(({ trade }) => {
+      const flowId = generateFlowId(trade)
+      const range = historicalRange[flowId] || 'TODAY'
+      return `${trade.underlying_ticker}|${range}`
+    })
+  )) : []
+
+  useEffect(() => {
+    wantedFlowBiasKeys.forEach((key) => {
+      if (flowBiasRaw[key] || flowBiasLoadingRef.current.has(key)) return
+      flowBiasLoadingRef.current.add(key)
+      setFlowBiasLoadingTick((t) => t + 1)
+      const [ticker, range] = key.split('|')
+      const days = range === 'TODAY' ? [new Date().toISOString().slice(0, 10)] : getPastTradingDays(range === '1W' ? 5 : 3)
+      Promise.all(
+        days.map((day) =>
+          fetch(`/api/flows/${day}?tickers=${encodeURIComponent(ticker)}`)
+            .then((r) => (r.ok ? r.json() : { data: [] }))
+            .catch(() => ({ data: [] }))
+        )
+      ).then((results) => {
+        const merged: Array<{ strike: number; expiry: string; type: string; trade_timestamp: string }> = []
+        for (const res of results) {
+          const trades: any[] = Array.isArray(res?.data) ? res.data : []
+          for (const t of trades) {
+            if (t.strike && t.expiry && t.type && t.trade_timestamp) {
+              merged.push({ strike: t.strike, expiry: t.expiry, type: t.type, trade_timestamp: t.trade_timestamp })
+            }
+          }
+        }
+        setFlowBiasRaw((prev) => ({ ...prev, [key]: merged }))
+      }).finally(() => {
+        flowBiasLoadingRef.current.delete(key)
+        setFlowBiasLoadingTick((t) => t + 1)
+      })
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantedFlowBiasKeys.join(',')])
+
+  const progressPct = progress && progress.total > 0
+    ? Math.max(0, Math.min(100, Math.round((progress.current / progress.total) * 100)))
+    : null
 
   if (isScanning) {
     return (
@@ -178,6 +790,30 @@ function SweepSenseTab({
         <div style={{ color: '#22ff9c', fontWeight: 900, fontSize: '18px', letterSpacing: '1.5px', textAlign: 'center' }}>
           SCANNING SHORT-TERM &amp; LONG-TERM FLOW...
         </div>
+        <div style={{ width: '260px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{
+            width: '100%', height: '10px', borderRadius: '6px', overflow: 'hidden',
+            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(168,255,62,0.25)',
+          }}>
+            <div style={{
+              height: '100%',
+              width: `${progressPct ?? 0}%`,
+              background: 'linear-gradient(90deg, #6dcc00 0%, #a8ff3e 100%)',
+              transition: 'width 0.3s ease',
+              boxShadow: progressPct && progressPct > 0 ? '0 0 10px rgba(168,255,62,0.7)' : 'none',
+            }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: '#a8ff3e', fontWeight: 800, fontSize: '13px', letterSpacing: '0.5px' }}>
+              {progressPct !== null ? `${progressPct}%` : 'INITIALIZING...'}
+            </span>
+            {progress && progress.total > 0 && (
+              <span style={{ color: '#6dcc00', fontWeight: 600, fontSize: '11px' }}>
+                {progress.current.toLocaleString()} / {progress.total.toLocaleString()} contracts
+              </span>
+            )}
+          </div>
+        </div>
       </div>
     )
   }
@@ -199,199 +835,604 @@ function SweepSenseTab({
   return (
     <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '14px', display: 'flex', flexDirection: 'column', gap: '16px', background: '#000' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {trades.map(({ trade, pctMove, currentStockPrice, contractPctChange, magnet, pivot, sigCode, sigColor, planText, breakdown }) => {
+        {trades.map(({ trade, convictionScore, pctMove, currentStockPrice, currentOptionPrice, contractPctChange, sigCode, sigColor, planText, qualifiedAt, breakdown, sigma, dte, spot }) => {
           const isCall = trade.type === 'call'
-          const typeColor = isCall ? '#00e676' : '#ff3d3d'
           const isLongTerm = trade.days_to_expiry >= 30
-          const tickerColor = isLongTerm ? '#00e5ff' : '#ffd400'
           const fs = trade.fill_style || ''
-          const fillColor = fs === 'A' ? '#4ade80' : fs === 'AA' ? '#86efac' : fs === 'B' ? '#f87171' : fs === 'BB' ? '#fca5a5' : '#fff'
-          // Contract move: the OPTION CONTRACT's own real premium % change (current option price
-          // vs entry premium_per_contract), not the underlying stock's price move. B/BB (sold to
-          // open) flips the sign since profit comes from the contract losing value.
-          const moveColor = contractPctChange === null ? '#fff' : contractPctChange >= 0 ? '#00e676' : '#ff3d3d'
           const tradeTypeVal = trade.classification || trade.trade_type
           const isSweepBadge = tradeTypeVal === 'SWEEP'
           const isBlockBadge = tradeTypeVal === 'BLOCK'
-          // Bullish: call bought (A/AA) or put sold (B/BB). Bearish: call sold (B/BB) or put bought (A/AA).
-          const isBullishIntent = (isCall && (fs === 'A' || fs === 'AA')) || (!isCall && (fs === 'B' || fs === 'BB'))
-          const isBearishIntent = (isCall && (fs === 'B' || fs === 'BB')) || (!isCall && (fs === 'A' || fs === 'AA'))
-          const intentColor = isBullishIntent ? '#00e676' : isBearishIntent ? '#ff3d3d' : 'rgba(255,255,255,0.08)'
-          const breakdownSegs = [
-            { label: 'Call Buying', pct: breakdown.buyCallsPct, color: '#00e676' },
-            { label: 'Call Selling', pct: breakdown.bearCallsPct, color: '#ff3d3d' },
-            { label: 'Put Buying', pct: breakdown.buyPutsPct, color: '#22c55e' },
-            { label: 'Put Selling', pct: breakdown.bearPutsPct, color: '#b91c1c' },
-          ].sort((a, b) => b.pct - a.pct)
           const hasPlan = planText !== 'No Plan detected.' && planText !== 'Waiting on dealer magnet/pivot data to build an entry plan.'
+
+          // Conviction bracket - drives the gauge ring, stars, and card accent color.
+          const convColor = convictionScore >= 80 ? '#22c55e' : convictionScore >= 60 ? '#eab308' : '#ef4444'
+          const filledStars = Math.max(1, Math.min(5, Math.round(convictionScore / 20)))
+          const ringCircumference = 2 * Math.PI * 34
+          const ringOffset = ringCircumference * (1 - convictionScore / 100)
+
+          const moveColor = contractPctChange === null ? '#fff' : contractPctChange >= 0 ? '#22c55e' : '#ef4444'
+          const flowBiasScore = (breakdown.buyCallsPct + breakdown.buyPutsPct - breakdown.bearCallsPct - breakdown.bearPutsPct) / 100
+          const aiTakeText = hasPlan ? planText : (Math.abs(flowBiasScore) < 0.2
+            ? 'Flow is mixed across calls and puts. Watching for a clearer directional lean before conviction builds further.'
+            : flowBiasScore > 0
+              ? 'Buy-side flow is dominating this name. Positioning leans bullish with institutional money backing the move.'
+              : 'Sell-side/put flow is dominating this name. Positioning leans bearish or hedging-driven.')
+
+          const flowId = generateFlowId(trade)
+          const {
+            targetUp, target1, target2, stopLoss,
+            target1OptionPrice, target2OptionPrice, stopStockPrice,
+            target1Pct, target2Pct, stopPct,
+          } = calcTradeManagement(trade, sigma, dte, spot)
+
+          // ── Build A Trade: recompute a strike/expiry/target ladder from scratch based on
+          // the user's chosen risk profile. Uses the REAL listed options chain (real
+          // strikes, real expirations, real last-traded/bid-ask premiums pulled from
+          // /api/options-chain) - theoretical Black-Scholes math is only used to rank which
+          // real, actually-listed strike/expiry best matches the target probability, never to
+          // invent a price or strike that doesn't exist on the chain.
+          const histRange = historicalRange[flowId]
+          const histKey = histRange ? `${trade.underlying_ticker}|${histRange}` : null
+          const histBreakdown = histKey ? historicalBreakdown[histKey] : null
+          const histLoading = !!histRange && !histBreakdown
+          const effectiveBreakdown = histBreakdown || breakdown
+
+          const flowBiasKey = `${trade.underlying_ticker}|${histRange || 'TODAY'}`
+          const flowBiasTrades = flowBiasRaw[flowBiasKey]
+          const flowBiasReady = !!flowBiasTrades
+          const spamLabel = flowBiasReady ? computeSpamLabel(flowBiasTrades!, trade.type, formatDate) : 'Loading…'
+          const structuralLabel = computeStructuralLabel(effectiveBreakdown)
+          const gammaLabel = flowBiasReady ? computeGammaLabel(flowBiasTrades!, trade.type, target1, targetUp, isLongTerm) : 'Loading…'
+
+          // No default risk profile - the built-trade box/ladder only appears once the user
+          // explicitly clicks PROBABILITY / ON A ROLE / LUCKY for this card.
+          const risk = riskLevel[flowId]
+          const baseDte = Math.max(1, Math.round(dte ?? trade.days_to_expiry))
+          const baseSigma = sigma && sigma > 0 ? sigma : (trade.implied_volatility || 0)
+          const baseSpot = spot && spot > 0 ? spot : trade.spot_price
+          const isSoldToOpen = fs === 'B' || fs === 'BB'
+          const tickerChain = chainData[trade.underlying_ticker]
+          const chainStillLoading = !!risk && !tickerChain
+          let builtTrade: {
+            strike: number; dte: number; premium: number; expiryDate: string
+            t1Strike: number | null; t2Strike: number | null
+            t1Opt: number | null; t2Opt: number | null
+            t1Pct: number | null; t2Pct: number | null
+            stopStrike: number | null; stopOpt: number | null; stopPct: number | null
+            ivPct: number | null; bePct: number | null
+          } | null = null
+
+          // Find the real listed contract (from the fetched chain) whose strike is closest to
+          // a theoretical target strike, within a specific real expiration date.
+          const findRealContract = (expiry: string, targetStrike: number): { strike: number; premium: number } | null => {
+            const side = tickerChain?.[expiry]?.[isCall ? 'calls' : 'puts']
+            if (!side) return null
+            let best: { strike: number; premium: number } | null = null
+            let bestDiff = Infinity
+            for (const strikeKey of Object.keys(side)) {
+              const strikeNum = parseFloat(strikeKey)
+              const diff = Math.abs(strikeNum - targetStrike)
+              if (diff < bestDiff) {
+                const c = side[strikeKey]
+                const premium = c.last_price > 0 ? c.last_price : (c.bid + c.ask) / 2
+                if (premium > 0) { bestDiff = diff; best = { strike: strikeNum, premium } }
+              }
+            }
+            return best
+          }
+
+          if (risk && baseSigma > 0 && tickerChain) {
+            let builtDte = baseDte
+            let strikeProb = 75
+            let t1Prob = 80, t2Prob = 90
+            let noStop = false
+            if (risk === 'PROB') {
+              builtDte = Math.round(isLongTerm ? baseDte * 1.5 : baseDte * 2)
+              strikeProb = 72.5
+            } else if (risk === 'ONAROLE') {
+              builtDte = baseDte
+              strikeProb = 78
+              t1Prob = 75; t2Prob = 85
+            } else if (risk === 'LUCKY') {
+              builtDte = isLongTerm ? Math.round(baseDte * 0.625) : baseDte
+              strikeProb = 82.5
+              t1Prob = 85; t2Prob = 95
+              noStop = true
+            }
+
+            // Pick the real listed expiration date closest to the target DTE.
+            const targetExpiryMs = Date.now() + builtDte * 86400000
+            const realExpiries = Object.keys(tickerChain)
+            let expiryDate: string | null = null
+            let bestExpDiff = Infinity
+            for (const exp of realExpiries) {
+              const diff = Math.abs(new Date(exp + 'T00:00:00Z').getTime() - targetExpiryMs)
+              if (diff < bestExpDiff) { bestExpDiff = diff; expiryDate = exp }
+            }
+
+            if (expiryDate) {
+              const realDte = Math.max(1, Math.round((new Date(expiryDate + 'T00:00:00Z').getTime() - Date.now()) / 86400000))
+              const r = 0.0387
+              // Same decayed-DTE reprice convention as the calculator's heatmap grid
+              // (ChainCalculator.tsx): a stock-price target isn't reached with the same DTE
+              // still remaining - time has to pass too. Short-dated (<=10 DTE) assumes half the
+              // time has burned off, longer-dated assumes 2/3 burned off (1/3 DTE left).
+              const decayedDte = Math.max(1, realDte <= 10 ? Math.round(realDte / 2) : Math.round(realDte / 3))
+              const Tdecayed = decayedDte / 365
+              // strikeProb is expressed as desired PoP (probability of profit / finishing ITM),
+              // but bsStrikeForProbFTP solves for P(price ends BELOW strike) = prob - so the
+              // main-contract strike needs the COMPLEMENT passed in (100 - PoP) to actually land
+              // on a strike with that PoP. T1/T2 keep the raw prob - those are percentile
+              // stretch-targets (80th/90th pctl move), not PoP picks, so no complement there.
+              const rawBuiltStrike = bsStrikeForProbFTP(baseSpot, baseSigma, realDte, 100 - strikeProb, targetUp)
+              const rawT1Strike = bsStrikeForProbFTP(baseSpot, baseSigma, realDte, t1Prob, targetUp)
+              const rawT2Strike = bsStrikeForProbFTP(baseSpot, baseSigma, realDte, t2Prob, targetUp)
+
+              const mainContract = rawBuiltStrike !== null ? findRealContract(expiryDate, rawBuiltStrike) : null
+              if (mainContract) {
+                // Target 1/2 and the stop all reprice the SAME contract just bought
+                // (mainContract.strike) at the target/stop STOCK price, using the decayed DTE -
+                // never a different real strike's current live quote. That's the same
+                // one-contract-repriced-at-a-future-price-and-time logic as the calculator.
+                const t1Opt = rawT1Strike !== null
+                  ? bsOptionPriceFTP(rawT1Strike, mainContract.strike, Tdecayed, r, baseSigma, isCall)
+                  : null
+                const t2Opt = rawT2Strike !== null
+                  ? bsOptionPriceFTP(rawT2Strike, mainContract.strike, Tdecayed, r, baseSigma, isCall)
+                  : null
+
+                // Stop-loss: same delta-tiered premium-decline convention as calcTradeManagement,
+                // using this contract's own delta from the chain (falls back to a mid delta if
+                // the chain didn't return greeks).
+                const mainDelta = Math.abs(tickerChain?.[expiryDate]?.[isCall ? 'calls' : 'puts']?.[String(mainContract.strike)]?.greeks?.delta ?? 0.5)
+                let baseStopPercent = 0.3
+                if (mainDelta > 0.7) baseStopPercent = 0.15
+                else if (mainDelta >= 0.6) baseStopPercent = 0.2
+                else if (mainDelta >= 0.4) baseStopPercent = 0.25
+                else if (mainDelta >= 0.25) baseStopPercent = 0.35
+                else baseStopPercent = 0.4
+                if (realDte < 7) baseStopPercent = Math.max(0.1, baseStopPercent - 0.1)
+                else if (realDte < 14) baseStopPercent = Math.max(0.15, baseStopPercent - 0.05)
+                const ivAdjustment = baseSigma ? Math.max(0, (baseSigma - 0.3) * 0.5) : 0
+                const adjustedStopPercent = Math.min(0.5, baseStopPercent + ivAdjustment)
+                const stopOpt = noStop ? null : mainContract.premium * (1 - adjustedStopPercent)
+
+                const pctVsBuilt = (p: number | null) => {
+                  if (p === null || mainContract.premium <= 0) return null
+                  const raw = ((p - mainContract.premium) / mainContract.premium) * 100
+                  return isSoldToOpen ? -raw : raw
+                }
+
+                // IV of the actual purchased contract + breakeven distance (% move from
+                // current spot needed for the stock to reach the contract's breakeven price).
+                const mainContractData = tickerChain?.[expiryDate]?.[isCall ? 'calls' : 'puts']?.[String(mainContract.strike)]
+                const ivPct = mainContractData?.implied_volatility ? mainContractData.implied_volatility * 100 : null
+                const breakevenPrice = isCall ? mainContract.strike + mainContract.premium : mainContract.strike - mainContract.premium
+                const bePct = baseSpot > 0 ? Math.abs((breakevenPrice - baseSpot) / baseSpot) * 100 : null
+
+                builtTrade = {
+                  strike: mainContract.strike, dte: realDte, premium: mainContract.premium, expiryDate,
+                  t1Strike: rawT1Strike, t2Strike: rawT2Strike,
+                  t1Opt, t2Opt,
+                  t1Pct: pctVsBuilt(t1Opt), t2Pct: pctVsBuilt(t2Opt),
+                  stopStrike: null, stopOpt, stopPct: stopOpt !== null ? pctVsBuilt(stopOpt) : null,
+                  ivPct, bePct,
+                }
+              }
+            }
+          }
+
+          const ladderTarget1 = builtTrade ? builtTrade.t1Strike : target1
+          const ladderTarget2 = builtTrade ? builtTrade.t2Strike : target2
+          const ladderT1Opt = builtTrade ? builtTrade.t1Opt : target1OptionPrice
+          const ladderT2Opt = builtTrade ? builtTrade.t2Opt : target2OptionPrice
+          const ladderT1Pct = builtTrade ? builtTrade.t1Pct : target1Pct
+          const ladderT2Pct = builtTrade ? builtTrade.t2Pct : target2Pct
+          const ladderStopStock = builtTrade ? null : stopStockPrice
+          const ladderStopOpt = builtTrade ? builtTrade.stopOpt : stopLoss
+          const ladderStopPct = builtTrade ? builtTrade.stopPct : stopPct
+
+          const dirColor = targetUp ? '#22c55e' : '#ef4444'
+          const dirGlow = targetUp ? 'rgba(34,197,94,0.35)' : 'rgba(239,68,68,0.35)'
           return (
             <div
-              key={generateFlowId(trade)}
+              key={flowId}
               style={{
-                position: 'relative', overflow: 'hidden', borderRadius: '14px',
-                background: '#000000',
-                border: '1px solid rgba(255,255,255,0.08)',
-                borderLeft: `4px solid ${intentColor}`,
+                position: 'relative', overflow: 'hidden',
+                background: '#000',
+                border: `1px solid ${convColor}44`,
+                clipPath: isMobileCard ? 'none' : 'polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 22px 100%, 0 calc(100% - 22px))',
+                boxShadow: `0 0 0 1px rgba(255,255,255,0.03), 0 18px 40px rgba(0,0,0,0.65), 0 0 40px -12px ${dirGlow}`,
+                display: 'grid', gridTemplateColumns: isMobileCard ? '1fr' : '108px 1fr',
               }}
             >
-              {/* Header bar - ticker/type/strike prominent, badge + expiry on the right */}
+              {/* ── LEFT RAIL: conviction dial + direction + duration, stacked vertically ── */}
               <div style={{
-                position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap',
-                padding: '14px 18px 12px',
+                position: 'relative', display: 'flex',
+                flexDirection: isMobileCard ? 'row' : 'column',
+                alignItems: 'center',
+                justifyContent: isMobileCard ? 'flex-start' : 'flex-start',
+                flexWrap: isMobileCard ? 'wrap' : 'nowrap',
+                gap: isMobileCard ? '10px' : '10px', padding: isMobileCard ? '10px 12px' : '18px 8px 16px',
+                background: `linear-gradient(180deg, ${convColor}22 0%, #000 55%)`,
+                borderRight: isMobileCard ? 'none' : `1px solid ${convColor}33`,
+                borderBottom: isMobileCard ? `1px solid ${convColor}33` : 'none',
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '11px', flexWrap: 'wrap' }}>
-                  <span style={{ color: tickerColor, fontWeight: 900, fontSize: '25px', letterSpacing: '0.5px' }}>{trade.underlying_ticker}</span>
-                  <span style={{
-                    display: 'inline-flex', alignItems: 'center', gap: '5px',
-                    color: typeColor, fontWeight: 900, fontSize: '13px', letterSpacing: '0.06em',
-                    background: '#000000', borderRadius: '6px', padding: '4px 9px',
-                    border: `1px solid ${typeColor}66`,
-                  }}>
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={typeColor} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                      {isCall ? <polyline points="18 15 12 9 6 15" /> : <polyline points="6 9 12 15 18 9" />}
-                    </svg>
-                    {trade.type.toUpperCase()}
-                  </span>
-                  <span style={{ color: '#ffffff', fontSize: '21px', fontWeight: 800 }}>${trade.strike}</span>
-                  <span style={{ color: '#ffffff', fontSize: '21px', fontWeight: 800 }}>{formatDate(trade.expiry)}</span>
-                  <span
+                <span style={{ color: '#ffffff', fontSize: '17px', fontWeight: 900, letterSpacing: '-0.02em' }}>{trade.underlying_ticker}</span>
+                <div style={{ position: 'relative', width: isMobileCard ? '54px' : '78px', height: isMobileCard ? '54px' : '78px' }}>
+                  <svg width={isMobileCard ? 54 : 78} height={isMobileCard ? 54 : 78} viewBox="0 0 84 84" style={{ transform: 'rotate(-90deg)' }}>
+                    <circle cx="42" cy="42" r="34" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="6" />
+                    <circle
+                      cx="42" cy="42" r="34" fill="none" stroke={convColor} strokeWidth="6" strokeLinecap="round"
+                      strokeDasharray={ringCircumference} strokeDashoffset={ringOffset}
+                      style={{ filter: `drop-shadow(0 0 5px ${convColor})` }}
+                    />
+                  </svg>
+                  <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ color: '#ffffff', fontSize: isMobileCard ? '22px' : '32px', fontWeight: 900, lineHeight: 1 }}>{convictionScore}</span>
+                    {!isMobileCard && <span style={{ color: convColor, fontSize: '10px', fontWeight: 800, letterSpacing: '0.15em' }}>SCORE</span>}
+                  </div>
+                </div>
+                {!isMobileCard && (
+                  <div style={{ display: 'flex', gap: '1px' }}>
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <span key={i} style={{ color: i < filledStars ? convColor : 'rgba(255,255,255,0.15)', fontSize: '14px' }}>★</span>
+                    ))}
+                  </div>
+                )}
+                <div style={{
+                  marginTop: isMobileCard ? 0 : '2px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
+                  color: dirColor, fontWeight: 900,
+                }}>
+                  <span style={{ fontSize: isMobileCard ? '18px' : '25px', lineHeight: 1 }}>{targetUp ? '▲' : '▼'}</span>
+                  <span style={{ fontSize: '11px', letterSpacing: '0.1em' }}>{targetUp ? 'BULLISH' : 'BEARISH'}</span>
+                </div>
+
+                {!isMobileCard && <div style={{ flexGrow: 0.5 }} />}
+
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px' }}>
+                  <span style={{ color: '#ffffff', fontSize: '10px', fontWeight: 800, letterSpacing: '0.08em' }}>TAKEN</span>
+                  <span style={{ color: '#22d3ee', fontSize: '13px', fontWeight: 800 }}>{formatTime(trade.trade_timestamp)}</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px', marginTop: isMobileCard ? 0 : '4px' }}>
+                  <span style={{ color: '#ffffff', fontSize: '10px', fontWeight: 800, letterSpacing: '0.08em' }}>QUALIFIED</span>
+                  <span style={{ color: '#a8ff3e', fontSize: '13px', fontWeight: 800 }}>{formatTime(new Date(qualifiedAt).toISOString())}</span>
+                </div>
+
+                {!isMobileCard && <div style={{ flexGrow: 1 }} />}
+              </div>
+
+              {/* ── RIGHT CONTENT ── */}
+              <div style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
+                {/* Header strip: ticker + badges + strike/expiry/size/premium all in one row, POSITION on the right */}
+                <div style={{
+                  position: 'relative', padding: isMobileCard ? '12px 14px 10px' : '16px 20px 14px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)',
+                  background: isLongTerm
+                    ? 'linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0) 45%), linear-gradient(90deg, #000a14 0%, #001220 100%)'
+                    : 'linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0) 45%), linear-gradient(90deg, #140f00 0%, #1f1700 100%)',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(0,0,0,0.5)',
+                  overflow: 'hidden',
+                }}>
+                  <div style={{
+                    position: 'absolute', top: 0, left: 0, right: 0, height: '50%', pointerEvents: 'none',
+                    background: 'linear-gradient(180deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0) 100%)',
+                  }} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                    {!isMobileCard && (
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', color: isCall ? '#22c55e' : '#ef4444',
+                        fontWeight: 900, fontSize: '13px', letterSpacing: '0.05em',
+                        background: isCall ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)', borderRadius: '4px', padding: '3px 8px',
+                        border: `1px solid ${isCall ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)'}`,
+                      }}>
+                        {trade.type.toUpperCase()}
+                      </span>
+                    )}
+                    <span style={{
+                      display: 'inline-block', fontWeight: 800, fontSize: isMobileCard ? '13px' : '12px', letterSpacing: '0.08em',
+                      padding: '4px 10px', clipPath: 'polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%)',
+                      background: isSweepBadge ? '#FFD700' : isBlockBadge ? '#00e5ff' : '#fff',
+                      color: '#000',
+                    }}>
+                      {tradeTypeVal}
+                    </span>
+
+                    <span style={{ color: '#ffffff', fontSize: isMobileCard ? '13px' : '16px', fontWeight: 700 }}>
+                      ${trade.strike} {trade.type.toUpperCase()}
+                    </span>
+                    <span style={{ color: '#ffffff', fontSize: isMobileCard ? '13px' : '16px', fontWeight: 700 }}>
+                      {formatDate(trade.expiry)}
+                    </span>
+                    <span style={{ fontSize: isMobileCard ? '13px' : '16px', fontWeight: 700 }}>
+                      <span style={{ color: '#22d3ee' }}>{trade.trade_size.toLocaleString()}</span>
+                      <span style={{ color: '#ffffff' }}>@${trade.premium_per_contract.toFixed(2)}</span>
+                      {['A', 'AA', 'B', 'BB'].includes(fs) && (
+                        <span style={{
+                          marginLeft: '4px', fontSize: isMobileCard ? '13px' : '12px', fontWeight: 800, padding: '2px 6px', borderRadius: '4px',
+                          color: fs === 'A' ? '#4ade80' : fs === 'AA' ? '#86efac' : fs === 'B' ? '#f87171' : '#fca5a5',
+                          background: fs === 'A' ? 'rgba(74,222,128,0.1)' : fs === 'AA' ? 'rgba(134,239,172,0.1)' : fs === 'B' ? 'rgba(248,113,113,0.1)' : 'rgba(252,165,165,0.1)',
+                          border: `1px solid ${fs === 'A' ? 'rgba(74,222,128,0.3)' : fs === 'AA' ? 'rgba(134,239,172,0.3)' : fs === 'B' ? 'rgba(248,113,113,0.3)' : 'rgba(252,165,165,0.3)'}`,
+                        }}>{fs}</span>
+                      )}
+                    </span>
+                    <span style={{ color: '#4ade80', fontSize: isMobileCard ? '13px' : '16px', fontWeight: 700 }}>
+                      {fmtPrem(trade.total_premium)}
+                    </span>
+
+                    <span style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                      <span style={{ color: '#ffffff', fontSize: isMobileCard ? '13px' : '19px', fontWeight: 900 }}>
+                        {currentOptionPrice !== null ? fmtPrem(currentOptionPrice * trade.trade_size * 100) : '--'}
+                      </span>
+                      <span style={{ color: contractPctChange !== null && contractPctChange >= 0 ? '#22c55e' : '#ef4444', fontSize: isMobileCard ? '13px' : '17px', fontWeight: 900 }}>
+                        {contractPctChange !== null ? `${contractPctChange >= 0 ? '+' : ''}${contractPctChange.toFixed(1)}%` : '--'}
+                      </span>
+                    </span>
+
+                    <span style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                      <span style={{ color: '#ffffff', fontSize: isMobileCard ? '13px' : '14px', fontWeight: 700 }}>
+                        {trade.spot_price > 0 ? `$${trade.spot_price.toFixed(2)}` : '--'}
+                      </span>
+                      <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: isMobileCard ? '13px' : '12px' }}>{'>'}</span>
+                      <span style={{
+                        fontSize: isMobileCard ? '13px' : '14px', fontWeight: 700,
+                        color: currentStockPrice === null ? '#ffffff'
+                          : currentStockPrice > trade.spot_price ? '#22c55e'
+                            : currentStockPrice < trade.spot_price ? '#ef4444' : '#ffffff',
+                      }}>
+                        {currentStockPrice !== null && currentStockPrice > 0 ? `$${currentStockPrice.toFixed(2)}` : '--'}
+                      </span>
+                    </span>
+
+                    <span style={{
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.15,
+                      marginLeft: 'auto', fontSize: '11px', fontWeight: 800, letterSpacing: '0.1em', padding: '5px 10px', borderRadius: '4px',
+                      color: isLongTerm ? '#00e5ff' : '#ffd400', background: isLongTerm ? 'rgba(0,229,255,0.12)' : 'rgba(255,212,0,0.12)',
+                      border: `1px solid ${isLongTerm ? 'rgba(0,229,255,0.4)' : 'rgba(255,212,0,0.4)'}`,
+                    }}>
+                      <span>{isLongTerm ? 'LONG' : 'SHORT'}</span>
+                      <span>TERM</span>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Entry plan - angled callout ribbon */}
+                <div style={{
+                  position: 'relative', margin: '12px 16px 0', padding: '10px 14px 10px 18px',
+                  background: `linear-gradient(90deg, ${sigColor}1a 0%, transparent 100%)`,
+                  borderLeft: `3px solid ${sigColor}`, borderRadius: '2px',
+                }}>
+                  <button
+                    onClick={() => setOpenCharts((prev) => {
+                      const next = new Set(prev)
+                      if (next.has(flowId)) next.delete(flowId)
+                      else next.add(flowId)
+                      return next
+                    })}
                     style={{
-                      display: 'inline-block', fontWeight: 800, fontSize: '21px', letterSpacing: '0.06em',
-                      borderRadius: '9999px', padding: '4px 11px',
-                      background: '#000000',
-                      color: isSweepBadge ? '#FFD700' : isBlockBadge ? '#00e5ff' : '#fff',
-                      border: `1px solid ${isSweepBadge ? 'rgba(255,215,0,0.6)' : isBlockBadge ? 'rgba(0,229,255,0.5)' : 'rgba(255,255,255,0.3)'}`,
+                      position: 'absolute', top: '8px', right: '10px', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '4px',
+                      background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
+                      color: '#ffffff', fontSize: '10px', fontWeight: 800, letterSpacing: '0.06em',
                     }}
                   >
-                    {tradeTypeVal}
-                  </span>
+                    Chart{openCharts.has(flowId) ? '−' : '+'}
+                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
+                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: sigColor, boxShadow: `0 0 6px ${sigColor}` }} />
+                    <span style={{ color: sigColor, fontWeight: 900, fontSize: '13px', letterSpacing: '0.1em' }}>ENTRY PLAN</span>
+                  </div>
+                  <div style={{ color: '#ffffff', fontSize: '15px', lineHeight: 1.5 }}>{aiTakeText}</div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ color: tickerColor, fontWeight: 900, fontSize: '16.25px', letterSpacing: '0.06em' }}>
-                    {isLongTerm ? 'Long-Term' : 'Short Term'}
-                  </span>
-                </div>
-              </div>
 
-              <div style={{ position: 'relative', height: '1px', background: 'rgba(255,255,255,0.12)', margin: '0 18px' }} />
-
-              {/* Metric strip - glass chips, each with its own subtle tinted background */}
-              <div style={{ position: 'relative', display: 'flex', alignItems: 'stretch', gap: '8px', padding: '14px 18px', flexWrap: 'wrap' }}>
-                {[
-                  {
-                    label: 'CONTRACTS', tint: '#22d3ee', node: (
-                      <>
-                        <span style={{ color: '#22d3ee' }}>{trade.trade_size.toLocaleString()}</span>
-                        <span style={{ color: '#ffffff' }}> @ </span>
-                        <span style={{ color: '#facc15' }}>${trade.premium_per_contract.toFixed(2)}</span>
-                        {' '}<span style={{ color: fillColor }}>{fs}</span>
-                      </>
-                    )
-                  },
-                  { label: 'PREMIUM', tint: '#4ade80', node: <span style={{ color: '#4ade80' }}>{fmtPrem(trade.total_premium)}</span> },
-                  {
-                    label: 'STOCK PRICE', tint: '#e5e7eb', node: (
-                      <>
-                        <span style={{ color: '#ffffff' }}>${trade.spot_price.toFixed(2)}</span>
-                        <span style={{ color: '#ffffff' }}> {'→'} </span>
-                        <span style={{
-                          color: !currentStockPrice
-                            ? '#ffffff'
-                            : currentStockPrice > trade.spot_price
-                              ? '#4ade80'
-                              : currentStockPrice < trade.spot_price
-                                ? '#f87171'
-                                : '#ffffff',
-                        }}>
-                          {currentStockPrice ? `$${currentStockPrice.toFixed(2)}` : '--'}
-                        </span>
-                      </>
-                    )
-                  },
-                  ...(contractPctChange !== null ? [{
-                    label: 'MOVE', tint: moveColor, node: (
-                      <span style={{ color: moveColor, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                        {contractPctChange >= 0 ? '▲' : '▼'} {Math.abs(contractPctChange).toFixed(2)}%
-                      </span>
-                    )
-                  }] : []),
-                  ...((magnet !== null || pivot !== null) ? [{
-                    label: 'DEALERS INTENTION', tint: '#ffd400', node: (
-                      <>
-                        {magnet !== null && <span style={{ color: '#ffd400' }}>Magnet ${magnet}</span>}
-                        {magnet !== null && pivot !== null && <span style={{ color: '#ffffff' }}>{'  '}</span>}
-                        {pivot !== null && <span style={{ color: '#00e5ff' }}>Pivot ${pivot}</span>}
-                      </>
-                    )
-                  }] : []),
-                ].map((m) => (
-                  <div key={m.label} style={{
-                    display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0,
-                    padding: '8px 12px', borderRadius: '9px',
-                    background: `${m.tint}0d`, border: `1px solid ${m.tint}22`,
+                {/* Build A Trade - risk-profile driven strike/expiry rebuilder */}
+                <div style={{ padding: isMobileCard ? '6px 12px 0' : '6px 16px 0' }}>
+                  <div style={{
+                    display: 'flex', gap: isMobileCard ? '4px' : '8px', flexWrap: isMobileCard ? 'nowrap' : 'wrap', alignItems: 'center',
+                    overflowX: isMobileCard ? 'auto' : undefined,
                   }}>
-                    <span style={{ color: '#ffffff', fontSize: '11.9px', fontWeight: 800, letterSpacing: '0.9px' }}>{m.label}</span>
-                    <span style={{ fontSize: '20px', fontWeight: 800, whiteSpace: 'nowrap' }}>{m.node}</span>
-                  </div>
-                ))}
-              </div>
+                    {([
+                      { key: 'PROB', label: 'PROBABILITY', desc: 'Favor the win, more time, 70–75% PoP strike', color: '#22c55e' },
+                      { key: 'ONAROLE', label: 'ON A ROLE', desc: 'Balanced risk/reward, ~78% PoP strike', color: '#eab308' },
+                      { key: 'LUCKY', label: 'LUCKY', desc: 'Degen mode: tighter DTE, 80-85% PoP, no stop', color: '#ec4899' },
+                    ] as const).map((opt) => (
+                      <button
+                        key={opt.key}
+                        title={opt.desc}
+                        onClick={() => setRiskLevel((prev) => {
+                          const next = { ...prev }
+                          if (next[flowId] === opt.key) delete next[flowId]
+                          else next[flowId] = opt.key
+                          return next
+                        })}
+                        style={{
+                          cursor: 'pointer', padding: isMobileCard ? '6px 8px' : '8px 14px', borderRadius: '5px', fontWeight: 900,
+                          fontSize: isMobileCard ? '10px' : '12px', letterSpacing: '0.06em', whiteSpace: 'nowrap', flexShrink: 0,
+                          color: opt.color,
+                          background: '#000000',
+                          border: riskLevel[flowId] === opt.key ? `1px solid ${opt.color}` : '1px solid rgba(255,255,255,0.1)',
+                          boxShadow: riskLevel[flowId] === opt.key ? `0 0 10px ${opt.color}66, inset 0 0 8px ${opt.color}33` : 'none',
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
 
-              {/* Segmented breakdown bar (reduced width) + Flow Bias label sharing the same row.
-                  Flow Bias uses the EXACT same score/threshold logic as the AlgoFlow RRG Flow
-                  Matrix (RrgTickerPopup): score = (bullCall+bullPut - bearCall-bearPut) / total,
-                  |score| < 0.2 = NEUTRAL, score > 0 = BULLISH (green), score < 0 = BEARISH (red). */}
-              <div style={{ position: 'relative', padding: '0 18px 14px', display: 'flex', alignItems: 'center', gap: '14px' }}>
-                <div style={{
-                  display: 'flex', height: '30px', borderRadius: '8px', overflow: 'hidden',
-                  border: '1px solid rgba(255,255,255,0.1)', flex: '0 0 60%', maxWidth: '60%',
-                }}>
-                  {breakdownSegs.map((s) => (
-                    <div
-                      key={s.label}
-                      title={`${s.label}: ${s.pct.toFixed(0)}%`}
-                      style={{
-                        position: 'relative', flex: Math.max(s.pct, 6),
-                        background: `${s.color}bf`,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
-                        borderRight: '1px solid rgba(0,0,0,0.5)', overflow: 'hidden',
-                      }}
-                    >
-                      <span style={{ color: '#ffffff', fontSize: '13.1px', fontWeight: 900, whiteSpace: 'nowrap' }}>
-                        {s.pct >= 10 ? `${s.label} ${s.pct.toFixed(0)}%` : `${s.pct.toFixed(0)}%`}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: isMobileCard ? '4px' : '6px', marginLeft: isMobileCard ? '4px' : 'auto', flexShrink: 0 }}>
+                      <span style={{ color: '#ffffff', fontSize: isMobileCard ? '10px' : '11px', fontWeight: 800, letterSpacing: '0.06em', marginRight: '2px', whiteSpace: 'nowrap' }}>
+                        {isMobileCard ? 'FB:' : 'FlowBias :'}
                       </span>
+                      {([
+                        { key: null, label: 'TODAY' },
+                        { key: '3D' as const, label: '3D' },
+                        { key: '1W' as const, label: '1W' },
+                      ]).map((opt) => {
+                        const selected = (histRange ?? null) === opt.key
+                        return (
+                          <button
+                            key={opt.label}
+                            onClick={() => setHistoricalRange((prev) => {
+                              const next = { ...prev }
+                              if (opt.key === null) delete next[flowId]
+                              else next[flowId] = opt.key
+                              return next
+                            })}
+                            style={{
+                              cursor: 'pointer', padding: isMobileCard ? '6px 8px' : '8px 12px', borderRadius: '6px', fontWeight: 800,
+                              fontSize: isMobileCard ? '10px' : '11px', letterSpacing: '0.06em', whiteSpace: 'nowrap', flexShrink: 0,
+                              color: selected ? '#ff8c00' : '#ffffff',
+                              background: selected
+                                ? 'linear-gradient(180deg, #2b2b2b 0%, #050505 55%, #000000 100%)'
+                                : 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                              border: `1px solid ${selected ? '#ff8c00' : 'rgba(255,255,255,0.18)'}`,
+                              boxShadow: selected
+                                ? 'inset 0 2px 3px rgba(0,0,0,0.85), inset 0 -1px 0 rgba(255,140,0,0.35), 0 2px 4px rgba(0,0,0,0.6)'
+                                : 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -3px 5px rgba(0,0,0,0.7), 0 2px 4px rgba(0,0,0,0.6)',
+                              textShadow: '0 1px 1px rgba(0,0,0,0.8)',
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        )
+                      })}
                     </div>
-                  ))}
-                </div>
-                {(() => {
-                  const flowBiasScore = (breakdown.buyCallsPct + breakdown.buyPutsPct - breakdown.bearCallsPct - breakdown.bearPutsPct) / 100
-                  const flowBiasLabel = Math.abs(flowBiasScore) < 0.2 ? 'NEUTRAL' : flowBiasScore > 0 ? 'BULLISH' : 'BEARISH'
-                  const flowBiasColor = Math.abs(flowBiasScore) < 0.2 ? '#eab308' : flowBiasScore > 0 ? '#10b981' : '#ef4444'
-                  return (
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' }}>
-                      <span style={{ color: '#ffffff', fontSize: '13px', fontWeight: 700, letterSpacing: '0.06em' }}>Flow Bias is</span>
-                      <span style={{ color: flowBiasColor, fontSize: '17px', fontWeight: 900, letterSpacing: '0.06em' }}>{flowBiasLabel}</span>
-                    </div>
-                  )
-                })()}
-              </div>
+                  </div>
 
-              {/* Plan Entry callout - only shown once a real plan (not "waiting"/"no plan") is found */}
-              {hasPlan && (
+                  {chainStillLoading && (
+                    <div style={{ marginTop: '10px', color: 'rgba(255,255,255,0.4)', fontSize: '12px', fontWeight: 700 }}>
+                      Fetching data…
+                    </div>
+                  )}
+                </div>
+
+                {/* Targets ladder + sentiment cluster - one neat single row (stacks vertically on mobile) */}
                 <div style={{
-                  position: 'relative', display: 'flex', gap: '10px', margin: '0 18px 16px', padding: '12px 14px',
-                  borderRadius: '10px', background: `${sigColor}0f`, border: `1px solid ${sigColor}33`,
+                  display: 'flex', flexWrap: isMobileCard ? 'wrap' : 'nowrap', gap: '18px', alignItems: isMobileCard ? 'stretch' : 'flex-start',
+                  padding: '10px 16px 0', overflowX: isMobileCard ? 'visible' : 'auto',
                 }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={sigColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: '2px' }}>
-                    <circle cx="12" cy="12" r="9" />
-                    <circle cx="12" cy="12" r="5" />
-                    <circle cx="12" cy="12" r="1" fill={sigColor} />
-                  </svg>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ color: sigColor, fontWeight: 900, fontSize: '14.5px', marginBottom: '4px', letterSpacing: '0.2px' }}>{sigCode}</div>
-                    <div style={{ color: '#ffffff', fontSize: '15.6px', lineHeight: 1.55 }}>{planText}</div>
+                  <div style={{ flex: isMobileCard ? '1 1 auto' : '1 1 380px', minWidth: isMobileCard ? '0' : '340px', width: isMobileCard ? '100%' : undefined, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {[
+                      { lbl: 'TARGET 1', stock: ladderTarget1, opt: ladderT1Opt, pct: ladderT1Pct, w: '62%' },
+                      { lbl: 'TARGET 2', stock: ladderTarget2, opt: ladderT2Opt, pct: ladderT2Pct, w: '84%' },
+                      { lbl: 'STOP', stock: ladderStopStock, opt: ladderStopOpt, pct: ladderStopPct, w: '38%', isStop: true },
+                    ].map((row) => (
+                      <div key={row.lbl} style={{
+                        display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 10px',
+                        background: row.isStop ? 'rgba(255,0,0,0.06)' : 'rgba(0,255,0,0.05)',
+                        borderLeft: `3px solid ${row.isStop ? '#ff3333' : '#00e676'}`,
+                      }}>
+                        <span style={{
+                          flex: '0 0 84px', fontSize: '12px', fontWeight: 900, letterSpacing: '0.08em', whiteSpace: 'nowrap',
+                          color: row.isStop ? '#ff6666' : '#5ef2a6',
+                        }}>{row.lbl}</span>
+                        <div style={{ flex: '0 0 auto', width: '70px', height: '5px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
+                          <div style={{ width: row.w, height: '100%', background: row.isStop ? '#ff3333' : '#00e676' }} />
+                        </div>
+                        <span style={{ color: '#ffffff', fontSize: '15px', fontWeight: 800 }}>
+                          {typeof row.stock === 'number' ? `$${row.stock.toFixed(2)}` : 'N/A'}
+                        </span>
+                        <span style={{ color: '#ffffff', fontSize: '13px' }}>/</span>
+                        <span style={{ color: row.isStop ? '#ff6666' : '#5ef2a6', fontSize: '15px', fontWeight: 800 }}>
+                          {typeof row.opt === 'number' ? `$${row.opt.toFixed(2)}` : 'N/A'}
+                        </span>
+                        {typeof row.pct === 'number' && (
+                          <span style={{
+                            marginLeft: 'auto', fontWeight: 800, fontSize: '13px', padding: '1px 6px', borderRadius: '4px',
+                            color: row.pct >= 0 ? '#00ff00' : '#ff0000',
+                            background: row.pct >= 0 ? 'rgba(0,255,0,0.1)' : 'rgba(255,0,0,0.1)',
+                          }}>
+                            {row.pct >= 0 ? '▲' : '▼'} {Math.abs(row.pct).toFixed(0)}%
+                          </span>
+                        )}
+                      </div>
+                    ))}
+
+                    {/* Built trade summary - directly under STOP, inside the ladder column (not
+                        a sibling of the whole ladder+gauge row, which is taller due to the gauge) */}
+                    {builtTrade && (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: isMobileCard ? '8px' : '14px', flexWrap: 'wrap',
+                        padding: isMobileCard ? '8px 12px' : '10px 16px', borderRadius: '6px',
+                        background: '#050505',
+                        border: '1px solid rgba(255,255,255,0.1)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 4px 14px rgba(0,0,0,0.6)',
+                      }}>
+                        <span style={{ color: isCall ? '#22c55e' : '#ff1a1a', fontSize: isMobileCard ? '14px' : '16px', fontWeight: 900, textShadow: 'none', opacity: 1 }}>
+                          ${builtTrade.strike.toFixed(2)} {trade.type.toUpperCase()}
+                        </span>
+                        <span style={{ color: '#ffffff', fontSize: isMobileCard ? '13px' : '15px', fontWeight: 700 }}>{formatDate(builtTrade.expiryDate)}</span>
+                        <span style={{ color: '#ffffff', fontSize: isMobileCard ? '15px' : '17px', fontWeight: 900 }}>
+                          ${Math.round(builtTrade.premium * 100).toLocaleString()}
+                        </span>
+                        <div style={{
+                          marginLeft: isMobileCard ? 0 : 'auto', display: 'flex', alignItems: 'center', gap: '8px',
+                          padding: '5px 10px', borderRadius: '5px',
+                          background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.15)',
+                        }}>
+                          {typeof builtTrade.ivPct === 'number' && (
+                            <span style={{ color: '#c084fc', fontSize: '13px', fontWeight: 900, textShadow: 'none', opacity: 1 }}>
+                              IV: {builtTrade.ivPct.toFixed(0)}%
+                            </span>
+                          )}
+                          {typeof builtTrade.bePct === 'number' && (
+                            <span style={{ color: '#00ff66', fontSize: '13px', fontWeight: 900, textShadow: 'none', opacity: 1 }}>
+                              BE: {builtTrade.bePct.toFixed(1)}%
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Sentiment cluster: quadrant boxes + gauge, same row as the ladder. FlowBias
+                      rows (Spam / Structural / Gamma) sit directly below the 4 boxes only - NOT
+                      stretched across the gauge/whole row - so the boxes column shrink-wraps.
+                      On mobile: boxes stay a 1-column/4-row stack on the left; FlowBias text sits
+                      to the right at normal compact size, with the gauge nested directly below
+                      the text (sized to fit the leftover height so the whole cluster matches the
+                      boxes' total height). */}
+                  <div style={{
+                    display: 'flex', flexDirection: 'row',
+                    gap: isMobileCard ? '8px' : '14px', alignItems: 'flex-start', flexWrap: 'nowrap',
+                    marginTop: isMobileCard ? 0 : '-14px', opacity: histLoading ? 0.4 : 1,
+                  }}>
+                    <FlowQuadrantBoxes breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%', height: isMobileCard ? '257px' : undefined }}>
+                      {[
+                        { text: spamLabel, active: spamLabel !== 'No Spammer Detected' && spamLabel !== 'Loading…' },
+                        { text: structuralLabel, active: structuralLabel !== 'No Structural Formation Detected' },
+                        { text: gammaLabel, active: gammaLabel === 'Gamma Squeeze in Formation' },
+                      ].map((row, i) => (
+                        <div key={i} style={{
+                          display: 'flex', alignItems: 'center', padding: '4px 8px', borderRadius: '4px',
+                          background: row.active ? 'rgba(255,140,0,0.1)' : 'rgba(255,255,255,0.03)',
+                          border: `1px solid ${row.active ? 'rgba(255,140,0,0.35)' : 'rgba(255,255,255,0.08)'}`,
+                        }}>
+                          <span style={{ color: row.active ? '#ff8c00' : '#ffffff', fontSize: '11px', fontWeight: 800, whiteSpace: isMobileCard ? 'normal' : 'nowrap' }}>
+                            {row.text}
+                          </span>
+                        </div>
+                      ))}
+                      {isMobileCard && (
+                        <div style={{ display: 'flex', justifyContent: 'center', flex: 1 }}>
+                          <FlowSentimentGauge breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />
+                        </div>
+                      )}
+                    </div>
+                    {!isMobileCard && <FlowSentimentGauge breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />}
                   </div>
                 </div>
-              )}
+
+                {/* Chart */}
+                {openCharts.has(flowId) && (
+                  <div style={{ padding: '0 16px 16px' }}>
+                    <TradeCardChart
+                      symbol={trade.underlying_ticker}
+                      target1Price={typeof ladderTarget1 === 'number' ? ladderTarget1 : undefined}
+                      target2Price={typeof ladderTarget2 === 'number' ? ladderTarget2 : undefined}
+                      stopPrice={typeof ladderStopStock === 'number' ? ladderStopStock : undefined}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           )
         })}
@@ -417,8 +1458,11 @@ export default function FlowTrackingPanel({
   parentStockPrices,
   sweepSenseData,
   sweepSenseScanning,
+  sweepSenseProgress,
+  initialTab,
 }: {
   onClose?: () => void
+  initialTab?: 'TRACKER' | 'SWEEPSENSE'
   relativeStrengthData?: Map<string, number>
   historicalStdDevs?: Map<string, number>
   comboTradeMap?: Map<string, boolean>
@@ -446,6 +1490,7 @@ export default function FlowTrackingPanel({
       trade: OptionsFlowData
       grade: string
       gradeColor: string
+      convictionScore: number
       pctMove: number | null
       currentStockPrice: number | null
       currentOptionPrice: number | null
@@ -455,14 +1500,22 @@ export default function FlowTrackingPanel({
       sigCode: string
       sigColor: string
       planText: string
+      qualifiedAt: number
+      sigma?: number
+      dte?: number
+      spot?: number
       breakdown: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }
     }>
     stats: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }
     bubbles: Array<{ ticker: string; premium: number; bias: 'bull' | 'bear'; biasStrength: number }>
   } | null
   sweepSenseScanning?: boolean
+  sweepSenseProgress?: { current: number; total: number } | null
 } = {}) {
-  const [panelTab, setPanelTab] = useState<'TRACKER' | 'SWEEPSENSE'>('SWEEPSENSE')
+  const [panelTab, setPanelTab] = useState<'TRACKER' | 'SWEEPSENSE'>(initialTab ?? 'SWEEPSENSE')
+  useEffect(() => {
+    if (initialTab) setPanelTab(initialTab)
+  }, [initialTab])
   const [isMounted, setIsMounted] = useState(false)
   const [chartSymbol, setChartSymbol] = useState('SPY')
   const [chartContainerHeight, setChartContainerHeight] = useState(600)
@@ -834,53 +1887,57 @@ export default function FlowTrackingPanel({
         borderBottom: '2px solid rgba(255,133,0,0.35)',
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.6)',
       }}>
-        <div style={{ display: 'flex', flex: 1, gap: '6px', padding: '6px' }}>
-          <button
-            onClick={() => setPanelTab('SWEEPSENSE')}
-            style={{
-              flex: 1, padding: '12px 8px', cursor: 'pointer',
-              border: panelTab === 'SWEEPSENSE' ? '1px solid rgba(255,133,0,0.45)' : '1px solid rgba(255,255,255,0.10)',
-              borderRadius: '10px',
-              background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)',
-              backdropFilter: 'blur(10px)',
-              WebkitBackdropFilter: 'blur(10px)',
-              boxShadow: panelTab === 'SWEEPSENSE'
-                ? '0 0 10px rgba(255,133,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15)'
-                : 'inset 0 1px 0 rgba(255,255,255,0.10)',
-              color: panelTab === 'SWEEPSENSE' ? '#ff8500' : '#ffffff',
-              fontWeight: 900, fontSize: '17px', letterSpacing: '1px', textTransform: 'uppercase',
-              transition: 'all 0.18s ease',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-            }}
-          >
-            ⚡ SWEEPSENSE
-            {sweepSenseData && sweepSenseData.trades.length > 0 && (
-              <span style={{
-                background: 'rgba(255,133,0,0.18)',
-                color: '#ff8500',
-                borderRadius: '9999px', fontSize: '13px', fontWeight: 900, padding: '2px 9px', minWidth: '22px', textAlign: 'center',
-              }}>
-                {sweepSenseData.trades.length}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setPanelTab('TRACKER')}
-            style={{
-              flex: 1, padding: '12px 8px', cursor: 'pointer',
-              border: panelTab === 'TRACKER' ? '1px solid rgba(255,133,0,0.45)' : '1px solid rgba(255,255,255,0.10)',
-              borderRadius: '10px',
-              background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)',
-              backdropFilter: 'blur(10px)',
-              WebkitBackdropFilter: 'blur(10px)',
-              boxShadow: panelTab === 'TRACKER'
-                ? '0 0 10px rgba(255,133,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15)'
-                : 'inset 0 1px 0 rgba(255,255,255,0.10)',
-              color: panelTab === 'TRACKER' ? '#ff8500' : '#ffffff',
-              fontWeight: 900, fontSize: '17px', letterSpacing: '1px', textTransform: 'uppercase',
-              transition: 'all 0.18s ease',
-            }}
-          >A+ TRACKER</button>
+        <div style={{ display: 'flex', flex: 1, gap: isMobile ? '4px' : '6px', padding: isMobile ? '4px' : '6px' }}>
+          {(!isMobile || panelTab === 'SWEEPSENSE') && (
+            <button
+              onClick={() => setPanelTab('SWEEPSENSE')}
+              style={{
+                flex: 1, padding: isMobile ? '6px 6px' : '12px 8px', cursor: isMobile ? 'default' : 'pointer',
+                border: panelTab === 'SWEEPSENSE' ? '1px solid rgba(255,133,0,0.45)' : '1px solid rgba(255,255,255,0.10)',
+                borderRadius: isMobile ? '6px' : '10px',
+                background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)',
+                backdropFilter: 'blur(10px)',
+                WebkitBackdropFilter: 'blur(10px)',
+                boxShadow: panelTab === 'SWEEPSENSE'
+                  ? '0 0 10px rgba(255,133,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15)'
+                  : 'inset 0 1px 0 rgba(255,255,255,0.10)',
+                color: panelTab === 'SWEEPSENSE' ? '#ff8500' : '#ffffff',
+                fontWeight: 900, fontSize: isMobile ? '9px' : '17px', letterSpacing: isMobile ? '0.5px' : '1px', textTransform: 'uppercase',
+                transition: 'all 0.18s ease',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: isMobile ? '4px' : '8px',
+              }}
+            >
+              ⚡ {isMobile ? 'SweepSense Flow Picker' : 'SWEEPSENSE'}
+              {sweepSenseData && sweepSenseData.trades.length > 0 && (
+                <span style={{
+                  background: 'rgba(255,133,0,0.18)',
+                  color: '#ff8500',
+                  borderRadius: '9999px', fontSize: isMobile ? '9px' : '13px', fontWeight: 900, padding: isMobile ? '1px 6px' : '2px 9px', minWidth: isMobile ? '16px' : '22px', textAlign: 'center',
+                }}>
+                  {sweepSenseData.trades.length}
+                </span>
+              )}
+            </button>
+          )}
+          {(!isMobile || panelTab === 'TRACKER') && (
+            <button
+              onClick={() => setPanelTab('TRACKER')}
+              style={{
+                flex: 1, padding: isMobile ? '6px 6px' : '12px 8px', cursor: isMobile ? 'default' : 'pointer',
+                border: panelTab === 'TRACKER' ? '1px solid rgba(255,133,0,0.45)' : '1px solid rgba(255,255,255,0.10)',
+                borderRadius: isMobile ? '6px' : '10px',
+                background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)',
+                backdropFilter: 'blur(10px)',
+                WebkitBackdropFilter: 'blur(10px)',
+                boxShadow: panelTab === 'TRACKER'
+                  ? '0 0 10px rgba(255,133,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15)'
+                  : 'inset 0 1px 0 rgba(255,255,255,0.10)',
+                color: panelTab === 'TRACKER' ? '#ff8500' : '#ffffff',
+                fontWeight: 900, fontSize: isMobile ? '9px' : '17px', letterSpacing: isMobile ? '0.5px' : '1px', textTransform: 'uppercase',
+                transition: 'all 0.18s ease',
+              }}
+            >{isMobile ? 'A+ Tracker' : 'A+ TRACKER'}</button>
+          )}
         </div>
         {onClose && (
           <button
@@ -916,7 +1973,7 @@ export default function FlowTrackingPanel({
 
       {/* ── SWEEPSENSE TAB ── */}
       {panelTab === 'SWEEPSENSE' && (
-        <SweepSenseTab data={sweepSenseData ?? null} isScanning={sweepSenseScanning} />
+        <SweepSenseTab data={sweepSenseData ?? null} isScanning={sweepSenseScanning} progress={sweepSenseProgress} />
       )}
 
       {/* ── TRACKING TAB ── */}

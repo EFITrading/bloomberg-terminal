@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import AlgoFlowScreener from '@/components/AlgoFlowScreener'
 import { polygonOptionsWS, parseOCCTicker } from '@/lib/polygonOptionsWS'
 import type { PolygonOptionsTradeMsg } from '@/lib/polygonOptionsWS'
-import { getDatesList, loadDateTrades, setCachedTrades } from '@/lib/flowDataCache'
+import { getDatesList, loadDateTrades, setCachedTrades, invalidateDatesList } from '@/lib/flowDataCache'
 
 // Polygon API key
 const POLYGON_API_KEY: string = ''
@@ -467,7 +467,7 @@ interface OptionsFlowData {
   total_premium: number
   spot_price: number
   exchange_name: string
-  trade_type: 'SWEEP' | 'BLOCK' | 'MINI' | 'MULTI-LEG'
+  trade_type: 'SWEEP' | 'BLOCK' | 'MINI' | 'MULTI-LEG' | 'SUPER SWEEP' | 'SUPER BLOCK'
   trade_timestamp: string
   moneyness: 'ATM' | 'ITM' | 'OTM'
   days_to_expiry: number
@@ -697,6 +697,45 @@ const tryLoadFromSaved = async (ticker: string): Promise<OptionsFlowData[] | nul
   }
 }
 
+// Save a single historical day's fully-scanned/enriched flow to the DB under its OWN
+// trading date (the date the flow was FOR, not the date it was scanned on). Mirrors the
+// gzip-compressed POST used by the manual "Save Flow" button in OptionsFlowTable.
+const saveHistoricalDayFlow = async (date: string, trades: OptionsFlowData[]): Promise<boolean> => {
+  try {
+    if (!trades || trades.length === 0) return false
+
+    const rawJson = JSON.stringify({ date, data: trades })
+    const encoded = new TextEncoder().encode(rawJson)
+    const cs = new CompressionStream('gzip')
+    const writer = cs.writable.getWriter()
+    writer.write(encoded)
+    writer.close()
+    const compressedBuffer = await new Response(cs.readable).arrayBuffer()
+
+    let response: Response
+    try {
+      response = await fetch('/api/flows/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: compressedBuffer,
+      })
+    } catch {
+      return false
+    }
+
+    if (!response.ok) return false
+
+    await response.json().catch(() => null)
+
+    // Keep the shared flow cache in sync so History dialog / other tabs see it instantly
+    setCachedTrades(date, trades as any)
+    invalidateDatesList()
+    return true
+  } catch {
+    return false
+  }
+}
+
 // -- Live batch classification ------------------------------------------------
 // Runs on each 1-second buffer flush before enrichment.
 // Priority: MULTI-LEG ? SWEEP (multi-exchange bundle) ? BLOCK ? MINI
@@ -830,6 +869,12 @@ export default function OptionsFlowPage() {
   const rafFlushRef = useRef<number | null>(null)
   const cancelRef = useRef<boolean>(false)
   const activeSSEsRef = useRef<Set<{ es: EventSource; abort: () => void }>>(new Set())
+  // Incremented on every new scan AND on manual clear. Any async continuation
+  // (SSE 'complete' handlers, enrichment .then()s, day-loop iterations) captures
+  // the id it was started with and MUST bail out if it no longer matches this ref
+  // by the time it resolves — this is what stops a stale/in-flight scan from
+  // "forcing" old data back onto the table after the user clears it.
+  const scanGenerationRef = useRef<number>(0)
 
   const flushPendingTrades = () => {
     if (pendingTradesRef.current.length === 0) return
@@ -1214,6 +1259,14 @@ export default function OptionsFlowPage() {
     seenTradeIdsRef.current = new Set()
     if (rafFlushRef.current !== null) { cancelAnimationFrame(rafFlushRef.current); rafFlushRef.current = null }
 
+    // This scan's unique generation id. Any setData() coming out of a long-running
+    // await/then() below must check `scanGenerationRef.current === myScanGen` first —
+    // if the user cleared the table or started ANOTHER scan in the meantime, the
+    // generation ref will have moved on and this stale result gets dropped instead
+    // of clobbering the table.
+    const myScanGen = ++scanGenerationRef.current
+    const isStale = () => scanGenerationRef.current !== myScanGen
+
     const connectionTimeout: NodeJS.Timeout | null = null
 
     try {
@@ -1230,11 +1283,11 @@ export default function OptionsFlowPage() {
       const isSingleTicker =
         !isAllScan && tickerParam !== 'MAG7' && tickerParam !== 'ETF' && !tickerParam.includes(',')
 
-
       // Single-ticker, today-only: load from saved flow before scanning
       if (isSingleTicker && historicalDays === '1D') {
         setStreamingStatus('Checking saved data...')
         const saved = await tryLoadFromSaved(tickerParam)
+        if (isStale()) return
         if (saved) {
           const computedSummary: OptionsFlowSummary = {
             total_trades: saved.length,
@@ -1289,6 +1342,7 @@ export default function OptionsFlowPage() {
         const multiTickerSet = tickerParam === 'MAG7' ? MAG7_SET_HIST : tickerParam === 'ETF' ? ETF_SET_HIST : undefined
         const cacheTickerParam = isAllScan ? '' : tickerParam
         const { cachedTrades, missingDays } = await tryLoadHistoricalFromSaved(cacheTickerParam, tradingDays, multiTickerSet)
+        if (isStale()) return
         if (cachedTrades.length > 0) {
           // Show cached data immediately
           setData(cachedTrades)
@@ -1327,14 +1381,12 @@ export default function OptionsFlowPage() {
 
         // Some days missing - handle based on scan type
         if (isAllScan) {
-
           const accumulated: OptionsFlowData[] = [...cachedTrades]
           for (let di = 0; di < missingDays.length; di++) {
-            if (cancelRef.current) break
+            if (cancelRef.current || isStale()) break
             const day = missingDays[di]
 
             setStreamingStatus(`Scanning ALL - day ${di + 1} of ${missingDays.length}: ${day}`)
-            const t0 = performance.now()
             const dayTrades = await new Promise<OptionsFlowData[]>((resolve) => {
               const bucket: OptionsFlowData[] = []
               const url = `/api/stream-options-flow?ticker=ALL&timeframe=HISTORICAL&dates=${day}`
@@ -1355,18 +1407,40 @@ export default function OptionsFlowPage() {
               }
               es.onerror = () => { clearTimeout(t); es.close(); resolve(bucket) }
             })
+            if (isStale()) return
             // Enrich this day before adding to table
             setStreamingStatus(`Day ${di + 1} scanned (${dayTrades.length} trades) - enriching...`)
             const dayEnriched = await enrichTradeDataCombined(dayTrades)
+            if (isStale()) return
             const dayWithOI = applyLiveOI(dayEnriched)
-            accumulated.push(...dayWithOI)
-            setData(accumulated.slice())
+
+            // Show this day's data in the table while it's the active day
+            setData([...accumulated, ...dayWithOI])
+            setStreamingStatus(`Day ${di + 1} complete (${dayWithOI.length} trades) - auto-saving to ${day}...`)
+
+            // Auto-save this day's flow under ITS OWN trading date (the day the flow
+            // happened, not today) — only once scan + enrich + OI are fully done.
+            const saveOk = await saveHistoricalDayFlow(day, dayWithOI)
+            if (isStale()) return
+
+            if (saveOk) {
+              setStreamingStatus(`Day ${di + 1} (${day}) saved to Historical. Clearing table...`)
+              // Per requirements: once a day is auto-saved, remove it from the live table.
+              // `accumulated` never absorbs this day's trades, so the table reverts back
+              // to whatever was already-cached (untouched) instead of keeping it visible.
+              setData(accumulated.slice())
+            } else {
+              accumulated.push(...dayWithOI)
+              setData(accumulated.slice())
+            }
+
             // Brief pause between days so Polygon rate limits don't throttle the next scan
-            if (di < missingDays.length - 1 && !cancelRef.current) {
+            if (di < missingDays.length - 1 && !cancelRef.current && !isStale()) {
               setStreamingStatus(`Day ${di + 1} done (${dayTrades.length} trades). Waiting before next day...`)
               await new Promise(r => setTimeout(r, 3000))
             }
           }
+          if (isStale()) return
           const final = accumulated
           setSummary({
             total_trades: final.length,
@@ -1438,6 +1512,7 @@ export default function OptionsFlowPage() {
               setData((rawTrades) => {
                 const allTrades = pendingNow.length > 0 ? [...rawTrades, ...pendingNow] : rawTrades
                 enrichTradeDataCombined(allTrades).then((final) => {
+                  if (isStale()) return
                   setStreamingStatus('Computing live OI...')
                   setData(applyLiveOI(final))
                   setLoading(false)
@@ -1470,6 +1545,7 @@ export default function OptionsFlowPage() {
         const ETF_SET = new Set(['SPY', 'QQQ', 'DIA', 'IWM', 'XLK', 'SMH', 'XLE', 'XLF', 'XLV', 'XLI', 'XLP', 'XLU', 'XLY', 'XLB', 'XLRE', 'XLC', 'GLD', 'SLV', 'TLT', 'HYG', 'LQD', 'EEM', 'EFA', 'VXX', 'UVXY'])
         const tSet = tickerParam === 'MAG7' ? MAG7_SET : ETF_SET
         const saved = await tryLoadFromSavedFiltered(tSet)
+        if (isStale()) return
         if (saved) {
           const computedSummary: OptionsFlowSummary = {
             total_trades: saved.length,
@@ -1512,6 +1588,7 @@ export default function OptionsFlowPage() {
         if (historicalDays === '1D') {
           setStreamingStatus('Checking saved data...')
           const savedAll = await tryLoadFromSavedFiltered(null)
+          if (isStale()) return
           if (savedAll) {
             const computedSummary: OptionsFlowSummary = {
               total_trades: savedAll.length,
@@ -1680,7 +1757,7 @@ export default function OptionsFlowPage() {
           // Discover total symbols first via a single probe chunk
           let probeTotal = 0
           const probeResult = await openSSE(0)
-          if (cancelRef.current) return
+          if (cancelRef.current || isStale()) return
           probeTotal = probeResult.total || 0
 
           // Now roll through ALL offsets 10 at a time
@@ -1697,7 +1774,7 @@ export default function OptionsFlowPage() {
             }
             setStreamingStatus(`Phase 1/3 - Scanning tickers ${offset + 1}-${Math.min(offset + groupOffsets.length * BATCH, probeTotal)} of ${probeTotal}...`)
             const groupResults = await Promise.all(groupOffsets.map((off) => openSSE(off)))
-            if (cancelRef.current) return
+            if (cancelRef.current || isStale()) return
             for (const r of groupResults) {
               phase1Raw.push(...r.trades)
               if (r.summary) setSummary(r.summary)
@@ -1712,7 +1789,7 @@ export default function OptionsFlowPage() {
           // Enrich phase 1 and show immediately
           setStreamingStatus(`Phase 1/3 done - enriching ${phase1Trades.length} trades...`)
           const enriched1 = await enrichTradeDataCombined(phase1Trades)
-          if (cancelRef.current) return
+          if (cancelRef.current || isStale()) return
           setStreamingStatus('Phase 1/3 - Computing live OI...')
           const withOI1 = applyLiveOI(enriched1)
           setData(withOI1)
@@ -1722,12 +1799,12 @@ export default function OptionsFlowPage() {
           // -- PHASE 2: ETFs -------------------------------------------------
           setStreamingStatus('Phase 2/3 - Scanning ETFs (SPY, QQQ, TLT, GLD, SMH...)...')
           const phase2Raw = await openCommaSSE(ETF_COMMA, 'ETF-PHASE')
-          if (cancelRef.current) return
+          if (cancelRef.current || isStale()) return
 
 
           setStreamingStatus(`Phase 2/3 - Enriching ${phase2Raw.length} ETF trades...`)
           const enriched2 = await enrichTradeDataCombined(phase2Raw)
-          if (cancelRef.current) return
+          if (cancelRef.current || isStale()) return
           setStreamingStatus('Phase 2/3 - Computing live OI for ETFs...')
           const withOI2 = applyLiveOI(enriched2)
 
@@ -1743,12 +1820,12 @@ export default function OptionsFlowPage() {
           // -- PHASE 3: MAG7 -------------------------------------------------
           setStreamingStatus('Phase 3/3 - Scanning MAG7 (AAPL, NVDA, MSFT, TSLA, AMZN, META, GOOGL)...')
           const phase3Raw = await openCommaSSE(MAG7_COMMA, 'MAG7-PHASE')
-          if (cancelRef.current) return
+          if (cancelRef.current || isStale()) return
 
 
           setStreamingStatus(`Phase 3/3 - Enriching ${phase3Raw.length} MAG7 trades...`)
           const enriched3 = await enrichTradeDataCombined(phase3Raw)
-          if (cancelRef.current) return
+          if (cancelRef.current || isStale()) return
           setStreamingStatus('Phase 3/3 - Computing live OI for MAG7...')
           const withOI3 = applyLiveOI(enriched3)
 
@@ -1777,6 +1854,9 @@ export default function OptionsFlowPage() {
       // Single-ticker / MAG7 / ETF scan -------------------------------------
       const tfParam = historicalDays !== '1D' ? `&timeframe=${historicalDays}` : ''
       const eventSource = new EventSource(`/api/stream-options-flow?ticker=${tickerParam}${tfParam}`)
+      // Register so handleClearData/handleCancel can force-close this stream immediately
+      const eventSourceEntry = { es: eventSource, abort: () => { eventSource.close() } }
+      activeSSEsRef.current.add(eventSourceEntry)
 
       eventSource.onopen = () => { }
 
@@ -1793,6 +1873,11 @@ export default function OptionsFlowPage() {
       )
 
       eventSource.onmessage = (event) => {
+        if (isStale()) {
+          activeSSEsRef.current.delete(eventSourceEntry)
+          eventSource.close()
+          return
+        }
         try {
           const streamData = JSON.parse(event.data)
 
@@ -1855,6 +1940,7 @@ export default function OptionsFlowPage() {
             case 'complete':
               clearTimeout(stallTimeout)
               setIsStreamComplete(true)
+              activeSSEsRef.current.delete(eventSourceEntry)
               eventSource.close()
               setSummary(streamData.summary)
               if (streamData.market_info) setMarketInfo(streamData.market_info)
@@ -1864,6 +1950,7 @@ export default function OptionsFlowPage() {
               setStreamingStatus('Enriching vol/OI & fill style...')
               setData((rawTrades) => {
                 enrichTradeDataCombined(rawTrades).then((final) => {
+                  if (isStale()) return
                   setStreamingStatus('Computing live OI...')
                   setData(applyLiveOI(final))
                   setLoading(false)
@@ -1878,12 +1965,14 @@ export default function OptionsFlowPage() {
               clearTimeout(stallTimeout)
               setStreamError(streamData.error || 'Stream error occurred')
               setLoading(false)
+              activeSSEsRef.current.delete(eventSourceEntry)
               eventSource.close()
               break
 
             case 'close':
               clearTimeout(stallTimeout)
               setIsStreamComplete(true)
+              activeSSEsRef.current.delete(eventSourceEntry)
               eventSource.close()
               break
 
@@ -1900,6 +1989,7 @@ export default function OptionsFlowPage() {
 
       eventSource.onerror = (error) => {
         clearTimeout(stallTimeout)
+        activeSSEsRef.current.delete(eventSourceEntry)
 
         if (isStreamComplete) {
           eventSource.close()
@@ -2027,6 +2117,7 @@ export default function OptionsFlowPage() {
   }
 
   const handleCancel = () => {
+    scanGenerationRef.current++
     cancelRef.current = true
     let closed = 0
     for (const entry of activeSSEsRef.current) {
@@ -2039,6 +2130,22 @@ export default function OptionsFlowPage() {
   }
 
   const handleClearData = () => {
+    // Invalidate ANY in-flight scan so its async completion (SSE 'complete' handler,
+    // enrichTradeDataCombined().then(), historical day-loop iteration, etc.) can no
+    // longer write to `data` once it eventually resolves - this is what previously
+    // caused the old flow to "force itself back" after clearing.
+    scanGenerationRef.current++
+    cancelRef.current = true
+    for (const entry of activeSSEsRef.current) {
+      try { entry.abort() } catch { /* ignore */ }
+    }
+    activeSSEsRef.current.clear()
+    pendingTradesRef.current = []
+    seenTradeIdsRef.current = new Set()
+    if (rafFlushRef.current !== null) { cancelAnimationFrame(rafFlushRef.current); rafFlushRef.current = null }
+    setLoading(false)
+    setStreamingStatus('')
+    setStreamingProgress(null)
     // Clear existing data and start fresh
     setData([])
     setSummary({

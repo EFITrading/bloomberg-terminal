@@ -556,14 +556,14 @@ export function TradePopupChart({
 }
 
 // ─── TradeCardChart ─────────────────────────────────────────────────────────
-const CARD_TIMEFRAMES = [
+export const CARD_TIMEFRAMES = [
   { label: '5M', value: '5m', days: 10, defaultBars: 78 },
   { label: '1H', value: '1h', days: 365, defaultBars: 120 },
   { label: '1D', value: '1d', days: 365, defaultBars: 60 },
   { label: '1W', value: '1w', days: 2555, defaultBars: 104 },
 ]
 
-function TradeCardChart({ symbol, industrySymbol }: { symbol: string; industrySymbol?: string }) {
+export function TradeCardChart({ symbol, industrySymbol, target1Price, target2Price, stopPrice }: { symbol: string; industrySymbol?: string; target1Price?: number | null; target2Price?: number | null; stopPrice?: number | null }) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
   const [timeframe, setTimeframe] = React.useState('1D')
   const [candles, setCandles] = React.useState<any[]>([])
@@ -755,6 +755,34 @@ function TradeCardChart({ symbol, industrySymbol }: { symbol: string; industrySy
       ctx.fillText(lcText, W - PAD_R + 4, lcY)
     }
 
+    // ── Trade-management overlay: target1/target2/stop as dashed horizontal lines ──
+    const drawHLine = (price: number, color: string, label: string) => {
+      const y = Math.round(toY(price))
+      if (y < PAD_T - 4 || y > PAD_T + CANDLE_H + 4) return
+      ctx.save()
+      ctx.strokeStyle = color
+      ctx.lineWidth = 1.25
+      ctx.setLineDash([5, 3])
+      ctx.beginPath()
+      ctx.moveTo(PAD_L, y + 0.5)
+      ctx.lineTo(W - PAD_R, y + 0.5)
+      ctx.stroke()
+      ctx.setLineDash([])
+      ctx.restore()
+      const lbl = `${label} ${fmtP(price)}`
+      ctx.font = `bold ${Math.max(9, lblSize - 2)}px "Courier New",monospace`
+      ctx.textAlign = 'left'
+      ctx.textBaseline = 'middle'
+      const lw = ctx.measureText(lbl).width
+      ctx.fillStyle = color
+      ctx.fillRect(W - PAD_R + 2, y - Math.ceil(lblSize * 0.65), lw + 6, Math.ceil(lblSize * 1.3))
+      ctx.fillStyle = '#000000'
+      ctx.fillText(lbl, W - PAD_R + 4, y)
+    }
+    if (typeof target1Price === 'number' && target1Price > 0) drawHLine(target1Price, '#22c55e', 'T1')
+    if (typeof target2Price === 'number' && target2Price > 0) drawHLine(target2Price, '#16a34a', 'T2')
+    if (typeof stopPrice === 'number' && stopPrice > 0) drawHLine(stopPrice, '#ef4444', 'SL')
+
     // ── Ratio panel (daily/weekly only) ──
     const ratioY0 = PAD_T + CANDLE_H + SEP + GAP
     if (showRatio) {
@@ -903,7 +931,7 @@ function TradeCardChart({ symbol, industrySymbol }: { symbol: string; industrySy
       }
       ctx.fillText(label, PAD_L + i * barW + barW * 0.5, H - PAD_B + 3)
     }
-  }, [candles, spyCandles, industryCandles, loading, timeframe, industrySymbol])
+  }, [candles, spyCandles, industryCandles, loading, timeframe, industrySymbol, target1Price, target2Price, stopPrice])
 
   drawRef.current = draw
 

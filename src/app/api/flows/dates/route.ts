@@ -41,9 +41,9 @@ export async function GET() {
       dateMap.set(tradingDate, { date: new Date(tradingDate).toISOString(), createdAt: g.batchTime, tradeCount: g.tradeCount, source: 'stream' })
     }
 
-    const result = Array.from(dateMap.values())
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .map(r => ({ date: r.date, createdAt: r.createdAt, tradeCount: r.tradeCount, source: r.source }))
+    const result = Array.from(dateMap.entries())
+      .sort(([dayA], [dayB]) => dayB.localeCompare(dayA)) // sort by flow trading date, newest first
+      .map(([, r]) => ({ date: r.date, createdAt: r.createdAt, tradeCount: r.tradeCount, source: r.source }))
 
     return NextResponse.json(result)
   } catch (error) {
