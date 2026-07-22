@@ -563,7 +563,20 @@ export const CARD_TIMEFRAMES = [
   { label: '1W', value: '1w', days: 2555, defaultBars: 104 },
 ]
 
-export function TradeCardChart({ symbol, industrySymbol, target1Price, target2Price, stopPrice }: { symbol: string; industrySymbol?: string; target1Price?: number | null; target2Price?: number | null; stopPrice?: number | null }) {
+export function TradeCardChart({
+  symbol, industrySymbol, target1Price, target2Price, stopPrice,
+  gammaLevel, structuralLevel, structuralIsResistance, spamLevel,
+}: {
+  symbol: string
+  industrySymbol?: string
+  target1Price?: number | null
+  target2Price?: number | null
+  stopPrice?: number | null
+  gammaLevel?: number | null
+  structuralLevel?: number | null
+  structuralIsResistance?: boolean
+  spamLevel?: number | null
+}) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
   const [timeframe, setTimeframe] = React.useState('1D')
   const [candles, setCandles] = React.useState<any[]>([])
@@ -573,8 +586,14 @@ export function TradeCardChart({ symbol, industrySymbol, target1Price, target2Pr
   const [fetching, setFetching] = React.useState(false)
 
   const stateRef = React.useRef({ offset: 0, barsVisible: 21 })
-  const dragRef = React.useRef({ active: false, startX: 0, startOffset: 0, velocity: 0, lastX: 0, lastTime: 0 })
+  const dragRef = React.useRef({
+    active: false, mode: 'pan' as 'pan' | 'yscale',
+    startX: 0, startY: 0, startOffset: 0, startMultiplier: 1,
+    startCenterPrice: 0, startPriceRange: 0,
+    velocity: 0, lastX: 0, lastTime: 0,
+  })
   const inertiaRef = React.useRef<number | null>(null)
+  const yScaleRef = React.useRef({ multiplier: 1, centerPrice: null as number | null })
   const drawRef = React.useRef<() => void>(() => { })
 
   React.useEffect(() => {
@@ -598,6 +617,7 @@ export function TradeCardChart({ symbol, industrySymbol, target1Price, target2Pr
         setSpyCandles(spy)
         setIndustryCandles(ind)
         stateRef.current = { offset: 0, barsVisible: Math.min(tf.defaultBars, sc.length) }
+        yScaleRef.current = { multiplier: 1, centerPrice: null }
       })
       .catch(() => { })
       .finally(() => { setLoading(false); setFetching(false) })
@@ -668,20 +688,27 @@ export function TradeCardChart({ symbol, industrySymbol, target1Price, target2Pr
     const PAD_L = 56, PAD_R = 64, PAD_T = 18, PAD_B = 28
     const chartW = W - PAD_L - PAD_R
     const availH = H - PAD_T - PAD_B
-    const showRatio = isDaily
-    const RATIO_H = showRatio ? Math.floor(availH * 0.26) : 0
-    const SEP = showRatio ? 1 : 0
-    const GAP = showRatio ? 8 : 0
-    const CANDLE_H = availH - RATIO_H - GAP - SEP
+    const CANDLE_H = availH
     const lblSize = Math.min(15, Math.max(11, Math.floor(W * 0.0325)))
     const fmtP = (v: number) => v >= 1000 ? v.toFixed(0) : v.toFixed(1)
 
     // ── Candle panel ──
     const highs = visible.map((c: any) => c.high ?? c.close)
     const lows = visible.map((c: any) => c.low ?? c.close)
-    const hi = Math.max(...highs)
-    const lo = Math.min(...lows)
-    const priceRange = hi - lo || hi * 0.02 || 1
+    const naturalHi = Math.max(...highs)
+    const naturalLo = Math.min(...lows)
+    const naturalRange = naturalHi - naturalLo || naturalHi * 0.02 || 1
+    const ys = yScaleRef.current
+    let hi: number, lo: number, priceRange: number
+    if (ys.centerPrice !== null) {
+      priceRange = naturalRange / ys.multiplier
+      lo = ys.centerPrice - priceRange / 2
+      hi = ys.centerPrice + priceRange / 2
+    } else {
+      hi = naturalHi
+      lo = naturalLo
+      priceRange = naturalRange
+    }
     const toY = (v: number) => PAD_T + CANDLE_H - ((v - lo) / priceRange) * CANDLE_H
     const barW = chartW / visible.length
 
@@ -711,12 +738,6 @@ export function TradeCardChart({ symbol, industrySymbol, target1Price, target2Pr
       ctx.fillStyle = color
       ctx.fillRect(x0 + wickW, bodyTop, Math.max(1, bw - wickW * 2), bodyH)
     })
-
-    // Gray separator between candle panel and ratio panel
-    if (showRatio) {
-      ctx.fillStyle = 'rgba(120,120,120,0.45)'
-      ctx.fillRect(PAD_L, PAD_T + CANDLE_H + SEP, chartW, 1)
-    }
 
     // Right Y-axis vertical border line — candle panel
     ctx.strokeStyle = 'rgba(255,255,255,0.8)'
@@ -783,132 +804,39 @@ export function TradeCardChart({ symbol, industrySymbol, target1Price, target2Pr
     if (typeof target2Price === 'number' && target2Price > 0) drawHLine(target2Price, '#16a34a', 'T2')
     if (typeof stopPrice === 'number' && stopPrice > 0) drawHLine(stopPrice, '#ef4444', 'SL')
 
-    // ── Ratio panel (daily/weekly only) ──
-    const ratioY0 = PAD_T + CANDLE_H + SEP + GAP
-    if (showRatio) {
-      // Collect raw ratio points for SPY and industry
-      type RawPt = { x: number; rawRatio: number }
-      const spyRaw: RawPt[] = []
-      const indRaw: RawPt[] = []
-      visible.forEach((c: any, i: number) => {
-        const ts = c.timestamp ?? c.t
-        const d = ts ? new Date(ts) : new Date((c.date || '') + 'T00:00:00')
-        const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`
-        const xc = PAD_L + i * barW + barW * 0.5
-        const spyC = spyMap.get(key)
-        if (spyC) spyRaw.push({ x: xc, rawRatio: c.close / spyC })
-        const indC = industryMap.get(key)
-        if (indC) indRaw.push({ x: xc, rawRatio: c.close / indC })
-      })
-
-      // Normalize both lines to 1.0 at their first visible point so they share a Y scale
-      const normalize = (pts: RawPt[]) => {
-        if (pts.length === 0) return []
-        const base = pts[0].rawRatio
-        return pts.map(p => ({ x: p.x, norm: p.rawRatio / base }))
-      }
-      const spyNorm = normalize(spyRaw)
-      const indNorm = normalize(indRaw)
-
-      const allNorm = [...spyNorm.map(p => p.norm), ...indNorm.map(p => p.norm)]
-      if (allNorm.length >= 2) {
-        const rMin = Math.min(...allNorm)
-        const rMax = Math.max(...allNorm)
-        const rRange = rMax - rMin || 0.01
-        const rPad = rRange * 0.10
-        const toRY = (v: number) => ratioY0 + RATIO_H - ((v - (rMin - rPad)) / (rRange + rPad * 2)) * RATIO_H
-
-        const drawLine = (pts: { x: number; norm: number }[], color: string) => {
-          if (pts.length < 2) return
-          ctx.strokeStyle = color
-          ctx.lineWidth = 1.5
-          ctx.lineJoin = 'round'
-          ctx.beginPath()
-          pts.forEach(({ x, norm }, j) => {
-            const y = toRY(norm)
-            if (j === 0) ctx.moveTo(x, y)
-            else ctx.lineTo(x, y)
-          })
-          ctx.stroke()
-        }
-
-        // SPY line: green if up, red if down
-        const spyLast = spyNorm[spyNorm.length - 1]?.norm ?? 1
-        const SPY_COLOR = '#00BFFF'  // always cyan
-        const IND_COLOR = '#ffffff'  // always solid white
-        drawLine(spyNorm, SPY_COLOR)
-        drawLine(indNorm, IND_COLOR)
-
-        // Right Y-axis vertical border line — ratio panel
-        ctx.strokeStyle = 'rgba(255,255,255,0.8)'
-        ctx.lineWidth = 1
-        ctx.setLineDash([])
-        ctx.beginPath()
-        ctx.moveTo(W - PAD_R, ratioY0)
-        ctx.lineTo(W - PAD_R, ratioY0 + RATIO_H)
-        ctx.stroke()
-
-        // Left Y-axis: 3 normalized levels (solid white), skip if overlapping live labels
-        const ratioLblSize = Math.max(9, lblSize - 2)
-        const tickerSize = Math.round(ratioLblSize * 1.25)
-        ctx.font = `bold ${ratioLblSize}px "Courier New",monospace`
-        ctx.textBaseline = 'middle'
-
-        const spyLastY = spyNorm.length >= 2 ? Math.round(toRY(spyLast)) : -9999
-        const indLastNorm = indNorm[indNorm.length - 1]?.norm ?? -1
-        const indLastY = indNorm.length >= 2 ? Math.round(toRY(indLastNorm)) : -9999
-        const rGap = Math.ceil(ratioLblSize * 1.5)
-        const fmtN = (v: number) => `${v >= 1 ? '+' : ''}${((v - 1) * 100).toFixed(1)}%`
-
-        // Separate right-side ticker labels if too close to each other
-        let rSpyY = spyLastY
-        let rIndY = indLastY
-        if (spyNorm.length >= 2 && indNorm.length >= 2 && industrySymbol) {
-          const yDiff = rIndY - rSpyY
-          if (Math.abs(yDiff) < rGap) {
-            const nudge = Math.ceil((rGap - Math.abs(yDiff)) / 2) + 2
-            if (rSpyY <= rIndY) { rSpyY -= nudge; rIndY += nudge }
-            else { rSpyY += nudge; rIndY -= nudge }
-          }
-        }
-
-        ctx.textAlign = 'right'
-          ;[rMin, (rMin + rMax) / 2, rMax].forEach((v) => {
-            const ry = Math.round(toRY(v))
-            if (Math.abs(ry - spyLastY) < rGap || Math.abs(ry - indLastY) < rGap) return
-            ctx.fillStyle = '#ffffff'
-            ctx.fillText(fmtN(v), PAD_L - 3, ry)
-          })
-
-        // Live SPY label on left (cyan) + "SPY" on right
-        if (spyNorm.length >= 2) {
-          const lrText = fmtN(spyLast)
-          const lrTW = ctx.measureText(lrText).width
-          ctx.fillStyle = '#000000'
-          ctx.fillRect(PAD_L - 3 - lrTW - 2, spyLastY - Math.ceil(ratioLblSize * 0.65), lrTW + 5, Math.ceil(ratioLblSize * 1.3))
-          ctx.fillStyle = SPY_COLOR
-          ctx.fillText(lrText, PAD_L - 3, spyLastY)
-          ctx.textAlign = 'left'
-          ctx.font = `bold ${tickerSize}px "Courier New",monospace`
-          ctx.fillText('SPY', W - PAD_R + 4, rSpyY)
-          ctx.font = `bold ${ratioLblSize}px "Courier New",monospace`
-        }
-
-        // Live industry label on left (red) + ticker on right
-        if (indNorm.length >= 2 && industrySymbol) {
-          ctx.textAlign = 'right'
-          const irText = fmtN(indLastNorm)
-          const irTW = ctx.measureText(irText).width
-          ctx.fillStyle = '#000000'
-          ctx.fillRect(PAD_L - 3 - irTW - 2, indLastY - Math.ceil(ratioLblSize * 0.65), irTW + 5, Math.ceil(ratioLblSize * 1.3))
-          ctx.fillStyle = IND_COLOR
-          ctx.fillText(irText, PAD_L - 3, indLastY)
-          ctx.textAlign = 'left'
-          ctx.font = `bold ${tickerSize}px "Courier New",monospace`
-          ctx.fillText(industrySymbol, W - PAD_R + 4, rIndY)
-        }
-      }
-    } // end showRatio
+    // ── Signal overlay: glowing zone lines for active Gamma Attack / Structural / Spammer
+    // detections (from FlowTrackingPanel's FlowBias rows), so the chart shows exactly which
+    // levels are driving those labels instead of a bare target/stop chart. ──
+    const drawGlowLine = (price: number, color: string, label: string) => {
+      const y = Math.round(toY(price))
+      if (y < PAD_T - 4 || y > PAD_T + CANDLE_H + 4) return
+      ctx.save()
+      ctx.shadowColor = color
+      ctx.shadowBlur = 8
+      ctx.strokeStyle = color
+      ctx.lineWidth = 1.75
+      ctx.setLineDash([2, 3])
+      ctx.beginPath()
+      ctx.moveTo(PAD_L, y + 0.5)
+      ctx.lineTo(W - PAD_R, y + 0.5)
+      ctx.stroke()
+      ctx.shadowBlur = 0
+      ctx.setLineDash([])
+      ctx.restore()
+      ctx.font = `bold ${Math.max(9, lblSize - 3)}px "Courier New",monospace`
+      ctx.textAlign = 'left'
+      ctx.textBaseline = 'middle'
+      const lw = ctx.measureText(label).width
+      ctx.fillStyle = color
+      ctx.fillRect(PAD_L + 4, y - Math.ceil(lblSize * 0.6), lw + 8, Math.ceil(lblSize * 1.2))
+      ctx.fillStyle = '#000000'
+      ctx.fillText(label, PAD_L + 8, y)
+    }
+    if (typeof gammaLevel === 'number' && gammaLevel > 0 && timeframe === '5M') drawGlowLine(gammaLevel, '#ff8c00', '⚡ GAMMA ATTACK')
+    if (typeof structuralLevel === 'number' && structuralLevel > 0 && timeframe === '5M') {
+      drawGlowLine(structuralLevel, structuralIsResistance ? '#a855f7' : '#38bdf8', structuralIsResistance ? '▲ STRUCTURAL RES' : '▼ STRUCTURAL SUP')
+    }
+    if (typeof spamLevel === 'number' && spamLevel > 0 && timeframe === '5M') drawGlowLine(spamLevel, '#facc15', '● SPAMMER')
 
     // X-axis: up to 5 evenly-spaced date labels (solid white)
     const xLblFont = Math.min(19, Math.max(16, Math.floor(W * 0.0413)))
@@ -931,7 +859,7 @@ export function TradeCardChart({ symbol, industrySymbol, target1Price, target2Pr
       }
       ctx.fillText(label, PAD_L + i * barW + barW * 0.5, H - PAD_B + 3)
     }
-  }, [candles, spyCandles, industryCandles, loading, timeframe, industrySymbol, target1Price, target2Price, stopPrice])
+  }, [candles, spyCandles, industryCandles, loading, timeframe, industrySymbol, target1Price, target2Price, stopPrice, gammaLevel, structuralLevel, structuralIsResistance, spamLevel])
 
   drawRef.current = draw
 
@@ -980,8 +908,15 @@ export function TradeCardChart({ symbol, industrySymbol, target1Price, target2Pr
   React.useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!dragRef.current.active) return
+      if (dragRef.current.mode === 'yscale') {
+        const dy = dragRef.current.startY - e.clientY
+        yScaleRef.current.multiplier = Math.max(0.1, Math.min(50, dragRef.current.startMultiplier * Math.pow(1.006, dy)))
+        drawRef.current()
+        return
+      }
       const canvas = canvasRef.current
       const W = canvas?.offsetWidth ?? 300
+      const H = canvas?.offsetHeight ?? 160
       const barPx = (W - 56 - 64) / stateRef.current.barsVisible
       const total = candles.length
       const now = performance.now()
@@ -994,10 +929,22 @@ export function TradeCardChart({ symbol, industrySymbol, target1Price, target2Pr
       dragRef.current.lastTime = now
       const dragBars = (e.clientX - dragRef.current.startX) / barPx
       stateRef.current.offset = Math.max(0, Math.min(Math.max(0, total - stateRef.current.barsVisible), dragRef.current.startOffset + dragBars))
+
+      // Vertical drag pans the visible price range up/down (Y-axis panning)
+      const candleH = H - 18 - 28
+      if (candleH > 0 && dragRef.current.startPriceRange > 0) {
+        const dyPx = e.clientY - dragRef.current.startY
+        const priceDelta = (dyPx / candleH) * dragRef.current.startPriceRange
+        yScaleRef.current.centerPrice = dragRef.current.startCenterPrice + priceDelta
+      }
       drawRef.current()
     }
     const onUp = () => {
       if (!dragRef.current.active) return
+      if (dragRef.current.mode === 'yscale') {
+        dragRef.current.active = false
+        return
+      }
       dragRef.current.active = false
       let vel = dragRef.current.velocity
       const total = candles.length
@@ -1018,7 +965,61 @@ export function TradeCardChart({ symbol, industrySymbol, target1Price, target2Pr
 
   const onMouseDown = (e: React.MouseEvent) => {
     if (inertiaRef.current !== null) { cancelAnimationFrame(inertiaRef.current); inertiaRef.current = null }
-    dragRef.current = { active: true, startX: e.clientX, startOffset: stateRef.current.offset, velocity: 0, lastX: e.clientX, lastTime: performance.now() }
+    const canvas = canvasRef.current
+    const W = canvas?.offsetWidth ?? 300
+    const isYAxis = e.nativeEvent.offsetX > W - 64
+    if (isYAxis) {
+      if (yScaleRef.current.centerPrice === null) {
+        const total = candles.length
+        const { offset, barsVisible } = stateRef.current
+        const start = Math.max(0, total - barsVisible - offset)
+        const vis = candles.slice(start, start + barsVisible)
+        if (vis.length > 0) {
+          const vhi = Math.max(...vis.map((c: any) => c.high ?? c.close))
+          const vlo = Math.min(...vis.map((c: any) => c.low ?? c.close))
+          yScaleRef.current.centerPrice = (vhi + vlo) / 2
+        }
+      }
+      dragRef.current = {
+        active: true, mode: 'yscale',
+        startX: e.clientX, startY: e.clientY,
+        startOffset: stateRef.current.offset, startMultiplier: yScaleRef.current.multiplier,
+        startCenterPrice: 0, startPriceRange: 0,
+        velocity: 0, lastX: e.clientX, lastTime: performance.now(),
+      }
+    } else {
+      // Seed the vertical-pan baseline from the currently visible candles (or the existing
+      // manual Y-scale, if one is already active) so dragging feels continuous.
+      const total = candles.length
+      const { offset, barsVisible } = stateRef.current
+      const start = Math.max(0, total - barsVisible - offset)
+      const vis = candles.slice(start, start + barsVisible)
+      let startCenterPrice = yScaleRef.current.centerPrice ?? 0
+      let startPriceRange = 0
+      if (vis.length > 0) {
+        const vhi = Math.max(...vis.map((c: any) => c.high ?? c.close))
+        const vlo = Math.min(...vis.map((c: any) => c.low ?? c.close))
+        const naturalRange = (vhi - vlo) || vhi * 0.02 || 1
+        startPriceRange = naturalRange / yScaleRef.current.multiplier
+        if (yScaleRef.current.centerPrice === null) startCenterPrice = (vhi + vlo) / 2
+      }
+      dragRef.current = {
+        active: true, mode: 'pan',
+        startX: e.clientX, startY: e.clientY,
+        startOffset: stateRef.current.offset, startMultiplier: 1,
+        startCenterPrice, startPriceRange,
+        velocity: 0, lastX: e.clientX, lastTime: performance.now(),
+      }
+    }
+  }
+
+  const onDoubleClick = (e: React.MouseEvent) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    if (e.nativeEvent.offsetX > canvas.offsetWidth - 64) {
+      yScaleRef.current = { multiplier: 1, centerPrice: null }
+      drawRef.current()
+    }
   }
 
   return (
@@ -1038,13 +1039,26 @@ export function TradeCardChart({ symbol, industrySymbol, target1Price, target2Pr
         ref={canvasRef}
         style={{ width: '100%', height: '100%', display: 'block', cursor: 'grab' }}
         onMouseDown={onMouseDown}
+        onDoubleClick={onDoubleClick}
+        onMouseMove={(e) => {
+          if (dragRef.current.active) return
+          const canvas = canvasRef.current
+          if (!canvas) return
+          canvas.style.cursor = e.nativeEvent.offsetX > canvas.offsetWidth - 64 ? 'ns-resize' : 'grab'
+        }}
       />
       {/* Timeframe buttons */}
-      <div style={{ position: 'absolute', top: '6px', left: '6px', display: 'flex', gap: '3px', zIndex: 10 }}>
+      <div style={{ position: 'absolute', top: '6px', left: '6px', display: 'flex', gap: '3px', zIndex: 20, pointerEvents: 'auto' }}>
         {CARD_TIMEFRAMES.map((tf) => (
           <button
             key={tf.label}
-            onClick={() => setTimeframe(tf.label)}
+            type="button"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation()
+              dragRef.current.active = false
+              setTimeframe(tf.label)
+            }}
             style={{
               padding: '2px 8px',
               fontFamily: '"Courier New",monospace',

@@ -215,7 +215,7 @@ function computeSpamLabel(
   rawTrades: Array<FlowBiasRawTrade>,
   cardType: 'call' | 'put',
   formatDate: (d: string) => string
-): { label: string; trades: Array<FlowBiasRawTrade> } {
+): { label: string; trades: Array<FlowBiasRawTrade>; level: number | null } {
   const groups: Record<string, Array<FlowBiasRawTrade>> = {}
   for (const t of rawTrades) {
     if (t.tradeType === 'MULTI-LEG') continue
@@ -228,7 +228,7 @@ function computeSpamLabel(
   for (const [key, trades] of Object.entries(groups)) {
     if (trades.length >= 3 && (!best || trades.length > best.trades.length)) best = { key, trades }
   }
-  if (!best) return { label: 'No Spammer Detected', trades: [] }
+  if (!best) return { label: 'No Spammer Detected', trades: [], level: null }
   const [strikeStr, expiry] = best.key.split('|')
   const times = best.trades.map((t) => new Date(t.trade_timestamp!).getTime()).sort((a, b) => a - b)
   const getETHour = (ms: number) => {
@@ -248,7 +248,12 @@ function computeSpamLabel(
     cadence = avgGap <= 1 ? 'All Day' : avgGap <= 3 ? 'Half Day' : 'Scattered'
   }
   const label = cardType === 'call' ? 'Calls' : 'Puts'
-  return { label: `Flow Spammer: $${strikeStr} ${label} ${formatDate(expiry)} Expiry - ${cadence}`, trades: best.trades }
+  const buyCount = best.trades.filter((t) => t.fillStyle === 'A' || t.fillStyle === 'AA').length
+  const sellCount = best.trades.filter((t) => t.fillStyle === 'B' || t.fillStyle === 'BB').length
+  const direction = buyCount > sellCount ? 'Buying' : sellCount > buyCount ? 'Selling' : null
+  const sideName = cardType === 'call' ? 'Call' : 'Put'
+  const prefix = direction ? `Flow ${sideName} ${direction} Spammer` : 'Flow Spammer'
+  return { label: `${prefix}: $${strikeStr} ${label} ${formatDate(expiry)} Expiry - ${cadence}`, trades: best.trades, level: parseFloat(strikeStr) }
 }
 
 // Finds the strike (or narrow cluster of 2-3 nearby strikes) where the given trades are
@@ -291,8 +296,8 @@ function findConcentratedStrikeLevel(trades: Array<{ strike: number }>): number 
 function computeStructuralLabel(
   rawTrades: Array<FlowBiasRawTrade> | undefined,
   spot: number | undefined
-): { label: string; trades: Array<FlowBiasRawTrade> } {
-  if (!rawTrades || !rawTrades.length || !spot || spot <= 0) return { label: 'No Structural Formation Detected', trades: [] }
+): { label: string; trades: Array<FlowBiasRawTrade>; level: number | null; isResistance: boolean } {
+  if (!rawTrades || !rawTrades.length || !spot || spot <= 0) return { label: 'No Structural Formation Detected', trades: [], level: null, isResistance: true }
 
   const isSold = (fs?: string) => fs === 'B' || fs === 'BB'
 
@@ -303,17 +308,17 @@ function computeStructuralLabel(
 
   const MIN_PRINTS = 3
   if (callsSoldAbove.length < MIN_PRINTS && putsSoldBelow.length < MIN_PRINTS) {
-    return { label: 'No Structural Formation Detected', trades: [] }
+    return { label: 'No Structural Formation Detected', trades: [], level: null, isResistance: true }
   }
 
   if (callsSoldAbove.length >= putsSoldBelow.length) {
     const level = findConcentratedStrikeLevel(callsSoldAbove)
     const label = level !== null ? `Traders are building Structural Resistance near $${level.toFixed(2)}` : 'Traders are building Structural Resistance'
-    return { label, trades: callsSoldAbove }
+    return { label, trades: callsSoldAbove, level, isResistance: true }
   }
   const level = findConcentratedStrikeLevel(putsSoldBelow)
   const label = level !== null ? `Traders are building Structural Support near $${level.toFixed(2)}` : 'Traders are building Structural Support'
-  return { label, trades: putsSoldBelow }
+  return { label, trades: putsSoldBelow, level, isResistance: false }
 }
 
 function computeGammaLabel(
@@ -1058,7 +1063,7 @@ function SweepSenseTab({
           const flowBiasKey = `${trade.underlying_ticker}|${histRange || 'TODAY'}`
           const flowBiasTrades = flowBiasRaw[flowBiasKey]
           const flowBiasReady = !!flowBiasTrades
-          const spamResult = flowBiasReady ? computeSpamLabel(flowBiasTrades!, trade.type, formatDate) : { label: 'Loading…', trades: [] }
+          const spamResult = flowBiasReady ? computeSpamLabel(flowBiasTrades!, trade.type, formatDate) : { label: 'Loading…', trades: [], level: null }
           // Structural support = puts SOLD (B/BB) at/below spot (a real floor); resistance = calls
           // SOLD (B/BB) at/above spot (a real overhead wall). Uses the SAME live in-memory flow feed
           // the quadrant boxes/gauge use (liveRawTrades) - no extra DB round-trip needed.
@@ -1591,7 +1596,7 @@ function SweepSenseTab({
                             onClick={() => row.active && row.trades.length > 0 && setFlowBiasDetail({ title: `${trade.underlying_ticker} - ${row.title}`, trades: row.trades })}
                             style={{
                               display: 'flex', alignItems: 'center', padding: '4px 8px', borderRadius: '4px',
-                              background: row.active ? 'rgba(255,140,0,0.1)' : 'rgba(255,255,255,0.03)',
+                              background: '#000000',
                               border: `1px solid ${row.active ? 'rgba(255,140,0,0.35)' : 'rgba(255,255,255,0.08)'}`,
                               cursor: row.active && row.trades.length > 0 ? 'pointer' : 'default',
                             }}
@@ -1621,7 +1626,7 @@ function SweepSenseTab({
                               onClick={() => row.active && row.trades.length > 0 && setFlowBiasDetail({ title: `${trade.underlying_ticker} - ${row.title}`, trades: row.trades })}
                               style={{
                                 display: 'flex', alignItems: 'center', padding: '4px 8px', borderRadius: '4px',
-                                background: row.active ? 'rgba(255,140,0,0.1)' : 'rgba(255,255,255,0.03)',
+                                background: '#000000',
                                 border: `1px solid ${row.active ? 'rgba(255,140,0,0.35)' : 'rgba(255,255,255,0.08)'}`,
                                 cursor: row.active && row.trades.length > 0 ? 'pointer' : 'default',
                               }}
@@ -1646,9 +1651,14 @@ function SweepSenseTab({
                       target1Price={typeof ladderTarget1 === 'number' ? ladderTarget1 : undefined}
                       target2Price={typeof ladderTarget2 === 'number' ? ladderTarget2 : undefined}
                       stopPrice={typeof ladderStopStock === 'number' ? ladderStopStock : undefined}
+                      gammaLevel={gammaLabel === 'Gamma Squeeze in Formation' ? target1 : null}
+                      structuralLevel={structuralResult.level}
+                      structuralIsResistance={structuralResult.isResistance}
+                      spamLevel={spamLabel !== 'No Spammer Detected' && spamLabel !== 'Loading…' ? spamResult.level : null}
                     />
                   </div>
                 )}
+
               </div>
             </div>
           )
