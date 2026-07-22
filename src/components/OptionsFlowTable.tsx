@@ -274,6 +274,132 @@ function bsStrikeForProb(
   }
 }
 
+// -- Refine a raw dealer-gamma magnet/pivot strike (a round OI-derived number like $120) down
+// to the EXACT nearby chart level that actually matters - a real daily-close swing point in
+// that area rather than the raw strike. Scans the ticker's daily closes for candidates within
+// a tight band around the raw level and scores each one on:
+//   1) uniqueness  - how rarely price has closed at/near that exact print (a level visited
+//      only once or twice reads as a "trapped range" edge, not noise)
+//   2) reaction     - how far/fast price moved away in the sessions right after that close
+//      (the level either launched price away from it or firmly rejected it)
+//   3) trend break  - whether the close reversed a preceding run of same-direction closes
+//      (a level that actually broke an up/down trend, not just a random daily print)
+// The candidate with the best combined score (closest match wins ties) becomes the refined
+// level. Falls back to the raw level (null return) when there isn't enough daily history yet.
+function refinePivotalLevel(
+  candles: { c: number; h: number; l: number }[] | null | undefined,
+  approxLevel: number | null,
+  spot: number,
+  hardLo?: number,
+  hardHi?: number
+): number | null {
+  if (!candles || candles.length < 20 || approxLevel === null || approxLevel <= 0 || !(spot > 0)) {
+    return null
+  }
+
+  const n = candles.length
+
+  // Per-stock daily range (ATR-style, high-low over the trailing 20 sessions) instead of a
+  // fixed % of price - every ticker moves differently in raw dollars, so the search band,
+  // revisit tolerance, and reaction threshold all scale off THIS stock's own actual daily
+  // range rather than an arbitrary percentage.
+  const atrWindow = candles.slice(Math.max(0, n - 20))
+  const avgDailyRange =
+    atrWindow.reduce((s, c) => s + Math.max(0, c.h - c.l), 0) / Math.max(1, atrWindow.length)
+  const atr = avgDailyRange > 0 ? avgDailyRange : spot * 0.01 // fallback only if range data is degenerate
+
+  // Search band: about 4 average daily ranges on either side of the raw level, intersected
+  // with the 90%-probability BS move band (hardLo/hardHi) so every candidate this function can
+  // ever return is ALREADY inside the tradeable range - no separate clamp-after-the-fact step
+  // needed, which would otherwise snap a real candle close to an arbitrary band-edge price.
+  let lo = approxLevel - atr * 4
+  let hi = approxLevel + atr * 4
+  if (hardLo !== undefined && hardHi !== undefined && hardHi > hardLo) {
+    lo = Math.max(lo, hardLo)
+    hi = Math.min(hi, hardHi)
+    // The raw dealer level sits entirely outside the 90% band - search the whole band instead
+    // of nothing, since the raw level itself isn't usable as an anchor here anyway.
+    if (lo > hi) {
+      lo = hardLo
+      hi = hardHi
+    }
+  }
+  const band = Math.max(hi - lo, atr) // used below only for scoring/proximity, never zero
+
+  const win = 3 // compare each close against 3 sessions on either side to qualify as a local swing
+  type Cand = { idx: number; level: number; score: number }
+  const cands: Cand[] = []
+
+  for (let i = win; i < n - win; i++) {
+    const c = candles[i].c
+    if (c < lo || c > hi) continue
+    let isHigh = true
+    let isLow = true
+    for (let k = i - win; k <= i + win; k++) {
+      if (k === i) continue
+      if (candles[k].c >= c) isHigh = false
+      if (candles[k].c <= c) isLow = false
+    }
+    if (!isHigh && !isLow) continue
+    cands.push({ idx: i, level: c, score: 0 })
+  }
+  // Strict local swing highs/lows are ideal, but the 90%-band intersection above can make the
+  // search window narrow enough that NONE of this ticker's closes happen to qualify as a strict
+  // swing point - that used to silently fall back to the raw round dealer strike every time.
+  // Instead, fall back to scoring every close inside the band so a real, unique daily-close
+  // level is (almost) always found.
+  if (!cands.length) {
+    for (let i = 0; i < n; i++) {
+      const c = candles[i].c
+      if (c < lo || c > hi) continue
+      cands.push({ idx: i, level: c, score: 0 })
+    }
+  }
+  if (!cands.length) {
+    return null
+  }
+
+  for (const cand of cands) {
+    const { idx, level } = cand
+
+    // 1) Uniqueness - fewer other daily closes revisiting this exact print (within ~1/3 of a
+    // day's typical range) = a rarer, more meaningful "trapped range" edge instead of a level
+    // price has churned through repeatedly.
+    const tol = atr * 0.3
+    let revisits = 0
+    for (let k = 0; k < n; k++) {
+      if (Math.abs(candles[k].c - level) <= tol) revisits++
+    }
+    const uniquenessScore = 1 / revisits
+
+    // 2) Reaction - the biggest move away from this level (in multiples of its own daily
+    // range) within the next 5 sessions - a real breakout-or-rejection point should be
+    // followed by a decisive move measured in THIS stock's own volatility terms.
+    let maxMove = 0
+    for (let k = idx + 1; k <= Math.min(n - 1, idx + 5); k++) {
+      const move = Math.abs(candles[k].c - level) / atr
+      if (move > maxMove) maxMove = move
+    }
+
+    // 3) Trend break - did this print reverse a preceding directional run of closes?
+    let trendBreakBonus = 0
+    if (idx > win) {
+      const priorRun = candles[idx - 1].c - candles[idx - win - 1].c
+      const thisDir = candles[idx + 1] ? candles[idx + 1].c - level : 0
+      if ((priorRun < 0 && thisDir > 0) || (priorRun > 0 && thisDir < 0)) trendBreakBonus = 0.5
+    }
+
+    // Slight preference for staying close to the raw dealer-derived level (still the strongest
+    // directional OI signal) - refinement should sharpen it, not replace it with something far off.
+    const proximityPenalty = (Math.abs(level - approxLevel) / band) * 0.6
+
+    cand.score = uniquenessScore * 2 + maxMove * 1.5 + trendBreakBonus - proximityPenalty
+  }
+
+  cands.sort((a, b) => b.score - a.score)
+  return cands[0].level
+}
+
 // -- Plan Entry: the exact Magnet/Pivot entry-plan decision tree used in the Dealer column.
 // Extracted as a pure function so the SweepSense tab can reuse the IDENTICAL logic instead
 // of reimplementing it.
@@ -288,30 +414,37 @@ function computePlanEntry(params: {
   grade: string
   gradeColor: string
 }): { sigCode: string; sigColor: string; planText: string } {
-  const { spot, magnet, pivot, sigma, dte, type, fillStyle, grade, gradeColor } = params
+  const { spot, magnet: rawMagnetIn, pivot: rawPivotIn, sigma, dte, type, fillStyle, grade, gradeColor } = params
   let sigCode = grade
   let sigColor = gradeColor
   let planText = 'Waiting on dealer magnet/pivot data to build an entry plan.'
 
-  if (!(spot && spot > 0) || (magnet === null && pivot === null)) {
+  if (!(spot && spot > 0) || (rawMagnetIn === null && rawPivotIn === null)) {
     return { sigCode, sigColor, planText: 'No Plan detected.' }
   }
   if (sigma <= 0) {
     return { sigCode, sigColor, planText: 'No Plan detected.' }
   }
-  const call80 = bsStrikeForProb(spot, sigma, dte, 80, true)
-  const put80 = bsStrikeForProb(spot, sigma, dte, 80, false)
-  if (call80 === null || put80 === null) {
+  const call90 = bsStrikeForProb(spot, sigma, dte, 90, true)
+  const put90 = bsStrikeForProb(spot, sigma, dte, 90, false)
+  if (call90 === null || put90 === null) {
     return { sigCode, sigColor, planText: 'No Plan detected.' }
   }
-  const lo80 = Math.min(put80, call80)
-  const hi80 = Math.max(put80, call80)
+  const lo90 = Math.min(put90, call90)
+  const hi90 = Math.max(put90, call90)
 
   let impliedBullish = type === 'call'
   if (fillStyle === 'B' || fillStyle === 'BB') impliedBullish = !impliedBullish
 
-  const magnetInRange = magnet !== null && magnet >= lo80 && magnet <= hi80
-  const pivotInRange = pivot !== null && pivot >= lo80 && pivot <= hi80
+  // Clamp magnet/pivot into the 90%-probability BS move band instead of either rejecting
+  // them outright (which left "No Plan detected." with no price at all) or leaving them
+  // fully unbounded (which could surface a level with a low real chance of being reached).
+  // A refined chart level beyond the 90% band gets pulled in to the band's edge so the plan
+  // still points at a price that's realistically within reach.
+  const clamp90 = (level: number) => Math.min(hi90, Math.max(lo90, level))
+  const magnet = rawMagnetIn !== null ? clamp90(rawMagnetIn) : null
+  const pivot = rawPivotIn !== null ? clamp90(rawPivotIn) : null
+
   const magnetAbove = magnet !== null ? magnet > spot : false
   const pivotAbove = pivot !== null ? pivot > spot : false
   const magnetAligned = magnet !== null && ((magnetAbove && impliedBullish) || (!magnetAbove && !impliedBullish))
@@ -321,8 +454,8 @@ function computePlanEntry(params: {
 
   type Lvl = { label: 'magnet' | 'pivot'; value: number; aligned: boolean; dist: number }
   const candidates: Lvl[] = []
-  if (magnetInRange) candidates.push({ label: 'magnet', value: magnet!, aligned: magnetAligned, dist: Math.abs(magnet! - spot) })
-  if (pivotInRange) candidates.push({ label: 'pivot', value: pivot!, aligned: pivotAligned, dist: Math.abs(pivot! - spot) })
+  if (magnet !== null) candidates.push({ label: 'magnet', value: magnet, aligned: magnetAligned, dist: Math.abs(magnet - spot) })
+  if (pivot !== null) candidates.push({ label: 'pivot', value: pivot, aligned: pivotAligned, dist: Math.abs(pivot - spot) })
   candidates.sort((a, b) => a.dist - b.dist)
   const primary = candidates[0] ?? null
   const secondary = candidates[1] ?? null
@@ -336,27 +469,27 @@ function computePlanEntry(params: {
     const hasStretchTarget = secondary !== null && secondary.aligned
     if (primary.dist / spot <= near) {
       if (spot < primary.value) {
-        sigCode = `Break Above $${primary.value.toFixed(0)}`; sigColor = '#00e5ff'
+        sigCode = `Break Above $${primary.value.toFixed(2)}`; sigColor = '#00e5ff'
         planText = `Price sits just below the ${primaryLabel} ($${primary.value.toFixed(2)}). Wait for a clean break above ${primary.value.toFixed(2)} with momentum/volume; on confirmed break expect continuation higher — enter on breakout.`
       } else {
-        sigCode = `Break Below $${primary.value.toFixed(0)}`; sigColor = '#ff0000'
+        sigCode = `Break Below $${primary.value.toFixed(2)}`; sigColor = '#ff0000'
         planText = `Price sits just above the ${primaryLabel} ($${primary.value.toFixed(2)}). Wait for a clean break below ${primary.value.toFixed(2)} with momentum/volume; on confirmed breakdown expect continuation lower — enter on breakdown.`
       }
     } else {
-      sigCode = `Target $${primary.value.toFixed(0)}`; sigColor = '#ff8500'
+      sigCode = `Target $${primary.value.toFixed(2)}`; sigColor = '#ff8500'
       planText = `The ${primaryLabel} at $${primary.value.toFixed(2)} aligns with the flow intent. You can enter and trade toward ${primary.value.toFixed(2)} as your target.`
     }
     if (hasStretchTarget) {
-      sigCode = impliedBullish ? `Long ? $${secondary!.value.toFixed(0)}` : `Short ? $${secondary!.value.toFixed(0)}`
+      sigCode = impliedBullish ? `Long ? $${secondary!.value.toFixed(2)}` : `Short ? $${secondary!.value.toFixed(2)}`
       planText += ` On a confirmed break past $${primary.value.toFixed(2)}, add/enter more targeting the ${secondary!.label} at $${secondary!.value.toFixed(2)}.`
     }
   } else {
     const primaryLabel = primary.label
     if (impliedBullish) {
-      sigCode = `Reversal Long $${primary.value.toFixed(0)}`; sigColor = '#00e5ff'
+      sigCode = `Reversal Long $${primary.value.toFixed(2)}`; sigColor = '#00e5ff'
       planText = `The ${primaryLabel} at $${primary.value.toFixed(2)} sits against the bullish flow intent. Wait for price to approach down to $${primary.value.toFixed(2)} and buy there for entry.`
     } else {
-      sigCode = `Reversal Short $${primary.value.toFixed(0)}`; sigColor = '#ff0000'
+      sigCode = `Reversal Short $${primary.value.toFixed(2)}`; sigColor = '#ff0000'
       planText = `The ${primaryLabel} at $${primary.value.toFixed(2)} sits against the bearish flow intent. Wait for price to run up to approach $${primary.value.toFixed(2)} and short there for entry.`
     }
   }
@@ -580,6 +713,10 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [priceLoadingState, setPriceLoadingState] = useState<Record<string, boolean>>({})
   // True while any stock price is still being fetched for the current flow dataset
   const stockPricesLoading = Object.values(priceLoadingState).some(v => v)
+  // Set true the moment fetchCurrentPrices actually kicks off a batch (the 500ms debounce
+  // means stockPricesLoading is still false for a brief window before that) - lets the
+  // SweepSense auto-run effect tell "hasn't started yet" apart from "already finished".
+  const pricesFetchStartedRef = useRef(false)
 
   const [currentOptionPrices, setCurrentOptionPrices] = useState<Record<string, number>>({})
 
@@ -914,6 +1051,15 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   // options-chain page: avg IV of calls+puts within 5% of spot for that specific expiry.
   const [expiryIVCache, setExpiryIVCache] = useState<Record<string, number>>({})
 
+  // Daily candle history per ticker (~1yr) used to refine the raw magnet/pivot gamma strikes
+  // down to the EXACT chart level nearby (a real unique swing close - trend-break/rejection/
+  // breakout point) instead of the raw round dealer-gamma strike. See refinePivotalLevel below.
+  const [dailyCandleCache, setDailyCandleCache] = useState<
+    Record<string, { c: number; h: number; l: number }[] | null>
+  >({})
+  const dailyCandleFetchingRef = useRef<Set<string>>(new Set())
+  const dailyCandleRetryCountRef = useRef<Record<string, number>>({})
+
   // Long-term (LEAP) expected-range cache - keyed by ticker only. Long-term/LEAP trades use the
   // expiry CLOSEST to 45 days out (not the trade's own far-dated expiry) for the ATM IV + DTE used
   // in the Plan Entry / Magnet-Pivot range gate, matching the 45-day window convention.
@@ -1058,6 +1204,8 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
     const uniqueTickers = [...new Set(tickers)].filter(t => !INDEX_UNDERLYINGS.has(t.toUpperCase()))
     if (uniqueTickers.length === 0) return
+
+    pricesFetchStartedRef.current = true
 
     // Mark all as loading
     const initialLoadingState: Record<string, boolean> = {}
@@ -2697,13 +2845,18 @@ Stock Reaction: ${scores.stockReaction}/15`
   const meetsEfiCriteria = meetsShortTermCriteria
   const meetsLeapCriteria = meetsLongTermCriteria
 
-  // SweepSense button removed - scan now runs automatically the first time flow data loads.
+  // SweepSense button removed - scan now runs automatically the first time flow data loads,
+  // but only once the main table's current-price fetch has actually started AND finished -
+  // otherwise SweepSense grades trades against stale/entry prices instead of live prices.
   const sweepSenseAutoRanRef = useRef(false)
   useEffect(() => {
     if (sweepSenseAutoRanRef.current) {
       return
     }
     if (!data || data.length === 0) {
+      return
+    }
+    if (!pricesFetchStartedRef.current || stockPricesLoading) {
       return
     }
     sweepSenseAutoRanRef.current = true
@@ -2741,7 +2894,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     }
     run()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data])
+  }, [data, stockPricesLoading])
 
   // SweepSense keeps running against LIVE, ever-changing data, but the RS/52wk/seasonal
   // fetches only ran once (at button-click time) for whatever tickers existed then.
@@ -4225,6 +4378,11 @@ Stock Reaction: ${scores.stockReaction}/15`
     // classification AlgoFlowScreener already uses (isBullish = A/AA/no-fill, isBearish = B/BB),
     // computed from ALL of that ticker's raw flow prints (not reinvented math).
     const tickerPrem = new Map<string, { buyCalls: number; bearCalls: number; buyPuts: number; bearPuts: number }>()
+    // Same live in-memory prints, kept per-ticker as a raw strike/type/fill-style list (no extra
+    // DB call) - reused by FlowTrackingPanel to correctly classify structural support (put
+    // SELLING, B/BB, below spot) vs resistance (call SELLING, B/BB, above spot) and cluster the
+    // strike level, so it can never disagree with the quadrant boxes/gauge built from this same `data`.
+    const tickerRawTrades = new Map<string, Array<{ strike: number; type: string; fillStyle: string; expiry: string; trade_timestamp: string; tradeSize: number; premium: number; totalPremium: number; spot: number; tradeType: string }>>()
     for (const t of data) {
       const fs = (t.fill_style || '') as string
       const isCall = t.type === 'call'
@@ -4236,6 +4394,21 @@ Stock Reaction: ${scores.stockReaction}/15`
       else if (!isCall && isBullish) entry.buyPuts += t.total_premium
       else if (!isCall && isBearish) entry.bearPuts += t.total_premium
       tickerPrem.set(t.underlying_ticker, entry)
+
+      const rawList = tickerRawTrades.get(t.underlying_ticker) || []
+      rawList.push({
+        strike: t.strike,
+        type: t.type,
+        fillStyle: fs,
+        expiry: t.expiry,
+        trade_timestamp: t.trade_timestamp,
+        tradeSize: t.trade_size,
+        premium: t.premium_per_contract,
+        totalPremium: t.total_premium,
+        spot: t.spot_price,
+        tradeType: t.classification || t.trade_type,
+      })
+      tickerRawTrades.set(t.underlying_ticker, rawList)
     }
 
     const trades = sweepSenseQualifyingData.map(({ trade, grade, gradeColor, convictionScore }) => {
@@ -4243,8 +4416,8 @@ Stock Reaction: ${scores.stockReaction}/15`
       // gate decision and the displayed grade can never disagree with each other.
       const g = { grade, color: gradeColor }
       const zone = dealerZoneCache[trade.underlying_ticker]
-      const magnet = zone?.golden ?? null
-      const pivot = zone?.purple ?? null
+      const rawMagnet = zone?.golden ?? null
+      const rawPivot = zone?.purple ?? null
       const cur = currentPrices[trade.underlying_ticker]
       const pctMove = trade.spot_price && cur ? ((cur - trade.spot_price) / trade.spot_price) * 100 : null
 
@@ -4256,6 +4429,20 @@ Stock Reaction: ${scores.stockReaction}/15`
         ? (longTermIVCache[trade.underlying_ticker]?.dte ?? 45)
         : (trade.days_to_expiry > 0 ? trade.days_to_expiry : 1)
       const spot = cur ?? trade.spot_price
+
+      // Refine the raw dealer-gamma magnet/pivot strikes down to the exact nearby chart level
+      // (real swing close, not the raw round strike) using this ticker's daily candle history,
+      // restricted to the same 90%-probability BS move band the plan entry itself uses - so the
+      // refined level is guaranteed a realistic, tradeable price (e.g. $119.30 instead of a
+      // round $120) rather than a level that later gets clamped to an arbitrary band edge.
+      const candles = dailyCandleCache[trade.underlying_ticker]
+      const band90Call = sigma > 0 ? bsStrikeForProb(spot, sigma, dte, 90, true) : null
+      const band90Put = sigma > 0 ? bsStrikeForProb(spot, sigma, dte, 90, false) : null
+      const band90Lo = band90Call !== null && band90Put !== null ? Math.min(band90Call, band90Put) : undefined
+      const band90Hi = band90Call !== null && band90Put !== null ? Math.max(band90Call, band90Put) : undefined
+      const magnet = refinePivotalLevel(candles, rawMagnet, spot, band90Lo, band90Hi) ?? rawMagnet
+      const pivot = refinePivotalLevel(candles, rawPivot, spot, band90Lo, band90Hi) ?? rawPivot
+
       const { sigCode, sigColor, planText } = computePlanEntry({
         spot, magnet, pivot, sigma, dte, type: trade.type, fillStyle: trade.fill_style, grade: g.grade, gradeColor: g.color,
       })
@@ -4312,6 +4499,10 @@ Stock Reaction: ${scores.stockReaction}/15`
           buyPutsPct: (bd.buyPuts / bdTotal) * 100,
           bearPutsPct: (bd.bearPuts / bdTotal) * 100,
         },
+        // Raw strike/type list for this ticker from the SAME live `data` feed the breakdown
+        // above was built from - lets FlowTrackingPanel cluster the structural support/resistance
+        // strike level without a separate DB round-trip.
+        liveRawTrades: tickerRawTrades.get(trade.underlying_ticker) || [],
       }
     })
 
@@ -4343,7 +4534,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     }
 
     return { trades, stats, bubbles }
-  }, [sweepSenseBgActive, sweepSenseQualifyingData, dealerZoneCache, currentPrices, data, expiryIVCache, longTermIVCache, currentOptionPrices, sweepSenseHistoricalQualifiedAt])
+  }, [sweepSenseBgActive, sweepSenseQualifyingData, dealerZoneCache, currentPrices, data, expiryIVCache, longTermIVCache, currentOptionPrices, sweepSenseHistoricalQualifiedAt, dailyCandleCache])
 
   // The tab must only ever show ONE final, settled result - never the churn of intermediate
   // in-progress computations (which flicker as grades/prices/dealer-zones trickle in). We
@@ -4444,7 +4635,48 @@ Stock Reaction: ${scores.stockReaction}/15`
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sweepSenseCandidates, sweepSenseBgActive, modeLoadingStep])
 
-  // Auto-fetch per-expiry ATM IV for the Plan Entry expected-range gate.
+  // Auto-fetch ~1yr of daily candles per ticker so magnet/pivot can be refined from a raw
+  // dealer-gamma strike into the exact nearby chart level (see refinePivotalLevel above).
+  useEffect(() => {
+    if (!sweepSenseBgActive || modeLoadingStep !== null) return
+    const tickers = [...new Set(sweepSenseCandidates.map((t) => t.underlying_ticker))]
+    const MAX_RETRIES = 3
+    const missing = tickers.filter((t) => {
+      if (dailyCandleFetchingRef.current.has(t)) return false
+      if (!(t in dailyCandleCache)) return true
+      // A previously-failed ticker (cached as null) would otherwise be stuck forever - retry
+      // it a bounded number of times instead of permanently skipping it.
+      return dailyCandleCache[t] === null && (dailyCandleRetryCountRef.current[t] ?? 0) < MAX_RETRIES
+    })
+    if (missing.length === 0) return
+    const end = new Date().toISOString().split('T')[0]
+    const start = new Date(Date.now() - 365 * 86400000).toISOString().split('T')[0]
+    missing.forEach((ticker) => dailyCandleFetchingRef.current.add(ticker))
+    missing.forEach((ticker) => {
+      ; (async () => {
+        const url = `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${start}/${end}?adjusted=true&sort=asc&limit=400&apiKey=${POLYGON_API_KEY}`
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
+            if (res.ok) {
+              const json = await res.json()
+              const results = Array.isArray(json?.results) ? json.results : []
+              const candles = results.map((b: any) => ({ c: b.c, h: b.h, l: b.l }))
+              setDailyCandleCache((prev) => ({ ...prev, [ticker]: candles.length > 0 ? candles : null }))
+              dailyCandleFetchingRef.current.delete(ticker)
+              return
+            }
+          } catch {
+            // transient failure - fall through to retry loop below
+          }
+        }
+        dailyCandleRetryCountRef.current[ticker] = (dailyCandleRetryCountRef.current[ticker] ?? 0) + 1
+        setDailyCandleCache((prev) => ({ ...prev, [ticker]: null }))
+        dailyCandleFetchingRef.current.delete(ticker)
+      })()
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sweepSenseCandidates, sweepSenseBgActive, modeLoadingStep, dailyCandleCache])
   // Uses the SAME single-expiry options-chain fetch + ATM-IV averaging as openNotableAnalysis
   // (the options-chain page's logic) — not the multi-expiry aggregate atmIV from dealer-zones.
   useEffect(() => {

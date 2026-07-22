@@ -73,6 +73,16 @@ const formatDate = (dateString: string) => {
   return `${month}/${day}/${String(year).slice(-2)}`
 }
 
+// Compact dollar formatting for tight desktop rows - caps at ~4 chars after the $ sign
+// ($1.1K instead of $1,132) so the Build A Trade summary row never wraps to a second line.
+const formatCompactDollars = (value: number): string => {
+  const abs = Math.abs(value)
+  const sign = value < 0 ? '-' : ''
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`
+  if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(1)}K`
+  return `${sign}$${Math.round(abs)}`
+}
+
 const generateFlowId = (trade: OptionsFlowData): string =>
   `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_timestamp}-${trade.trade_size}`
 
@@ -143,14 +153,73 @@ function _bsD1FTP(S: number, K: number, r: number, sigma: number, T: number): nu
 }
 // ── FlowBias helpers: Spam / Structural / Gamma detection off the raw flow-trade list for
 // the selected TODAY/3D/1W window (same buttons that drive the historical breakdown).
+// Shared raw-trade shape carrying everything the FlowBias detail modal needs to render a
+// table row matching the main Options Flow table's columns (Time/C-P/Strike/Premium/Expiry/
+// Size+Fill/Type/Spot).
+type FlowBiasRawTrade = {
+  strike: number
+  type: string
+  expiry?: string
+  trade_timestamp?: string
+  fillStyle?: string
+  tradeSize?: number
+  premium?: number
+  totalPremium?: number
+  spot?: number
+  tradeType?: string
+}
+
+// Glossy black badge styling matching OptionsFlowTable's getTradeTypeColor, replicated locally
+// since that helper is not exported from OptionsFlowTable.tsx.
+function getFlowBiasTypeBadgeStyle(tradeType: string | undefined): React.CSSProperties {
+  const glossyBlack: React.CSSProperties = {
+    backgroundColor: '#000000',
+    backgroundImage: 'linear-gradient(180deg, #1e1e1e 0%, #000000 50%, #111111 100%)',
+  }
+  const glossyOverlay = 'inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(0,0,0,0.8)'
+  const common: React.CSSProperties = {
+    ...glossyBlack,
+    boxShadow: glossyOverlay,
+    borderRadius: '9999px',
+    letterSpacing: '0.05em',
+    fontWeight: 800,
+    padding: '3px 10px',
+    fontSize: '12px',
+    display: 'inline-block',
+  }
+  if (tradeType === 'SWEEP') {
+    return { ...common, color: '#FFD700', border: '1px solid rgba(255,215,0,0.6)' }
+  }
+  if (tradeType === 'SUPER SWEEP') {
+    return { ...common, color: '#FFD700', border: '1px solid #FFD700', boxShadow: `${glossyOverlay}, 0 0 8px rgba(255,215,0,0.6)`, fontWeight: 900 }
+  }
+  if (tradeType === 'BLOCK') {
+    return { ...common, color: '#00e5ff', border: '1px solid rgba(0,229,255,0.5)' }
+  }
+  if (tradeType === 'SUPER BLOCK') {
+    return { ...common, color: '#00e5ff', border: '1px solid #00e5ff', boxShadow: `${glossyOverlay}, 0 0 8px rgba(0,229,255,0.6)`, fontWeight: 900 }
+  }
+  if (tradeType === 'MULTI-LEG') {
+    return {
+      ...common,
+      backgroundColor: '#1e0a3c',
+      backgroundImage: 'linear-gradient(180deg, #3b1d6e 0%, #1e0a3c 50%, #2d1555 100%)',
+      color: '#d8b4fe',
+      border: '1px solid rgba(168,85,247,0.5)',
+    }
+  }
+  return { ...common, color: '#9ca3af', border: '1px solid rgba(156,163,175,0.4)' }
+}
+
 function computeSpamLabel(
-  rawTrades: Array<{ strike: number; expiry: string; type: string; trade_timestamp: string }>,
+  rawTrades: Array<FlowBiasRawTrade>,
   cardType: 'call' | 'put',
   formatDate: (d: string) => string
-): string {
-  const groups: Record<string, Array<{ strike: number; expiry: string; type: string; trade_timestamp: string }>> = {}
+): { label: string; trades: Array<FlowBiasRawTrade> } {
+  const groups: Record<string, Array<FlowBiasRawTrade>> = {}
   for (const t of rawTrades) {
-    if (t.type !== cardType) continue
+    if (t.tradeType === 'MULTI-LEG') continue
+    if (t.type !== cardType || !t.expiry || !t.trade_timestamp) continue
     const key = `${t.strike}|${t.expiry}`
     if (!groups[key]) groups[key] = []
     groups[key].push(t)
@@ -159,9 +228,9 @@ function computeSpamLabel(
   for (const [key, trades] of Object.entries(groups)) {
     if (trades.length >= 3 && (!best || trades.length > best.trades.length)) best = { key, trades }
   }
-  if (!best) return 'No Spammer Detected'
+  if (!best) return { label: 'No Spammer Detected', trades: [] }
   const [strikeStr, expiry] = best.key.split('|')
-  const times = best.trades.map((t) => new Date(t.trade_timestamp).getTime()).sort((a, b) => a - b)
+  const times = best.trades.map((t) => new Date(t.trade_timestamp!).getTime()).sort((a, b) => a - b)
   const getETHour = (ms: number) => {
     const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date(ms))
     const h = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10)
@@ -179,28 +248,88 @@ function computeSpamLabel(
     cadence = avgGap <= 1 ? 'All Day' : avgGap <= 3 ? 'Half Day' : 'Scattered'
   }
   const label = cardType === 'call' ? 'Calls' : 'Puts'
-  return `Flow Spammer: $${strikeStr} ${label} ${formatDate(expiry)} Expiry - ${cadence}`
+  return { label: `Flow Spammer: $${strikeStr} ${label} ${formatDate(expiry)} Expiry - ${cadence}`, trades: best.trades }
 }
 
-function computeStructuralLabel(breakdown: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }): string {
-  if (breakdown.buyCallsPct >= 25 && breakdown.bearCallsPct >= 25) return 'Traders are building Structural Support'
-  if (breakdown.buyPutsPct >= 25 && breakdown.bearPutsPct >= 25) return 'Traders are building Structural Resistance'
-  return 'No Structural Formation Detected'
+// Finds the strike (or narrow cluster of 2-3 nearby strikes) where the given trades are
+// most heavily concentrated, and returns the volume-weighted average of that cluster.
+// e.g. resistance forming at $100/$101/$102 with clustered flow -> returns (100+101+102)/3 = 101.
+function findConcentratedStrikeLevel(trades: Array<{ strike: number }>): number | null {
+  if (!trades.length) return null
+  const counts = new Map<number, number>()
+  for (const t of trades) counts.set(t.strike, (counts.get(t.strike) ?? 0) + 1)
+  const strikes = [...counts.keys()].sort((a, b) => a - b)
+  if (!strikes.length) return null
+
+  // "2-3 strikes around the same area" - use this underlying's real strike increment (same
+  // convention as roundToRealStrike) so the cluster window scales with the stock's price level.
+  const sample = strikes[0]
+  const inc = sample < 25 ? 0.5 : sample < 200 ? 1 : sample < 500 ? 5 : 10
+  const maxGap = inc * 2.5
+
+  let bestWeight = 0
+  let bestWeightedStrike = strikes[0]
+  let i = 0
+  while (i < strikes.length) {
+    let j = i
+    let weight = counts.get(strikes[i])!
+    let weightedSum = strikes[i] * counts.get(strikes[i])!
+    while (j + 1 < strikes.length && strikes[j + 1] - strikes[j] <= maxGap) {
+      j++
+      weight += counts.get(strikes[j])!
+      weightedSum += strikes[j] * counts.get(strikes[j])!
+    }
+    if (weight > bestWeight) {
+      bestWeight = weight
+      bestWeightedStrike = weightedSum / weight
+    }
+    i = j + 1
+  }
+  return bestWeightedStrike
+}
+
+function computeStructuralLabel(
+  rawTrades: Array<FlowBiasRawTrade> | undefined,
+  spot: number | undefined
+): { label: string; trades: Array<FlowBiasRawTrade> } {
+  if (!rawTrades || !rawTrades.length || !spot || spot <= 0) return { label: 'No Structural Formation Detected', trades: [] }
+
+  const isSold = (fs?: string) => fs === 'B' || fs === 'BB'
+
+  // Resistance = calls SOLD (B/BB) at/above spot - the seller is capping upside, a real overhead wall.
+  const callsSoldAbove = rawTrades.filter((t) => t.tradeType !== 'MULTI-LEG' && t.type === 'call' && isSold(t.fillStyle) && t.strike >= spot)
+  // Support = puts SOLD (B/BB) at/below spot - the seller is willing to buy stock there, a real floor.
+  const putsSoldBelow = rawTrades.filter((t) => t.tradeType !== 'MULTI-LEG' && t.type === 'put' && isSold(t.fillStyle) && t.strike <= spot)
+
+  const MIN_PRINTS = 3
+  if (callsSoldAbove.length < MIN_PRINTS && putsSoldBelow.length < MIN_PRINTS) {
+    return { label: 'No Structural Formation Detected', trades: [] }
+  }
+
+  if (callsSoldAbove.length >= putsSoldBelow.length) {
+    const level = findConcentratedStrikeLevel(callsSoldAbove)
+    const label = level !== null ? `Traders are building Structural Resistance near $${level.toFixed(2)}` : 'Traders are building Structural Resistance'
+    return { label, trades: callsSoldAbove }
+  }
+  const level = findConcentratedStrikeLevel(putsSoldBelow)
+  const label = level !== null ? `Traders are building Structural Support near $${level.toFixed(2)}` : 'Traders are building Structural Support'
+  return { label, trades: putsSoldBelow }
 }
 
 function computeGammaLabel(
-  rawTrades: Array<{ strike: number; type: string }>,
+  rawTrades: Array<FlowBiasRawTrade>,
   cardType: 'call' | 'put',
   target1Level: number | null,
   targetUp: boolean,
   isLongTerm: boolean
-): string {
-  if (isLongTerm) return 'No Gamma Attack'
-  if (target1Level === null) return 'No Gamma Attack'
-  const candidates = rawTrades.filter((t) => t.type === cardType)
-  if (!candidates.length) return 'No Gamma Attack'
+): { label: string; trades: Array<FlowBiasRawTrade> } {
+  if (isLongTerm) return { label: 'No Gamma Attack', trades: [] }
+  if (target1Level === null) return { label: 'No Gamma Attack', trades: [] }
+  const candidates = rawTrades.filter((t) => t.tradeType !== 'MULTI-LEG' && t.type === cardType)
+  if (!candidates.length) return { label: 'No Gamma Attack', trades: [] }
   const beyond = candidates.filter((t) => (targetUp ? t.strike >= target1Level : t.strike <= target1Level))
-  return beyond.length > candidates.length / 2 ? 'Gamma Squeeze in Formation' : 'No Gamma Attack'
+  if (beyond.length > candidates.length / 2) return { label: 'Gamma Squeeze in Formation', trades: beyond }
+  return { label: 'No Gamma Attack', trades: [] }
 }
 
 function bsOptionPriceFTP(S: number, K: number, T: number, r: number, sigma: number, isCall: boolean): number {
@@ -583,6 +712,7 @@ function SweepSenseTab({
       dte?: number
       spot?: number
       breakdown: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }
+      liveRawTrades?: Array<FlowBiasRawTrade>
     }>
     stats: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }
     bubbles: Array<{ ticker: string; premium: number; bias: 'bull' | 'bear'; biasStrength: number }>
@@ -592,6 +722,12 @@ function SweepSenseTab({
 }) {
   const fmtPrem = (v: number) => (v >= 1000000 ? `$${(v / 1000000).toFixed(1)}M` : `$${(v / 1000).toFixed(0)}K`)
   const [openCharts, setOpenCharts] = useState<Set<string>>(new Set())
+  // FlowBias detail modal - clicking Spam/Structural/Gamma rows shows exactly which raw prints
+  // were matched to produce that label.
+  const [flowBiasDetail, setFlowBiasDetail] = useState<{
+    title: string
+    trades: Array<FlowBiasRawTrade>
+  } | null>(null)
   const [riskLevel, setRiskLevel] = useState<Record<string, 'PROB' | 'ONAROLE' | 'LUCKY'>>({})
   // Mobile layout: card grid collapses from a 108px-left-rail layout to a single stacked
   // column, font sizes shrink, and the ladder/gauge row stacks vertically instead of
@@ -714,7 +850,7 @@ function SweepSenseTab({
   // FlowBias (Spam / Structural / Gamma) - needs the RAW trade list (not just aggregated
   // percentages) for the selected TODAY/3D/1W window, so it fetches independently of the
   // percentage-only historicalBreakdown above.
-  const [flowBiasRaw, setFlowBiasRaw] = useState<Record<string, Array<{ strike: number; expiry: string; type: string; trade_timestamp: string }>>>({})
+  const [flowBiasRaw, setFlowBiasRaw] = useState<Record<string, Array<FlowBiasRawTrade>>>({})
   const flowBiasLoadingRef = React.useRef<Set<string>>(new Set())
   const [flowBiasLoadingTick, setFlowBiasLoadingTick] = useState(0)
 
@@ -739,13 +875,55 @@ function SweepSenseTab({
             .then((r) => (r.ok ? r.json() : { data: [] }))
             .catch(() => ({ data: [] }))
         )
-      ).then((results) => {
-        const merged: Array<{ strike: number; expiry: string; type: string; trade_timestamp: string }> = []
+      ).then(async (results) => {
+        const merged: Array<FlowBiasRawTrade> = []
         for (const res of results) {
           const trades: any[] = Array.isArray(res?.data) ? res.data : []
           for (const t of trades) {
             if (t.strike && t.expiry && t.type && t.trade_timestamp) {
-              merged.push({ strike: t.strike, expiry: t.expiry, type: t.type, trade_timestamp: t.trade_timestamp })
+              merged.push({
+                strike: t.strike,
+                expiry: t.expiry,
+                type: t.type,
+                trade_timestamp: t.trade_timestamp,
+                fillStyle: t.fill_style || '',
+                tradeSize: t.trade_size,
+                premium: t.premium_per_contract,
+                totalPremium: t.total_premium,
+                spot: t.spot_price,
+                tradeType: t.classification || t.trade_type,
+              })
+            }
+          }
+        }
+        // "Today" has no flow rows yet before/outside market hours - fall back to the most
+        // recent completed trading day so the structural/spam/gamma labels still have data.
+        if (range === 'TODAY' && merged.length === 0) {
+          const fallbackDays = getPastTradingDays(3)
+          for (const day of fallbackDays) {
+            if (merged.length > 0) break
+            try {
+              const r = await fetch(`/api/flows/${day}?tickers=${encodeURIComponent(ticker)}`)
+              const res = r.ok ? await r.json() : { data: [] }
+              const trades: any[] = Array.isArray(res?.data) ? res.data : []
+              for (const t of trades) {
+                if (t.strike && t.expiry && t.type && t.trade_timestamp) {
+                  merged.push({
+                    strike: t.strike,
+                    expiry: t.expiry,
+                    type: t.type,
+                    trade_timestamp: t.trade_timestamp,
+                    fillStyle: t.fill_style || '',
+                    tradeSize: t.trade_size,
+                    premium: t.premium_per_contract,
+                    totalPremium: t.total_premium,
+                    spot: t.spot_price,
+                    tradeType: t.classification || t.trade_type,
+                  })
+                }
+              }
+            } catch {
+              // ignore and try next fallback day
             }
           }
         }
@@ -835,7 +1013,7 @@ function SweepSenseTab({
   return (
     <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '14px', display: 'flex', flexDirection: 'column', gap: '16px', background: '#000' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {trades.map(({ trade, convictionScore, pctMove, currentStockPrice, currentOptionPrice, contractPctChange, sigCode, sigColor, planText, qualifiedAt, breakdown, sigma, dte, spot }) => {
+        {trades.map(({ trade, convictionScore, pctMove, currentStockPrice, currentOptionPrice, contractPctChange, sigCode, sigColor, planText, qualifiedAt, breakdown, sigma, dte, spot, liveRawTrades }) => {
           const isCall = trade.type === 'call'
           const isLongTerm = trade.days_to_expiry >= 30
           const fs = trade.fill_style || ''
@@ -880,9 +1058,15 @@ function SweepSenseTab({
           const flowBiasKey = `${trade.underlying_ticker}|${histRange || 'TODAY'}`
           const flowBiasTrades = flowBiasRaw[flowBiasKey]
           const flowBiasReady = !!flowBiasTrades
-          const spamLabel = flowBiasReady ? computeSpamLabel(flowBiasTrades!, trade.type, formatDate) : 'Loading…'
-          const structuralLabel = computeStructuralLabel(effectiveBreakdown)
-          const gammaLabel = flowBiasReady ? computeGammaLabel(flowBiasTrades!, trade.type, target1, targetUp, isLongTerm) : 'Loading…'
+          const spamResult = flowBiasReady ? computeSpamLabel(flowBiasTrades!, trade.type, formatDate) : { label: 'Loading…', trades: [] }
+          // Structural support = puts SOLD (B/BB) at/below spot (a real floor); resistance = calls
+          // SOLD (B/BB) at/above spot (a real overhead wall). Uses the SAME live in-memory flow feed
+          // the quadrant boxes/gauge use (liveRawTrades) - no extra DB round-trip needed.
+          const structuralResult = computeStructuralLabel(liveRawTrades, spot)
+          const gammaResult = flowBiasReady ? computeGammaLabel(flowBiasTrades!, trade.type, target1, targetUp, isLongTerm) : { label: 'Loading…', trades: [] }
+          const spamLabel = spamResult.label
+          const structuralLabel = structuralResult.label
+          const gammaLabel = gammaResult.label
 
           // No default risk profile - the built-trade box/ladder only appears once the user
           // explicitly clicks PROBABILITY / ON A ROLE / LUCKY for this card.
@@ -1350,30 +1534,30 @@ function SweepSenseTab({
                         a sibling of the whole ladder+gauge row, which is taller due to the gauge) */}
                     {builtTrade && (
                       <div style={{
-                        display: 'flex', alignItems: 'center', gap: isMobileCard ? '8px' : '14px', flexWrap: 'wrap',
+                        display: 'flex', alignItems: 'center', gap: isMobileCard ? '8px' : '10px', flexWrap: isMobileCard ? 'wrap' : 'nowrap',
                         padding: isMobileCard ? '8px 12px' : '10px 16px', borderRadius: '6px',
                         background: '#050505',
                         border: '1px solid rgba(255,255,255,0.1)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 4px 14px rgba(0,0,0,0.6)',
                       }}>
-                        <span style={{ color: isCall ? '#22c55e' : '#ff1a1a', fontSize: isMobileCard ? '14px' : '16px', fontWeight: 900, textShadow: 'none', opacity: 1 }}>
+                        <span style={{ color: isCall ? '#22c55e' : '#ff1a1a', fontSize: isMobileCard ? '14px' : '16px', fontWeight: 900, textShadow: 'none', opacity: 1, whiteSpace: 'nowrap' }}>
                           ${builtTrade.strike.toFixed(2)} {trade.type.toUpperCase()}
                         </span>
-                        <span style={{ color: '#ffffff', fontSize: isMobileCard ? '13px' : '15px', fontWeight: 700 }}>{formatDate(builtTrade.expiryDate)}</span>
-                        <span style={{ color: '#ffffff', fontSize: isMobileCard ? '15px' : '17px', fontWeight: 900 }}>
-                          ${Math.round(builtTrade.premium * 100).toLocaleString()}
+                        <span style={{ color: '#ffffff', fontSize: isMobileCard ? '13px' : '15px', fontWeight: 700, whiteSpace: 'nowrap' }}>{formatDate(builtTrade.expiryDate)}</span>
+                        <span style={{ color: '#ffffff', fontSize: isMobileCard ? '15px' : '17px', fontWeight: 900, whiteSpace: 'nowrap' }}>
+                          {formatCompactDollars(builtTrade.premium * 100)}
                         </span>
                         <div style={{
                           marginLeft: isMobileCard ? 0 : 'auto', display: 'flex', alignItems: 'center', gap: '8px',
                           padding: '5px 10px', borderRadius: '5px',
-                          background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.15)',
+                          background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.15)', flexShrink: 0,
                         }}>
                           {typeof builtTrade.ivPct === 'number' && (
-                            <span style={{ color: '#c084fc', fontSize: '13px', fontWeight: 900, textShadow: 'none', opacity: 1 }}>
+                            <span style={{ color: '#c084fc', fontSize: '13px', fontWeight: 900, textShadow: 'none', opacity: 1, whiteSpace: 'nowrap' }}>
                               IV: {builtTrade.ivPct.toFixed(0)}%
                             </span>
                           )}
                           {typeof builtTrade.bePct === 'number' && (
-                            <span style={{ color: '#00ff66', fontSize: '13px', fontWeight: 900, textShadow: 'none', opacity: 1 }}>
+                            <span style={{ color: '#00ff66', fontSize: '13px', fontWeight: 900, textShadow: 'none', opacity: 1, whiteSpace: 'nowrap' }}>
                               BE: {builtTrade.bePct.toFixed(1)}%
                             </span>
                           )}
@@ -1398,15 +1582,20 @@ function SweepSenseTab({
                       <FlowQuadrantBoxes breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%', height: '257px' }}>
                         {[
-                          { text: spamLabel, active: spamLabel !== 'No Spammer Detected' && spamLabel !== 'Loading…' },
-                          { text: structuralLabel, active: structuralLabel !== 'No Structural Formation Detected' },
-                          { text: gammaLabel, active: gammaLabel === 'Gamma Squeeze in Formation' },
+                          { text: spamLabel, active: spamLabel !== 'No Spammer Detected' && spamLabel !== 'Loading…', title: 'Flow Spammer', trades: spamResult.trades },
+                          { text: structuralLabel, active: structuralLabel !== 'No Structural Formation Detected', title: 'Structural Support/Resistance', trades: structuralResult.trades },
+                          { text: gammaLabel, active: gammaLabel === 'Gamma Squeeze in Formation', title: 'Gamma Attack', trades: gammaResult.trades },
                         ].map((row, i) => (
-                          <div key={i} style={{
-                            display: 'flex', alignItems: 'center', padding: '4px 8px', borderRadius: '4px',
-                            background: row.active ? 'rgba(255,140,0,0.1)' : 'rgba(255,255,255,0.03)',
-                            border: `1px solid ${row.active ? 'rgba(255,140,0,0.35)' : 'rgba(255,255,255,0.08)'}`,
-                          }}>
+                          <div
+                            key={i}
+                            onClick={() => row.active && row.trades.length > 0 && setFlowBiasDetail({ title: `${trade.underlying_ticker} - ${row.title}`, trades: row.trades })}
+                            style={{
+                              display: 'flex', alignItems: 'center', padding: '4px 8px', borderRadius: '4px',
+                              background: row.active ? 'rgba(255,140,0,0.1)' : 'rgba(255,255,255,0.03)',
+                              border: `1px solid ${row.active ? 'rgba(255,140,0,0.35)' : 'rgba(255,255,255,0.08)'}`,
+                              cursor: row.active && row.trades.length > 0 ? 'pointer' : 'default',
+                            }}
+                          >
                             <span style={{ color: row.active ? '#ff8c00' : '#ffffff', fontSize: '11px', fontWeight: 800, whiteSpace: 'normal' }}>
                               {row.text}
                             </span>
@@ -1423,15 +1612,20 @@ function SweepSenseTab({
                         <FlowQuadrantBoxes breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '228px' }}>
                           {[
-                            { text: spamLabel, active: spamLabel !== 'No Spammer Detected' && spamLabel !== 'Loading…' },
-                            { text: structuralLabel, active: structuralLabel !== 'No Structural Formation Detected' },
-                            { text: gammaLabel, active: gammaLabel === 'Gamma Squeeze in Formation' },
+                            { text: spamLabel, active: spamLabel !== 'No Spammer Detected' && spamLabel !== 'Loading…', title: 'Flow Spammer', trades: spamResult.trades },
+                            { text: structuralLabel, active: structuralLabel !== 'No Structural Formation Detected', title: 'Structural Support/Resistance', trades: structuralResult.trades },
+                            { text: gammaLabel, active: gammaLabel === 'Gamma Squeeze in Formation', title: 'Gamma Attack', trades: gammaResult.trades },
                           ].map((row, i) => (
-                            <div key={i} style={{
-                              display: 'flex', alignItems: 'center', padding: '4px 8px', borderRadius: '4px',
-                              background: row.active ? 'rgba(255,140,0,0.1)' : 'rgba(255,255,255,0.03)',
-                              border: `1px solid ${row.active ? 'rgba(255,140,0,0.35)' : 'rgba(255,255,255,0.08)'}`,
-                            }}>
+                            <div
+                              key={i}
+                              onClick={() => row.active && row.trades.length > 0 && setFlowBiasDetail({ title: `${trade.underlying_ticker} - ${row.title}`, trades: row.trades })}
+                              style={{
+                                display: 'flex', alignItems: 'center', padding: '4px 8px', borderRadius: '4px',
+                                background: row.active ? 'rgba(255,140,0,0.1)' : 'rgba(255,255,255,0.03)',
+                                border: `1px solid ${row.active ? 'rgba(255,140,0,0.35)' : 'rgba(255,255,255,0.08)'}`,
+                                cursor: row.active && row.trades.length > 0 ? 'pointer' : 'default',
+                              }}
+                            >
                               <span style={{ color: row.active ? '#ff8c00' : '#ffffff', fontSize: '11px', fontWeight: 800, whiteSpace: 'normal' }}>
                                 {row.text}
                               </span>
@@ -1460,6 +1654,106 @@ function SweepSenseTab({
           )
         })}
       </div>
+
+      {/* FlowBias detail modal - shows exactly which raw prints were matched for the clicked
+          Spam/Structural/Gamma label, in the same column layout as the main Options Flow table
+          (Time / C-P / Strike / Premium / Expiry / Size+Fill / Type / Spot). */}
+      {flowBiasDetail && (
+        <div
+          onClick={() => setFlowBiasDetail(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 1000,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#000000', border: '1px solid #262626', borderRadius: '12px',
+              maxWidth: '820px', width: '100%', maxHeight: '70vh', display: 'flex', flexDirection: 'column',
+              boxShadow: '0 16px 48px rgba(0,0,0,0.95)', overflow: 'hidden',
+            }}
+          >
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '16px 20px', background: '#000000', borderBottom: '1px solid #262626',
+            }}>
+              <span style={{ color: '#ff8c00', fontWeight: 800, fontSize: '18px', letterSpacing: '0.3px' }}>{flowBiasDetail.title}</span>
+              <span
+                onClick={() => setFlowBiasDetail(null)}
+                style={{
+                  color: '#ffffff', fontSize: '20px', cursor: 'pointer', lineHeight: 1,
+                  width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  borderRadius: '6px', background: '#0d0d0d', border: '1px solid #262626',
+                }}
+              >
+                ×
+              </span>
+            </div>
+            <div style={{ overflowY: 'auto', overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ position: 'sticky', top: 0, background: '#000000' }}>
+                    {['TIME', 'C/P', 'STRIKE', 'SIZE', 'PREMIUM', 'EXPIRY', 'SPOT', 'TYPE'].map((h) => (
+                      <th key={h} style={{
+                        textAlign: 'left', padding: '11px 15px', fontSize: '13px', fontWeight: 900,
+                        color: '#ffffff', borderBottom: '2px solid #262626', whiteSpace: 'nowrap', letterSpacing: '0.5px',
+                      }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {flowBiasDetail.trades.map((t, i) => (
+                    <tr key={i} style={{ background: i % 2 === 0 ? '#000000' : '#0a0a0a', borderBottom: '1px solid #1a1a1a' }}>
+                      <td style={{ padding: '9px 15px', fontSize: '15px', color: '#ffffff', whiteSpace: 'nowrap' }}>
+                        {t.trade_timestamp
+                          ? new Date(t.trade_timestamp).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' })
+                          : '—'}
+                      </td>
+                      <td style={{ padding: '9px 15px', fontSize: '15px', fontWeight: 800, color: t.type === 'call' ? '#22c55e' : '#ef4444' }}>
+                        {t.type.toUpperCase()}
+                      </td>
+                      <td style={{ padding: '9px 15px', fontSize: '15px', fontWeight: 700, color: '#ffffff' }}>
+                        ${t.strike.toFixed(2)}
+                      </td>
+                      <td style={{ padding: '9px 15px', fontSize: '15px', color: '#ffffff', whiteSpace: 'nowrap' }}>
+                        {typeof t.tradeSize === 'number' ? t.tradeSize.toLocaleString() : '—'}
+                        {typeof t.premium === 'number' && (
+                          <span style={{ color: '#ffffff' }}> @ {t.premium.toFixed(2)}</span>
+                        )}
+                        {t.fillStyle && (
+                          <span style={{
+                            color: (t.fillStyle === 'A' || t.fillStyle === 'AA') ? '#22c55e' : (t.fillStyle === 'B' || t.fillStyle === 'BB') ? '#ef4444' : '#c084fc',
+                            fontWeight: 800, marginLeft: '6px',
+                          }}>
+                            {t.fillStyle}
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: '9px 15px', fontSize: '15px', color: '#22c55e', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                        {typeof t.totalPremium === 'number' ? `$${t.totalPremium.toLocaleString()}` : '—'}
+                      </td>
+                      <td style={{ padding: '9px 15px', fontSize: '15px', color: '#ffffff', whiteSpace: 'nowrap' }}>
+                        {t.expiry ? formatDate(t.expiry) : '—'}
+                      </td>
+                      <td style={{ padding: '9px 15px', fontSize: '15px', color: '#ffffff', fontWeight: 700 }}>
+                        {typeof t.spot === 'number' ? `$${t.spot.toFixed(2)}` : '—'}
+                      </td>
+                      <td style={{ padding: '9px 15px', whiteSpace: 'nowrap' }}>
+                        {t.tradeType ? (
+                          <span style={getFlowBiasTypeBadgeStyle(t.tradeType)}>{t.tradeType}</span>
+                        ) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
