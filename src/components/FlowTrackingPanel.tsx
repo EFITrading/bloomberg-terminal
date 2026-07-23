@@ -83,6 +83,13 @@ const formatCompactDollars = (value: number): string => {
   return `${sign}$${Math.round(abs)}`
 }
 
+// Caps a stock price at 4 significant digits for mobile SweepSense cards ($333.4 instead of
+// $333.43) so the spot/current price row stays compact.
+const fmt4sigMobile = (val: number): string => {
+  if (!val || val <= 0) return '0'
+  return parseFloat(val.toPrecision(4)).toString()
+}
+
 const generateFlowId = (trade: OptionsFlowData): string =>
   `${trade.underlying_ticker}-${trade.strike}-${trade.expiry}-${trade.type}-${trade.trade_timestamp}-${trade.trade_size}`
 
@@ -1085,64 +1092,114 @@ function SweepSenseTab({
               {/* ── LEFT RAIL: conviction dial + direction + duration, stacked vertically ── */}
               <div style={{
                 position: 'relative', display: 'flex',
-                flexDirection: isMobileCard ? 'row' : 'column',
-                alignItems: 'center',
-                justifyContent: isMobileCard ? 'flex-start' : 'flex-start',
-                flexWrap: isMobileCard ? 'wrap' : 'nowrap',
-                gap: isMobileCard ? '10px' : '10px', padding: isMobileCard ? '10px 12px' : '18px 8px 16px',
+                flexDirection: isMobileCard ? 'column' : 'column',
+                alignItems: isMobileCard ? 'stretch' : 'center',
+                justifyContent: 'flex-start',
+                flexWrap: 'nowrap',
+                gap: isMobileCard ? '8px' : '10px', padding: isMobileCard ? '8px 10px' : '18px 8px 16px',
                 background: `linear-gradient(180deg, ${convColor}22 0%, #000 55%)`,
                 borderRight: isMobileCard ? 'none' : `1px solid ${convColor}33`,
                 borderBottom: isMobileCard ? `1px solid ${convColor}33` : 'none',
               }}>
-                <span style={{ color: '#ffffff', fontSize: '17px', fontWeight: 900, letterSpacing: '-0.02em' }}>{trade.underlying_ticker}</span>
-                <div style={{ position: 'relative', width: isMobileCard ? '54px' : '78px', height: isMobileCard ? '54px' : '78px' }}>
-                  <svg width={isMobileCard ? 54 : 78} height={isMobileCard ? 54 : 78} viewBox="0 0 84 84" style={{ transform: 'rotate(-90deg)' }}>
-                    <circle cx="42" cy="42" r="34" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="6" />
-                    <circle
-                      cx="42" cy="42" r="34" fill="none" stroke={convColor} strokeWidth="6" strokeLinecap="round"
-                      strokeDasharray={ringCircumference} strokeDashoffset={ringOffset}
-                      style={{ filter: `drop-shadow(0 0 5px ${convColor})` }}
-                    />
-                  </svg>
-                  <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                    <span style={{ color: '#ffffff', fontSize: isMobileCard ? '22px' : '32px', fontWeight: 900, lineHeight: 1 }}>{convictionScore}</span>
-                    {!isMobileCard && <span style={{ color: convColor, fontSize: '10px', fontWeight: 800, letterSpacing: '0.15em' }}>SCORE</span>}
+                {isMobileCard ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ color: '#ffffff', fontSize: '14px', fontWeight: 900, letterSpacing: '-0.02em', flexShrink: 0 }}>{trade.underlying_ticker}</span>
+                    <div style={{ position: 'relative', width: '40px', height: '40px', flexShrink: 0 }}>
+                      <svg width={40} height={40} viewBox="0 0 84 84" style={{ transform: 'rotate(-90deg)' }}>
+                        <circle cx="42" cy="42" r="34" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="6" />
+                        <circle
+                          cx="42" cy="42" r="34" fill="none" stroke={convColor} strokeWidth="6" strokeLinecap="round"
+                          strokeDasharray={ringCircumference} strokeDashoffset={ringOffset}
+                          style={{ filter: `drop-shadow(0 0 5px ${convColor})` }}
+                        />
+                      </svg>
+                      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                        <span style={{ color: '#ffffff', fontSize: '15px', fontWeight: 900, lineHeight: 1 }}>{convictionScore}</span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', color: dirColor, fontWeight: 900, flexShrink: 0 }}>
+                      <span style={{ fontSize: '14px', lineHeight: 1 }}>{targetUp ? '▲' : '▼'}</span>
+                      <span style={{ fontSize: '9px', letterSpacing: '0.1em' }}>{targetUp ? 'BULLISH' : 'BEARISH'}</span>
+                    </div>
+                    <span style={{
+                      display: 'inline-block', fontWeight: 800, fontSize: '11px', letterSpacing: '0.06em',
+                      padding: '3px 8px', borderRadius: '3px',
+                      background: isSweepBadge ? '#FFD700' : isBlockBadge ? '#00e5ff' : '#fff',
+                      color: '#000', flexShrink: 0,
+                    }}>
+                      {tradeTypeVal}
+                    </span>
+                    <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '1px', flexShrink: 0 }}>
+                      <span style={{ color: '#ffffff', fontSize: '11px', fontWeight: 900, whiteSpace: 'nowrap' }}>
+                        {currentOptionPrice !== null ? fmtPrem(currentOptionPrice * trade.trade_size * 100) : '--'}
+                      </span>
+                      <span style={{ color: contractPctChange !== null && contractPctChange >= 0 ? '#22c55e' : '#ef4444', fontSize: '10px', fontWeight: 900, whiteSpace: 'nowrap' }}>
+                        {contractPctChange !== null ? `${contractPctChange >= 0 ? '+' : ''}${contractPctChange.toFixed(1)}%` : '--'}
+                      </span>
+                    </span>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flexShrink: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '5px' }}>
+                        <span style={{ color: '#ffffff', fontSize: '9px', fontWeight: 800, letterSpacing: '0.06em' }}>Taken:</span>
+                        <span style={{ color: '#22d3ee', fontSize: '11px', fontWeight: 800, whiteSpace: 'nowrap' }}>{formatTime(trade.trade_timestamp)}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '5px' }}>
+                        <span style={{ color: '#ffffff', fontSize: '9px', fontWeight: 800, letterSpacing: '0.06em' }}>Qualified:</span>
+                        <span style={{ color: '#a8ff3e', fontSize: '11px', fontWeight: 800, whiteSpace: 'nowrap' }}>{formatTime(new Date(qualifiedAt).toISOString())}</span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-                {!isMobileCard && (
-                  <div style={{ display: 'flex', gap: '1px' }}>
-                    {Array.from({ length: 5 }).map((_, i) => (
-                      <span key={i} style={{ color: i < filledStars ? convColor : 'rgba(255,255,255,0.15)', fontSize: '14px' }}>★</span>
-                    ))}
-                  </div>
+                ) : (
+                  <>
+                    <span style={{ color: '#ffffff', fontSize: '17px', fontWeight: 900, letterSpacing: '-0.02em', flexShrink: 0 }}>{trade.underlying_ticker}</span>
+                    <div style={{ position: 'relative', width: '78px', height: '78px', flexShrink: 0 }}>
+                      <svg width={78} height={78} viewBox="0 0 84 84" style={{ transform: 'rotate(-90deg)' }}>
+                        <circle cx="42" cy="42" r="34" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="6" />
+                        <circle
+                          cx="42" cy="42" r="34" fill="none" stroke={convColor} strokeWidth="6" strokeLinecap="round"
+                          strokeDasharray={ringCircumference} strokeDashoffset={ringOffset}
+                          style={{ filter: `drop-shadow(0 0 5px ${convColor})` }}
+                        />
+                      </svg>
+                      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                        <span style={{ color: '#ffffff', fontSize: '32px', fontWeight: 900, lineHeight: 1 }}>{convictionScore}</span>
+                        <span style={{ color: convColor, fontSize: '10px', fontWeight: 800, letterSpacing: '0.15em' }}>SCORE</span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '1px' }}>
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <span key={i} style={{ color: i < filledStars ? convColor : 'rgba(255,255,255,0.15)', fontSize: '14px' }}>★</span>
+                      ))}
+                    </div>
+                    <div style={{
+                      marginTop: '2px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
+                      color: dirColor, fontWeight: 900, flexShrink: 0,
+                    }}>
+                      <span style={{ fontSize: '25px', lineHeight: 1 }}>{targetUp ? '▲' : '▼'}</span>
+                      <span style={{ fontSize: '11px', letterSpacing: '0.1em' }}>{targetUp ? 'BULLISH' : 'BEARISH'}</span>
+                    </div>
+
+                    <div style={{ flexGrow: 0.5 }} />
+
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px', flexShrink: 0 }}>
+                      <span style={{ color: '#ffffff', fontSize: '10px', fontWeight: 800, letterSpacing: '0.08em' }}>TAKEN</span>
+                      <span style={{ color: '#22d3ee', fontSize: '13px', fontWeight: 800, whiteSpace: 'nowrap' }}>{formatTime(trade.trade_timestamp)}</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px', marginTop: '4px', flexShrink: 0 }}>
+                      <span style={{ color: '#ffffff', fontSize: '10px', fontWeight: 800, letterSpacing: '0.08em' }}>QUALIFIED</span>
+                      <span style={{ color: '#a8ff3e', fontSize: '13px', fontWeight: 800, whiteSpace: 'nowrap' }}>{formatTime(new Date(qualifiedAt).toISOString())}</span>
+                    </div>
+
+                    <div style={{ flexGrow: 1 }} />
+                  </>
                 )}
-                <div style={{
-                  marginTop: isMobileCard ? 0 : '2px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
-                  color: dirColor, fontWeight: 900,
-                }}>
-                  <span style={{ fontSize: isMobileCard ? '18px' : '25px', lineHeight: 1 }}>{targetUp ? '▲' : '▼'}</span>
-                  <span style={{ fontSize: '11px', letterSpacing: '0.1em' }}>{targetUp ? 'BULLISH' : 'BEARISH'}</span>
-                </div>
-
-                {!isMobileCard && <div style={{ flexGrow: 0.5 }} />}
-
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px' }}>
-                  <span style={{ color: '#ffffff', fontSize: '10px', fontWeight: 800, letterSpacing: '0.08em' }}>TAKEN</span>
-                  <span style={{ color: '#22d3ee', fontSize: '13px', fontWeight: 800 }}>{formatTime(trade.trade_timestamp)}</span>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px', marginTop: isMobileCard ? 0 : '4px' }}>
-                  <span style={{ color: '#ffffff', fontSize: '10px', fontWeight: 800, letterSpacing: '0.08em' }}>QUALIFIED</span>
-                  <span style={{ color: '#a8ff3e', fontSize: '13px', fontWeight: 800 }}>{formatTime(new Date(qualifiedAt).toISOString())}</span>
-                </div>
-
-                {!isMobileCard && <div style={{ flexGrow: 1 }} />}
               </div>
 
               {/* ── RIGHT CONTENT ── */}
               <div style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
                 {/* Header strip: ticker + badges + strike/expiry/size/premium all in one row, POSITION on the right */}
                 <div style={{
-                  position: 'relative', padding: isMobileCard ? '12px 14px 10px' : '16px 20px 14px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)',
+                  position: 'relative', padding: isMobileCard ? '12px 8px 10px' : '16px 20px 14px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)',
                   background: isLongTerm
                     ? 'linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0) 45%), linear-gradient(90deg, #000a14 0%, #001220 100%)'
                     : 'linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0) 45%), linear-gradient(90deg, #140f00 0%, #1f1700 100%)',
@@ -1153,8 +1210,47 @@ function SweepSenseTab({
                     position: 'absolute', top: 0, left: 0, right: 0, height: '50%', pointerEvents: 'none',
                     background: 'linear-gradient(180deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0) 100%)',
                   }} />
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                    {!isMobileCard && (
+                  {isMobileCard ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {/* Row: strike/type, size@price+fill, premium, expiry */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
+                        <span style={{ color: isCall ? '#22c55e' : '#ef4444', fontSize: '11px', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                          ${trade.strike} {trade.type.toUpperCase()}
+                        </span>
+                        <span style={{ fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                          <span style={{ color: '#22d3ee' }}>{trade.trade_size.toLocaleString()}</span>
+                          <span style={{ color: '#ffffff' }}>@${trade.premium_per_contract.toFixed(2)}</span>
+                          {['A', 'AA', 'B', 'BB'].includes(fs) && (
+                            <span style={{
+                              marginLeft: '4px', fontSize: '11px', fontWeight: 800, padding: '2px 6px', borderRadius: '4px',
+                              color: fs === 'A' ? '#4ade80' : fs === 'AA' ? '#86efac' : fs === 'B' ? '#f87171' : '#fca5a5',
+                              background: fs === 'A' ? 'rgba(74,222,128,0.1)' : fs === 'AA' ? 'rgba(134,239,172,0.1)' : fs === 'B' ? 'rgba(248,113,113,0.1)' : 'rgba(252,165,165,0.1)',
+                              border: `1px solid ${fs === 'A' ? 'rgba(74,222,128,0.3)' : fs === 'AA' ? 'rgba(134,239,172,0.3)' : fs === 'B' ? 'rgba(248,113,113,0.3)' : 'rgba(252,165,165,0.3)'}`,
+                            }}>{fs}</span>
+                          )}
+                        </span>
+                        <span style={{ color: '#4ade80', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                          {fmtPrem(trade.total_premium)}
+                        </span>
+                        <span style={{ color: '#ffffff', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                          {formatDate(trade.expiry)}
+                        </span>
+                        <span style={{ color: '#ffffff', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                          {trade.spot_price > 0 ? `$${fmt4sigMobile(trade.spot_price)}` : '--'}
+                        </span>
+                        <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: '11px', whiteSpace: 'nowrap' }}>{'>'}</span>
+                        <span style={{
+                          fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap',
+                          color: currentStockPrice === null ? '#ffffff'
+                            : currentStockPrice > trade.spot_price ? '#22c55e'
+                              : currentStockPrice < trade.spot_price ? '#ef4444' : '#ffffff',
+                        }}>
+                          {currentStockPrice !== null && currentStockPrice > 0 ? `$${fmt4sigMobile(currentStockPrice)}` : '--'}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                       <span style={{
                         display: 'inline-flex', alignItems: 'center', color: isCall ? '#22c55e' : '#ef4444',
                         fontWeight: 900, fontSize: '13px', letterSpacing: '0.05em',
@@ -1163,183 +1259,246 @@ function SweepSenseTab({
                       }}>
                         {trade.type.toUpperCase()}
                       </span>
-                    )}
-                    <span style={{
-                      display: 'inline-block', fontWeight: 800, fontSize: isMobileCard ? '13px' : '12px', letterSpacing: '0.08em',
-                      padding: '4px 10px', clipPath: 'polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%)',
-                      background: isSweepBadge ? '#FFD700' : isBlockBadge ? '#00e5ff' : '#fff',
-                      color: '#000',
-                    }}>
-                      {tradeTypeVal}
-                    </span>
-
-                    <span style={{ color: '#ffffff', fontSize: isMobileCard ? '13px' : '16px', fontWeight: 700 }}>
-                      ${trade.strike} {trade.type.toUpperCase()}
-                    </span>
-                    <span style={{ color: '#ffffff', fontSize: isMobileCard ? '13px' : '16px', fontWeight: 700 }}>
-                      {formatDate(trade.expiry)}
-                    </span>
-                    <span style={{ fontSize: isMobileCard ? '13px' : '16px', fontWeight: 700 }}>
-                      <span style={{ color: '#22d3ee' }}>{trade.trade_size.toLocaleString()}</span>
-                      <span style={{ color: '#ffffff' }}>@${trade.premium_per_contract.toFixed(2)}</span>
-                      {['A', 'AA', 'B', 'BB'].includes(fs) && (
-                        <span style={{
-                          marginLeft: '4px', fontSize: isMobileCard ? '13px' : '12px', fontWeight: 800, padding: '2px 6px', borderRadius: '4px',
-                          color: fs === 'A' ? '#4ade80' : fs === 'AA' ? '#86efac' : fs === 'B' ? '#f87171' : '#fca5a5',
-                          background: fs === 'A' ? 'rgba(74,222,128,0.1)' : fs === 'AA' ? 'rgba(134,239,172,0.1)' : fs === 'B' ? 'rgba(248,113,113,0.1)' : 'rgba(252,165,165,0.1)',
-                          border: `1px solid ${fs === 'A' ? 'rgba(74,222,128,0.3)' : fs === 'AA' ? 'rgba(134,239,172,0.3)' : fs === 'B' ? 'rgba(248,113,113,0.3)' : 'rgba(252,165,165,0.3)'}`,
-                        }}>{fs}</span>
-                      )}
-                    </span>
-                    <span style={{ color: '#4ade80', fontSize: isMobileCard ? '13px' : '16px', fontWeight: 700 }}>
-                      {fmtPrem(trade.total_premium)}
-                    </span>
-
-                    <span style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                      <span style={{ color: '#ffffff', fontSize: isMobileCard ? '13px' : '19px', fontWeight: 900 }}>
-                        {currentOptionPrice !== null ? fmtPrem(currentOptionPrice * trade.trade_size * 100) : '--'}
-                      </span>
-                      <span style={{ color: contractPctChange !== null && contractPctChange >= 0 ? '#22c55e' : '#ef4444', fontSize: isMobileCard ? '13px' : '17px', fontWeight: 900 }}>
-                        {contractPctChange !== null ? `${contractPctChange >= 0 ? '+' : ''}${contractPctChange.toFixed(1)}%` : '--'}
-                      </span>
-                    </span>
-
-                    <span style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-                      <span style={{ color: '#ffffff', fontSize: isMobileCard ? '13px' : '14px', fontWeight: 700 }}>
-                        {trade.spot_price > 0 ? `$${trade.spot_price.toFixed(2)}` : '--'}
-                      </span>
-                      <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: isMobileCard ? '13px' : '12px' }}>{'>'}</span>
                       <span style={{
-                        fontSize: isMobileCard ? '13px' : '14px', fontWeight: 700,
-                        color: currentStockPrice === null ? '#ffffff'
-                          : currentStockPrice > trade.spot_price ? '#22c55e'
-                            : currentStockPrice < trade.spot_price ? '#ef4444' : '#ffffff',
+                        display: 'inline-block', fontWeight: 800, fontSize: '12px', letterSpacing: '0.08em',
+                        padding: '4px 10px', clipPath: 'polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%)',
+                        background: isSweepBadge ? '#FFD700' : isBlockBadge ? '#00e5ff' : '#fff',
+                        color: '#000',
                       }}>
-                        {currentStockPrice !== null && currentStockPrice > 0 ? `$${currentStockPrice.toFixed(2)}` : '--'}
+                        {tradeTypeVal}
                       </span>
-                    </span>
 
-                    <span style={{
-                      display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.15,
-                      marginLeft: 'auto', fontSize: '11px', fontWeight: 800, letterSpacing: '0.1em', padding: '5px 10px', borderRadius: '4px',
-                      color: isLongTerm ? '#00e5ff' : '#ffd400', background: isLongTerm ? 'rgba(0,229,255,0.12)' : 'rgba(255,212,0,0.12)',
-                      border: `1px solid ${isLongTerm ? 'rgba(0,229,255,0.4)' : 'rgba(255,212,0,0.4)'}`,
-                    }}>
-                      <span>{isLongTerm ? 'LONG' : 'SHORT'}</span>
-                      <span>TERM</span>
-                    </span>
-                  </div>
+                      <span style={{ color: '#ffffff', fontSize: '16px', fontWeight: 700 }}>
+                        ${trade.strike} {trade.type.toUpperCase()}
+                      </span>
+                      <span style={{ color: '#ffffff', fontSize: '16px', fontWeight: 700 }}>
+                        {formatDate(trade.expiry)}
+                      </span>
+                      <span style={{ fontSize: '16px', fontWeight: 700 }}>
+                        <span style={{ color: '#22d3ee' }}>{trade.trade_size.toLocaleString()}</span>
+                        <span style={{ color: '#ffffff' }}>@${trade.premium_per_contract.toFixed(2)}</span>
+                        {['A', 'AA', 'B', 'BB'].includes(fs) && (
+                          <span style={{
+                            marginLeft: '4px', fontSize: '12px', fontWeight: 800, padding: '2px 6px', borderRadius: '4px',
+                            color: fs === 'A' ? '#4ade80' : fs === 'AA' ? '#86efac' : fs === 'B' ? '#f87171' : '#fca5a5',
+                            background: fs === 'A' ? 'rgba(74,222,128,0.1)' : fs === 'AA' ? 'rgba(134,239,172,0.1)' : fs === 'B' ? 'rgba(248,113,113,0.1)' : 'rgba(252,165,165,0.1)',
+                            border: `1px solid ${fs === 'A' ? 'rgba(74,222,128,0.3)' : fs === 'AA' ? 'rgba(134,239,172,0.3)' : fs === 'B' ? 'rgba(248,113,113,0.3)' : 'rgba(252,165,165,0.3)'}`,
+                          }}>{fs}</span>
+                        )}
+                      </span>
+                      <span style={{ color: '#4ade80', fontSize: '16px', fontWeight: 700 }}>
+                        {fmtPrem(trade.total_premium)}
+                      </span>
+
+                      <span style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                        <span style={{ color: '#ffffff', fontSize: '19px', fontWeight: 900 }}>
+                          {currentOptionPrice !== null ? fmtPrem(currentOptionPrice * trade.trade_size * 100) : '--'}
+                        </span>
+                        <span style={{ color: contractPctChange !== null && contractPctChange >= 0 ? '#22c55e' : '#ef4444', fontSize: '17px', fontWeight: 900 }}>
+                          {contractPctChange !== null ? `${contractPctChange >= 0 ? '+' : ''}${contractPctChange.toFixed(1)}%` : '--'}
+                        </span>
+                      </span>
+
+                      <span style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                        <span style={{ color: '#ffffff', fontSize: '14px', fontWeight: 700 }}>
+                          {trade.spot_price > 0 ? `$${trade.spot_price.toFixed(2)}` : '--'}
+                        </span>
+                        <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: '12px' }}>{'>'}</span>
+                        <span style={{
+                          fontSize: '14px', fontWeight: 700,
+                          color: currentStockPrice === null ? '#ffffff'
+                            : currentStockPrice > trade.spot_price ? '#22c55e'
+                              : currentStockPrice < trade.spot_price ? '#ef4444' : '#ffffff',
+                        }}>
+                          {currentStockPrice !== null && currentStockPrice > 0 ? `$${currentStockPrice.toFixed(2)}` : '--'}
+                        </span>
+                      </span>
+
+                      <span style={{
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.15,
+                        marginLeft: 'auto', fontSize: '11px', fontWeight: 800, letterSpacing: '0.1em', padding: '5px 10px', borderRadius: '4px',
+                        color: isLongTerm ? '#00e5ff' : '#ffd400', background: isLongTerm ? 'rgba(0,229,255,0.12)' : 'rgba(255,212,0,0.12)',
+                        border: `1px solid ${isLongTerm ? 'rgba(0,229,255,0.4)' : 'rgba(255,212,0,0.4)'}`,
+                      }}>
+                        <span>{isLongTerm ? 'LONG' : 'SHORT'}</span>
+                        <span>TERM</span>
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Entry plan - angled callout ribbon */}
                 <div style={{
-                  position: 'relative', margin: '12px 16px 0', padding: '10px 14px 10px 18px',
+                  position: 'relative', margin: isMobileCard ? '12px 8px 0' : '12px 16px 0', padding: isMobileCard ? '8px 10px' : '10px 14px 10px 18px',
                   background: `linear-gradient(90deg, ${sigColor}1a 0%, transparent 100%)`,
                   borderLeft: `3px solid ${sigColor}`, borderRadius: '2px',
+                  boxSizing: 'border-box',
                 }}>
-                  <button
-                    onClick={() => setOpenCharts((prev) => {
-                      const next = new Set(prev)
-                      if (next.has(flowId)) next.delete(flowId)
-                      else next.add(flowId)
-                      return next
-                    })}
-                    style={{
-                      position: 'absolute', top: '8px', right: '10px', cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '4px',
-                      background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
-                      color: '#ffffff', fontSize: '10px', fontWeight: 800, letterSpacing: '0.06em',
-                    }}
-                  >
-                    Chart{openCharts.has(flowId) ? '−' : '+'}
-                  </button>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
-                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: sigColor, boxShadow: `0 0 6px ${sigColor}` }} />
-                    <span style={{ color: sigColor, fontWeight: 900, fontSize: '13px', letterSpacing: '0.1em' }}>ENTRY PLAN</span>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '3px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: sigColor, boxShadow: `0 0 6px ${sigColor}`, flexShrink: 0 }} />
+                      <span style={{ color: sigColor, fontWeight: 900, fontSize: isMobileCard ? '12px' : '13px', letterSpacing: '0.1em', whiteSpace: 'nowrap' }}>ENTRY PLAN</span>
+                    </div>
+                    <button
+                      onClick={() => setOpenCharts((prev) => {
+                        const next = new Set(prev)
+                        if (next.has(flowId)) next.delete(flowId)
+                        else next.add(flowId)
+                        return next
+                      })}
+                      style={{
+                        cursor: 'pointer', flexShrink: 0,
+                        display: 'flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '4px',
+                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
+                        color: '#ffffff', fontSize: isMobileCard ? '9px' : '10px', fontWeight: 800, letterSpacing: '0.06em',
+                      }}
+                    >
+                      Chart{openCharts.has(flowId) ? '−' : '+'}
+                    </button>
                   </div>
-                  <div style={{ color: '#ffffff', fontSize: '15px', lineHeight: 1.5 }}>{aiTakeText}</div>
+                  <div style={{ color: '#ffffff', fontSize: isMobileCard ? '12px' : '15px', lineHeight: 1.45, wordBreak: 'break-word' }}>{aiTakeText}</div>
                 </div>
 
                 {/* Build A Trade - risk-profile driven strike/expiry rebuilder */}
                 <div style={{ padding: isMobileCard ? '6px 12px 0' : '6px 16px 0' }}>
-                  <div style={{
-                    display: 'flex', gap: isMobileCard ? '4px' : '8px', flexWrap: isMobileCard ? 'nowrap' : 'wrap', alignItems: 'center',
-                    overflowX: isMobileCard ? 'auto' : undefined,
-                    overflowY: isMobileCard ? 'hidden' : undefined,
-                    background: 'linear-gradient(180deg, #161616 0%, #060606 55%, #000000 100%)',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    borderRadius: '999px',
-                    padding: isMobileCard ? '5px 8px' : '6px 10px',
-                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -2px 4px rgba(0,0,0,0.8), 0 2px 6px rgba(0,0,0,0.5)',
-                  }}>
-                    {([
-                      { key: 'PROB', label: 'PROBABILITY', desc: 'Favor the win, more time, 70–75% PoP strike', color: '#22c55e' },
-                      { key: 'ONAROLE', label: 'ON A ROLE', desc: 'Balanced risk/reward, ~78% PoP strike', color: '#eab308' },
-                      { key: 'LUCKY', label: 'LUCKY', desc: 'Degen mode: tighter DTE, 80-85% PoP, no stop', color: '#ec4899' },
-                    ] as const).map((opt) => (
-                      <button
-                        key={opt.key}
-                        title={opt.desc}
-                        onClick={() => setRiskLevel((prev) => {
-                          const next = { ...prev }
-                          if (next[flowId] === opt.key) delete next[flowId]
-                          else next[flowId] = opt.key
-                          return next
-                        })}
-                        style={{
-                          cursor: 'pointer', padding: isMobileCard ? '6px 10px' : '8px 16px', borderRadius: '999px', fontWeight: 900,
-                          fontSize: isMobileCard ? '10px' : '12px', letterSpacing: '0.06em', whiteSpace: 'nowrap', flexShrink: 0,
-                          color: opt.color,
-                          background: riskLevel[flowId] === opt.key
-                            ? `linear-gradient(180deg, #2b2b2b 0%, #050505 55%, #000000 100%)`
-                            : 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
-                          border: riskLevel[flowId] === opt.key ? `1px solid ${opt.color}` : '1px solid rgba(255,255,255,0.12)',
-                          boxShadow: riskLevel[flowId] === opt.key ? `0 0 10px ${opt.color}66, inset 0 0 8px ${opt.color}33` : 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -2px 4px rgba(0,0,0,0.7)',
-                        }}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
+                  {isMobileCard ? (
+                    <div style={{
+                      display: 'flex', gap: '8px', alignItems: 'center',
+                      background: 'linear-gradient(180deg, #161616 0%, #060606 55%, #000000 100%)',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: '999px',
+                      padding: '5px 8px',
+                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -2px 4px rgba(0,0,0,0.8), 0 2px 6px rgba(0,0,0,0.5)',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: '1 1 0', minWidth: 0 }}>
+                        <span style={{ color: '#ffffff', fontSize: '9px', fontWeight: 800, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Risk Tolerance</span>
+                        <select
+                          value={riskLevel[flowId] ?? ''}
+                          onChange={(e) => setRiskLevel((prev) => {
+                            const next = { ...prev }
+                            const v = e.target.value
+                            if (!v) delete next[flowId]
+                            else next[flowId] = v as 'PROB' | 'ONAROLE' | 'LUCKY'
+                            return next
+                          })}
+                          style={{
+                            flex: '1 1 0', minWidth: 0, cursor: 'pointer', padding: '5px 6px', borderRadius: '999px', fontWeight: 900,
+                            fontSize: '10px', letterSpacing: '0.04em',
+                            color: '#ffffff', colorScheme: 'dark',
+                            background: 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                            border: '1px solid rgba(255,255,255,0.18)',
+                          }}
+                        >
+                          <option value="" style={{ background: '#0a0a0a', color: '#ffffff' }}>NONE</option>
+                          <option value="PROB" style={{ background: '#0a0a0a', color: '#ffffff' }}>PROBABILITY</option>
+                          <option value="ONAROLE" style={{ background: '#0a0a0a', color: '#ffffff' }}>ON A ROLE</option>
+                          <option value="LUCKY" style={{ background: '#0a0a0a', color: '#ffffff' }}>LUCKY</option>
+                        </select>
+                      </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: isMobileCard ? '4px' : '6px', marginLeft: isMobileCard ? '4px' : 'auto', flexShrink: 0 }}>
-                      <span style={{ color: '#ffffff', fontSize: isMobileCard ? '10px' : '11px', fontWeight: 800, letterSpacing: '0.06em', marginRight: '2px', whiteSpace: 'nowrap' }}>
-                        {isMobileCard ? 'FB:' : 'FlowBias :'}
-                      </span>
-                      {([
-                        { key: null, label: 'TODAY' },
-                        { key: '3D' as const, label: '3D' },
-                        { key: '1W' as const, label: '1W' },
-                      ]).map((opt) => {
-                        const selected = (histRange ?? null) === opt.key
-                        return (
-                          <button
-                            key={opt.label}
-                            onClick={() => setHistoricalRange((prev) => {
-                              const next = { ...prev }
-                              if (opt.key === null) delete next[flowId]
-                              else next[flowId] = opt.key
-                              return next
-                            })}
-                            style={{
-                              cursor: 'pointer', padding: isMobileCard ? '6px 10px' : '8px 14px', borderRadius: '999px', fontWeight: 800,
-                              fontSize: isMobileCard ? '10px' : '11px', letterSpacing: '0.06em', whiteSpace: 'nowrap', flexShrink: 0,
-                              color: selected ? '#ff8c00' : '#ffffff',
-                              background: selected
-                                ? 'linear-gradient(180deg, #2b2b2b 0%, #050505 55%, #000000 100%)'
-                                : 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
-                              border: `1px solid ${selected ? '#ff8c00' : 'rgba(255,255,255,0.18)'}`,
-                              boxShadow: selected
-                                ? 'inset 0 2px 3px rgba(0,0,0,0.85), inset 0 -1px 0 rgba(255,140,0,0.35), 0 2px 4px rgba(0,0,0,0.6)'
-                                : 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -3px 5px rgba(0,0,0,0.7), 0 2px 4px rgba(0,0,0,0.6)',
-                              textShadow: '0 1px 1px rgba(0,0,0,0.8)',
-                            }}
-                          >
-                            {opt.label}
-                          </button>
-                        )
-                      })}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: '1 1 0', minWidth: 0 }}>
+                        <span style={{ color: '#ffffff', fontSize: '9px', fontWeight: 800, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>FlowBias</span>
+                        <select
+                          value={histRange ?? ''}
+                          onChange={(e) => setHistoricalRange((prev) => {
+                            const next = { ...prev }
+                            const v = e.target.value
+                            if (!v) delete next[flowId]
+                            else next[flowId] = v as '3D' | '1W'
+                            return next
+                          })}
+                          style={{
+                            flex: '1 1 0', minWidth: 0, cursor: 'pointer', padding: '5px 6px', borderRadius: '999px', fontWeight: 800,
+                            fontSize: '10px', letterSpacing: '0.04em',
+                            color: '#ff8c00', colorScheme: 'dark',
+                            background: 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                            border: '1px solid rgba(255,140,0,0.4)',
+                          }}
+                        >
+                          <option value="" style={{ background: '#0a0a0a', color: '#ff8c00' }}>TODAY</option>
+                          <option value="3D" style={{ background: '#0a0a0a', color: '#ff8c00' }}>3D</option>
+                          <option value="1W" style={{ background: '#0a0a0a', color: '#ff8c00' }}>1W</option>
+                        </select>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div style={{
+                      display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center',
+                      background: 'linear-gradient(180deg, #161616 0%, #060606 55%, #000000 100%)',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: '999px',
+                      padding: '6px 10px',
+                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -2px 4px rgba(0,0,0,0.8), 0 2px 6px rgba(0,0,0,0.5)',
+                    }}>
+                      {([
+                        { key: 'PROB', label: 'PROBABILITY', desc: 'Favor the win, more time, 70–75% PoP strike', color: '#22c55e' },
+                        { key: 'ONAROLE', label: 'ON A ROLE', desc: 'Balanced risk/reward, ~78% PoP strike', color: '#eab308' },
+                        { key: 'LUCKY', label: 'LUCKY', desc: 'Degen mode: tighter DTE, 80-85% PoP, no stop', color: '#ec4899' },
+                      ] as const).map((opt) => (
+                        <button
+                          key={opt.key}
+                          title={opt.desc}
+                          onClick={() => setRiskLevel((prev) => {
+                            const next = { ...prev }
+                            if (next[flowId] === opt.key) delete next[flowId]
+                            else next[flowId] = opt.key
+                            return next
+                          })}
+                          style={{
+                            cursor: 'pointer', padding: '8px 16px', borderRadius: '999px', fontWeight: 900,
+                            fontSize: '12px', letterSpacing: '0.06em', whiteSpace: 'nowrap', flexShrink: 0,
+                            color: opt.color,
+                            background: riskLevel[flowId] === opt.key
+                              ? `linear-gradient(180deg, #2b2b2b 0%, #050505 55%, #000000 100%)`
+                              : 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                            border: riskLevel[flowId] === opt.key ? `1px solid ${opt.color}` : '1px solid rgba(255,255,255,0.12)',
+                            boxShadow: riskLevel[flowId] === opt.key ? `0 0 10px ${opt.color}66, inset 0 0 8px ${opt.color}33` : 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -2px 4px rgba(0,0,0,0.7)',
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto', flexShrink: 0 }}>
+                        <span style={{ color: '#ffffff', fontSize: '11px', fontWeight: 800, letterSpacing: '0.06em', marginRight: '2px', whiteSpace: 'nowrap' }}>
+                          FlowBias :
+                        </span>
+                        {([
+                          { key: null, label: 'TODAY' },
+                          { key: '3D' as const, label: '3D' },
+                          { key: '1W' as const, label: '1W' },
+                        ]).map((opt) => {
+                          const selected = (histRange ?? null) === opt.key
+                          return (
+                            <button
+                              key={opt.label}
+                              onClick={() => setHistoricalRange((prev) => {
+                                const next = { ...prev }
+                                if (opt.key === null) delete next[flowId]
+                                else next[flowId] = opt.key
+                                return next
+                              })}
+                              style={{
+                                cursor: 'pointer', padding: '8px 14px', borderRadius: '999px', fontWeight: 800,
+                                fontSize: '11px', letterSpacing: '0.06em', whiteSpace: 'nowrap', flexShrink: 0,
+                                color: selected ? '#ff8c00' : '#ffffff',
+                                background: selected
+                                  ? 'linear-gradient(180deg, #2b2b2b 0%, #050505 55%, #000000 100%)'
+                                  : 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                                border: `1px solid ${selected ? '#ff8c00' : 'rgba(255,255,255,0.18)'}`,
+                                boxShadow: selected
+                                  ? 'inset 0 2px 3px rgba(0,0,0,0.85), inset 0 -1px 0 rgba(255,140,0,0.35), 0 2px 4px rgba(0,0,0,0.6)'
+                                  : 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -3px 5px rgba(0,0,0,0.7), 0 2px 4px rgba(0,0,0,0.6)',
+                                textShadow: '0 1px 1px rgba(0,0,0,0.8)',
+                              }}
+                            >
+                              {opt.label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   {chainStillLoading && (
                     <div style={{ marginTop: '10px', color: 'rgba(255,255,255,0.4)', fontSize: '12px', fontWeight: 700 }}>
@@ -1350,39 +1509,41 @@ function SweepSenseTab({
 
                 {/* Targets ladder + sentiment cluster - one neat single row (stacks vertically on mobile) */}
                 <div style={{
-                  display: 'flex', flexWrap: isMobileCard ? 'wrap' : 'nowrap', gap: '18px', alignItems: isMobileCard ? 'stretch' : 'flex-start',
+                  display: 'flex', flexDirection: isMobileCard ? 'column' : 'row', flexWrap: isMobileCard ? 'nowrap' : 'nowrap', gap: '10px', alignItems: isMobileCard ? 'stretch' : 'flex-start',
                   padding: '10px 16px 0',
-                  overflowX: isMobileCard ? 'auto' : 'visible',
-                  overflowY: isMobileCard ? 'hidden' : 'visible',
+                  overflowX: 'visible',
+                  overflowY: 'visible',
                 }}>
-                  <div style={{ flex: isMobileCard ? '1 1 auto' : '1 1 380px', minWidth: isMobileCard ? '0' : '340px', width: isMobileCard ? '100%' : undefined, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ flex: isMobileCard ? '1 1 auto' : '1 1 380px', minWidth: isMobileCard ? '0' : '340px', width: isMobileCard ? '100%' : undefined, maxWidth: undefined, display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     {[
                       { lbl: 'TARGET 1', stock: ladderTarget1, opt: ladderT1Opt, pct: ladderT1Pct, w: '62%' },
                       { lbl: 'TARGET 2', stock: ladderTarget2, opt: ladderT2Opt, pct: ladderT2Pct, w: '84%' },
                       { lbl: 'STOP', stock: ladderStopStock, opt: ladderStopOpt, pct: ladderStopPct, w: '38%', isStop: true },
                     ].map((row) => (
                       <div key={row.lbl} style={{
-                        display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 10px',
+                        display: 'flex', alignItems: 'center', gap: isMobileCard ? '6px' : '10px', padding: isMobileCard ? '6px 8px' : '7px 10px',
                         background: row.isStop ? 'rgba(255,0,0,0.06)' : 'rgba(0,255,0,0.05)',
                         borderLeft: `3px solid ${row.isStop ? '#ff3333' : '#00e676'}`,
+                        flexWrap: isMobileCard ? 'nowrap' : 'nowrap',
+                        minWidth: 0,
                       }}>
                         <span style={{
-                          flex: '0 0 84px', fontSize: '12px', fontWeight: 900, letterSpacing: '0.08em', whiteSpace: 'nowrap',
+                          flex: isMobileCard ? '0 0 46px' : '0 0 84px', fontSize: isMobileCard ? '10px' : '12px', fontWeight: 900, letterSpacing: isMobileCard ? '0.02em' : '0.08em', whiteSpace: 'nowrap',
                           color: row.isStop ? '#ff6666' : '#5ef2a6',
-                        }}>{row.lbl}</span>
-                        <div style={{ flex: '0 0 auto', width: '70px', height: '5px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
+                        }}>{isMobileCard ? row.lbl.replace('TARGET ', 'T') : row.lbl}</span>
+                        <div style={{ flex: '0 0 auto', width: isMobileCard ? '30px' : '70px', height: '5px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
                           <div style={{ width: row.w, height: '100%', background: row.isStop ? '#ff3333' : '#00e676' }} />
                         </div>
-                        <span style={{ color: '#ffffff', fontSize: '15px', fontWeight: 800 }}>
+                        <span style={{ color: '#ffffff', fontSize: isMobileCard ? '12px' : '15px', fontWeight: 800, whiteSpace: 'nowrap' }}>
                           {typeof row.stock === 'number' ? `$${row.stock.toFixed(2)}` : 'N/A'}
                         </span>
-                        <span style={{ color: '#ffffff', fontSize: '13px' }}>/</span>
-                        <span style={{ color: row.isStop ? '#ff6666' : '#5ef2a6', fontSize: '15px', fontWeight: 800 }}>
+                        <span style={{ color: '#ffffff', fontSize: isMobileCard ? '11px' : '13px', flexShrink: 0 }}>/</span>
+                        <span style={{ color: row.isStop ? '#ff6666' : '#5ef2a6', fontSize: isMobileCard ? '12px' : '15px', fontWeight: 800, whiteSpace: 'nowrap' }}>
                           {typeof row.opt === 'number' ? `$${row.opt.toFixed(2)}` : 'N/A'}
                         </span>
                         {typeof row.pct === 'number' && (
                           <span style={{
-                            marginLeft: 'auto', fontWeight: 800, fontSize: '13px', padding: '1px 6px', borderRadius: '4px',
+                            marginLeft: isMobileCard ? '4px' : 'auto', fontWeight: 800, fontSize: isMobileCard ? '11px' : '13px', padding: '1px 6px', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0,
                             color: row.pct >= 0 ? '#00ff00' : '#ff0000',
                             background: row.pct >= 0 ? 'rgba(0,255,0,0.1)' : 'rgba(255,0,0,0.1)',
                           }}>
@@ -1432,7 +1593,7 @@ function SweepSenseTab({
                       gauge in one card) plus the FlowBias (Spam/Structural/Gamma) rows next to it. */}
                   {isMobileCard ? (
                     <div style={{
-                      display: 'flex', flexDirection: 'column',
+                      display: 'flex', flexDirection: 'column', width: '100%',
                       gap: '8px', marginTop: 0, opacity: histLoading ? 0.4 : 1,
                     }}>
                       <FlowSentimentPanel breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />
