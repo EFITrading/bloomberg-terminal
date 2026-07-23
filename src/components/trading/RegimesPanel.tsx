@@ -15,7 +15,7 @@ import { MarketRegimeData } from '../../lib/industryAnalysisService'
 import { useRegimesPanelMobile } from './useRegimesPanelMobile'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const POLYGON_API_KEY = '' || ''
+const POLYGON_API_KEY = ''
 
 const SCANNER_UNIVERSE = [...new Set(TOP_1000_SYMBOLS)]
 
@@ -579,6 +579,7 @@ export function TradeCardChart({
 }) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
   const [timeframe, setTimeframe] = React.useState('1D')
+  const [overlayToggles, setOverlayToggles] = React.useState({ T1: true, T2: true, SL: true, GAMMA: true, STRUCT: true, SPAM: true })
   const [candles, setCandles] = React.useState<any[]>([])
   const [spyCandles, setSpyCandles] = React.useState<any[]>([])
   const [industryCandles, setIndustryCandles] = React.useState<any[]>([])
@@ -685,11 +686,11 @@ export function TradeCardChart({
       if (key) industryMap.set(key, c.close)
     })
 
-    const PAD_L = 56, PAD_R = 64, PAD_T = 18, PAD_B = 28
+    const PAD_L = 56, PAD_R = 64, PAD_T = 46, PAD_B = 28
     const chartW = W - PAD_L - PAD_R
     const availH = H - PAD_T - PAD_B
     const CANDLE_H = availH
-    const lblSize = Math.min(15, Math.max(11, Math.floor(W * 0.0325)))
+    const lblSize = Math.min(19, Math.max(14, Math.floor(W * 0.0406)))
     const fmtP = (v: number) => v >= 1000 ? v.toFixed(0) : v.toFixed(1)
 
     // ── Candle panel ──
@@ -710,7 +711,52 @@ export function TradeCardChart({
       priceRange = naturalRange
     }
     const toY = (v: number) => PAD_T + CANDLE_H - ((v - lo) / priceRange) * CANDLE_H
-    const barW = chartW / visible.length
+    const barW = chartW / (visible.length + 1)  // +1 reserves one empty slot of space after the last candle
+
+    // Clip all candle/shading/signal-line drawing to the chart rect so manual y-zoom can never
+    // push wicks/bodies above PAD_T (which would render on top of the button row overlay).
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(0, PAD_T, W, CANDLE_H)
+    ctx.clip()
+
+    // Pre-market / after-hours shading (intraday only) — same PST session windows and colors
+    // as the main EFI chart's drawMarketHoursBackground: premarket 1:00–6:30 AM PST, regular
+    // 6:30 AM–1:00 PM PST, after-hours 1:00–5:00 PM PST.
+    if (timeframe === '5M' || timeframe === '1H') {
+      const dtFmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: 'numeric', hour12: false })
+      const getSession = (ts: number): 'premarket' | 'regular' | 'afterhours' => {
+        const parts = dtFmt.formatToParts(new Date(ts))
+        const h = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10)
+        const m = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0', 10)
+        const mins = (h === 24 ? 0 : h) * 60 + m
+        if (mins >= 60 && mins < 390) return 'premarket'
+        if (mins >= 780 && mins < 1020) return 'afterhours'
+        return 'regular'
+      }
+      let bandSession: 'premarket' | 'afterhours' | null = null
+      let bandStartX = PAD_L
+      const flushBand = (endX: number) => {
+        if (bandSession === null) return
+        const w = Math.ceil(endX - bandStartX) + 1
+        if (w <= 0) return
+        ctx.fillStyle = bandSession === 'premarket' ? 'rgba(255,140,60,0.08)' : 'rgba(100,150,200,0.08)'
+        ctx.fillRect(Math.floor(bandStartX), PAD_T, w, CANDLE_H)
+      }
+      visible.forEach((c: any, i: number) => {
+        const ts = c.timestamp ?? c.t
+        if (!ts) return
+        const x = PAD_L + i * barW
+        const session = getSession(ts)
+        const incoming = session !== 'regular' ? session : null
+        if (incoming !== bandSession) {
+          flushBand(x)
+          bandSession = incoming
+          bandStartX = x
+        }
+      })
+      flushBand(PAD_L + visible.length * barW)
+    }
 
     visible.forEach((c: any, i: number) => {
       const o = c.open ?? c.close
@@ -738,6 +784,8 @@ export function TradeCardChart({
       ctx.fillStyle = color
       ctx.fillRect(x0 + wickW, bodyTop, Math.max(1, bw - wickW * 2), bodyH)
     })
+
+    ctx.restore()
 
     // Right Y-axis vertical border line — candle panel
     ctx.strokeStyle = 'rgba(255,255,255,0.8)'
@@ -800,13 +848,14 @@ export function TradeCardChart({
       ctx.fillStyle = '#000000'
       ctx.fillText(lbl, W - PAD_R + 4, y)
     }
-    if (typeof target1Price === 'number' && target1Price > 0) drawHLine(target1Price, '#22c55e', 'T1')
-    if (typeof target2Price === 'number' && target2Price > 0) drawHLine(target2Price, '#16a34a', 'T2')
-    if (typeof stopPrice === 'number' && stopPrice > 0) drawHLine(stopPrice, '#ef4444', 'SL')
+    if (overlayToggles.T1 && typeof target1Price === 'number' && target1Price > 0) drawHLine(target1Price, '#22c55e', 'Target 1')
+    if (overlayToggles.T2 && typeof target2Price === 'number' && target2Price > 0) drawHLine(target2Price, '#16a34a', 'Target 2')
+    if (overlayToggles.SL && typeof stopPrice === 'number' && stopPrice > 0) drawHLine(stopPrice, '#ef4444', 'Stop')
 
     // ── Signal overlay: glowing zone lines for active Gamma Attack / Structural / Spammer
-    // detections (from FlowTrackingPanel's FlowBias rows), so the chart shows exactly which
-    // levels are driving those labels instead of a bare target/stop chart. ──
+    // detections (from FlowTrackingPanel's FlowBias rows). The level line spans the candles,
+    // but the readable label sits in the LEFT Y-axis gutter (mirroring how T1/T2/SL live in
+    // the right gutter) instead of overlapping the candles.
     const drawGlowLine = (price: number, color: string, label: string) => {
       const y = Math.round(toY(price))
       if (y < PAD_T - 4 || y > PAD_T + CANDLE_H + 4) return
@@ -823,23 +872,27 @@ export function TradeCardChart({
       ctx.shadowBlur = 0
       ctx.setLineDash([])
       ctx.restore()
-      ctx.font = `bold ${Math.max(9, lblSize - 3)}px "Courier New",monospace`
+      const fontSize = Math.max(8, Math.floor(lblSize * 0.62))
+      ctx.font = `bold ${fontSize}px "Courier New",monospace`
       ctx.textAlign = 'left'
       ctx.textBaseline = 'middle'
-      const lw = ctx.measureText(label).width
       ctx.fillStyle = color
-      ctx.fillRect(PAD_L + 4, y - Math.ceil(lblSize * 0.6), lw + 8, Math.ceil(lblSize * 1.2))
+      ctx.fillRect(1, y - Math.ceil(fontSize * 0.7), PAD_L - 3, Math.ceil(fontSize * 1.4))
       ctx.fillStyle = '#000000'
-      ctx.fillText(label, PAD_L + 8, y)
+      ctx.fillText(label, 3, y)
     }
-    if (typeof gammaLevel === 'number' && gammaLevel > 0 && timeframe === '5M') drawGlowLine(gammaLevel, '#ff8c00', '⚡ GAMMA ATTACK')
-    if (typeof structuralLevel === 'number' && structuralLevel > 0 && timeframe === '5M') {
-      drawGlowLine(structuralLevel, structuralIsResistance ? '#a855f7' : '#38bdf8', structuralIsResistance ? '▲ STRUCTURAL RES' : '▼ STRUCTURAL SUP')
+    if (overlayToggles.GAMMA && typeof gammaLevel === 'number' && gammaLevel > 0) drawGlowLine(gammaLevel, '#ff8c00', 'GAMMA')
+    if (overlayToggles.STRUCT && typeof structuralLevel === 'number' && structuralLevel > 0) {
+      drawGlowLine(structuralLevel, structuralIsResistance ? '#a855f7' : '#38bdf8', structuralIsResistance ? 'RES' : 'SUP')
     }
-    if (typeof spamLevel === 'number' && spamLevel > 0 && timeframe === '5M') drawGlowLine(spamLevel, '#facc15', '● SPAMMER')
+    if (overlayToggles.SPAM && typeof spamLevel === 'number' && spamLevel > 0) drawGlowLine(spamLevel, '#facc15', 'SPAM')
+
+    // Solid black backdrop behind the X-axis label row so candles/shading never bleed through
+    ctx.fillStyle = '#000000'
+    ctx.fillRect(0, H - PAD_B, W, PAD_B)
 
     // X-axis: up to 5 evenly-spaced date labels (solid white)
-    const xLblFont = Math.min(19, Math.max(16, Math.floor(W * 0.0413)))
+    const xLblFont = Math.min(24, Math.max(20, Math.floor(W * 0.0516)))
     ctx.font = `bold ${xLblFont}px "Courier New",monospace`
     ctx.fillStyle = '#ffffff'
     ctx.textAlign = 'center'
@@ -852,14 +905,16 @@ export function TradeCardChart({
       let label: string
       if (timeframe === '5M' || timeframe === '1H') {
         const date = ts ? new Date(ts) : new Date()
-        label = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`
+        const dateStr = date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: 'America/Los_Angeles' })
+        const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' })
+        label = `${dateStr} ${timeStr}`
       } else {
         const d = ts ? new Date(ts) : new Date((c.date || '') + 'T00:00:00')
         label = `${d.getUTCMonth() + 1}/${d.getUTCDate()}`
       }
       ctx.fillText(label, PAD_L + i * barW + barW * 0.5, H - PAD_B + 3)
     }
-  }, [candles, spyCandles, industryCandles, loading, timeframe, industrySymbol, target1Price, target2Price, stopPrice, gammaLevel, structuralLevel, structuralIsResistance, spamLevel])
+  }, [candles, spyCandles, industryCandles, loading, timeframe, industrySymbol, target1Price, target2Price, stopPrice, gammaLevel, structuralLevel, structuralIsResistance, spamLevel, overlayToggles])
 
   drawRef.current = draw
 
@@ -1047,36 +1102,103 @@ export function TradeCardChart({
           canvas.style.cursor = e.nativeEvent.offsetX > canvas.offsetWidth - 64 ? 'ns-resize' : 'grab'
         }}
       />
-      {/* Timeframe buttons */}
-      <div style={{ position: 'absolute', top: '6px', left: '6px', display: 'flex', gap: '3px', zIndex: 20, pointerEvents: 'auto' }}>
-        {CARD_TIMEFRAMES.map((tf) => (
-          <button
-            key={tf.label}
-            type="button"
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation()
-              dragRef.current.active = false
-              setTimeframe(tf.label)
-            }}
-            style={{
-              padding: '2px 8px',
-              fontFamily: '"Courier New",monospace',
-              fontSize: '11px',
-              fontWeight: 800,
-              letterSpacing: '0.05em',
-              background: '#000',
-              color: timeframe === tf.label ? '#FF6600' : '#ffffff',
-              border: `1px solid ${timeframe === tf.label ? '#FF6600' : 'rgba(255,255,255,0.12)'}`,
-              borderRadius: '3px',
-              cursor: 'pointer',
-            }}
-          >
-            {tf.label}
-          </button>
-        ))}
+      {/* Timeframe + overlay-toggle buttons */}
+      <div
+        style={{
+          position: 'absolute', top: '6px', left: '6px', right: '6px', zIndex: 20, pointerEvents: 'auto',
+          display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap',
+          background: 'linear-gradient(180deg, #161616 0%, #060606 55%, #000000 100%)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: '999px',
+          padding: '4px 6px',
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -2px 4px rgba(0,0,0,0.8), 0 2px 6px rgba(0,0,0,0.5)',
+        }}
+      >
+        <div style={{ display: 'flex', gap: '3px' }}>
+          {CARD_TIMEFRAMES.map((tf) => (
+            <button
+              key={tf.label}
+              type="button"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation()
+                dragRef.current.active = false
+                setTimeframe(tf.label)
+              }}
+              style={{
+                padding: '4px 12px',
+                fontFamily: '"Courier New",monospace',
+                fontSize: '14px',
+                fontWeight: 800,
+                letterSpacing: '0.05em',
+                background: timeframe === tf.label
+                  ? 'linear-gradient(180deg, #2b2b2b 0%, #050505 55%, #000000 100%)'
+                  : 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                color: timeframe === tf.label ? '#FF6600' : '#ffffff',
+                border: `1px solid ${timeframe === tf.label ? '#FF6600' : 'rgba(255,255,255,0.12)'}`,
+                borderRadius: '999px',
+                boxShadow: timeframe === tf.label
+                  ? 'inset 0 2px 3px rgba(0,0,0,0.85), inset 0 -1px 0 rgba(255,140,0,0.35)'
+                  : 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -2px 4px rgba(0,0,0,0.7)',
+                cursor: 'pointer',
+              }}
+            >
+              {tf.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.12)', flexShrink: 0 }} />
+
+        <div style={{ display: 'flex', gap: '3px' }}>
+          {([
+            { key: 'T1', label: 'Target 1', color: '#22c55e', active: true },
+            { key: 'T2', label: 'Target 2', color: '#16a34a', active: true },
+            { key: 'SL', label: 'Stop', color: '#ef4444', active: true },
+            { key: 'SPAM', label: 'Spammer', color: '#facc15', active: typeof spamLevel === 'number' && spamLevel > 0 },
+            { key: 'STRUCT', label: 'Structural', color: '#a855f7', active: typeof structuralLevel === 'number' && structuralLevel > 0 },
+            { key: 'GAMMA', label: 'Gamma Attack', color: '#ff8c00', active: typeof gammaLevel === 'number' && gammaLevel > 0 },
+          ] as const).map((ov) => {
+            const on = overlayToggles[ov.key] && ov.active
+            return (
+              <button
+                key={ov.key}
+                type="button"
+                title={ov.active ? `Toggle ${ov.label}` : `No ${ov.label} detected`}
+                disabled={!ov.active}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (!ov.active) return
+                  dragRef.current.active = false
+                  setOverlayToggles((prev) => ({ ...prev, [ov.key]: !prev[ov.key] }))
+                }}
+                style={{
+                  padding: '4px 11px',
+                  fontFamily: '"Courier New",monospace',
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  letterSpacing: '0.05em',
+                  background: on
+                    ? 'linear-gradient(180deg, #2b2b2b 0%, #050505 55%, #000000 100%)'
+                    : 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                  color: !ov.active ? 'rgba(255,255,255,0.18)' : (on ? ov.color : 'rgba(255,255,255,0.35)'),
+                  border: `1px solid ${!ov.active ? 'rgba(255,255,255,0.06)' : (on ? ov.color : 'rgba(255,255,255,0.1)')}`,
+                  borderRadius: '999px',
+                  boxShadow: on
+                    ? 'inset 0 2px 3px rgba(0,0,0,0.85), inset 0 -1px 0 rgba(255,255,255,0.08)'
+                    : 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -2px 4px rgba(0,0,0,0.7)',
+                  cursor: ov.active ? 'pointer' : 'not-allowed',
+                }}
+              >
+                {ov.label}
+              </button>
+            )
+          })}
+        </div>
+
         {fetching && (
-          <span style={{ fontFamily: '"Courier New",monospace', fontSize: '10px', color: '#ff6600', lineHeight: '20px', letterSpacing: '0.1em' }}>
+          <span style={{ fontFamily: '"Courier New",monospace', fontSize: '10px', color: '#ff6600', letterSpacing: '0.1em', marginLeft: 'auto' }}>
             LIVE…
           </span>
         )}

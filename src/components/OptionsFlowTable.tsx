@@ -4386,8 +4386,12 @@ Stock Reaction: ${scores.stockReaction}/15`
     for (const t of data) {
       const fs = (t.fill_style || '') as string
       const isCall = t.type === 'call'
-      const isBullish = !fs || fs === 'N/A' || fs === 'A' || fs === 'AA'
-      const isBearish = fs === 'B' || fs === 'BB'
+      // Sentiment direction depends on BOTH the option type and the fill-style aggressor side:
+      // buying calls (A/AA) = bullish, selling calls (B/BB) = bearish, buying puts (A/AA) =
+      // bearish, selling puts (B/BB) = bullish. Base on call/put, then flip on a sell fill.
+      let isBullish = isCall
+      if (fs === 'B' || fs === 'BB') isBullish = !isBullish
+      const isBearish = !isBullish
       const entry = tickerPrem.get(t.underlying_ticker) || { buyCalls: 0, bearCalls: 0, buyPuts: 0, bearPuts: 0 }
       if (isCall && isBullish) entry.buyCalls += t.total_premium
       else if (isCall && isBearish) entry.bearCalls += t.total_premium

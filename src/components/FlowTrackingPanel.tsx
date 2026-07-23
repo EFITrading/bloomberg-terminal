@@ -449,79 +449,23 @@ function calcTradeManagement(trade: OptionsFlowData, sigmaOverride?: number, dte
   }
 }
 
-// Flow sentiment gauge - 4 liquid-fill quadrant boxes (Bull/Bear Calls & Puts) plus the arc
-// gauge/needle, identical visual language to the Market Overview / EFI toolbar's Options Flow
-// dropdown "Flow Sentiment Gauge" (EFICharting.tsx), driven off the same breakdown percentages
-// already computed for this trade's flow composition.
-function FlowQuadrantBoxes({ breakdown, isMobileCard = false }: { breakdown: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }; isMobileCard?: boolean }) {
-  const uid = React.useId()
+// Flow sentiment panel - unified design combining the 4 bull/bear call/put premium-split rows
+// AND the overall trend gauge into a single compact candy-black card (replaces the previous
+// separate quadrant-box grid + arc gauge, same underlying breakdown percentages).
+function FlowSentimentPanel({ breakdown, isMobileCard = false }: { breakdown: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }; isMobileCard?: boolean }) {
   const bc = breakdown.buyCallsPct
   const rc = breakdown.bearCallsPct
   const bp = breakdown.buyPutsPct
   const rp = breakdown.bearPutsPct
-  const boxes = [
-    { lbl: 'BULL', sub: 'CALLS', val: bc, color: '#10b981' },
-    { lbl: 'BEAR', sub: 'CALLS', val: rc, color: '#4da6ff' },
-    { lbl: 'BULL', sub: 'PUTS', val: bp, color: '#ffcc00' },
-    { lbl: 'BEAR', sub: 'PUTS', val: rp, color: '#ff2222' },
-  ]
   const maxVal = Math.max(bc, rc, bp, rp, 0.0001)
-  const boxH = isMobileCard ? 62 : 107
+  const rows = [
+    { lbl: 'BULL CALLS', val: bc, color: '#10b981' },
+    { lbl: 'BEAR CALLS', val: rc, color: '#4da6ff' },
+    { lbl: 'BULL PUTS', val: bp, color: '#ffcc00' },
+    { lbl: 'BEAR PUTS', val: rp, color: '#ff2222' },
+  ]
 
-  return (
-    <div style={{
-      display: isMobileCard ? 'grid' : 'flex',
-      gridTemplateColumns: isMobileCard ? '54px' : undefined,
-      flexDirection: isMobileCard ? undefined : 'row',
-      alignItems: isMobileCard ? undefined : 'flex-end',
-      gap: '3px', height: isMobileCard ? `${boxH * 4 + 9}px` : '118px',
-    }}>
-      <style>{`
-        @keyframes ftpfq-glow-${uid} { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.25); } }
-      `}</style>
-      {boxes.map((box, i) => {
-        const pct = Math.max(0, Math.min(100, box.val))
-        const isTop = pct === maxVal && pct > 0
-        const barH = Math.max(8, (pct / 100) * boxH)
-        return (
-          <div key={i} style={{
-            position: 'relative', width: '54px', height: `${boxH}px`, borderRadius: '4px', overflow: 'hidden',
-            background: 'rgba(255,255,255,0.05)', border: `1px solid ${isTop ? box.color : 'rgba(255,255,255,0.1)'}`,
-            boxShadow: isTop ? `0 0 10px ${box.color}55` : 'none',
-            display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-          }}>
-            <div style={{
-              position: 'absolute', bottom: 0, left: 0, right: 0, height: `${barH}px`,
-              background: `linear-gradient(180deg, ${box.color} 0%, ${box.color}99 100%)`,
-              animation: isTop ? `ftpfq-glow-${uid} 1.6s ease-in-out infinite` : 'none',
-            }} />
-            <span style={{
-              position: 'relative', zIndex: 1, color: '#ffffff', fontSize: '10px', fontWeight: 900, letterSpacing: '0.06em',
-              lineHeight: 1.15, textAlign: 'center', padding: '4px 2px 0', textShadow: '0 1px 2px rgba(0,0,0,0.9)',
-            }}>
-              {box.lbl}<br />{box.sub}
-            </span>
-            <span style={{
-              position: 'relative', zIndex: 1, color: '#ffffff', fontSize: '18px', fontWeight: 900, textAlign: 'center',
-              padding: '0 0 5px', textShadow: '0 1px 3px rgba(0,0,0,0.9)',
-            }}>
-              {pct.toFixed(0)}%
-            </span>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function FlowSentimentGauge({ breakdown, isMobileCard = false }: { breakdown: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }; isMobileCard?: boolean }) {
-  const uid = React.useId()
-  const bc = breakdown.buyCallsPct / 100
-  const rc = breakdown.bearCallsPct / 100
-  const bp = breakdown.buyPutsPct / 100
-  const rp = breakdown.bearPutsPct / 100
-
-  const score = Math.max(-1, Math.min(1, (bc * 0.8 + bp * 0.6 - rc * 0.6 - rp * 0.8) / 0.8))
+  const score = Math.max(-1, Math.min(1, ((bc / 100) * 0.8 + (bp / 100) * 0.6 - (rc / 100) * 0.6 - (rp / 100) * 0.8) / 0.8))
   const gaugePercent = (score + 1) / 2
   const zones = [
     { start: 0, end: 0.2, color: '#ef4444', label: 'Bear Trend' },
@@ -531,161 +475,60 @@ function FlowSentimentGauge({ breakdown, isMobileCard = false }: { breakdown: { 
     { start: 0.8, end: 1.0, color: '#22c55e', label: 'Bull Trend' },
   ]
   const zone = zones.find((z) => gaugePercent >= z.start && gaugePercent <= z.end) ?? zones[4]
-
-  const gaugeW = isMobileCard ? 290 : 300
-  const tk = 40
-  const radius = (gaugeW - tk) / 2
-  const C = Math.PI * radius
-  const vbW = gaugeW
-  const vbH = Math.round(gaugeW / 2) + 34
-  const svgW = gaugeW
-  const svgH = vbH
-  const arcCY = Math.round(gaugeW / 2)
-  const arcCX = gaugeW / 2
-  const x0 = tk / 2, x1 = vbW - tk / 2
-  const arcPath = `M ${x0} ${arcCY} A ${radius} ${radius} 0 0 1 ${x1} ${arcCY}`
-  const needleAngle = (1 - gaugePercent) * Math.PI
-  const needleLen = radius * 0.74
-  const nx = arcCX + needleLen * Math.cos(needleAngle)
-  const ny = arcCY - needleLen * Math.sin(needleAngle)
   const pctStr = `${score >= 0 ? '+' : ''}${(score * 100).toFixed(0)}%`
-  const lfs = isMobileCard ? 15 : 16
-  // Fill grows outward from the center (neutral) toward bear (left) or bull (right),
-  // instead of always starting at the bear corner.
-  const fillStart = Math.min(0.5, gaugePercent)
-  const fillLen = Math.abs(gaugePercent - 0.5)
-  const fillDasharray = `${Math.max(0.1, fillLen * C)} ${C * 10}`
-  const fillDashoffset = -fillStart * C
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-      <svg width={svgW} height={svgH} viewBox={`0 0 ${vbW} ${vbH}`} style={{ display: 'block', overflow: 'visible' }}>
-        <defs>
-          <linearGradient id={`ftp-g-sheen-${uid}`} x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="rgba(255,255,255,0.22)" />
-            <stop offset="55%" stopColor="rgba(255,255,255,0.04)" />
-            <stop offset="100%" stopColor="rgba(0,0,0,0.25)" />
-          </linearGradient>
-          <linearGradient id={`ftp-g-act-${uid}`} x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="rgba(255,255,255,0.30)" />
-            <stop offset="100%" stopColor="rgba(0,0,0,0.20)" />
-          </linearGradient>
-          <filter id={`ftp-glow-${uid}`} x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation="4" result="b" />
-            <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
-          </filter>
-          <filter id={`ftp-glow-sm-${uid}`} x="-15%" y="-15%" width="130%" height="130%">
-            <feGaussianBlur stdDeviation="2" result="b" />
-            <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
-          </filter>
-        </defs>
+    <div style={{
+      width: isMobileCard ? '100%' : '260px',
+      display: 'flex', flexDirection: 'column', gap: '7px',
+      padding: isMobileCard ? '8px 10px' : '10px 12px', borderRadius: '8px',
+      background: 'linear-gradient(180deg, #141414 0%, #060606 60%, #000000 100%)',
+      border: '1px solid rgba(255,255,255,0.08)',
+      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -2px 4px rgba(0,0,0,0.7)',
+    }}>
+      {rows.map((row) => {
+        const pct = Math.max(0, Math.min(100, row.val))
+        const isTop = pct === maxVal && pct > 0
+        return (
+          <div key={row.lbl} style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+            <span style={{
+              width: '68px', flexShrink: 0, fontSize: '9px', fontWeight: 900, letterSpacing: '0.04em',
+              color: '#ffffff',
+            }}>{row.lbl}</span>
+            <div style={{ flex: 1, height: '10px', borderRadius: '5px', background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+              <div style={{
+                width: `${pct}%`, height: '100%',
+                background: `linear-gradient(90deg, ${row.color}99 0%, ${row.color} 100%)`,
+                boxShadow: isTop ? `0 0 6px ${row.color}88` : 'none',
+              }} />
+            </div>
+            <span style={{ width: '30px', textAlign: 'right', flexShrink: 0, fontSize: '11px', fontWeight: 900, color: '#ffffff' }}>
+              {pct.toFixed(0)}%
+            </span>
+          </div>
+        )
+      })}
 
-        <path d={arcPath} fill="none" stroke="rgba(0,0,0,0.6)" strokeWidth={tk + 6} strokeLinecap="round" />
-        <path d={arcPath} fill="none" stroke="#0d1117" strokeWidth={tk} strokeLinecap="round" />
-        <path d={arcPath} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={tk - 4} strokeLinecap="round" />
-
-        {zones.map((z) => (
-          <path key={z.start} d={arcPath} fill="none"
-            stroke={z.color} strokeWidth={tk - 4} strokeLinecap="butt"
-            strokeDasharray={`${(z.end - z.start) * C} ${C * 10}`}
-            strokeDashoffset={z.start * C}
-            opacity={0.4}
-          />
-        ))}
-
-        {[0.2, 0.4, 0.6, 0.8].map((f) => {
-          const a = (1 - f) * Math.PI
-          const r1 = radius - tk / 2 - 2, r2 = radius + tk / 2 + 2
-          return (
-            <line key={f}
-              x1={arcCX + r1 * Math.cos(a)} y1={arcCY - r1 * Math.sin(a)}
-              x2={arcCX + r2 * Math.cos(a)} y2={arcCY - r2 * Math.sin(a)}
-              stroke="rgba(0,0,0,0.8)" strokeWidth={4}
-            />
-          )
-        })}
-
-        <path d={arcPath} fill="none"
-          stroke={zone.color} strokeWidth={tk - 2} strokeLinecap="round"
-          strokeDasharray={fillDasharray}
-          strokeDashoffset={fillDashoffset}
-          opacity={1}
-          filter={`url(#ftp-glow-${uid})`}
-        />
-        <path d={arcPath} fill="none"
-          stroke={`url(#ftp-g-act-${uid})`} strokeWidth={Math.round((tk - 2) * 0.55)} strokeLinecap="round"
-          strokeDasharray={fillDasharray}
-          strokeDashoffset={fillDashoffset}
-          opacity={0.7}
-        />
-
-        <path d={arcPath} fill="none"
-          stroke={`url(#ftp-g-sheen-${uid})`} strokeWidth={tk - 2} strokeLinecap="round"
-          opacity={0.55}
-        />
-        <path d={arcPath} fill="none"
-          stroke="rgba(255,255,255,0.12)" strokeWidth={3} strokeLinecap="round"
-          style={{ transform: `translate(0, -${tk / 2 - 2}px)` }}
-          opacity={0.8}
-        />
-
-        {zones.map((z) => {
-          const f = (z.start + z.end) / 2
-          const a = (1 - f) * Math.PI
-          const lr = radius
-          const lx = arcCX + lr * Math.cos(a)
-          const ly = arcCY - lr * Math.sin(a)
-          const parts = z.label.split(' ')
-          const lh = lfs
-          return parts.map((word, wi) => {
-            const yo = parts.length > 1 ? (wi - (parts.length - 1) / 2) * lh : 0
-            return (
-              <text key={`${z.start}-${wi}`}
-                x={lx} y={ly + yo}
-                textAnchor="middle" dominantBaseline="middle"
-                fill={z.color} fontSize={lfs - 3}
-                fontFamily="JetBrains Mono,monospace" fontWeight="900"
-                stroke="#000000" strokeWidth={2.5} paintOrder="stroke"
-              >{word}</text>
-            )
-          })
-        })}
-
-        <line x1={arcCX + 1} y1={arcCY + 1} x2={nx + 1} y2={ny + 1}
-          stroke="rgba(0,0,0,0.5)" strokeWidth={5} strokeLinecap="round"
-        />
-        <line x1={arcCX} y1={arcCY} x2={nx} y2={ny}
-          stroke={zone.color} strokeWidth={4.5} strokeLinecap="round"
-          filter={`url(#ftp-glow-sm-${uid})`}
-        />
-        <line x1={arcCX} y1={arcCY} x2={nx} y2={ny}
-          stroke="rgba(255,255,255,0.4)" strokeWidth={2} strokeLinecap="round"
-        />
-
-        <circle cx={arcCX} cy={arcCY} r={18} fill="rgba(0,0,0,0.95)" stroke="rgba(255,255,255,0.15)" strokeWidth="2" />
-        <circle cx={arcCX} cy={arcCY} r={12} fill={zone.color} filter={`url(#ftp-glow-sm-${uid})`} />
-        <circle cx={arcCX - 3.5} cy={arcCY - 3.5} r={4} fill="rgba(255,255,255,0.5)" />
-
-        {!isMobileCard && (
-          <>
-            <text x={x0} y={arcCY + 30} fill="#ef4444" fontSize={16} fontFamily="JetBrains Mono,monospace" fontWeight="900">BEAR</text>
-            <text x={x1} y={arcCY + 30} textAnchor="end" fill="#22c55e" fontSize={16} fontFamily="JetBrains Mono,monospace" fontWeight="900">BULL</text>
-          </>
-        )}
-
-        {!isMobileCard && (
-          <text x={arcCX} y={arcCY + 44} textAnchor="middle"
-            fill="#ffffff" fontSize={23}
-            fontFamily="JetBrains Mono,monospace" fontWeight="900"
-          >{pctStr}</text>
-        )}
-      </svg>
-
-      {!isMobileCard && (
-        <div style={{ textAlign: 'center', fontSize: 15, fontFamily: 'JetBrains Mono,monospace', fontWeight: 900, color: zone.color, letterSpacing: '0.12em' }}>
-          {zone.label.toUpperCase()}
+      <div style={{ marginTop: '3px' }}>
+        <div style={{
+          position: 'relative', height: '8px', borderRadius: '4px',
+          background: 'linear-gradient(90deg, #ef4444 0%, #f97316 25%, #eab308 50%, #84cc16 75%, #22c55e 100%)',
+          opacity: 0.85,
+        }}>
+          <div style={{
+            position: 'absolute', top: '-3px', left: `calc(${gaugePercent * 100}% - 6px)`,
+            width: '12px', height: '14px', borderRadius: '3px',
+            background: '#ffffff', border: `2px solid ${zone.color}`, boxShadow: `0 0 6px ${zone.color}`,
+          }} />
         </div>
-      )}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '5px' }}>
+          <span style={{ fontSize: '9px', fontWeight: 800, color: '#ef4444', letterSpacing: '0.06em' }}>BEAR</span>
+          <span style={{ fontSize: isMobileCard ? '11px' : '12px', fontWeight: 900, color: zone.color, letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>
+            {pctStr} {zone.label.toUpperCase()}
+          </span>
+          <span style={{ fontSize: '9px', fontWeight: 800, color: '#22c55e', letterSpacing: '0.06em' }}>BULL</span>
+        </div>
+      </div>
     </div>
   )
 }
@@ -825,8 +668,12 @@ function SweepSenseTab({
           for (const t of trades) {
             const fs = (t.fill_style || '') as string
             const isCall = t.type === 'call'
-            const isBullish = !fs || fs === 'N/A' || fs === 'A' || fs === 'AA'
-            const isBearish = fs === 'B' || fs === 'BB'
+            // Sentiment depends on BOTH call/put and buy/sell aggressor: buying calls (A/AA) =
+            // bullish, selling calls (B/BB) = bearish, buying puts (A/AA) = bearish, selling
+            // puts (B/BB) = bullish. Base on call/put, then flip on a sell fill.
+            let isBullish = isCall
+            if (fs === 'B' || fs === 'BB') isBullish = !isBullish
+            const isBearish = !isBullish
             const prem = t.total_premium || 0
             if (isCall && isBullish) buyCalls += prem
             else if (isCall && isBearish) bearCalls += prem
@@ -1418,6 +1265,12 @@ function SweepSenseTab({
                   <div style={{
                     display: 'flex', gap: isMobileCard ? '4px' : '8px', flexWrap: isMobileCard ? 'nowrap' : 'wrap', alignItems: 'center',
                     overflowX: isMobileCard ? 'auto' : undefined,
+                    overflowY: isMobileCard ? 'hidden' : undefined,
+                    background: 'linear-gradient(180deg, #161616 0%, #060606 55%, #000000 100%)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: '999px',
+                    padding: isMobileCard ? '5px 8px' : '6px 10px',
+                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -2px 4px rgba(0,0,0,0.8), 0 2px 6px rgba(0,0,0,0.5)',
                   }}>
                     {([
                       { key: 'PROB', label: 'PROBABILITY', desc: 'Favor the win, more time, 70–75% PoP strike', color: '#22c55e' },
@@ -1434,12 +1287,14 @@ function SweepSenseTab({
                           return next
                         })}
                         style={{
-                          cursor: 'pointer', padding: isMobileCard ? '6px 8px' : '8px 14px', borderRadius: '5px', fontWeight: 900,
+                          cursor: 'pointer', padding: isMobileCard ? '6px 10px' : '8px 16px', borderRadius: '999px', fontWeight: 900,
                           fontSize: isMobileCard ? '10px' : '12px', letterSpacing: '0.06em', whiteSpace: 'nowrap', flexShrink: 0,
                           color: opt.color,
-                          background: '#000000',
-                          border: riskLevel[flowId] === opt.key ? `1px solid ${opt.color}` : '1px solid rgba(255,255,255,0.1)',
-                          boxShadow: riskLevel[flowId] === opt.key ? `0 0 10px ${opt.color}66, inset 0 0 8px ${opt.color}33` : 'none',
+                          background: riskLevel[flowId] === opt.key
+                            ? `linear-gradient(180deg, #2b2b2b 0%, #050505 55%, #000000 100%)`
+                            : 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                          border: riskLevel[flowId] === opt.key ? `1px solid ${opt.color}` : '1px solid rgba(255,255,255,0.12)',
+                          boxShadow: riskLevel[flowId] === opt.key ? `0 0 10px ${opt.color}66, inset 0 0 8px ${opt.color}33` : 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -2px 4px rgba(0,0,0,0.7)',
                         }}
                       >
                         {opt.label}
@@ -1466,7 +1321,7 @@ function SweepSenseTab({
                               return next
                             })}
                             style={{
-                              cursor: 'pointer', padding: isMobileCard ? '6px 8px' : '8px 12px', borderRadius: '6px', fontWeight: 800,
+                              cursor: 'pointer', padding: isMobileCard ? '6px 10px' : '8px 14px', borderRadius: '999px', fontWeight: 800,
                               fontSize: isMobileCard ? '10px' : '11px', letterSpacing: '0.06em', whiteSpace: 'nowrap', flexShrink: 0,
                               color: selected ? '#ff8c00' : '#ffffff',
                               background: selected
@@ -1496,7 +1351,9 @@ function SweepSenseTab({
                 {/* Targets ladder + sentiment cluster - one neat single row (stacks vertically on mobile) */}
                 <div style={{
                   display: 'flex', flexWrap: isMobileCard ? 'wrap' : 'nowrap', gap: '18px', alignItems: isMobileCard ? 'stretch' : 'flex-start',
-                  padding: '10px 16px 0', overflowX: isMobileCard ? 'visible' : 'auto',
+                  padding: '10px 16px 0',
+                  overflowX: isMobileCard ? 'auto' : 'visible',
+                  overflowY: isMobileCard ? 'hidden' : 'visible',
                 }}>
                   <div style={{ flex: isMobileCard ? '1 1 auto' : '1 1 380px', minWidth: isMobileCard ? '0' : '340px', width: isMobileCard ? '100%' : undefined, display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     {[
@@ -1571,21 +1428,15 @@ function SweepSenseTab({
                     )}
                   </div>
 
-                  {/* Sentiment cluster: quadrant boxes + gauge, same row as the ladder. FlowBias
-                      rows (Spam / Structural / Gamma) sit directly below the 4 boxes only - NOT
-                      stretched across the gauge/whole row - so the boxes column shrink-wraps.
-                      On mobile: boxes stay a 1-column/4-row stack on the left; FlowBias text sits
-                      to the right at normal compact size, with the gauge nested directly below
-                      the text (sized to fit the leftover height so the whole cluster matches the
-                      boxes' total height). */}
+                  {/* Sentiment cluster: unified panel (bull/bear call/put split rows + trend
+                      gauge in one card) plus the FlowBias (Spam/Structural/Gamma) rows next to it. */}
                   {isMobileCard ? (
                     <div style={{
-                      display: 'flex', flexDirection: 'row',
-                      gap: '8px', alignItems: 'flex-start', flexWrap: 'nowrap',
-                      marginTop: 0, opacity: histLoading ? 0.4 : 1,
+                      display: 'flex', flexDirection: 'column',
+                      gap: '8px', marginTop: 0, opacity: histLoading ? 0.4 : 1,
                     }}>
-                      <FlowQuadrantBoxes breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%', height: '257px' }}>
+                      <FlowSentimentPanel breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
                         {[
                           { text: spamLabel, active: spamLabel !== 'No Spammer Detected' && spamLabel !== 'Loading…', title: 'Flow Spammer', trades: spamResult.trades },
                           { text: structuralLabel, active: structuralLabel !== 'No Structural Formation Detected', title: 'Structural Support/Resistance', trades: structuralResult.trades },
@@ -1606,39 +1457,33 @@ function SweepSenseTab({
                             </span>
                           </div>
                         ))}
-                        <div style={{ display: 'flex', justifyContent: 'center', flex: 1 }}>
-                          <FlowSentimentGauge breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />
-                        </div>
                       </div>
                     </div>
                   ) : (
-                    <div style={{ display: 'flex', flexDirection: 'row', gap: '14px', alignItems: 'flex-start', flexWrap: 'nowrap', marginTop: '-14px', opacity: histLoading ? 0.4 : 1 }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        <FlowQuadrantBoxes breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '228px' }}>
-                          {[
-                            { text: spamLabel, active: spamLabel !== 'No Spammer Detected' && spamLabel !== 'Loading…', title: 'Flow Spammer', trades: spamResult.trades },
-                            { text: structuralLabel, active: structuralLabel !== 'No Structural Formation Detected', title: 'Structural Support/Resistance', trades: structuralResult.trades },
-                            { text: gammaLabel, active: gammaLabel === 'Gamma Squeeze in Formation', title: 'Gamma Attack', trades: gammaResult.trades },
-                          ].map((row, i) => (
-                            <div
-                              key={i}
-                              onClick={() => row.active && row.trades.length > 0 && setFlowBiasDetail({ title: `${trade.underlying_ticker} - ${row.title}`, trades: row.trades })}
-                              style={{
-                                display: 'flex', alignItems: 'center', padding: '4px 8px', borderRadius: '4px',
-                                background: '#000000',
-                                border: `1px solid ${row.active ? 'rgba(255,140,0,0.35)' : 'rgba(255,255,255,0.08)'}`,
-                                cursor: row.active && row.trades.length > 0 ? 'pointer' : 'default',
-                              }}
-                            >
-                              <span style={{ color: row.active ? '#ff8c00' : '#ffffff', fontSize: '11px', fontWeight: 800, whiteSpace: 'normal' }}>
-                                {row.text}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
+                    <div style={{ display: 'flex', flexDirection: 'row', gap: '14px', alignItems: 'flex-start', flexWrap: 'nowrap', marginTop: '0', opacity: histLoading ? 0.4 : 1 }}>
+                      <FlowSentimentPanel breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '228px' }}>
+                        {[
+                          { text: spamLabel, active: spamLabel !== 'No Spammer Detected' && spamLabel !== 'Loading…', title: 'Flow Spammer', trades: spamResult.trades },
+                          { text: structuralLabel, active: structuralLabel !== 'No Structural Formation Detected', title: 'Structural Support/Resistance', trades: structuralResult.trades },
+                          { text: gammaLabel, active: gammaLabel === 'Gamma Squeeze in Formation', title: 'Gamma Attack', trades: gammaResult.trades },
+                        ].map((row, i) => (
+                          <div
+                            key={i}
+                            onClick={() => row.active && row.trades.length > 0 && setFlowBiasDetail({ title: `${trade.underlying_ticker} - ${row.title}`, trades: row.trades })}
+                            style={{
+                              display: 'flex', alignItems: 'center', padding: '4px 8px', borderRadius: '4px',
+                              background: '#000000',
+                              border: `1px solid ${row.active ? 'rgba(255,140,0,0.35)' : 'rgba(255,255,255,0.08)'}`,
+                              cursor: row.active && row.trades.length > 0 ? 'pointer' : 'default',
+                            }}
+                          >
+                            <span style={{ color: row.active ? '#ff8c00' : '#ffffff', fontSize: '11px', fontWeight: 800, whiteSpace: 'normal' }}>
+                              {row.text}
+                            </span>
+                          </div>
+                        ))}
                       </div>
-                      <FlowSentimentGauge breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />
                     </div>
                   )}
                 </div>
