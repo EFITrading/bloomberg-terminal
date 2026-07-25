@@ -18,6 +18,10 @@ const gunzipAsync = promisify(gunzip)
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY
 if (!POLYGON_API_KEY) { console.error('[FATAL] POLYGON_API_KEY not set'); process.exit(1) }
 
+// SweepSense end-of-day auto-save (headless browser trigger) — see runSweepSenseAutoSave() below.
+const APP_URL = process.env.APP_URL
+const COLLECTOR_SECRET = process.env.COLLECTOR_SECRET
+
 // Use direct Postgres connection — bypass Prisma Accelerate proxy which has frequent 502s
 // Railway is a persistent process and doesn't need connection pooling
 const directUrl = process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_DATABASE_URL
@@ -377,6 +381,49 @@ function stopStream() {
         console.log('[STREAM] Final save complete. Waiting for next market open ...')
         scheduleNextOpen()
     })
+
+    // Trigger the SweepSense end-of-day snapshot ~1 minute after close — matches the
+    // window OptionsFlowTable.tsx's own save effect gates on (1:01-1:59 PM PST). Runs
+    // once per day; harmless/idempotent if it overlaps a manual browser tab doing the
+    // same save (DB upsert just overwrites).
+    setTimeout(runSweepSenseAutoSave, 60 * 1000)
+}
+
+// ── SweepSense auto-save (headless browser) ───────────────────────────────────
+// The SweepSense grading pipeline lives entirely in the browser (OptionsFlowTable.tsx)
+// and depends on many other client-only functions/caches — re-implementing that math
+// here would risk silently drifting from the real grading logic. Instead, this opens
+// the REAL page in headless Chromium so the exact same, already-tested client code
+// runs and saves itself via its own existing effect (which POSTs to /api/sweepsense/save
+// once the scan settles). This function's only job is making sure a browser visits
+// that page once, right after close, every trading day.
+async function runSweepSenseAutoSave() {
+    if (!APP_URL) { console.warn('[SweepSense] APP_URL not set — skipping auto-save trigger'); return }
+    console.log('[SweepSense] Launching headless browser to trigger end-of-day save...')
+    let browser
+    try {
+        const puppeteer = (await import('puppeteer')).default
+        browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] })
+        const page = await browser.newPage()
+        if (COLLECTOR_SECRET) {
+            await page.setExtraHTTPHeaders({ 'x-collector-secret': COLLECTOR_SECRET })
+        }
+        await page.goto(`${APP_URL}/options-flow`, { waitUntil: 'domcontentloaded', timeout: 60_000 })
+
+        try {
+            const response = await page.waitForResponse(
+                (res) => res.url().includes('/api/sweepsense/save') && res.request().method() === 'POST',
+                { timeout: 4 * 60 * 1000 }
+            )
+            console.log(`[SweepSense] Save request observed: ${response.status()}`)
+        } catch {
+            console.log('[SweepSense] No save request observed within the wait window.')
+        }
+    } catch (err) {
+        console.error('[SweepSense] Auto-save trigger failed:', err.message)
+    } finally {
+        if (browser) await browser.close().catch(() => {})
+    }
 }
 
 function startCollecting() {

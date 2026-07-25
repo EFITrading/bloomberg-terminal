@@ -218,22 +218,87 @@ function getFlowBiasTypeBadgeStyle(tradeType: string | undefined): React.CSSProp
   return { ...common, color: '#9ca3af', border: '1px solid rgba(156,163,175,0.4)' }
 }
 
+// Days-to-expiry off a raw flow print's own expiry string (not the card's DTE) - each print in
+// a spam group could technically differ, though in practice grouping is per-expiry already.
+function computeDteFromExpiry(expiry: string): number {
+  const exp = new Date(expiry + 'T00:00:00')
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  return Math.max(0, Math.round((exp.getTime() - now.getTime()) / 86400000))
+}
+
+// OTM + within the 90%-probability-of-profit band (between spot and the 90% POP strike) - keeps
+// Flow Spammer / uniqueness scoring focused on realistic OTM strikes, excluding ATM prints and
+// prints too far out-of-the-money to matter.
+function isWithin90PopOtm(strike: number, spot: number, sigma: number, dte: number, isCall: boolean): boolean {
+  if (!spot || spot <= 0) return true
+  const inc = spot < 25 ? 0.5 : spot < 200 ? 1 : spot < 500 ? 5 : 10
+  const isAtm = Math.abs(strike - spot) < inc * 1.5
+  if (isAtm) return false
+  if (!sigma || sigma <= 0 || dte <= 0) return true // can't evaluate probability - don't over-filter
+  const k90 = bsStrikeForProbFTP(spot, sigma, dte, 90, isCall)
+  if (k90 === null) return true
+  return isCall ? strike > spot && strike <= k90 : strike < spot && strike >= k90
+}
+
+// Greedily cancels opposing buy (A/AA) vs sell (B/BB) prints at the same strike/expiry whose
+// contract sizes are within 30% of each other - e.g. 1000@1.2A vs 800@1.2B is a 20% size diff
+// so both cancel out; a 31%+ size diff means both stay and count toward the spam group.
+function cancelOffsettingTrades(trades: Array<FlowBiasRawTrade>): Array<FlowBiasRawTrade> {
+  const isBuy = (t: FlowBiasRawTrade) => t.fillStyle === 'A' || t.fillStyle === 'AA'
+  const isSell = (t: FlowBiasRawTrade) => t.fillStyle === 'B' || t.fillStyle === 'BB'
+  const cancelled = new Set<FlowBiasRawTrade>()
+  const usedSells = new Set<FlowBiasRawTrade>()
+  const sells = trades.filter(isSell)
+  for (const buy of trades) {
+    if (!isBuy(buy)) continue
+    const buySize = buy.tradeSize || 0
+    if (!buySize) continue
+    let bestSell: FlowBiasRawTrade | null = null
+    let bestDiff = Infinity
+    for (const sell of sells) {
+      if (usedSells.has(sell)) continue
+      const sellSize = sell.tradeSize || 0
+      if (!sellSize) continue
+      const diff = Math.abs(buySize - sellSize) / Math.max(buySize, sellSize)
+      if (diff <= 0.3 && diff < bestDiff) { bestDiff = diff; bestSell = sell }
+    }
+    if (bestSell) {
+      usedSells.add(bestSell)
+      cancelled.add(buy)
+      cancelled.add(bestSell)
+    }
+  }
+  return trades.filter((t) => !cancelled.has(t))
+}
+
 function computeSpamLabel(
   rawTrades: Array<FlowBiasRawTrade>,
   cardType: 'call' | 'put',
-  formatDate: (d: string) => string
+  formatDate: (d: string) => string,
+  spot?: number,
+  sigma?: number
 ): { label: string; trades: Array<FlowBiasRawTrade>; level: number | null } {
   const groups: Record<string, Array<FlowBiasRawTrade>> = {}
   for (const t of rawTrades) {
     if (t.tradeType === 'MULTI-LEG') continue
     if (t.type !== cardType || !t.expiry || !t.trade_timestamp) continue
+    const tDte = computeDteFromExpiry(t.expiry)
+    // Flow Spammer only looks at near-term flow - anything past 35 DTE is excluded outright.
+    if (tDte > 35) continue
+    // Only OTM strikes within the 90% probability-of-profit band count toward Flow Spammer.
+    if (spot && spot > 0) {
+      if (!isWithin90PopOtm(t.strike, spot, sigma || 0, tDte, cardType === 'call')) continue
+    }
     const key = `${t.strike}|${t.expiry}`
     if (!groups[key]) groups[key] = []
     groups[key].push(t)
   }
   let best: { key: string; trades: typeof rawTrades } | null = null
-  for (const [key, trades] of Object.entries(groups)) {
-    if (trades.length >= 3 && (!best || trades.length > best.trades.length)) best = { key, trades }
+  for (const [key, groupTrades] of Object.entries(groups)) {
+    // A and AA (buys) can be cancelled out by B and BB (sells) of similar size at this strike/expiry.
+    const survivors = cancelOffsettingTrades(groupTrades)
+    if (survivors.length >= 3 && (!best || survivors.length > best.trades.length)) best = { key, trades: survivors }
   }
   if (!best) return { label: 'No Spammer Detected', trades: [], level: null }
   const [strikeStr, expiry] = best.key.split('|')
@@ -261,6 +326,175 @@ function computeSpamLabel(
   const sideName = cardType === 'call' ? 'Call' : 'Put'
   const prefix = direction ? `Flow ${sideName} ${direction} Spammer` : 'Flow Spammer'
   return { label: `${prefix}: $${strikeStr} ${label} ${formatDate(expiry)} Expiry - ${cadence}`, trades: best.trades, level: parseFloat(strikeStr) }
+}
+
+// Grading system for the Flow Spammer heatmap modal - scores (0-100) how "unique"/significant
+// this strike+expiry spam group is relative to the whole day's flow for the ticker, across 4
+// criteria: (1) % share of the day's total premium flow, (2) how spread-out in time the prints
+// were, (3) whether the strikes are OTM-but-within-90%-POP (not ATM, not too far OTM), and
+// (4) whether the individual print sizes are similarly-sized (not wildly different).
+type SpamUniquenessScore = {
+  volumeSharePct: number
+  volumeSharePoints: number
+  cadenceMinutesAvg: number | null
+  cadencePoints: number
+  probPoints: number
+  sizePoints: number
+  overall: number
+}
+
+function computeSpamUniquenessScore(
+  spamTrades: Array<FlowBiasRawTrade>,
+  allDayTrades: Array<FlowBiasRawTrade>,
+  spot: number | undefined,
+  sigma: number | undefined,
+  cardDte: number | undefined,
+  cardType: 'call' | 'put'
+): SpamUniquenessScore {
+  const sumPremium = (arr: Array<FlowBiasRawTrade>) => arr.reduce((s, t) => s + (t.totalPremium || 0), 0)
+  // 1) Day's flow share - >=25% of the day's total premium for this ticker = full points, <=5% = ~0.
+  const spamPremium = sumPremium(spamTrades)
+  const totalPremium = sumPremium(allDayTrades) || 1
+  const volumeSharePct = (spamPremium / totalPremium) * 100
+  const volumeSharePoints = Math.max(0, Math.min(100, ((volumeSharePct - 5) / (25 - 5)) * 100))
+
+  // 2) Cadence - average gap (hours) between consecutive prints; 30min-1h+ spacing = full points,
+  // all bunched within seconds/minutes = ~0 points. With fewer than 2 gaps to measure, there isn't
+  // enough data to judge cadence at all - score neutral (50) instead of unfairly zeroing it out.
+  const times = spamTrades
+    .map((t) => (t.trade_timestamp ? new Date(t.trade_timestamp).getTime() : null))
+    .filter((t): t is number => t !== null)
+    .sort((a, b) => a - b)
+  const gapsHrs: number[] = []
+  for (let i = 1; i < times.length; i++) gapsHrs.push((times[i] - times[i - 1]) / 3600000)
+  const hasCadenceData = gapsHrs.length > 0
+  const avgGapHrs = hasCadenceData ? gapsHrs.reduce((a, b) => a + b, 0) / gapsHrs.length : 0
+  const cadencePoints = hasCadenceData ? Math.max(0, Math.min(100, (avgGapHrs / 0.5) * 100)) : 50
+
+  // 3) OTM + within 90% POP (not ATM) - fraction of the group's prints that qualify.
+  const isCall = cardType === 'call'
+  let probPoints = 100
+  if (spot && spot > 0 && spamTrades.length > 0) {
+    const qualifying = spamTrades.filter((t) => {
+      const tDte = t.expiry ? computeDteFromExpiry(t.expiry) : (cardDte || 0)
+      return isWithin90PopOtm(t.strike, spot, sigma || 0, tDte, isCall)
+    })
+    probPoints = (qualifying.length / spamTrades.length) * 100
+  }
+
+  // 4) Size uniformity - are the individual print premiums clustered within 30% of the median,
+  // instead of wildly different sizes (e.g. $50K next to $1.3M)?
+  const premiums = spamTrades.map((t) => t.totalPremium || 0).filter((p) => p > 0)
+  let sizePoints = 100
+  if (premiums.length >= 2) {
+    const sorted = [...premiums].sort((a, b) => a - b)
+    const median = sorted[Math.floor(sorted.length / 2)]
+    const withinBand = premiums.filter((p) => median > 0 && Math.abs(p - median) / median <= 0.3)
+    sizePoints = (withinBand.length / premiums.length) * 100
+  }
+
+  const overall = (volumeSharePoints + cadencePoints + probPoints + sizePoints) / 4
+
+  return {
+    volumeSharePct,
+    volumeSharePoints,
+    cadenceMinutesAvg: hasCadenceData ? avgGapHrs * 60 : null,
+    cadencePoints,
+    probPoints,
+    sizePoints,
+    overall,
+  }
+}
+
+function spamScoreColor(pts: number): string {
+  if (pts >= 70) return '#22c55e'
+  if (pts >= 40) return '#eab308'
+  return '#ef4444'
+}
+
+// Places a point at radius `r` from center (cx,cy) at `angleDeg`, measured clockwise from
+// straight up (12 o'clock) - standard radar/spider-chart polar convention.
+function polarPoint(cx: number, cy: number, r: number, angleDeg: number): { x: number; y: number } {
+  const rad = ((angleDeg - 90) * Math.PI) / 180
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) }
+}
+
+function gradeLabel(pts: number): string {
+  if (pts >= 80) return 'EXTREME'
+  if (pts >= 60) return 'HIGH'
+  if (pts >= 40) return 'MODERATE'
+  if (pts >= 20) return 'LOW'
+  return 'MINIMAL'
+}
+
+function polarPointDeg(cx: number, cy: number, r: number, angleDeg: number): { x: number; y: number } {
+  const rad = (angleDeg * Math.PI) / 180
+  return { x: cx + r * Math.cos(rad), y: cy - r * Math.sin(rad) }
+}
+
+function gaugeArcPath(cx: number, cy: number, r: number, startDeg: number, endDeg: number): string {
+  // Sample points directly along the true circle instead of relying on the SVG arc ("A") command,
+  // which can pick the wrong one of its two possible arcs and render a lopsided/bulging shape.
+  const steps = 24
+  const pts: string[] = []
+  for (let i = 0; i <= steps; i++) {
+    const angle = startDeg + ((endDeg - startDeg) * i) / steps
+    const p = polarPointDeg(cx, cy, r, angle)
+    pts.push(`${i === 0 ? 'M' : 'L'} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`)
+  }
+  return pts.join(' ')
+}
+
+// Single semicircle gauge (Fear & Greed index style) showing only the FINAL Spam Uniqueness
+// result - a needle sweeping across a smooth red-to-green gradient arc and a grade readout
+// underneath. No per-criterion breakdown or scoring math is exposed - just the verdict.
+function SpamUniquenessGauge({ score }: { score: SpamUniquenessScore }) {
+  const cx = 130, cy = 122, r = 92
+  const pct = Math.max(0, Math.min(100, score.overall))
+  const needleAngle = 180 - (pct / 100) * 180
+  const needleTip = polarPointDeg(cx, cy, r - 26, needleAngle)
+  const needleBack = polarPointDeg(cx, cy, 12, needleAngle + 180)
+  const color = spamScoreColor(pct)
+  const ticks = [0, 25, 50, 75, 100]
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '22px 30px 18px',
+      borderRadius: '16px', background: 'radial-gradient(120% 140% at 50% 0%, #202020 0%, #0c0c0c 55%, #000000 100%)',
+      border: '1px solid #2e2e2e', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.10), inset 0 0 30px rgba(0,0,0,0.5), 0 8px 24px rgba(0,0,0,0.65)',
+    }}>
+      <svg width={260} height={142} viewBox="0 0 260 142">
+        <defs>
+          <linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#ef4444" />
+            <stop offset="25%" stopColor="#f97316" />
+            <stop offset="50%" stopColor="#eab308" />
+            <stop offset="75%" stopColor="#84cc16" />
+            <stop offset="100%" stopColor="#22c55e" />
+          </linearGradient>
+        </defs>
+        {/* Track (subtle base ring) */}
+        <path d={gaugeArcPath(cx, cy, r, 180, 0)} stroke="rgba(255,255,255,0.06)" strokeWidth={14} fill="none" strokeLinecap="round" />
+        {/* Smooth colored gradient arc */}
+        <path d={gaugeArcPath(cx, cy, r, 180, 0)} stroke="url(#gaugeGradient)" strokeWidth={14} fill="none" strokeLinecap="round" />
+        {/* Tick marks */}
+        {ticks.map((t) => {
+          const a = 180 - (t / 100) * 180
+          const p0 = polarPointDeg(cx, cy, r + 11, a)
+          const p1 = polarPointDeg(cx, cy, r + 17, a)
+          return <line key={t} x1={p0.x} y1={p0.y} x2={p1.x} y2={p1.y} stroke="#555555" strokeWidth={2} strokeLinecap="round" />
+        })}
+        {/* Needle */}
+        <line x1={needleBack.x} y1={needleBack.y} x2={needleTip.x} y2={needleTip.y} stroke="#ffffff" strokeWidth={3} strokeLinecap="round" />
+        <circle cx={cx} cy={cy} r={9} fill="#0a0a0a" stroke="#ffffff" strokeWidth={2.5} />
+        <text x={cx - r - 6} y={cy + 22} fill="#ffffff" fontSize="9" fontWeight={800} letterSpacing="0.5" textAnchor="start">MINIMAL</text>
+        <text x={cx + r + 6} y={cy + 22} fill="#ffffff" fontSize="9" fontWeight={800} letterSpacing="0.5" textAnchor="end">EXTREME</text>
+      </svg>
+      <div style={{ fontSize: '26px', fontWeight: 900, color, letterSpacing: '2px', marginTop: '2px', textShadow: `0 0 18px ${color}55` }}>
+        {gradeLabel(pct)}
+      </div>
+      <div style={{ fontSize: '11px', color: '#ffffff', fontWeight: 700, marginTop: '3px', letterSpacing: '0.5px' }}>SPAM UNIQUENESS READ</div>
+    </div>
+  )
 }
 
 // Finds the strike (or narrow cluster of 2-3 nearby strikes) where the given trades are
@@ -300,47 +534,185 @@ function findConcentratedStrikeLevel(trades: Array<{ strike: number }>): number 
   return bestWeightedStrike
 }
 
+// Probability-of-profit (%) for a given strike - the inverse of bsStrikeForProbFTP (that one
+// solves strike-from-probability; this solves probability-from-strike using the same d2 math).
+function popForStrike(S: number, K: number, sigma: number, dte: number, isCall: boolean): number | null {
+  if (!sigma || sigma <= 0 || dte <= 0 || !S || S <= 0) return null
+  const r = 0.0387
+  const T = dte / 365
+  const d2 = _bsD2FTP(S, K, r, sigma, T)
+  return isCall ? (1 - _bsNCD(d2)) * 100 : _bsNCD(d2) * 100
+}
+
+// Buckets one option side's trades into 5-point POP bands (60-65%, 80-85%, etc.) and returns
+// the band with the most trades that all share the SAME fill-style direction (all A/AA "buy" or
+// all B/BB "sell") - requires at least 3 trades in that band/direction to qualify.
+function bestStructuralBand(
+  trades: Array<FlowBiasRawTrade>,
+  spot: number,
+  sigma: number
+): { trades: Array<FlowBiasRawTrade>; style: 'buy' | 'sell' } | null {
+  const isBuy = (t: FlowBiasRawTrade) => t.fillStyle === 'A' || t.fillStyle === 'AA'
+  const isSell = (t: FlowBiasRawTrade) => t.fillStyle === 'B' || t.fillStyle === 'BB'
+  const isCall = trades[0]?.type === 'call'
+  const banded: Record<string, Array<FlowBiasRawTrade>> = {}
+  for (const t of trades) {
+    if (!isBuy(t) && !isSell(t)) continue
+    const tDte = t.expiry ? computeDteFromExpiry(t.expiry) : 0
+    const pop = popForStrike(spot, t.strike, sigma, tDte, isCall)
+    if (pop === null) continue
+    const bandStart = Math.floor(pop / 5) * 5
+    const key = `${bandStart}|${isBuy(t) ? 'buy' : 'sell'}`
+    if (!banded[key]) banded[key] = []
+    banded[key].push(t)
+  }
+  let best: { trades: Array<FlowBiasRawTrade>; style: 'buy' | 'sell' } | null = null
+  for (const [key, groupTrades] of Object.entries(banded)) {
+    if (groupTrades.length < 3) continue
+    if (!best || groupTrades.length > best.trades.length) {
+      const style = key.split('|')[1] as 'buy' | 'sell'
+      best = { trades: groupTrades, style }
+    }
+  }
+  return best
+}
+
 function computeStructuralLabel(
   rawTrades: Array<FlowBiasRawTrade> | undefined,
-  spot: number | undefined
-): { label: string; trades: Array<FlowBiasRawTrade>; level: number | null; isResistance: boolean } {
-  if (!rawTrades || !rawTrades.length || !spot || spot <= 0) return { label: 'No Structural Formation Detected', trades: [], level: null, isResistance: true }
+  spot: number | undefined,
+  sigma: number | undefined
+): { label: string; trades: Array<FlowBiasRawTrade>; level: number | null; putLevel: number | null; isResistance: boolean } {
+  if (!rawTrades || !rawTrades.length || !spot || spot <= 0) return { label: 'No Structural Formation Detected', trades: [], level: null, putLevel: null, isResistance: true }
 
-  const isSold = (fs?: string) => fs === 'B' || fs === 'BB'
+  // Only expiries within 45 trading days count toward a structural formation.
+  const eligible = rawTrades.filter((t) => t.tradeType !== 'MULTI-LEG' && t.expiry && computeDteFromExpiry(t.expiry) <= 45)
+  if (!eligible.length) return { label: 'No Structural Formation Detected', trades: [], level: null, putLevel: null, isResistance: true }
 
-  // Resistance = calls SOLD (B/BB) at/above spot - the seller is capping upside, a real overhead wall.
-  const callsSoldAbove = rawTrades.filter((t) => t.tradeType !== 'MULTI-LEG' && t.type === 'call' && isSold(t.fillStyle) && t.strike >= spot)
-  // Support = puts SOLD (B/BB) at/below spot - the seller is willing to buy stock there, a real floor.
-  const putsSoldBelow = rawTrades.filter((t) => t.tradeType !== 'MULTI-LEG' && t.type === 'put' && isSold(t.fillStyle) && t.strike <= spot)
+  // Anchor on the most-traded expiry, then only keep expiries within 7 days of it - never mix
+  // e.g. a July expiry with a November expiry into the same wall.
+  const expiryCounts: Record<string, number> = {}
+  for (const t of eligible) expiryCounts[t.expiry!] = (expiryCounts[t.expiry!] || 0) + 1
+  const anchorExpiry = Object.entries(expiryCounts).sort((a, b) => b[1] - a[1])[0][0]
+  const anchorTime = new Date(anchorExpiry).getTime()
+  const windowed = eligible.filter((t) => Math.abs(new Date(t.expiry!).getTime() - anchorTime) <= 7 * 86400000)
 
-  const MIN_PRINTS = 3
-  if (callsSoldAbove.length < MIN_PRINTS && putsSoldBelow.length < MIN_PRINTS) {
-    return { label: 'No Structural Formation Detected', trades: [], level: null, isResistance: true }
+  const calls = windowed.filter((t) => t.type === 'call')
+  const puts = windowed.filter((t) => t.type === 'put')
+
+  const callBand = calls.length >= 3 ? bestStructuralBand(calls, spot, sigma || 0) : null
+  const putBand = puts.length >= 3 ? bestStructuralBand(puts, spot, sigma || 0) : null
+  if (!callBand || !putBand) return { label: 'No Structural Formation Detected', trades: [], level: null, putLevel: null, isResistance: true }
+
+  // Crossed-flow rule: one side buying (A/AA), the other side selling (B/BB) - if both sides
+  // are the same direction (both buy or both sell), it does not qualify as a real structure.
+  if (callBand.style === putBand.style) return { label: 'No Structural Formation Detected', trades: [], level: null, putLevel: null, isResistance: true }
+
+  // Combined premium size must be within 35% of each other - lopsided walls (e.g. $1.5M calls
+  // vs $5M puts) don't count as a matched two-sided structure.
+  const callPremium = callBand.trades.reduce((s, t) => s + (t.totalPremium || 0), 0)
+  const putPremium = putBand.trades.reduce((s, t) => s + (t.totalPremium || 0), 0)
+  const maxPrem = Math.max(callPremium, putPremium)
+  if (maxPrem === 0 || Math.abs(callPremium - putPremium) / maxPrem > 0.35) {
+    return { label: 'No Structural Formation Detected', trades: [], level: null, putLevel: null, isResistance: true }
   }
 
-  if (callsSoldAbove.length >= putsSoldBelow.length) {
-    const level = findConcentratedStrikeLevel(callsSoldAbove)
-    const label = level !== null ? `Traders are building Structural Resistance near $${level.toFixed(2)}` : 'Traders are building Structural Resistance'
-    return { label, trades: callsSoldAbove, level, isResistance: true }
+  const callLevel = findConcentratedStrikeLevel(callBand.trades)
+  const putLevel = findConcentratedStrikeLevel(putBand.trades)
+  if (callLevel === null || putLevel === null) return { label: 'No Structural Formation Detected', trades: [], level: null, putLevel: null, isResistance: true }
+
+  const label = `Traders have built a Call wall at $${callLevel.toFixed(2)} and a Put wall at $${putLevel.toFixed(2)}`
+  return { label, trades: [...callBand.trades, ...putBand.trades], level: callLevel, putLevel, isResistance: true }
+}
+
+// Cumulative-premium wall-growth chart - shows the Call wall and Put wall premium building
+// throughout the day (each print adds to the running total for its side) so you can see which
+// side built up faster/bigger and whether momentum stalled (a flattening line = the wall lost
+// steam - no more prints adding to it - vs. a steadily climbing line = still building).
+function StructuralWallChart({
+  trades, callLevel, putLevel,
+}: {
+  trades: Array<FlowBiasRawTrade>
+  callLevel: number | null
+  putLevel: number | null
+}) {
+  const buildSeries = (side: 'call' | 'put') => {
+    const pts = trades
+      .filter((t) => t.type === side && t.trade_timestamp)
+      .map((t) => ({ ts: new Date(t.trade_timestamp!).getTime(), prem: t.totalPremium || 0 }))
+      .sort((a, b) => a.ts - b.ts)
+    let running = 0
+    return pts.map((p) => { running += p.prem; return { ts: p.ts, cum: running } })
   }
-  const level = findConcentratedStrikeLevel(putsSoldBelow)
-  const label = level !== null ? `Traders are building Structural Support near $${level.toFixed(2)}` : 'Traders are building Structural Support'
-  return { label, trades: putsSoldBelow, level, isResistance: false }
+  const callSeries = buildSeries('call')
+  const putSeries = buildSeries('put')
+  if (callSeries.length === 0 && putSeries.length === 0) return null
+
+  const W = 720, H = 200, padL = 60, padR = 20, padT = 16, padB = 28
+  const allTs = [...callSeries.map((p) => p.ts), ...putSeries.map((p) => p.ts)]
+  const minTs = Math.min(...allTs), maxTs = Math.max(...allTs)
+  const tsRange = Math.max(1, maxTs - minTs)
+  const maxCum = Math.max(callSeries[callSeries.length - 1]?.cum || 0, putSeries[putSeries.length - 1]?.cum || 0, 1)
+  const x = (ts: number) => padL + ((ts - minTs) / tsRange) * (W - padL - padR)
+  const y = (v: number) => padT + (1 - v / maxCum) * (H - padT - padB)
+  const pathFor = (series: Array<{ ts: number; cum: number }>) =>
+    series.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(p.ts).toFixed(1)} ${y(p.cum).toFixed(1)}`).join(' ')
+  const fmtPrem = (v: number) => (v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : `$${(v / 1000).toFixed(0)}K`)
+
+  return (
+    <div style={{ padding: '14px 20px', borderBottom: '1px solid #262626', background: '#050505' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+        <span style={{ color: '#ffffff', fontWeight: 800, fontSize: '13px', letterSpacing: '0.5px' }}>WALL GROWTH THROUGHOUT THE DAY</span>
+        <span style={{ display: 'flex', gap: '14px', fontSize: '11px', fontWeight: 800 }}>
+          {callLevel !== null && <span style={{ color: '#22c55e' }}>■ CALL WALL ${callLevel.toFixed(2)}</span>}
+          {putLevel !== null && <span style={{ color: '#ef4444' }}>■ PUT WALL ${putLevel.toFixed(2)}</span>}
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: `${H}px`, display: 'block' }}>
+        <line x1={padL} y1={padT} x2={padL} y2={H - padB} stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
+        <line x1={padL} y1={H - padB} x2={W - padR} y2={H - padB} stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
+        {callSeries.length > 0 && <path d={pathFor(callSeries)} fill="none" stroke="#22c55e" strokeWidth={2.5} />}
+        {putSeries.length > 0 && <path d={pathFor(putSeries)} fill="none" stroke="#ef4444" strokeWidth={2.5} />}
+        {callSeries.map((p, i) => <circle key={`c${i}`} cx={x(p.ts)} cy={y(p.cum)} r={3} fill="#22c55e" />)}
+        {putSeries.map((p, i) => <circle key={`p${i}`} cx={x(p.ts)} cy={y(p.cum)} r={3} fill="#ef4444" />)}
+        <text x={padL - 8} y={y(maxCum) + 4} fill="#888" fontSize="9" textAnchor="end">{fmtPrem(maxCum)}</text>
+        <text x={padL - 8} y={H - padB} fill="#888" fontSize="9" textAnchor="end">$0</text>
+      </svg>
+    </div>
+  )
 }
 
 function computeGammaLabel(
   rawTrades: Array<FlowBiasRawTrade>,
   cardType: 'call' | 'put',
   target1Level: number | null,
+  target2Level: number | null,
   targetUp: boolean,
-  isLongTerm: boolean
+  isLongTerm: boolean,
+  cardExpiry: string,
+  spot: number | undefined
 ): { label: string; trades: Array<FlowBiasRawTrade> } {
   if (isLongTerm) return { label: 'No Gamma Attack', trades: [] }
-  if (target1Level === null) return { label: 'No Gamma Attack', trades: [] }
-  const candidates = rawTrades.filter((t) => t.tradeType !== 'MULTI-LEG' && t.type === cardType)
-  if (!candidates.length) return { label: 'No Gamma Attack', trades: [] }
-  const beyond = candidates.filter((t) => (targetUp ? t.strike >= target1Level : t.strike <= target1Level))
-  if (beyond.length > candidates.length / 2) return { label: 'Gamma Squeeze in Formation', trades: beyond }
+  if (target1Level === null && target2Level === null) return { label: 'No Gamma Attack', trades: [] }
+  const isBuy = (t: FlowBiasRawTrade) => t.fillStyle === 'A' || t.fillStyle === 'AA'
+  // Restrict to the SAME expiry as the card's own contract, buy-side (A/AA) prints only - gamma
+  // pressure is expiry-specific dealer positioning built from real buying, not sold/opened flow.
+  const sameExpiryBuys = rawTrades.filter((t) => t.tradeType !== 'MULTI-LEG' && t.type === cardType && t.expiry === cardExpiry && isBuy(t))
+  if (!sameExpiryBuys.length) return { label: 'No Gamma Attack', trades: [] }
+
+  const inc = spot && spot > 0 ? (spot < 25 ? 0.5 : spot < 200 ? 1 : spot < 500 ? 5 : 10) : 1
+  const isAtm = (strike: number) => !!spot && Math.abs(strike - spot) < inc * 1.5
+  // 80-90% probability-of-profit band = between spot and the further of target1(80%)/target2(90%)
+  // in the move direction (same target levels the trade-management ladder already computes).
+  const outerTarget = target1Level !== null && target2Level !== null
+    ? (targetUp ? Math.max(target1Level, target2Level) : Math.min(target1Level, target2Level))
+    : (target1Level ?? target2Level)
+  const inPopBand = (strike: number) => {
+    if (!spot || outerTarget === null || outerTarget === undefined) return false
+    return targetUp ? strike >= spot && strike <= outerTarget : strike <= spot && strike >= outerTarget
+  }
+
+  const qualifying = sameExpiryBuys.filter((t) => isAtm(t.strike) || inPopBand(t.strike))
+  if (qualifying.length >= 3) return { label: 'Gamma Squeeze in Formation', trades: qualifying }
   return { label: 'No Gamma Attack', trades: [] }
 }
 
@@ -351,6 +723,195 @@ function bsOptionPriceFTP(S: number, K: number, T: number, r: number, sigma: num
   return isCall
     ? S * _bsNCD(d1) - K * Math.exp(-r * T) * _bsNCD(d2)
     : K * Math.exp(-r * T) * _bsNCD(-d2) - S * _bsNCD(-d1)
+}
+
+// Black-Scholes gamma (same d1 as the option-price/POP helpers above) - rate of change of delta
+// per $1 move in the underlying, used to plot the Gamma Attack chart's exposure curve.
+function _bsGammaFTP(S: number, K: number, r: number, sigma: number, T: number): number {
+  if (T <= 0 || sigma <= 0 || S <= 0 || K <= 0) return 0
+  const d1 = _bsD1FTP(S, K, r, sigma, T)
+  const pdf = Math.exp(-0.5 * d1 * d1) / Math.sqrt(2 * Math.PI)
+  return pdf / (S * sigma * Math.sqrt(T))
+}
+
+// Dedicated Gamma-For-The-Day card - fetches TODAY's real intraday 5-minute candles for the
+// underlying and computes this strike's actual Black-Scholes gamma at every candle close, so
+// the line genuinely tracks gamma exposure building/decaying across the real session (not just
+// at the handful of qualifying print timestamps). Headline stat shows the CURRENT gamma value.
+// This is a standalone card - it does not reuse the candlestick TradeCardChart component.
+function GammaDayCard({
+  ticker, trades, strike, spot, sigma, cardExpiry,
+}: {
+  ticker: string
+  trades: Array<FlowBiasRawTrade>
+  strike: number
+  spot?: number
+  sigma?: number
+  cardExpiry?: string
+}) {
+  const [candles, setCandles] = React.useState<Array<{ ts: number; close: number }>>([])
+  const [loading, setLoading] = React.useState(true)
+
+  React.useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    // Request a trailing window (not just today) - requesting startDate===endDate===today
+    // returns nothing whenever the client's "today" doesn't line up with the last actual
+    // trading session in the feed (weekends/holidays/pre-market). We then keep only the
+    // candles from the most recent trading day actually present in the response.
+    const to = new Date().toISOString().split('T')[0]
+    const from = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]
+    fetch('/api/bulk-chart-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbols: [ticker], timeframe: '5m', startDate: from, endDate: to }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return
+        const raw = data.data?.[ticker] || []
+        let parsed = raw
+          .map((c: any) => ({ ts: c.timestamp ?? c.t, close: c.close }))
+          .filter((c: { ts: number; close: number }) => c.ts && c.close > 0)
+          .sort((a: any, b: any) => a.ts - b.ts)
+        if (parsed.length) {
+          const lastDay = new Date(parsed[parsed.length - 1].ts).toDateString()
+          parsed = parsed.filter((c: { ts: number }) => new Date(c.ts).toDateString() === lastDay)
+        }
+        setCandles(parsed)
+      })
+      .catch(() => { if (!cancelled) setCandles([]) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [ticker])
+
+  const dte = cardExpiry ? Math.max(computeDteFromExpiry(cardExpiry), 1) : 1
+  const T = dte / 365
+  const ivUsed = sigma && sigma > 0 ? sigma : 0.3
+  const gammaAt = (s: number) => _bsGammaFTP(s, strike, 0.0387, ivUsed, T)
+
+  // Qualifying flow prints at this strike/expiry, sorted by time — this is the "new OI" the
+  // flow actually added. We accumulate contract size over the session so the exposure line
+  // reflects how much MORE impactful gamma became as that new money built up, not just the
+  // raw per-contract gamma value.
+  const qualifyingTrades = trades
+    .filter((t) => t.trade_timestamp && t.tradeSize && t.tradeSize > 0)
+    .map((t) => ({ ts: new Date(t.trade_timestamp!).getTime(), size: t.tradeSize! }))
+    .sort((a, b) => a.ts - b.ts)
+  const attackBeginsTs = qualifyingTrades[0]?.ts
+  const totalNewContracts = qualifyingTrades.reduce((sum, t) => sum + t.size, 0)
+  const cumulativeContractsAt = (ts: number) => qualifyingTrades.reduce((sum, t) => (t.ts <= ts ? sum + t.size : sum), 0)
+  // $ gamma exposure = gamma * contracts * 100 shares/contract * spot price (dollar move per 1pt).
+  const exposureAt = (s: number, contracts: number) => gammaAt(s) * Math.max(contracts, 0) * 100 * s
+
+  const gammaPoints = candles.map((c) => ({ ts: c.ts, gamma: exposureAt(c.close, cumulativeContractsAt(c.ts)) }))
+  const currentGamma = gammaPoints.length > 0
+    ? gammaPoints[gammaPoints.length - 1].gamma
+    : exposureAt(spot || strike, totalNewContracts)
+  const fmtExposure = (v: number) => {
+    const abs = Math.abs(v)
+    if (abs >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`
+    if (abs >= 1_000) return `$${(v / 1_000).toFixed(1)}K`
+    return `$${v.toFixed(0)}`
+  }
+
+  return (
+    <div style={{ padding: '16px 20px', borderBottom: '1px solid #262626', background: '#050505' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: '10px', flexWrap: 'wrap', gap: '6px' }}>
+        <div style={{ color: '#ffffff', fontWeight: 800, fontSize: '13px', letterSpacing: '0.5px' }}>
+          {ticker} GAMMA EXPOSURE TODAY — ${strike.toFixed(2)} STRIKE ({totalNewContracts.toLocaleString()} NEW CONTRACTS)
+        </div>
+        <div style={{ fontSize: '15px', fontWeight: 900, color: '#a8ff3e' }}>
+          GAMMA EXPOSURE: {fmtExposure(currentGamma)}
+        </div>
+      </div>
+      {loading ? (
+        <div style={{ height: '260px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '12px', fontWeight: 700 }}>
+          LOADING TODAY&apos;S SESSION…
+        </div>
+      ) : gammaPoints.length === 0 ? (
+        <div style={{ height: '260px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '12px', fontWeight: 700 }}>
+          NO INTRADAY DATA AVAILABLE
+        </div>
+      ) : (
+        <GammaDayChartSvg points={gammaPoints} attackBeginsTs={attackBeginsTs} valueFormatter={fmtExposure} />
+      )}
+    </div>
+  )
+}
+
+function GammaDayChartSvg({
+  points, attackBeginsTs, valueFormatter,
+}: {
+  points: Array<{ ts: number; gamma: number }>
+  attackBeginsTs?: number
+  valueFormatter?: (v: number) => string
+}) {
+  const fmtY = valueFormatter || ((v: number) => v.toFixed(4))
+  const W = 760, H = 260, padL = 74, padR = 24, padT = 22, padB = 40
+  const minTs = points[0].ts, maxTs = points[points.length - 1].ts
+  const tsRange = Math.max(1, maxTs - minTs)
+  const rawMinG = Math.min(...points.map((p) => p.gamma))
+  const rawMaxG = Math.max(...points.map((p) => p.gamma))
+  // Pad the y-domain by 10% of the range on each side (instead of always starting at 0) so the
+  // line actually uses the full vertical space instead of hugging the top when values cluster.
+  const gSpan = Math.max(rawMaxG - rawMinG, rawMaxG * 0.05, 0.0001)
+  const minG = Math.max(0, rawMinG - gSpan * 0.15)
+  const maxG = rawMaxG + gSpan * 0.15
+  const gRange = Math.max(maxG - minG, 0.0001)
+  const x = (ts: number) => padL + ((ts - minTs) / tsRange) * (W - padL - padR)
+  const y = (g: number) => padT + (1 - (g - minG) / gRange) * (H - padT - padB)
+  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(p.ts).toFixed(1)} ${y(p.gamma).toFixed(1)}`).join(' ')
+  const areaD = `${pathD} L ${x(points[points.length - 1].ts).toFixed(1)} ${H - padB} L ${x(points[0].ts).toFixed(1)} ${H - padB} Z`
+  const attackX = attackBeginsTs && attackBeginsTs >= minTs && attackBeginsTs <= maxTs ? x(attackBeginsTs) : null
+  const fmtTime = (ts: number) => new Date(ts).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
+
+  // 5 evenly-spaced horizontal gridlines/labels across the padded y-domain.
+  const yTickCount = 5
+  const yTicks = Array.from({ length: yTickCount }, (_, i) => minG + (gRange * i) / (yTickCount - 1))
+  // Up to 6 evenly-spaced x-axis time labels across the session.
+  const xTickCount = Math.min(6, points.length)
+  const xTicks = Array.from({ length: xTickCount }, (_, i) => minTs + (tsRange * i) / (xTickCount - 1))
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: `${H}px`, display: 'block' }}>
+      <defs>
+        <linearGradient id="gammaDayFill" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor="#a8ff3e" stopOpacity={0.35} />
+          <stop offset="100%" stopColor="#a8ff3e" stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      {yTicks.map((g, i) => (
+        <line key={i} x1={padL} y1={y(g)} x2={W - padR} y2={y(g)} stroke="rgba(255,255,255,0.08)" strokeWidth={1} />
+      ))}
+      <line x1={padL} y1={padT} x2={padL} y2={H - padB} stroke="rgba(255,255,255,0.2)" strokeWidth={1} />
+      <line x1={padL} y1={H - padB} x2={W - padR} y2={H - padB} stroke="rgba(255,255,255,0.2)" strokeWidth={1} />
+      <path d={areaD} fill="url(#gammaDayFill)" stroke="none" />
+      <path d={pathD} fill="none" stroke="#a8ff3e" strokeWidth={2.5} />
+      {attackX !== null && (
+        <>
+          <line x1={attackX} y1={padT} x2={attackX} y2={H - padB} stroke="#ff8c00" strokeWidth={1.5} strokeDasharray="4 3" />
+          <text x={attackX + 5} y={padT + 13} fill="#ff8c00" fontSize="12" fontWeight={800}>GAMMA ATTACK BEGINS</text>
+        </>
+      )}
+      {yTicks.map((g, i) => (
+        <text key={i} x={padL - 8} y={y(g) + 4} fill="#ffffff" fontSize="11" fontWeight={600} textAnchor="end">{fmtY(g)}</text>
+      ))}
+      {xTicks.map((ts, i) => (
+        <text
+          key={i}
+          x={x(ts)}
+          y={H - padB + 20}
+          fill="#ffffff"
+          fontSize="11"
+          fontWeight={600}
+          textAnchor={i === 0 ? 'start' : i === xTicks.length - 1 ? 'end' : 'middle'}
+        >
+          {fmtTime(ts)}
+        </text>
+      ))}
+    </svg>
+  )
 }
 // Inverse-solve for the stock price that produces a given option premium (bisection - the BS
 // price is monotonic in S: increasing for calls, decreasing for puts). Used to express the
@@ -542,11 +1103,89 @@ function FlowSentimentPanel({ breakdown, isMobileCard = false }: { breakdown: { 
 
 // ── SweepSense Tab: rich live view of every SweepSense-qualifying trade, sourced directly
 // from the OptionsFlowTable data to the left. Auto-populates - no scan button needed.
+// Small animated line-icon set for the SweepSense quick-filter control row. Deliberately not
+// emoji - crisp, single-color SVG strokes (Feather/Lucide-style) with a subtle per-icon motion
+// so the active/inactive states read clearly at a glance.
+function QuickFilterIcon({ icon, color }: { icon: 'ready' | 'missed' | 'hedge' | 'directional' | 'sweep' | 'gamma' | 'structural' | 'spam' | 'summary'; color: string }) {
+  const common = { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: color, strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
+  switch (icon) {
+    case 'summary':
+      return (
+        <svg {...common}>
+          <path d="M6 4h9l3 3v13H6z" />
+          <path d="M15 4v3h3" style={{ animation: 'qfPulseScale 2.4s ease-in-out infinite' }} />
+          <path d="M9 12h6M9 15h6M9 9h3" style={{ strokeDasharray: 18, animation: 'qfCheckDraw 2.4s ease-in-out infinite' }} />
+        </svg>
+      )
+    case 'ready':
+      return (
+        <svg {...common}>
+          <rect x="4" y="3" width="16" height="18" rx="2" />
+          <path d="M9 3h6v3H9z" />
+          <path d="M8 13l2.5 2.5L16 10" style={{ strokeDasharray: 16, animation: 'qfCheckDraw 2.2s ease-in-out infinite' }} />
+        </svg>
+      )
+    case 'missed':
+      return (
+        <svg {...common} style={{ animation: 'qfMissedShake 2.4s ease-in-out infinite' }}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M9 9l6 6M15 9l-6 6" />
+        </svg>
+      )
+    case 'hedge':
+      return (
+        <svg {...common} style={{ animation: 'qfShieldGlow 2.2s ease-in-out infinite' }}>
+          <path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" />
+          <path d="M9.5 12l1.8 1.8L15 9.5" />
+        </svg>
+      )
+    case 'directional':
+      return (
+        <svg {...common} style={{ animation: 'qfSpin 4.5s linear infinite', transformOrigin: '12px 12px' }}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 4v3M12 17v3M4 12h3M17 12h3" />
+          <path d="M12 7l2.2 4.8L19 14l-4.8 2.2L12 21l-2.2-4.8L5 14l4.8-2.2z" />
+        </svg>
+      )
+    case 'sweep':
+      return (
+        <svg {...common}>
+          <path d="M4 8h11M4 12h14M4 16h9" style={{ animation: 'qfSweepDrift 1.8s ease-in-out infinite' }} />
+        </svg>
+      )
+    case 'gamma':
+      return (
+        <svg {...common} style={{ animation: 'qfBolt 2s ease-in-out infinite' }}>
+          <path d="M13 2L4 14h6l-1 8 9-12h-6z" />
+        </svg>
+      )
+    case 'structural':
+      return (
+        <svg {...common}>
+          <path d="M4 21V9l8-5 8 5v12" />
+          <path d="M9 21v-7h6v7M4 9h16" />
+        </svg>
+      )
+    case 'spam':
+      return (
+        <svg {...common} style={{ animation: 'qfStack 1.6s ease-in-out infinite' }}>
+          <rect x="5" y="4" width="14" height="5" rx="1" />
+          <rect x="5" y="10.5" width="14" height="5" rx="1" />
+          <rect x="5" y="17" width="14" height="4" rx="1" />
+        </svg>
+      )
+    default:
+      return null
+  }
+}
+
 function SweepSenseTab({
   data,
   isScanning,
   progress,
+  summaryMode,
 }: {
+  summaryMode: boolean
   data: {
     trades: Array<{
       trade: OptionsFlowData
@@ -568,6 +1207,7 @@ function SweepSenseTab({
       spot?: number
       breakdown: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }
       liveRawTrades?: Array<FlowBiasRawTrade>
+      otherLegs?: OptionsFlowData[]
     }>
     stats: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }
     bubbles: Array<{ ticker: string; premium: number; bias: 'bull' | 'bear'; biasStrength: number }>
@@ -577,13 +1217,234 @@ function SweepSenseTab({
 }) {
   const fmtPrem = (v: number) => (v >= 1000000 ? `$${(v / 1000000).toFixed(1)}M` : `$${(v / 1000).toFixed(0)}K`)
   const [openCharts, setOpenCharts] = useState<Set<string>>(new Set())
+
+  // ── Scanning screen background: same weather-particle canvas (rain/snow/storm cycling)
+  // used by the main OptionsFlowTable loading screen - self-contained here so the SweepSense
+  // tab's scan screen gets the same cool animated backdrop instead of a bare spinner.
+  const [weatherCanvas, setWeatherCanvas] = useState<HTMLCanvasElement | null>(null)
+  const weatherModeRef = React.useRef(0)
+
+  React.useEffect(() => {
+    if (!isScanning) return
+    const canvas = weatherCanvas
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    let raf = 0
+    let lightning = 0
+    let lightningAlpha = 0
+    type WP = { x: number; y: number; vx: number; vy: number; len: number; r: number; alpha: number; depth: number; drift: number; rot: number; rotV: number }
+    let particles: WP[] = []
+    let prevMode = -1
+
+    const W = () => canvas.offsetWidth
+    const H = () => canvas.offsetHeight
+
+    const init = (mode: number) => {
+      particles = []
+      const w = W(), h = H()
+      if (mode === 0) {
+        for (let i = 0; i < 320; i++) {
+          const d = 0.3 + Math.random() * 0.7
+          particles.push({ x: Math.random() * w, y: Math.random() * h, vx: -1.2 - d * 2.5, vy: 9 + d * 12, len: 8 + d * 22, r: 0.5 + d * 0.9, alpha: 0.12 + d * 0.5, depth: d, drift: 0, rot: 0, rotV: 0 })
+        }
+      } else if (mode === 1) {
+        for (let i = 0; i < 220; i++) {
+          const d = Math.random()
+          const layer = d < 0.33 ? 0 : d < 0.66 ? 1 : 2
+          particles.push({ x: Math.random() * w, y: Math.random() * h, vx: 0, vy: 0.4 + layer * 0.9 + Math.random() * 0.5, len: 0, r: 1 + layer * 2.2 + Math.random() * 1.5, alpha: 0.15 + layer * 0.35 + Math.random() * 0.25, depth: d, drift: (Math.random() - 0.5) * 0.4, rot: Math.random() * Math.PI * 2, rotV: (Math.random() - 0.5) * 0.025 })
+        }
+      } else {
+        for (let i = 0; i < 400; i++) {
+          const d = 0.3 + Math.random() * 0.7
+          particles.push({ x: Math.random() * w, y: Math.random() * h, vx: -7 - d * 10, vy: 4 + d * 7, len: 14 + d * 32, r: 0.35 + d * 0.7, alpha: 0.08 + d * 0.4, depth: d, drift: 0, rot: 0, rotV: 0 })
+        }
+      }
+    }
+
+    const draw = () => {
+      const mode = weatherModeRef.current
+      const w = W(), h = H()
+      if (!canvas.width || canvas.width !== w) { canvas.width = w; canvas.height = h }
+      if (mode !== prevMode) { init(mode); prevMode = mode; lightning = 0 }
+
+      if (mode === 0) {
+        // RAIN
+        ctx.fillStyle = '#020407'; ctx.fillRect(0, 0, w, h)
+        const fog = ctx.createLinearGradient(0, 0, 0, h)
+        fog.addColorStop(0, 'rgba(5,15,30,0.35)'); fog.addColorStop(1, 'rgba(2,6,14,0)')
+        ctx.fillStyle = fog; ctx.fillRect(0, 0, w, h)
+        if (lightning > 0) {
+          ctx.fillStyle = `rgba(180,220,255,${lightningAlpha * lightning / 6})`; ctx.fillRect(0, 0, w, h); lightning--
+        } else if (Math.random() < 0.0018) { lightning = 4 + Math.floor(Math.random() * 4); lightningAlpha = 0.1 + Math.random() * 0.15 }
+        ctx.lineCap = 'round'
+        for (const p of particles) {
+          ctx.beginPath(); ctx.strokeStyle = `rgba(160,205,255,${p.alpha})`; ctx.lineWidth = p.r
+          const a = Math.atan2(p.vy, p.vx); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + Math.cos(a) * p.len, p.y + Math.sin(a) * p.len); ctx.stroke()
+          p.x += p.vx * 0.55; p.y += p.vy * 0.55
+          if (p.y > h + p.len) { p.y = -p.len; p.x = Math.random() * w }
+          if (p.x < -p.len) { p.x = w + p.len; p.y = Math.random() * h }
+        }
+      } else if (mode === 1) {
+        // SNOW
+        ctx.fillStyle = '#020309'; ctx.fillRect(0, 0, w, h)
+        const atm = ctx.createRadialGradient(w * 0.5, h * 0.15, 0, w * 0.5, h * 0.5, w * 0.65)
+        atm.addColorStop(0, 'rgba(12,22,55,0.35)'); atm.addColorStop(1, 'rgba(0,0,0,0)')
+        ctx.fillStyle = atm; ctx.fillRect(0, 0, w, h)
+        const wind = Math.sin(Date.now() * 0.00025) * 0.35
+        for (const p of particles) {
+          ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.globalAlpha = p.alpha
+          if (p.r > 2.8) {
+            ctx.strokeStyle = `rgba(220,238,255,${p.alpha})`; ctx.lineWidth = 0.75
+            for (let a2 = 0; a2 < 6; a2++) {
+              const ax = Math.cos(a2 * Math.PI / 3), ay = Math.sin(a2 * Math.PI / 3)
+              ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(ax * p.r, ay * p.r); ctx.stroke()
+              ctx.beginPath(); ctx.moveTo(ax * p.r * 0.5, ay * p.r * 0.5)
+              ctx.lineTo(ax * p.r * 0.5 + Math.cos(a2 * Math.PI / 3 + Math.PI / 2) * p.r * 0.28, ay * p.r * 0.5 + Math.sin(a2 * Math.PI / 3 + Math.PI / 2) * p.r * 0.28); ctx.stroke()
+            }
+          } else {
+            const g = ctx.createRadialGradient(0, 0, 0, 0, 0, p.r * 1.8)
+            g.addColorStop(0, `rgba(240,250,255,${p.alpha})`); g.addColorStop(1, 'rgba(200,225,255,0)')
+            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, p.r * 1.8, 0, Math.PI * 2); ctx.fill()
+          }
+          ctx.restore(); ctx.globalAlpha = 1
+          p.drift += (Math.random() - 0.5) * 0.012; p.drift = Math.max(-0.55, Math.min(0.55, p.drift))
+          p.x += p.drift + wind; p.y += p.vy; p.rot += p.rotV
+          if (p.y > h + p.r * 2) { p.y = -p.r * 2; p.x = Math.random() * w }
+          if (p.x < -p.r * 2) p.x = w + p.r * 2
+          if (p.x > w + p.r * 2) p.x = -p.r * 2
+        }
+      } else {
+        // STORM
+        ctx.fillStyle = '#010203'; ctx.fillRect(0, 0, w, h)
+        for (let l = 0; l < 3; l++) {
+          const fy = h * (0.2 + l * 0.3) + Math.sin(Date.now() * 0.00009 + l * 2) * 25
+          const fg = ctx.createLinearGradient(0, fy - 50, 0, fy + 90)
+          fg.addColorStop(0, 'rgba(10,18,30,0)'); fg.addColorStop(0.5, 'rgba(14,24,42,0.2)'); fg.addColorStop(1, 'rgba(10,18,30,0)')
+          ctx.fillStyle = fg; ctx.fillRect(0, fy - 50, w, 140)
+        }
+        if (lightning > 0) {
+          ctx.fillStyle = `rgba(200,230,255,${lightningAlpha * lightning / 8})`; ctx.fillRect(0, 0, w, h)
+          if (lightning === 8) {
+            ctx.beginPath(); ctx.strokeStyle = 'rgba(255,255,255,0.92)'; ctx.lineWidth = 1.5
+            let bx = w * 0.25 + Math.random() * w * 0.5, by = 0; ctx.moveTo(bx, 0)
+            while (by < h * 0.72) { by += 18 + Math.random() * 28; bx += (Math.random() - 0.5) * 55; ctx.lineTo(bx, by) }
+            ctx.stroke()
+          }
+          lightning--
+        } else if (Math.random() < 0.005) { lightning = 6 + Math.floor(Math.random() * 6); lightningAlpha = 0.13 + Math.random() * 0.2 }
+        ctx.lineCap = 'round'
+        for (const p of particles) {
+          ctx.beginPath(); ctx.strokeStyle = `rgba(130,180,230,${p.alpha})`; ctx.lineWidth = p.r
+          const a = Math.atan2(p.vy, p.vx); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + Math.cos(a) * p.len, p.y + Math.sin(a) * p.len); ctx.stroke()
+          p.x += p.vx * 0.65; p.y += p.vy * 0.65
+          if (p.y > h + p.len) { p.y = -p.len; p.x = Math.random() * (w + 150) - 75 }
+          if (p.x < -p.len * 2) { p.x = w + p.len; p.y = Math.random() * h }
+        }
+      }
+      raf = requestAnimationFrame(draw)
+    }
+
+    canvas.width = W(); canvas.height = H()
+    init(weatherModeRef.current); prevMode = weatherModeRef.current
+    draw()
+    const ro = new ResizeObserver(() => { canvas.width = W(); canvas.height = H(); init(weatherModeRef.current) })
+    ro.observe(canvas)
+    return () => { cancelAnimationFrame(raf); ro.disconnect() }
+  }, [isScanning, weatherCanvas])
+
+  React.useEffect(() => {
+    if (!isScanning) return
+    const t = setInterval(() => { weatherModeRef.current = (weatherModeRef.current + 1) % 3 }, 14000)
+    return () => clearInterval(t)
+  }, [isScanning])
+
+  const SS_LOADING_QUOTES = [
+    { text: 'The trend is your friend - until it bends.', author: 'Wall Street Proverb' },
+    { text: 'Markets can remain irrational longer than you can remain solvent.', author: 'John Maynard Keynes' },
+    { text: 'In the short run the market is a voting machine. In the long run, a weighing machine.', author: 'Benjamin Graham' },
+    { text: 'The stock market is filled with individuals who know the price of everything, but the value of nothing.', author: 'Philip Fisher' },
+    { text: 'The four most dangerous words in investing: "this time it\'s different."', author: 'Sir John Templeton' },
+    { text: 'Risk comes from not knowing what you\'re doing.', author: 'Warren Buffett' },
+    { text: 'Price is what you pay. Value is what you get.', author: 'Warren Buffett' },
+    { text: 'The market is a device for transferring money from the impatient to the patient.', author: 'Warren Buffett' },
+    { text: 'It\'s not whether you\'re right or wrong, but how much money you make when you\'re right and lose when you\'re wrong.', author: 'George Soros' },
+    { text: 'Know what you own, and know why you own it.', author: 'Peter Lynch' },
+    { text: 'Behind every stock is a company. Find out what it\'s doing.', author: 'Peter Lynch' },
+    { text: 'I will tell you how to become rich: be fearful when others are greedy. Be greedy when others are fearful.', author: 'Warren Buffett' },
+    { text: 'The intelligent investor is a realist who sells to optimists and buys from pessimists.', author: 'Benjamin Graham' },
+    { text: 'Wide diversification is only required when investors do not understand what they are doing.', author: 'Warren Buffett' },
+    { text: 'An investment in knowledge pays the best interest.', author: 'Benjamin Franklin' },
+    { text: 'Money is a terrible master but an excellent servant.', author: 'P.T. Barnum' },
+    { text: 'The biggest risk is not taking any risk at all.', author: 'Mark Zuckerberg' },
+    { text: 'The secret of getting ahead is getting started.', author: 'Mark Twain' },
+    { text: 'Block trades don\'t lie. Institutions leave footprints.', author: 'EFI Research' },
+    { text: 'When sweep orders cluster, the smart money is speaking.', author: 'EFI Research' },
+    { text: 'Volume is the weapon of the informed trader.', author: 'EFI Research' },
+    { text: 'The best trades come from where conviction meets flow.', author: 'EFI Research' },
+    { text: 'Follow the smart money - it always leaves a trail in options.', author: 'EFI Research' },
+    { text: 'Premium doesn\'t lie. Size tells the story.', author: 'EFI Research' },
+    { text: 'Unusual options activity today is tomorrow\'s headline.', author: 'EFI Research' },
+    { text: 'Options flow is the heartbeat of institutional conviction.', author: 'EFI Research' },
+    { text: 'The dark pool is where certainty trades. Follow the size.', author: 'EFI Research' },
+    { text: 'A sweep across multiple exchanges is a trader screaming urgency.', author: 'EFI Research' },
+    { text: 'When IV crush comes, preparation determines winners from losers.', author: 'EFI Research' },
+    { text: 'The goal of a successful trader is to make the best trades. Money is secondary.', author: 'Alexander Elder' },
+    { text: 'Trading is 30% strategy, 70% psychology. Master yourself first.', author: 'Mark Douglas' },
+    { text: 'Losers average losers. Size up only when you\'re right.', author: 'Paul Tudor Jones' },
+    { text: 'The most important quality for an investor is temperament, not intellect.', author: 'Warren Buffett' },
+    { text: 'Win or lose, everybody gets what they want out of the market.', author: 'Ed Seykota' },
+    { text: 'Cut your losses short and let your profits run.', author: 'Trading Maxim' },
+    { text: 'The hard part isn\'t knowing what to do - it\'s sitting on your hands when there\'s nothing to do.', author: 'Jesse Livermore' },
+    { text: 'Never risk more than 1% of your total equity on any single trade.', author: 'Larry Hite' },
+    { text: 'Amateurs go broke taking large losses. Professionals go broke taking small profits.', author: 'Thomas Bulkowski' },
+    { text: 'You don\'t need to be brilliant, just wiser than the other guys on average, for a long time.', author: 'Charlie Munger' },
+    { text: 'Invert, always invert. Avoid stupidity rather than seeking brilliance.', author: 'Charlie Munger' },
+  ]
+  const [loadingQuoteIndex, setLoadingQuoteIndex] = useState(0)
+  React.useEffect(() => {
+    if (!isScanning) return
+    const iv = setInterval(() => setLoadingQuoteIndex((i) => (i + 1) % SS_LOADING_QUOTES.length), 3000)
+    return () => clearInterval(iv)
+  }, [isScanning])
   // FlowBias detail modal - clicking Spam/Structural/Gamma rows shows exactly which raw prints
   // were matched to produce that label.
   const [flowBiasDetail, setFlowBiasDetail] = useState<{
     title: string
     trades: Array<FlowBiasRawTrade>
+    uniqueness?: SpamUniquenessScore
+    gammaMeta?: { ticker: string; strike: number; spot?: number; sigma?: number; expiry?: string }
+    structuralMeta?: { callLevel: number | null; putLevel: number | null }
   } | null>(null)
   const [riskLevel, setRiskLevel] = useState<Record<string, 'PROB' | 'ONAROLE' | 'LUCKY'>>({})
+  // Top control row quick filters - "Ready 4 Pickup" (has an active entry plan), "He Missed"
+  // (stock moved the most % against the implied trade direction), "Hedge"/"Directional"
+  // (based on where the strike sits relative to the 90%/80% probability-of-profit level),
+  // "Sweep" (trade type), and "Gamma Attack"/"Structural"/"Spam" (FlowBias rows active).
+  const [quickFilter, setQuickFilter] = useState<
+    'READY' | 'MISSED' | 'HEDGE' | 'DIRECTIONAL' | 'SWEEP' | 'GAMMA' | 'STRUCTURAL' | 'SPAM' | null
+  >(null)
+  const [openFilterDropdown, setOpenFilterDropdown] = useState<'TIMING' | 'BIAS' | 'SPECIALS' | null>(null)
+  // Mobile-only: multiple checkboxes can be combined (AND'd). READY/MISSED are mutually
+  // exclusive of each other, and HEDGE/DIRECTIONAL are mutually exclusive of each other -
+  // everything else (SWEEP/GAMMA/STRUCTURAL/SPAM) can be freely combined.
+  const [mobileFilters, setMobileFilters] = useState<Set<NonNullable<typeof quickFilter>>>(new Set())
+  const toggleMobileFilter = (key: NonNullable<typeof quickFilter>) => {
+    setMobileFilters((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        if (key === 'READY') next.delete('MISSED')
+        if (key === 'MISSED') next.delete('READY')
+        if (key === 'HEDGE') next.delete('DIRECTIONAL')
+        if (key === 'DIRECTIONAL') next.delete('HEDGE')
+        next.add(key)
+      }
+      return next
+    })
+  }
   // Mobile layout: card grid collapses from a 108px-left-rail layout to a single stacked
   // column, font sizes shrink, and the ladder/gauge row stacks vertically instead of
   // side-by-side, below this breakpoint.
@@ -803,7 +1664,7 @@ function SweepSenseTab({
     return (
       <div style={{
         flex: 1, position: 'relative', overflow: 'hidden',
-        background: 'radial-gradient(ellipse at 50% 40%, rgba(0,12,4,0.98) 0%, rgba(0,0,0,0.99) 70%)',
+        background: '#000',
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '28px',
       }}>
         <style>{`
@@ -811,44 +1672,82 @@ function SweepSenseTab({
             0%, 100% { box-shadow: 0 0 14px rgba(168,255,62,0.5); }
             50% { box-shadow: 0 0 28px rgba(168,255,62,0.85); }
           }
+          @keyframes ssTitlePulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.78; }
+          }
         `}</style>
-        <div style={{ position: 'relative', width: '96px', height: '96px' }}>
+        {/* Weather-particle canvas background - rain/snow/storm cycling every 14s */}
+        <canvas
+          ref={(el) => setWeatherCanvas(el)}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', zIndex: 0 }}
+        />
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 0,
+          background: 'radial-gradient(ellipse at 50% 40%, rgba(0,12,4,0.55) 0%, rgba(0,0,0,0.75) 70%)',
+        }} />
+
+        <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '28px' }}>
           <div style={{
-            position: 'absolute', inset: 0, borderRadius: '50%',
-            border: '6px solid rgba(168,255,62,0.08)', borderTopColor: '#a8ff3e',
-            animation: 'spin 0.85s linear infinite, ssSpinGlow 1.7s ease-in-out infinite',
-          }} />
-          <div style={{
-            position: 'absolute', inset: '14px', borderRadius: '50%',
-            border: '5px solid rgba(100,220,20,0.08)', borderTopColor: '#6dcc00',
-            animation: 'spin 1.3s linear infinite reverse',
-          }} />
-        </div>
-        <div style={{ color: '#22ff9c', fontWeight: 900, fontSize: '18px', letterSpacing: '1.5px', textAlign: 'center' }}>
-          SCANNING SHORT-TERM &amp; LONG-TERM FLOW...
-        </div>
-        <div style={{ width: '260px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <div style={{
-            width: '100%', height: '10px', borderRadius: '6px', overflow: 'hidden',
-            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(168,255,62,0.25)',
+            color: '#a8ff3e', fontWeight: 900, fontSize: '22px', letterSpacing: '3px', textAlign: 'center',
+            animation: 'ssTitlePulse 2.5s ease-in-out infinite', textShadow: '0 0 24px rgba(168,255,62,0.35)',
           }}>
+            SWEEPSENSE
+          </div>
+          <div style={{ position: 'relative', width: '96px', height: '96px' }}>
             <div style={{
-              height: '100%',
-              width: `${progressPct ?? 0}%`,
-              background: 'linear-gradient(90deg, #6dcc00 0%, #a8ff3e 100%)',
-              transition: 'width 0.3s ease',
-              boxShadow: progressPct && progressPct > 0 ? '0 0 10px rgba(168,255,62,0.7)' : 'none',
+              position: 'absolute', inset: 0, borderRadius: '50%',
+              border: '6px solid rgba(168,255,62,0.08)', borderTopColor: '#a8ff3e',
+              animation: 'spin 0.85s linear infinite, ssSpinGlow 1.7s ease-in-out infinite',
+            }} />
+            <div style={{
+              position: 'absolute', inset: '14px', borderRadius: '50%',
+              border: '5px solid rgba(100,220,20,0.08)', borderTopColor: '#6dcc00',
+              animation: 'spin 1.3s linear infinite reverse',
             }} />
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: '#a8ff3e', fontWeight: 800, fontSize: '13px', letterSpacing: '0.5px' }}>
-              {progressPct !== null ? `${progressPct}%` : 'INITIALIZING...'}
-            </span>
-            {progress && progress.total > 0 && (
-              <span style={{ color: '#6dcc00', fontWeight: 600, fontSize: '11px' }}>
-                {progress.current.toLocaleString()} / {progress.total.toLocaleString()} contracts
+          <div style={{ width: '260px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{
+              width: '100%', height: '10px', borderRadius: '6px', overflow: 'hidden',
+              background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(168,255,62,0.25)',
+            }}>
+              <div style={{
+                height: '100%',
+                width: `${progressPct ?? 0}%`,
+                background: 'linear-gradient(90deg, #6dcc00 0%, #a8ff3e 100%)',
+                transition: 'width 0.3s ease',
+                boxShadow: progressPct && progressPct > 0 ? '0 0 10px rgba(168,255,62,0.7)' : 'none',
+              }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: '#a8ff3e', fontWeight: 800, fontSize: '13px', letterSpacing: '0.5px' }}>
+                {progressPct !== null ? `${progressPct}%` : 'INITIALIZING...'}
               </span>
-            )}
+              {progress && progress.total > 0 && (
+                <span style={{ color: '#6dcc00', fontWeight: 600, fontSize: '11px' }}>
+                  {progress.current.toLocaleString()} / {progress.total.toLocaleString()} contracts
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Rotating quote card */}
+          <div style={{
+            maxWidth: 'min(560px, 88vw)', textAlign: 'center',
+            padding: '18px 26px',
+            borderRadius: '14px',
+            border: '1px solid rgba(168,255,62,0.18)',
+            background: 'linear-gradient(160deg, rgba(168,255,62,0.06) 0%, rgba(100,220,20,0.02) 55%, rgba(0,0,0,0.35) 100%)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.4), 0 16px 50px rgba(0,0,0,0.6)',
+            position: 'relative', overflow: 'hidden',
+          }}>
+            <div style={{ position: 'absolute', top: 0, left: '10%', right: '10%', height: '1px', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent)' }} />
+            <div style={{ fontSize: '28px', fontStyle: 'italic', color: '#f3f4f6', lineHeight: 1.6, fontWeight: 400 }}>
+              &ldquo;{SS_LOADING_QUOTES[loadingQuoteIndex % SS_LOADING_QUOTES.length].text}&rdquo;
+            </div>
+            <div style={{ fontSize: '24px', color: '#a8ff3e', fontWeight: 700, marginTop: '12px', letterSpacing: '0.5px' }}>
+              - {SS_LOADING_QUOTES[loadingQuoteIndex % SS_LOADING_QUOTES.length].author}
+            </div>
           </div>
         </div>
       </div>
@@ -869,10 +1768,296 @@ function SweepSenseTab({
 
   const { trades } = data
 
+  // "Ready 4 Pickup" - not just "does a plan exist", but "has price actually reached the
+  // magnet/pivot entry trigger yet". A plan telling you to "wait for price to approach down
+  // to $X and buy there" (or run up / break above / break below) is NOT ready until the live
+  // stock price has actually gotten there - only plans that are immediately actionable right
+  // now ("you can enter and trade toward $X as your target") count as ready without a gate.
+  const isReadyForPickup = (item: (typeof trades)[number]) => {
+    const { planText, currentStockPrice, spot, trade } = item
+    const noPlan = planText === 'No Plan detected.' || planText === 'Waiting on dealer magnet/pivot data to build an entry plan.'
+    if (noPlan) return false
+    const livePrice = currentStockPrice && currentStockPrice > 0 ? currentStockPrice : (spot && spot > 0 ? spot : trade.spot_price)
+    const dollarMatch = planText.match(/\$([0-9]+(?:\.[0-9]+)?)/)
+    const level = dollarMatch ? parseFloat(dollarMatch[1]) : null
+    if (level === null || !livePrice || livePrice <= 0) return true
+    if (planText.includes('approach down to')) return livePrice <= level
+    if (planText.includes('run up to approach')) return livePrice >= level
+    if (planText.includes('break above')) return livePrice > level
+    if (planText.includes('break below')) return livePrice < level
+    return true
+  }
+
+  // "He Missed" - stock moved against the implied trade direction (bought calls/sold puts
+  // implies bullish, sold calls/bought puts implies bearish); returns the magnitude of the
+  // wrong-direction move, or null if the move actually went the right way / is unknown.
+  const missedMagnitude = (item: (typeof trades)[number]): number | null => {
+    const { trade, pctMove } = item
+    if (pctMove === null || pctMove === undefined) return null
+    const fs = trade.fill_style || ''
+    let impliedBullish = trade.type === 'call'
+    if (fs === 'B' || fs === 'BB') impliedBullish = !impliedBullish
+    const wentWrongWay = impliedBullish ? pctMove < 0 : pctMove > 0
+    return wentWrongWay ? Math.abs(pctMove) : null
+  }
+
+  // Hedge vs Directional - based on where the strike sits relative to the probability-of-profit
+  // level. Bought (A/AA) contracts: POP > 90% = Hedge (deep ITM/stock-replacement), POP <= 90%
+  // = Directional. Sold (B/BB) contracts use the inverted 80% threshold per spec: POP > 80% =
+  // Directional, POP <= 80% = Hedge. MULTI-LEG trades are excluded entirely.
+  const classifyHedgeDirectional = (item: (typeof trades)[number]): 'HEDGE' | 'DIRECTIONAL' | null => {
+    const { trade, sigma, dte, spot } = item
+    if (trade.trade_type === 'MULTI-LEG' || trade.classification === 'MULTI-LEG') return null
+    const fs = trade.fill_style || ''
+    const isBuy = fs === 'A' || fs === 'AA'
+    const isSell = fs === 'B' || fs === 'BB'
+    if (!isBuy && !isSell) return null
+    const effSpot = spot && spot > 0 ? spot : trade.spot_price
+    const effSigma = sigma && sigma > 0 ? sigma : (trade.implied_volatility || 0)
+    const effDte = dte && dte > 0 ? dte : trade.days_to_expiry
+    if (!effSpot || effSpot <= 0 || !effSigma || effSigma <= 0 || !effDte || effDte <= 0) return null
+    const pop = popForStrike(effSpot, trade.strike, effSigma, effDte, trade.type === 'call')
+    if (pop === null) return null
+    if (isSell) return pop > 80 ? 'DIRECTIONAL' : 'HEDGE'
+    return pop > 90 ? 'HEDGE' : 'DIRECTIONAL'
+  }
+
+  // Sweep - same classification convention used by the trade-type badges below.
+  const tradeTypeOf = (item: (typeof trades)[number]) => item.trade.classification || item.trade.trade_type
+  const isSweepTrade = (item: (typeof trades)[number]) => {
+    const v = tradeTypeOf(item)
+    return v === 'SWEEP' || v === 'SUPER SWEEP'
+  }
+
+  // Gamma Attack / Structural / Spam - reruns the exact same detection functions used by the
+  // FlowBias rows further down in the card, so "active" here means the card itself is currently
+  // showing a real (non-"No X Detected"/"Loading") label for that row.
+  const computeBiasFlags = (item: (typeof trades)[number]) => {
+    const { trade, sigma, dte, spot, liveRawTrades } = item
+    const isLongTerm = trade.days_to_expiry >= 30
+    const { targetUp, target1, target2 } = calcTradeManagement(trade, sigma, dte, spot)
+    const flowId = generateFlowId(trade)
+    const histRange = historicalRange[flowId]
+    const flowBiasKey = `${trade.underlying_ticker}|${histRange || 'TODAY'}`
+    const flowBiasTrades = flowBiasRaw[flowBiasKey]
+    const flowBiasReady = !!flowBiasTrades
+    const spamResult = flowBiasReady
+      ? computeSpamLabel(flowBiasTrades!, trade.type, formatDate, spot, sigma)
+      : { label: 'Loading…', trades: [], level: null }
+    const structuralResult = computeStructuralLabel(liveRawTrades, spot, sigma)
+    const gammaResult = flowBiasReady
+      ? computeGammaLabel(flowBiasTrades!, trade.type, target1, target2, targetUp, isLongTerm, trade.expiry, spot)
+      : { label: 'Loading…', trades: [] }
+    return {
+      spamActive: spamResult.label !== 'No Spammer Detected' && spamResult.label !== 'Loading…',
+      structuralActive: structuralResult.label !== 'No Structural Formation Detected',
+      gammaActive: gammaResult.label !== 'No Gamma Attack' && gammaResult.label !== 'Loading…',
+    }
+  }
+
+  let filteredTrades = trades
+  if (isMobileCard) {
+    // Mobile: multiple checkboxes can be combined (AND'd together). READY/MISSED are mutually
+    // exclusive (a trade can't be both) and HEDGE/DIRECTIONAL are mutually exclusive too - both
+    // pairs are enforced at toggle-time in toggleMobileFilter, so here we just AND whatever is set.
+    if (mobileFilters.has('READY')) filteredTrades = filteredTrades.filter(isReadyForPickup)
+    if (mobileFilters.has('MISSED')) {
+      filteredTrades = filteredTrades
+        .map((t) => ({ t, mag: missedMagnitude(t) }))
+        .filter((x): x is { t: (typeof trades)[number]; mag: number } => x.mag !== null)
+        .sort((a, b) => b.mag - a.mag)
+        .map((x) => x.t)
+    }
+    if (mobileFilters.has('HEDGE')) filteredTrades = filteredTrades.filter((t) => classifyHedgeDirectional(t) === 'HEDGE')
+    if (mobileFilters.has('DIRECTIONAL')) filteredTrades = filteredTrades.filter((t) => classifyHedgeDirectional(t) === 'DIRECTIONAL')
+    if (mobileFilters.has('SWEEP')) filteredTrades = filteredTrades.filter(isSweepTrade)
+    if (mobileFilters.has('GAMMA')) filteredTrades = filteredTrades.filter((t) => computeBiasFlags(t).gammaActive)
+    if (mobileFilters.has('STRUCTURAL')) filteredTrades = filteredTrades.filter((t) => computeBiasFlags(t).structuralActive)
+    if (mobileFilters.has('SPAM')) filteredTrades = filteredTrades.filter((t) => computeBiasFlags(t).spamActive)
+  } else if (quickFilter === 'READY') {
+    filteredTrades = trades.filter(isReadyForPickup)
+  } else if (quickFilter === 'MISSED') {
+    filteredTrades = trades
+      .map((t) => ({ t, mag: missedMagnitude(t) }))
+      .filter((x): x is { t: (typeof trades)[number]; mag: number } => x.mag !== null)
+      .sort((a, b) => b.mag - a.mag)
+      .map((x) => x.t)
+  } else if (quickFilter === 'HEDGE') {
+    filteredTrades = trades.filter((t) => classifyHedgeDirectional(t) === 'HEDGE')
+  } else if (quickFilter === 'DIRECTIONAL') {
+    filteredTrades = trades.filter((t) => classifyHedgeDirectional(t) === 'DIRECTIONAL')
+  } else if (quickFilter === 'SWEEP') {
+    filteredTrades = trades.filter(isSweepTrade)
+  } else if (quickFilter === 'GAMMA') {
+    filteredTrades = trades.filter((t) => computeBiasFlags(t).gammaActive)
+  } else if (quickFilter === 'STRUCTURAL') {
+    filteredTrades = trades.filter((t) => computeBiasFlags(t).structuralActive)
+  } else if (quickFilter === 'SPAM') {
+    filteredTrades = trades.filter((t) => computeBiasFlags(t).spamActive)
+  }
+
+  const quickFilterButtons: Array<{ key: NonNullable<typeof quickFilter>; label: string; icon: 'ready' | 'missed' | 'hedge' | 'directional' | 'sweep' | 'gamma' | 'structural' | 'spam' }> = [
+    { key: 'READY', label: 'Ready 4 Pickup', icon: 'ready' },
+    { key: 'MISSED', label: 'He Missed', icon: 'missed' },
+    { key: 'HEDGE', label: 'Hedge', icon: 'hedge' },
+    { key: 'DIRECTIONAL', label: 'Directional', icon: 'directional' },
+    { key: 'SWEEP', label: 'Sweep', icon: 'sweep' },
+    { key: 'GAMMA', label: 'Gamma Attack', icon: 'gamma' },
+    { key: 'STRUCTURAL', label: 'Structural', icon: 'structural' },
+    { key: 'SPAM', label: 'Spam', icon: 'spam' },
+  ]
+
+  const ORANGE = '#ff8c1a'
+
   return (
-    <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '14px', display: 'flex', flexDirection: 'column', gap: '16px', background: '#000' }}>
+    <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '0 14px 14px', display: 'flex', flexDirection: 'column', gap: '16px', background: '#000' }}>
+      <style>{`
+        @keyframes qfSweepDrift { 0%, 100% { transform: translateX(-2px); opacity: 0.65; } 50% { transform: translateX(2px); opacity: 1; } }
+        @keyframes qfPulseScale { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.16); } }
+        @keyframes qfSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes qfBolt { 0%, 100% { opacity: 1; filter: drop-shadow(0 0 0px currentColor); } 45% { opacity: 0.55; } 50% { opacity: 1; filter: drop-shadow(0 0 4px currentColor); } 55% { opacity: 0.55; } }
+        @keyframes qfShieldGlow { 0%, 100% { filter: drop-shadow(0 0 0px currentColor); } 50% { filter: drop-shadow(0 0 3px currentColor); } }
+        @keyframes qfStack { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
+        @keyframes qfCheckDraw { 0% { stroke-dashoffset: 16; } 60%, 100% { stroke-dashoffset: 0; } }
+        @keyframes qfMissedShake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-2px); } 40% { transform: translateX(2px); } 60% { transform: translateX(-1.5px); } 80% { transform: translateX(1.5px); } }
+      `}</style>
+      <div style={{ position: 'sticky', top: 0, zIndex: 30, flexShrink: 0, background: '#000', paddingTop: '14px', marginTop: '-14px' }}>
+        <div
+          style={{
+            display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center',
+            padding: '12px 16px',
+            borderRadius: '16px',
+            background: 'linear-gradient(155deg, #060a16 0%, #040610 38%, #180b02 72%, #1f0e02 100%)',
+            border: '1px solid rgba(255,140,26,0.28)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -3px 6px rgba(0,0,0,0.7), 0 10px 26px rgba(0,0,0,0.6), 0 0 26px -10px rgba(255,120,0,0.35)',
+            position: 'relative',
+          }}
+        >
+          <div style={{ position: 'absolute', top: 0, left: '4%', right: '4%', height: '1px', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent)' }} />
+          {isMobileCard ? (
+            [
+              { key: 'TIMING' as const, label: 'Timing', items: quickFilterButtons.filter((b) => b.key === 'READY' || b.key === 'MISSED') },
+              { key: 'BIAS' as const, label: 'Bias', items: quickFilterButtons.filter((b) => b.key === 'HEDGE' || b.key === 'DIRECTIONAL' || b.key === 'SWEEP') },
+              { key: 'SPECIALS' as const, label: 'Specials', items: quickFilterButtons.filter((b) => b.key === 'GAMMA' || b.key === 'STRUCTURAL' || b.key === 'SPAM') },
+            ].map((group) => {
+              const groupActive = group.items.some((b) => mobileFilters.has(b.key))
+              const isOpen = openFilterDropdown === group.key
+              return (
+                <div key={group.key} style={{ position: 'relative', flex: '1 1 0', minWidth: 0 }}>
+                  <button
+                    onClick={() => setOpenFilterDropdown(isOpen ? null : group.key)}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
+                      width: '100%',
+                      padding: '8px 8px',
+                      borderRadius: '9999px',
+                      fontSize: '12px',
+                      fontWeight: 800,
+                      letterSpacing: '0.3px',
+                      cursor: 'pointer',
+                      background: 'linear-gradient(180deg, #1c1c1c 0%, #000000 55%, #0e0e0e 100%)',
+                      border: groupActive ? `1px solid ${ORANGE}` : '1px solid rgba(255,255,255,0.16)',
+                      color: groupActive ? ORANGE : '#ffffff',
+                      boxShadow: groupActive
+                        ? `inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(0,0,0,0.85), 0 0 14px -2px ${ORANGE}99`
+                        : 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.85)',
+                      transition: 'all 0.15s ease',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {group.label}
+                    <span style={{ fontSize: '9px', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}>▼</span>
+                  </button>
+                  {isOpen && (
+                    <div style={{
+                      position: 'absolute', top: 'calc(100% + 6px)', ...(group.key === 'SPECIALS' ? { right: 0 } : { left: 0 }), zIndex: 40,
+                      width: 'max-content', minWidth: '100%', maxWidth: '220px',
+                      display: 'flex', flexDirection: 'column', gap: '6px',
+                      padding: '8px',
+                      borderRadius: '12px',
+                      background: 'linear-gradient(155deg, #0a0e1a 0%, #050710 55%, #1a0d02 100%)',
+                      border: '1px solid rgba(255,140,26,0.35)',
+                      boxShadow: '0 10px 26px rgba(0,0,0,0.7)',
+                    }}>
+                      {group.items.map(({ key, label }) => {
+                        const active = mobileFilters.has(key)
+                        return (
+                          <button
+                            key={key}
+                            onClick={() => toggleMobileFilter(key)}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: '9px',
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              fontSize: '12.5px',
+                              fontWeight: 800,
+                              letterSpacing: '0.3px',
+                              whiteSpace: 'nowrap',
+                              cursor: 'pointer',
+                              background: 'linear-gradient(180deg, #1c1c1c 0%, #000000 55%, #0e0e0e 100%)',
+                              border: active ? `1px solid ${ORANGE}` : '1px solid rgba(255,255,255,0.16)',
+                              color: active ? ORANGE : '#ffffff',
+                              boxShadow: active
+                                ? `inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(0,0,0,0.85), 0 0 14px -2px ${ORANGE}99`
+                                : 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.85)',
+                              transition: 'all 0.15s ease',
+                            }}
+                          >
+                            <span style={{
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                              width: '15px', height: '15px', borderRadius: '4px',
+                              border: `1.5px solid ${active ? ORANGE : 'rgba(255,255,255,0.4)'}`,
+                              background: active ? ORANGE : 'transparent',
+                            }}>
+                              {active && (
+                                <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="#000000" strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M4 12l5 5L20 6" />
+                                </svg>
+                              )}
+                            </span>
+                            {label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })
+          ) : (
+            quickFilterButtons.map(({ key, label, icon }) => {
+              const active = quickFilter === key
+              return (
+                <button
+                  key={key}
+                  onClick={() => setQuickFilter(active ? null : key)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '7px',
+                    padding: '8px 16px',
+                    borderRadius: '9999px',
+                    fontSize: '13.75px',
+                    fontWeight: 800,
+                    letterSpacing: '0.4px',
+                    cursor: 'pointer',
+                    background: 'linear-gradient(180deg, #1c1c1c 0%, #000000 55%, #0e0e0e 100%)',
+                    border: active ? `1px solid ${ORANGE}` : '1px solid rgba(255,255,255,0.16)',
+                    color: active ? ORANGE : '#ffffff',
+                    boxShadow: active
+                      ? `inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(0,0,0,0.85), 0 0 14px -2px ${ORANGE}99`
+                      : 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.85)',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <QuickFilterIcon icon={icon} color={active ? ORANGE : '#ffffff'} />
+                  {label}
+                </button>
+              )
+            })
+          )}
+        </div>
+      </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {trades.map(({ trade, convictionScore, pctMove, currentStockPrice, currentOptionPrice, contractPctChange, sigCode, sigColor, planText, qualifiedAt, breakdown, sigma, dte, spot, liveRawTrades }) => {
+        {filteredTrades.map(({ trade, convictionScore, pctMove, currentStockPrice, currentOptionPrice, contractPctChange, sigCode, sigColor, planText, qualifiedAt, breakdown, sigma, dte, spot, liveRawTrades, otherLegs }) => {
           const isCall = trade.type === 'call'
           const isLongTerm = trade.days_to_expiry >= 30
           const fs = trade.fill_style || ''
@@ -917,12 +2102,16 @@ function SweepSenseTab({
           const flowBiasKey = `${trade.underlying_ticker}|${histRange || 'TODAY'}`
           const flowBiasTrades = flowBiasRaw[flowBiasKey]
           const flowBiasReady = !!flowBiasTrades
-          const spamResult = flowBiasReady ? computeSpamLabel(flowBiasTrades!, trade.type, formatDate) : { label: 'Loading…', trades: [], level: null }
+          const spamResult = flowBiasReady ? computeSpamLabel(flowBiasTrades!, trade.type, formatDate, spot, sigma) : { label: 'Loading…', trades: [], level: null }
+          // Flow Spammer uniqueness heatmap scoring - only computed once a spam group is actually detected.
+          const spamUniqueness = (flowBiasReady && spamResult.trades.length > 0)
+            ? computeSpamUniquenessScore(spamResult.trades, flowBiasTrades!, spot, sigma, dte, trade.type)
+            : undefined
           // Structural support = puts SOLD (B/BB) at/below spot (a real floor); resistance = calls
           // SOLD (B/BB) at/above spot (a real overhead wall). Uses the SAME live in-memory flow feed
           // the quadrant boxes/gauge use (liveRawTrades) - no extra DB round-trip needed.
-          const structuralResult = computeStructuralLabel(liveRawTrades, spot)
-          const gammaResult = flowBiasReady ? computeGammaLabel(flowBiasTrades!, trade.type, target1, targetUp, isLongTerm) : { label: 'Loading…', trades: [] }
+          const structuralResult = computeStructuralLabel(liveRawTrades, spot, sigma)
+          const gammaResult = flowBiasReady ? computeGammaLabel(flowBiasTrades!, trade.type, target1, target2, targetUp, isLongTerm, trade.expiry, spot) : { label: 'Loading…', trades: [] }
           const spamLabel = spamResult.label
           const structuralLabel = structuralResult.label
           const gammaLabel = gammaResult.label
@@ -1087,6 +2276,7 @@ function SweepSenseTab({
                 clipPath: isMobileCard ? 'none' : 'polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 22px 100%, 0 calc(100% - 22px))',
                 boxShadow: `0 0 0 1px rgba(255,255,255,0.03), 0 18px 40px rgba(0,0,0,0.65), 0 0 40px -12px ${dirGlow}`,
                 display: 'grid', gridTemplateColumns: isMobileCard ? '1fr' : '108px 1fr',
+                alignItems: summaryMode ? 'start' : 'stretch',
               }}
             >
               {/* ── LEFT RAIL: conviction dial + direction + duration, stacked vertically ── */}
@@ -1096,7 +2286,7 @@ function SweepSenseTab({
                 alignItems: isMobileCard ? 'stretch' : 'center',
                 justifyContent: 'flex-start',
                 flexWrap: 'nowrap',
-                gap: isMobileCard ? '8px' : '10px', padding: isMobileCard ? '8px 10px' : '18px 8px 16px',
+                gap: isMobileCard ? '8px' : (summaryMode ? '6px' : '10px'), padding: isMobileCard ? '8px 10px' : (summaryMode ? '12px 8px 10px' : '18px 8px 16px'),
                 background: `linear-gradient(180deg, ${convColor}22 0%, #000 55%)`,
                 borderRight: isMobileCard ? 'none' : `1px solid ${convColor}33`,
                 borderBottom: isMobileCard ? `1px solid ${convColor}33` : 'none',
@@ -1117,18 +2307,31 @@ function SweepSenseTab({
                         <span style={{ color: '#ffffff', fontSize: '15px', fontWeight: 900, lineHeight: 1 }}>{convictionScore}</span>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', color: dirColor, fontWeight: 900, flexShrink: 0 }}>
-                      <span style={{ fontSize: '14px', lineHeight: 1 }}>{targetUp ? '▲' : '▼'}</span>
-                      <span style={{ fontSize: '9px', letterSpacing: '0.1em' }}>{targetUp ? 'BULLISH' : 'BEARISH'}</span>
-                    </div>
-                    <span style={{
-                      display: 'inline-block', fontWeight: 800, fontSize: '11px', letterSpacing: '0.06em',
-                      padding: '3px 8px', borderRadius: '3px',
-                      background: isSweepBadge ? '#FFD700' : isBlockBadge ? '#00e5ff' : '#fff',
-                      color: '#000', flexShrink: 0,
-                    }}>
-                      {tradeTypeVal}
-                    </span>
+                    {tradeTypeVal === 'MULTI-LEG' && (
+                      <span style={{
+                        display: 'inline-block', fontWeight: 800, fontSize: '10px', letterSpacing: '0.06em',
+                        padding: '3px 8px', borderRadius: '3px',
+                        background: '#fff', color: '#000', flexShrink: 0,
+                      }}>
+                        MULTI-LEG
+                      </span>
+                    )}
+                    {(!summaryMode || isMobileCard) && (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', color: dirColor, fontWeight: 900, flexShrink: 0 }}>
+                        <span style={{ fontSize: '14px', lineHeight: 1 }}>{targetUp ? '▲' : '▼'}</span>
+                        <span style={{ fontSize: '9px', letterSpacing: '0.1em' }}>{targetUp ? 'BULLISH' : 'BEARISH'}</span>
+                      </div>
+                    )}
+                    {tradeTypeVal !== 'MULTI-LEG' && (
+                      <span style={{
+                        display: 'inline-block', fontWeight: 800, fontSize: '11px', letterSpacing: '0.06em',
+                        padding: '3px 8px', borderRadius: '3px',
+                        background: isSweepBadge ? '#FFD700' : isBlockBadge ? '#00e5ff' : '#fff',
+                        color: '#000', flexShrink: 0,
+                      }}>
+                        {tradeTypeVal}
+                      </span>
+                    )}
                     <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '1px', flexShrink: 0 }}>
                       <span style={{ color: '#ffffff', fontSize: '11px', fontWeight: 900, whiteSpace: 'nowrap' }}>
                         {currentOptionPrice !== null ? fmtPrem(currentOptionPrice * trade.trade_size * 100) : '--'}
@@ -1138,22 +2341,24 @@ function SweepSenseTab({
                       </span>
                     </span>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flexShrink: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '5px' }}>
-                        <span style={{ color: '#ffffff', fontSize: '9px', fontWeight: 800, letterSpacing: '0.06em' }}>Taken:</span>
-                        <span style={{ color: '#22d3ee', fontSize: '11px', fontWeight: 800, whiteSpace: 'nowrap' }}>{formatTime(trade.trade_timestamp)}</span>
+                    {(!summaryMode || isMobileCard) && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flexShrink: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '5px' }}>
+                          <span style={{ color: '#ffffff', fontSize: '9px', fontWeight: 800, letterSpacing: '0.06em' }}>Taken:</span>
+                          <span style={{ color: '#22d3ee', fontSize: '11px', fontWeight: 800, whiteSpace: 'nowrap' }}>{formatTime(trade.trade_timestamp)}</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '5px' }}>
+                          <span style={{ color: '#ffffff', fontSize: '9px', fontWeight: 800, letterSpacing: '0.06em' }}>Qualified:</span>
+                          <span style={{ color: '#a8ff3e', fontSize: '11px', fontWeight: 800, whiteSpace: 'nowrap' }}>{formatTime(new Date(qualifiedAt).toISOString())}</span>
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '5px' }}>
-                        <span style={{ color: '#ffffff', fontSize: '9px', fontWeight: 800, letterSpacing: '0.06em' }}>Qualified:</span>
-                        <span style={{ color: '#a8ff3e', fontSize: '11px', fontWeight: 800, whiteSpace: 'nowrap' }}>{formatTime(new Date(qualifiedAt).toISOString())}</span>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 ) : (
                   <>
                     <span style={{ color: '#ffffff', fontSize: '17px', fontWeight: 900, letterSpacing: '-0.02em', flexShrink: 0 }}>{trade.underlying_ticker}</span>
-                    <div style={{ position: 'relative', width: '78px', height: '78px', flexShrink: 0 }}>
-                      <svg width={78} height={78} viewBox="0 0 84 84" style={{ transform: 'rotate(-90deg)' }}>
+                    <div style={{ position: 'relative', width: summaryMode ? '54px' : '78px', height: summaryMode ? '54px' : '78px', flexShrink: 0 }}>
+                      <svg width={summaryMode ? 54 : 78} height={summaryMode ? 54 : 78} viewBox="0 0 84 84" style={{ transform: 'rotate(-90deg)' }}>
                         <circle cx="42" cy="42" r="34" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="6" />
                         <circle
                           cx="42" cy="42" r="34" fill="none" stroke={convColor} strokeWidth="6" strokeLinecap="round"
@@ -1162,8 +2367,8 @@ function SweepSenseTab({
                         />
                       </svg>
                       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                        <span style={{ color: '#ffffff', fontSize: '32px', fontWeight: 900, lineHeight: 1 }}>{convictionScore}</span>
-                        <span style={{ color: convColor, fontSize: '10px', fontWeight: 800, letterSpacing: '0.15em' }}>SCORE</span>
+                        <span style={{ color: '#ffffff', fontSize: summaryMode ? '22px' : '32px', fontWeight: 900, lineHeight: 1 }}>{convictionScore}</span>
+                        {!summaryMode && <span style={{ color: convColor, fontSize: '10px', fontWeight: 800, letterSpacing: '0.15em' }}>SCORE</span>}
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: '1px' }}>
@@ -1171,24 +2376,38 @@ function SweepSenseTab({
                         <span key={i} style={{ color: i < filledStars ? convColor : 'rgba(255,255,255,0.15)', fontSize: '14px' }}>★</span>
                       ))}
                     </div>
-                    <div style={{
-                      marginTop: '2px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
-                      color: dirColor, fontWeight: 900, flexShrink: 0,
-                    }}>
-                      <span style={{ fontSize: '25px', lineHeight: 1 }}>{targetUp ? '▲' : '▼'}</span>
-                      <span style={{ fontSize: '11px', letterSpacing: '0.1em' }}>{targetUp ? 'BULLISH' : 'BEARISH'}</span>
-                    </div>
+                    {tradeTypeVal === 'MULTI-LEG' && (
+                      <span style={{
+                        display: 'inline-block', fontWeight: 800, fontSize: '11px', letterSpacing: '0.06em',
+                        padding: '3px 10px', borderRadius: '3px', background: '#fff', color: '#000',
+                      }}>
+                        MULTI-LEG
+                      </span>
+                    )}
+                    {!summaryMode && (
+                      <div style={{
+                        marginTop: '2px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
+                        color: dirColor, fontWeight: 900, flexShrink: 0,
+                      }}>
+                        <span style={{ fontSize: '25px', lineHeight: 1 }}>{targetUp ? '▲' : '▼'}</span>
+                        <span style={{ fontSize: '11px', letterSpacing: '0.1em' }}>{targetUp ? 'BULLISH' : 'BEARISH'}</span>
+                      </div>
+                    )}
 
-                    <div style={{ flexGrow: 0.5 }} />
+                    {!summaryMode && <div style={{ flexGrow: 0.5 }} />}
 
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px', flexShrink: 0 }}>
-                      <span style={{ color: '#ffffff', fontSize: '10px', fontWeight: 800, letterSpacing: '0.08em' }}>TAKEN</span>
-                      <span style={{ color: '#22d3ee', fontSize: '13px', fontWeight: 800, whiteSpace: 'nowrap' }}>{formatTime(trade.trade_timestamp)}</span>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px', marginTop: '4px', flexShrink: 0 }}>
-                      <span style={{ color: '#ffffff', fontSize: '10px', fontWeight: 800, letterSpacing: '0.08em' }}>QUALIFIED</span>
-                      <span style={{ color: '#a8ff3e', fontSize: '13px', fontWeight: 800, whiteSpace: 'nowrap' }}>{formatTime(new Date(qualifiedAt).toISOString())}</span>
-                    </div>
+                    {!summaryMode && (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px', flexShrink: 0 }}>
+                        <span style={{ color: '#ffffff', fontSize: '10px', fontWeight: 800, letterSpacing: '0.08em' }}>TAKEN</span>
+                        <span style={{ color: '#22d3ee', fontSize: '13px', fontWeight: 800, whiteSpace: 'nowrap' }}>{formatTime(trade.trade_timestamp)}</span>
+                      </div>
+                    )}
+                    {!summaryMode && (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px', marginTop: '4px', flexShrink: 0 }}>
+                        <span style={{ color: '#ffffff', fontSize: '10px', fontWeight: 800, letterSpacing: '0.08em' }}>QUALIFIED</span>
+                        <span style={{ color: '#a8ff3e', fontSize: '13px', fontWeight: 800, whiteSpace: 'nowrap' }}>{formatTime(new Date(qualifiedAt).toISOString())}</span>
+                      </div>
+                    )}
 
                     <div style={{ flexGrow: 1 }} />
                   </>
@@ -1259,14 +2478,16 @@ function SweepSenseTab({
                       }}>
                         {trade.type.toUpperCase()}
                       </span>
-                      <span style={{
-                        display: 'inline-block', fontWeight: 800, fontSize: '12px', letterSpacing: '0.08em',
-                        padding: '4px 10px', clipPath: 'polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%)',
-                        background: isSweepBadge ? '#FFD700' : isBlockBadge ? '#00e5ff' : '#fff',
-                        color: '#000',
-                      }}>
-                        {tradeTypeVal}
-                      </span>
+                      {tradeTypeVal !== 'MULTI-LEG' && (
+                        <span style={{
+                          display: 'inline-block', fontWeight: 800, fontSize: '12px', letterSpacing: '0.08em',
+                          padding: '4px 10px', clipPath: 'polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%)',
+                          background: isSweepBadge ? '#FFD700' : isBlockBadge ? '#00e5ff' : '#fff',
+                          color: '#000',
+                        }}>
+                          {tradeTypeVal}
+                        </span>
+                      )}
 
                       <span style={{ color: '#ffffff', fontSize: '16px', fontWeight: 700 }}>
                         ${trade.strike} {trade.type.toUpperCase()}
@@ -1325,11 +2546,71 @@ function SweepSenseTab({
                       </span>
                     </div>
                   )}
+                  {/* MULTI-LEG combo: show the other leg(s) of the paired buy/sell trade alongside the primary leg above */}
+                  {otherLegs && otherLegs.length > 0 && (
+                    <div style={{
+                      display: 'flex', flexDirection: 'column', gap: isMobileCard ? '6px' : '8px',
+                      marginTop: isMobileCard ? '8px' : '10px', paddingTop: isMobileCard ? '8px' : '10px',
+                      borderTop: '1px dashed rgba(255,255,255,0.15)',
+                    }}>
+                      {otherLegs.map((leg, i) => {
+                        const legFs = leg.fill_style || ''
+                        const legIsCall = leg.type === 'call'
+                        return (
+                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: isMobileCard ? '8px' : '12px', flexWrap: 'wrap' }}>
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center', color: legIsCall ? '#22c55e' : '#ef4444',
+                              fontWeight: 900, fontSize: isMobileCard ? '11px' : '13px', letterSpacing: '0.05em',
+                              background: legIsCall ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)', borderRadius: '4px', padding: '3px 8px',
+                              border: `1px solid ${legIsCall ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)'}`,
+                            }}>
+                              {leg.type.toUpperCase()}
+                            </span>
+                            <span style={{ color: '#ffffff', fontSize: isMobileCard ? '14px' : '16px', fontWeight: 700 }}>
+                              ${leg.strike} {leg.type.toUpperCase()}
+                            </span>
+                            <span style={{ color: '#ffffff', fontSize: isMobileCard ? '14px' : '16px', fontWeight: 700 }}>
+                              {formatDate(leg.expiry)}
+                            </span>
+                            <span style={{ fontSize: isMobileCard ? '14px' : '16px', fontWeight: 700 }}>
+                              <span style={{ color: '#22d3ee' }}>{leg.trade_size.toLocaleString()}</span>
+                              <span style={{ color: '#ffffff' }}>@${leg.premium_per_contract.toFixed(2)}</span>
+                              {['A', 'AA', 'B', 'BB'].includes(legFs) && (
+                                <span style={{
+                                  marginLeft: '4px', fontSize: isMobileCard ? '11px' : '12px', fontWeight: 800, padding: '2px 6px', borderRadius: '4px',
+                                  color: legFs === 'A' ? '#4ade80' : legFs === 'AA' ? '#86efac' : legFs === 'B' ? '#f87171' : '#fca5a5',
+                                  background: legFs === 'A' ? 'rgba(74,222,128,0.1)' : legFs === 'AA' ? 'rgba(134,239,172,0.1)' : legFs === 'B' ? 'rgba(248,113,113,0.1)' : 'rgba(252,165,165,0.1)',
+                                  border: `1px solid ${legFs === 'A' ? 'rgba(74,222,128,0.3)' : legFs === 'AA' ? 'rgba(134,239,172,0.3)' : legFs === 'B' ? 'rgba(248,113,113,0.3)' : 'rgba(252,165,165,0.3)'}`,
+                                }}>{legFs}</span>
+                              )}
+                            </span>
+                            <span style={{ color: '#4ade80', fontSize: isMobileCard ? '14px' : '16px', fontWeight: 700 }}>
+                              {fmtPrem(leg.total_premium)}
+                            </span>
+                            <span style={{ display: 'flex', alignItems: 'baseline', gap: isMobileCard ? '4px' : '6px' }}>
+                              <span style={{ color: '#ffffff', fontSize: isMobileCard ? '11px' : '14px', fontWeight: 700 }}>
+                                {leg.spot_price > 0 ? `$${leg.spot_price.toFixed(2)}` : (spot ? `$${spot.toFixed(2)}` : '--')}
+                              </span>
+                              <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: isMobileCard ? '10px' : '12px' }}>{'>'}</span>
+                              <span style={{
+                                fontSize: isMobileCard ? '11px' : '14px', fontWeight: 700,
+                                color: currentStockPrice === null ? '#ffffff'
+                                  : currentStockPrice > leg.spot_price ? '#22c55e'
+                                    : currentStockPrice < leg.spot_price ? '#ef4444' : '#ffffff',
+                              }}>
+                                {currentStockPrice !== null && currentStockPrice > 0 ? `$${currentStockPrice.toFixed(2)}` : '--'}
+                              </span>
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Entry plan - angled callout ribbon */}
                 <div style={{
-                  position: 'relative', margin: isMobileCard ? '12px 8px 0' : '12px 16px 0', padding: isMobileCard ? '8px 10px' : '10px 14px 10px 18px',
+                  position: 'relative', margin: isMobileCard ? '12px 8px 0' : (summaryMode ? '8px 16px 0' : '12px 16px 0'), padding: isMobileCard ? '8px 10px' : '10px 14px 10px 18px',
                   background: `linear-gradient(90deg, ${sigColor}1a 0%, transparent 100%)`,
                   borderLeft: `3px solid ${sigColor}`, borderRadius: '2px',
                   boxSizing: 'border-box',
@@ -1358,311 +2639,316 @@ function SweepSenseTab({
                   </div>
                   <div style={{ color: '#ffffff', fontSize: isMobileCard ? '12px' : '15px', lineHeight: 1.45, wordBreak: 'break-word' }}>{aiTakeText}</div>
                 </div>
+                {summaryMode && <div style={{ paddingBottom: '2px' }} />}
 
-                {/* Build A Trade - risk-profile driven strike/expiry rebuilder */}
-                <div style={{ padding: isMobileCard ? '6px 12px 0' : '6px 16px 0' }}>
-                  {isMobileCard ? (
-                    <div style={{
-                      display: 'flex', gap: '8px', alignItems: 'center',
-                      background: 'linear-gradient(180deg, #161616 0%, #060606 55%, #000000 100%)',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: '999px',
-                      padding: '5px 8px',
-                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -2px 4px rgba(0,0,0,0.8), 0 2px 6px rgba(0,0,0,0.5)',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: '1 1 0', minWidth: 0 }}>
-                        <span style={{ color: '#ffffff', fontSize: '9px', fontWeight: 800, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Risk Tolerance</span>
-                        <select
-                          value={riskLevel[flowId] ?? ''}
-                          onChange={(e) => setRiskLevel((prev) => {
-                            const next = { ...prev }
-                            const v = e.target.value
-                            if (!v) delete next[flowId]
-                            else next[flowId] = v as 'PROB' | 'ONAROLE' | 'LUCKY'
-                            return next
-                          })}
-                          style={{
-                            flex: '1 1 0', minWidth: 0, cursor: 'pointer', padding: '5px 6px', borderRadius: '999px', fontWeight: 900,
-                            fontSize: '10px', letterSpacing: '0.04em',
-                            color: '#ffffff', colorScheme: 'dark',
-                            background: 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
-                            border: '1px solid rgba(255,255,255,0.18)',
-                          }}
-                        >
-                          <option value="" style={{ background: '#0a0a0a', color: '#ffffff' }}>NONE</option>
-                          <option value="PROB" style={{ background: '#0a0a0a', color: '#ffffff' }}>PROBABILITY</option>
-                          <option value="ONAROLE" style={{ background: '#0a0a0a', color: '#ffffff' }}>ON A ROLE</option>
-                          <option value="LUCKY" style={{ background: '#0a0a0a', color: '#ffffff' }}>LUCKY</option>
-                        </select>
-                      </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: '1 1 0', minWidth: 0 }}>
-                        <span style={{ color: '#ffffff', fontSize: '9px', fontWeight: 800, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>FlowBias</span>
-                        <select
-                          value={histRange ?? ''}
-                          onChange={(e) => setHistoricalRange((prev) => {
-                            const next = { ...prev }
-                            const v = e.target.value
-                            if (!v) delete next[flowId]
-                            else next[flowId] = v as '3D' | '1W'
-                            return next
-                          })}
-                          style={{
-                            flex: '1 1 0', minWidth: 0, cursor: 'pointer', padding: '5px 6px', borderRadius: '999px', fontWeight: 800,
-                            fontSize: '10px', letterSpacing: '0.04em',
-                            color: '#ff8c00', colorScheme: 'dark',
-                            background: 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
-                            border: '1px solid rgba(255,140,0,0.4)',
-                          }}
-                        >
-                          <option value="" style={{ background: '#0a0a0a', color: '#ff8c00' }}>TODAY</option>
-                          <option value="3D" style={{ background: '#0a0a0a', color: '#ff8c00' }}>3D</option>
-                          <option value="1W" style={{ background: '#0a0a0a', color: '#ff8c00' }}>1W</option>
-                        </select>
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{
-                      display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center',
-                      background: 'linear-gradient(180deg, #161616 0%, #060606 55%, #000000 100%)',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: '999px',
-                      padding: '6px 10px',
-                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -2px 4px rgba(0,0,0,0.8), 0 2px 6px rgba(0,0,0,0.5)',
-                    }}>
-                      {([
-                        { key: 'PROB', label: 'PROBABILITY', desc: 'Favor the win, more time, 70–75% PoP strike', color: '#22c55e' },
-                        { key: 'ONAROLE', label: 'ON A ROLE', desc: 'Balanced risk/reward, ~78% PoP strike', color: '#eab308' },
-                        { key: 'LUCKY', label: 'LUCKY', desc: 'Degen mode: tighter DTE, 80-85% PoP, no stop', color: '#ec4899' },
-                      ] as const).map((opt) => (
-                        <button
-                          key={opt.key}
-                          title={opt.desc}
-                          onClick={() => setRiskLevel((prev) => {
-                            const next = { ...prev }
-                            if (next[flowId] === opt.key) delete next[flowId]
-                            else next[flowId] = opt.key
-                            return next
-                          })}
-                          style={{
-                            cursor: 'pointer', padding: '8px 16px', borderRadius: '999px', fontWeight: 900,
-                            fontSize: '12px', letterSpacing: '0.06em', whiteSpace: 'nowrap', flexShrink: 0,
-                            color: opt.color,
-                            background: riskLevel[flowId] === opt.key
-                              ? `linear-gradient(180deg, #2b2b2b 0%, #050505 55%, #000000 100%)`
-                              : 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
-                            border: riskLevel[flowId] === opt.key ? `1px solid ${opt.color}` : '1px solid rgba(255,255,255,0.12)',
-                            boxShadow: riskLevel[flowId] === opt.key ? `0 0 10px ${opt.color}66, inset 0 0 8px ${opt.color}33` : 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -2px 4px rgba(0,0,0,0.7)',
-                          }}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto', flexShrink: 0 }}>
-                        <span style={{ color: '#ffffff', fontSize: '11px', fontWeight: 800, letterSpacing: '0.06em', marginRight: '2px', whiteSpace: 'nowrap' }}>
-                          FlowBias :
-                        </span>
-                        {([
-                          { key: null, label: 'TODAY' },
-                          { key: '3D' as const, label: '3D' },
-                          { key: '1W' as const, label: '1W' },
-                        ]).map((opt) => {
-                          const selected = (histRange ?? null) === opt.key
-                          return (
-                            <button
-                              key={opt.label}
-                              onClick={() => setHistoricalRange((prev) => {
+                {!summaryMode && (
+                  <>
+                    {/* Build A Trade - risk-profile driven strike/expiry rebuilder */}
+                    <div style={{ padding: isMobileCard ? '6px 12px 0' : '6px 16px 0' }}>
+                      {isMobileCard ? (
+                        <div style={{
+                          display: 'flex', gap: '8px', alignItems: 'center',
+                          background: 'linear-gradient(180deg, #161616 0%, #060606 55%, #000000 100%)',
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          borderRadius: '999px',
+                          padding: '5px 8px',
+                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -2px 4px rgba(0,0,0,0.8), 0 2px 6px rgba(0,0,0,0.5)',
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: '1 1 0', minWidth: 0 }}>
+                            <span style={{ color: '#ffffff', fontSize: '9px', fontWeight: 800, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Risk Tolerance</span>
+                            <select
+                              value={riskLevel[flowId] ?? ''}
+                              onChange={(e) => setRiskLevel((prev) => {
                                 const next = { ...prev }
-                                if (opt.key === null) delete next[flowId]
+                                const v = e.target.value
+                                if (!v) delete next[flowId]
+                                else next[flowId] = v as 'PROB' | 'ONAROLE' | 'LUCKY'
+                                return next
+                              })}
+                              style={{
+                                flex: '1 1 0', minWidth: 0, cursor: 'pointer', padding: '5px 6px', borderRadius: '999px', fontWeight: 900,
+                                fontSize: '10px', letterSpacing: '0.04em',
+                                color: '#ffffff', colorScheme: 'dark',
+                                background: 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                                border: '1px solid rgba(255,255,255,0.18)',
+                              }}
+                            >
+                              <option value="" style={{ background: '#0a0a0a', color: '#ffffff' }}>NONE</option>
+                              <option value="PROB" style={{ background: '#0a0a0a', color: '#ffffff' }}>PROBABILITY</option>
+                              <option value="ONAROLE" style={{ background: '#0a0a0a', color: '#ffffff' }}>ON A ROLE</option>
+                              <option value="LUCKY" style={{ background: '#0a0a0a', color: '#ffffff' }}>LUCKY</option>
+                            </select>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: '1 1 0', minWidth: 0 }}>
+                            <span style={{ color: '#ffffff', fontSize: '9px', fontWeight: 800, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>FlowBias</span>
+                            <select
+                              value={histRange ?? ''}
+                              onChange={(e) => setHistoricalRange((prev) => {
+                                const next = { ...prev }
+                                const v = e.target.value
+                                if (!v) delete next[flowId]
+                                else next[flowId] = v as '3D' | '1W'
+                                return next
+                              })}
+                              style={{
+                                flex: '1 1 0', minWidth: 0, cursor: 'pointer', padding: '5px 6px', borderRadius: '999px', fontWeight: 800,
+                                fontSize: '10px', letterSpacing: '0.04em',
+                                color: '#ff8c00', colorScheme: 'dark',
+                                background: 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                                border: '1px solid rgba(255,140,0,0.4)',
+                              }}
+                            >
+                              <option value="" style={{ background: '#0a0a0a', color: '#ff8c00' }}>TODAY</option>
+                              <option value="3D" style={{ background: '#0a0a0a', color: '#ff8c00' }}>3D</option>
+                              <option value="1W" style={{ background: '#0a0a0a', color: '#ff8c00' }}>1W</option>
+                            </select>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{
+                          display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center',
+                          background: 'linear-gradient(180deg, #161616 0%, #060606 55%, #000000 100%)',
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          borderRadius: '999px',
+                          padding: '6px 10px',
+                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -2px 4px rgba(0,0,0,0.8), 0 2px 6px rgba(0,0,0,0.5)',
+                        }}>
+                          {([
+                            { key: 'PROB', label: 'PROBABILITY', desc: 'Favor the win, more time, 70–75% PoP strike', color: '#22c55e' },
+                            { key: 'ONAROLE', label: 'ON A ROLE', desc: 'Balanced risk/reward, ~78% PoP strike', color: '#eab308' },
+                            { key: 'LUCKY', label: 'LUCKY', desc: 'Degen mode: tighter DTE, 80-85% PoP, no stop', color: '#ec4899' },
+                          ] as const).map((opt) => (
+                            <button
+                              key={opt.key}
+                              title={opt.desc}
+                              onClick={() => setRiskLevel((prev) => {
+                                const next = { ...prev }
+                                if (next[flowId] === opt.key) delete next[flowId]
                                 else next[flowId] = opt.key
                                 return next
                               })}
                               style={{
-                                cursor: 'pointer', padding: '8px 14px', borderRadius: '999px', fontWeight: 800,
-                                fontSize: '11px', letterSpacing: '0.06em', whiteSpace: 'nowrap', flexShrink: 0,
-                                color: selected ? '#ff8c00' : '#ffffff',
-                                background: selected
-                                  ? 'linear-gradient(180deg, #2b2b2b 0%, #050505 55%, #000000 100%)'
+                                cursor: 'pointer', padding: '8px 16px', borderRadius: '999px', fontWeight: 900,
+                                fontSize: '12px', letterSpacing: '0.06em', whiteSpace: 'nowrap', flexShrink: 0,
+                                color: opt.color,
+                                background: riskLevel[flowId] === opt.key
+                                  ? `linear-gradient(180deg, #2b2b2b 0%, #050505 55%, #000000 100%)`
                                   : 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
-                                border: `1px solid ${selected ? '#ff8c00' : 'rgba(255,255,255,0.18)'}`,
-                                boxShadow: selected
-                                  ? 'inset 0 2px 3px rgba(0,0,0,0.85), inset 0 -1px 0 rgba(255,140,0,0.35), 0 2px 4px rgba(0,0,0,0.6)'
-                                  : 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -3px 5px rgba(0,0,0,0.7), 0 2px 4px rgba(0,0,0,0.6)',
-                                textShadow: '0 1px 1px rgba(0,0,0,0.8)',
+                                border: riskLevel[flowId] === opt.key ? `1px solid ${opt.color}` : '1px solid rgba(255,255,255,0.12)',
+                                boxShadow: riskLevel[flowId] === opt.key ? `0 0 10px ${opt.color}66, inset 0 0 8px ${opt.color}33` : 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -2px 4px rgba(0,0,0,0.7)',
                               }}
                             >
                               {opt.label}
                             </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
+                          ))}
 
-                  {chainStillLoading && (
-                    <div style={{ marginTop: '10px', color: 'rgba(255,255,255,0.4)', fontSize: '12px', fontWeight: 700 }}>
-                      Fetching data…
-                    </div>
-                  )}
-                </div>
-
-                {/* Targets ladder + sentiment cluster - one neat single row (stacks vertically on mobile) */}
-                <div style={{
-                  display: 'flex', flexDirection: isMobileCard ? 'column' : 'row', flexWrap: isMobileCard ? 'nowrap' : 'nowrap', gap: '10px', alignItems: isMobileCard ? 'stretch' : 'flex-start',
-                  padding: '10px 16px 0',
-                  overflowX: 'visible',
-                  overflowY: 'visible',
-                }}>
-                  <div style={{ flex: isMobileCard ? '1 1 auto' : '1 1 380px', minWidth: isMobileCard ? '0' : '340px', width: isMobileCard ? '100%' : undefined, maxWidth: undefined, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    {[
-                      { lbl: 'TARGET 1', stock: ladderTarget1, opt: ladderT1Opt, pct: ladderT1Pct, w: '62%' },
-                      { lbl: 'TARGET 2', stock: ladderTarget2, opt: ladderT2Opt, pct: ladderT2Pct, w: '84%' },
-                      { lbl: 'STOP', stock: ladderStopStock, opt: ladderStopOpt, pct: ladderStopPct, w: '38%', isStop: true },
-                    ].map((row) => (
-                      <div key={row.lbl} style={{
-                        display: 'flex', alignItems: 'center', gap: isMobileCard ? '6px' : '10px', padding: isMobileCard ? '6px 8px' : '7px 10px',
-                        background: row.isStop ? 'rgba(255,0,0,0.06)' : 'rgba(0,255,0,0.05)',
-                        borderLeft: `3px solid ${row.isStop ? '#ff3333' : '#00e676'}`,
-                        flexWrap: isMobileCard ? 'nowrap' : 'nowrap',
-                        minWidth: 0,
-                      }}>
-                        <span style={{
-                          flex: isMobileCard ? '0 0 46px' : '0 0 84px', fontSize: isMobileCard ? '10px' : '12px', fontWeight: 900, letterSpacing: isMobileCard ? '0.02em' : '0.08em', whiteSpace: 'nowrap',
-                          color: row.isStop ? '#ff6666' : '#5ef2a6',
-                        }}>{isMobileCard ? row.lbl.replace('TARGET ', 'T') : row.lbl}</span>
-                        <div style={{ flex: '0 0 auto', width: isMobileCard ? '30px' : '70px', height: '5px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
-                          <div style={{ width: row.w, height: '100%', background: row.isStop ? '#ff3333' : '#00e676' }} />
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto', flexShrink: 0 }}>
+                            <span style={{ color: '#ffffff', fontSize: '11px', fontWeight: 800, letterSpacing: '0.06em', marginRight: '2px', whiteSpace: 'nowrap' }}>
+                              FlowBias :
+                            </span>
+                            {([
+                              { key: null, label: 'TODAY' },
+                              { key: '3D' as const, label: '3D' },
+                              { key: '1W' as const, label: '1W' },
+                            ]).map((opt) => {
+                              const selected = (histRange ?? null) === opt.key
+                              return (
+                                <button
+                                  key={opt.label}
+                                  onClick={() => setHistoricalRange((prev) => {
+                                    const next = { ...prev }
+                                    if (opt.key === null) delete next[flowId]
+                                    else next[flowId] = opt.key
+                                    return next
+                                  })}
+                                  style={{
+                                    cursor: 'pointer', padding: '8px 14px', borderRadius: '999px', fontWeight: 800,
+                                    fontSize: '11px', letterSpacing: '0.06em', whiteSpace: 'nowrap', flexShrink: 0,
+                                    color: selected ? '#ff8c00' : '#ffffff',
+                                    background: selected
+                                      ? 'linear-gradient(180deg, #2b2b2b 0%, #050505 55%, #000000 100%)'
+                                      : 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                                    border: `1px solid ${selected ? '#ff8c00' : 'rgba(255,255,255,0.18)'}`,
+                                    boxShadow: selected
+                                      ? 'inset 0 2px 3px rgba(0,0,0,0.85), inset 0 -1px 0 rgba(255,140,0,0.35), 0 2px 4px rgba(0,0,0,0.6)'
+                                      : 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -3px 5px rgba(0,0,0,0.7), 0 2px 4px rgba(0,0,0,0.6)',
+                                    textShadow: '0 1px 1px rgba(0,0,0,0.8)',
+                                  }}
+                                >
+                                  {opt.label}
+                                </button>
+                              )
+                            })}
+                          </div>
                         </div>
-                        <span style={{ color: '#ffffff', fontSize: isMobileCard ? '12px' : '15px', fontWeight: 800, whiteSpace: 'nowrap' }}>
-                          {typeof row.stock === 'number' ? `$${row.stock.toFixed(2)}` : 'N/A'}
-                        </span>
-                        <span style={{ color: '#ffffff', fontSize: isMobileCard ? '11px' : '13px', flexShrink: 0 }}>/</span>
-                        <span style={{ color: row.isStop ? '#ff6666' : '#5ef2a6', fontSize: isMobileCard ? '12px' : '15px', fontWeight: 800, whiteSpace: 'nowrap' }}>
-                          {typeof row.opt === 'number' ? `$${row.opt.toFixed(2)}` : 'N/A'}
-                        </span>
-                        {typeof row.pct === 'number' && (
-                          <span style={{
-                            marginLeft: isMobileCard ? '4px' : 'auto', fontWeight: 800, fontSize: isMobileCard ? '11px' : '13px', padding: '1px 6px', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0,
-                            color: row.pct >= 0 ? '#00ff00' : '#ff0000',
-                            background: row.pct >= 0 ? 'rgba(0,255,0,0.1)' : 'rgba(255,0,0,0.1)',
+                      )}
+
+                      {chainStillLoading && (
+                        <div style={{ marginTop: '10px', color: 'rgba(255,255,255,0.4)', fontSize: '12px', fontWeight: 700 }}>
+                          Fetching data…
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Targets ladder + sentiment cluster - one neat single row (stacks vertically on mobile) */}
+                    <div style={{
+                      display: 'flex', flexDirection: isMobileCard ? 'column' : 'row', flexWrap: isMobileCard ? 'nowrap' : 'nowrap', gap: '10px', alignItems: isMobileCard ? 'stretch' : 'flex-start',
+                      padding: '10px 16px 0',
+                      overflowX: 'visible',
+                      overflowY: 'visible',
+                    }}>
+                      <div style={{ flex: isMobileCard ? '1 1 auto' : '1 1 380px', minWidth: isMobileCard ? '0' : '340px', width: isMobileCard ? '100%' : undefined, maxWidth: undefined, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {[
+                          { lbl: 'TARGET 1', stock: ladderTarget1, opt: ladderT1Opt, pct: ladderT1Pct, w: '62%' },
+                          { lbl: 'TARGET 2', stock: ladderTarget2, opt: ladderT2Opt, pct: ladderT2Pct, w: '84%' },
+                          { lbl: 'STOP', stock: ladderStopStock, opt: ladderStopOpt, pct: ladderStopPct, w: '38%', isStop: true },
+                        ].map((row) => (
+                          <div key={row.lbl} style={{
+                            display: 'flex', alignItems: 'center', gap: isMobileCard ? '6px' : '10px', padding: isMobileCard ? '6px 8px' : '7px 10px',
+                            background: row.isStop ? 'rgba(255,0,0,0.06)' : 'rgba(0,255,0,0.05)',
+                            borderLeft: `3px solid ${row.isStop ? '#ff3333' : '#00e676'}`,
+                            flexWrap: isMobileCard ? 'nowrap' : 'nowrap',
+                            minWidth: 0,
                           }}>
-                            {row.pct >= 0 ? '▲' : '▼'} {Math.abs(row.pct).toFixed(0)}%
-                          </span>
+                            <span style={{
+                              flex: isMobileCard ? '0 0 46px' : '0 0 84px', fontSize: isMobileCard ? '10px' : '12px', fontWeight: 900, letterSpacing: isMobileCard ? '0.02em' : '0.08em', whiteSpace: 'nowrap',
+                              color: row.isStop ? '#ff6666' : '#5ef2a6',
+                            }}>{isMobileCard ? row.lbl.replace('TARGET ', 'T') : row.lbl}</span>
+                            <div style={{ flex: '0 0 auto', width: isMobileCard ? '30px' : '70px', height: '5px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
+                              <div style={{ width: row.w, height: '100%', background: row.isStop ? '#ff3333' : '#00e676' }} />
+                            </div>
+                            <span style={{ color: '#ffffff', fontSize: isMobileCard ? '12px' : '15px', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                              {typeof row.stock === 'number' ? `$${row.stock.toFixed(2)}` : 'N/A'}
+                            </span>
+                            <span style={{ color: '#ffffff', fontSize: isMobileCard ? '11px' : '13px', flexShrink: 0 }}>/</span>
+                            <span style={{ color: row.isStop ? '#ff6666' : '#5ef2a6', fontSize: isMobileCard ? '12px' : '15px', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                              {typeof row.opt === 'number' ? `$${row.opt.toFixed(2)}` : 'N/A'}
+                            </span>
+                            {typeof row.pct === 'number' && (
+                              <span style={{
+                                marginLeft: isMobileCard ? '4px' : 'auto', fontWeight: 800, fontSize: isMobileCard ? '11px' : '13px', padding: '1px 6px', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0,
+                                color: row.pct >= 0 ? '#00ff00' : '#ff0000',
+                                background: row.pct >= 0 ? 'rgba(0,255,0,0.1)' : 'rgba(255,0,0,0.1)',
+                              }}>
+                                {row.pct >= 0 ? '▲' : '▼'} {Math.abs(row.pct).toFixed(0)}%
+                              </span>
+                            )}
+                          </div>
+                        ))}
+
+                        {/* Built trade summary - directly under STOP, inside the ladder column (not
+                        a sibling of the whole ladder+gauge row, which is taller due to the gauge) */}
+                        {builtTrade && (
+                          <div style={{
+                            display: 'flex', alignItems: 'center', gap: isMobileCard ? '8px' : '10px', flexWrap: isMobileCard ? 'wrap' : 'nowrap',
+                            padding: isMobileCard ? '8px 12px' : '10px 16px', borderRadius: '6px',
+                            background: '#050505',
+                            border: '1px solid rgba(255,255,255,0.1)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 4px 14px rgba(0,0,0,0.6)',
+                          }}>
+                            <span style={{ color: isCall ? '#22c55e' : '#ff1a1a', fontSize: isMobileCard ? '14px' : '16px', fontWeight: 900, textShadow: 'none', opacity: 1, whiteSpace: 'nowrap' }}>
+                              ${builtTrade.strike.toFixed(2)} {trade.type.toUpperCase()}
+                            </span>
+                            <span style={{ color: '#ffffff', fontSize: isMobileCard ? '13px' : '15px', fontWeight: 700, whiteSpace: 'nowrap' }}>{formatDate(builtTrade.expiryDate)}</span>
+                            <span style={{ color: '#ffffff', fontSize: isMobileCard ? '15px' : '17px', fontWeight: 900, whiteSpace: 'nowrap' }}>
+                              {formatCompactDollars(builtTrade.premium * 100)}
+                            </span>
+                            <div style={{
+                              marginLeft: isMobileCard ? 0 : 'auto', display: 'flex', alignItems: 'center', gap: '8px',
+                              padding: '5px 10px', borderRadius: '5px',
+                              background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.15)', flexShrink: 0,
+                            }}>
+                              {typeof builtTrade.ivPct === 'number' && (
+                                <span style={{ color: '#c084fc', fontSize: '13px', fontWeight: 900, textShadow: 'none', opacity: 1, whiteSpace: 'nowrap' }}>
+                                  IV: {builtTrade.ivPct.toFixed(0)}%
+                                </span>
+                              )}
+                              {typeof builtTrade.bePct === 'number' && (
+                                <span style={{ color: '#00ff66', fontSize: '13px', fontWeight: 900, textShadow: 'none', opacity: 1, whiteSpace: 'nowrap' }}>
+                                  BE: {builtTrade.bePct.toFixed(1)}%
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         )}
                       </div>
-                    ))}
 
-                    {/* Built trade summary - directly under STOP, inside the ladder column (not
-                        a sibling of the whole ladder+gauge row, which is taller due to the gauge) */}
-                    {builtTrade && (
-                      <div style={{
-                        display: 'flex', alignItems: 'center', gap: isMobileCard ? '8px' : '10px', flexWrap: isMobileCard ? 'wrap' : 'nowrap',
-                        padding: isMobileCard ? '8px 12px' : '10px 16px', borderRadius: '6px',
-                        background: '#050505',
-                        border: '1px solid rgba(255,255,255,0.1)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 4px 14px rgba(0,0,0,0.6)',
-                      }}>
-                        <span style={{ color: isCall ? '#22c55e' : '#ff1a1a', fontSize: isMobileCard ? '14px' : '16px', fontWeight: 900, textShadow: 'none', opacity: 1, whiteSpace: 'nowrap' }}>
-                          ${builtTrade.strike.toFixed(2)} {trade.type.toUpperCase()}
-                        </span>
-                        <span style={{ color: '#ffffff', fontSize: isMobileCard ? '13px' : '15px', fontWeight: 700, whiteSpace: 'nowrap' }}>{formatDate(builtTrade.expiryDate)}</span>
-                        <span style={{ color: '#ffffff', fontSize: isMobileCard ? '15px' : '17px', fontWeight: 900, whiteSpace: 'nowrap' }}>
-                          {formatCompactDollars(builtTrade.premium * 100)}
-                        </span>
+                      {/* Sentiment cluster: unified panel (bull/bear call/put split rows + trend
+                      gauge in one card) plus the FlowBias (Spam/Structural/Gamma) rows next to it. */}
+                      {isMobileCard ? (
                         <div style={{
-                          marginLeft: isMobileCard ? 0 : 'auto', display: 'flex', alignItems: 'center', gap: '8px',
-                          padding: '5px 10px', borderRadius: '5px',
-                          background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.15)', flexShrink: 0,
+                          display: 'flex', flexDirection: 'column', width: '100%',
+                          gap: '8px', marginTop: 0, opacity: histLoading ? 0.4 : 1,
                         }}>
-                          {typeof builtTrade.ivPct === 'number' && (
-                            <span style={{ color: '#c084fc', fontSize: '13px', fontWeight: 900, textShadow: 'none', opacity: 1, whiteSpace: 'nowrap' }}>
-                              IV: {builtTrade.ivPct.toFixed(0)}%
-                            </span>
-                          )}
-                          {typeof builtTrade.bePct === 'number' && (
-                            <span style={{ color: '#00ff66', fontSize: '13px', fontWeight: 900, textShadow: 'none', opacity: 1, whiteSpace: 'nowrap' }}>
-                              BE: {builtTrade.bePct.toFixed(1)}%
-                            </span>
-                          )}
+                          <FlowSentimentPanel breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
+                            {[
+                              { text: spamLabel, active: spamLabel !== 'No Spammer Detected' && spamLabel !== 'Loading…', title: 'Flow Spammer', trades: spamResult.trades, uniqueness: spamUniqueness, gammaMeta: undefined, structuralMeta: undefined },
+                              { text: structuralLabel, active: structuralLabel !== 'No Structural Formation Detected', title: 'Structural Support/Resistance', trades: structuralResult.trades, uniqueness: undefined, gammaMeta: undefined, structuralMeta: { callLevel: structuralResult.level, putLevel: structuralResult.putLevel } },
+                              { text: gammaLabel, active: gammaLabel === 'Gamma Squeeze in Formation', title: 'Gamma Attack', trades: gammaResult.trades, uniqueness: undefined, gammaMeta: { ticker: trade.underlying_ticker, strike: trade.strike, spot, sigma, expiry: trade.expiry }, structuralMeta: undefined },
+                            ].map((row, i) => (
+                              <div
+                                key={i}
+                                onClick={() => row.active && row.trades.length > 0 && setFlowBiasDetail({ title: `${trade.underlying_ticker} - ${row.title}`, trades: row.trades, uniqueness: row.uniqueness, gammaMeta: row.gammaMeta, structuralMeta: row.structuralMeta })}
+                                style={{
+                                  display: 'flex', alignItems: 'center', padding: '4px 8px', borderRadius: '4px',
+                                  background: '#000000',
+                                  border: `1px solid ${row.active ? 'rgba(255,140,0,0.35)' : 'rgba(255,255,255,0.08)'}`,
+                                  cursor: row.active && row.trades.length > 0 ? 'pointer' : 'default',
+                                }}
+                              >
+                                <span style={{ color: row.active ? '#ff8c00' : '#ffffff', fontSize: '11px', fontWeight: 800, whiteSpace: 'normal' }}>
+                                  {row.text}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'row', gap: '14px', alignItems: 'flex-start', flexWrap: 'nowrap', marginTop: '0', opacity: histLoading ? 0.4 : 1 }}>
+                          <FlowSentimentPanel breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '228px' }}>
+                            {[
+                              { text: spamLabel, active: spamLabel !== 'No Spammer Detected' && spamLabel !== 'Loading…', title: 'Flow Spammer', trades: spamResult.trades, uniqueness: spamUniqueness, gammaMeta: undefined, structuralMeta: undefined },
+                              { text: structuralLabel, active: structuralLabel !== 'No Structural Formation Detected', title: 'Structural Support/Resistance', trades: structuralResult.trades, uniqueness: undefined, gammaMeta: undefined, structuralMeta: { callLevel: structuralResult.level, putLevel: structuralResult.putLevel } },
+                              { text: gammaLabel, active: gammaLabel === 'Gamma Squeeze in Formation', title: 'Gamma Attack', trades: gammaResult.trades, uniqueness: undefined, gammaMeta: { ticker: trade.underlying_ticker, strike: trade.strike, spot, sigma, expiry: trade.expiry }, structuralMeta: undefined },
+                            ].map((row, i) => (
+                              <div
+                                key={i}
+                                onClick={() => row.active && row.trades.length > 0 && setFlowBiasDetail({ title: `${trade.underlying_ticker} - ${row.title}`, trades: row.trades, uniqueness: row.uniqueness, gammaMeta: row.gammaMeta, structuralMeta: row.structuralMeta })}
+                                style={{
+                                  display: 'flex', alignItems: 'center', padding: '4px 8px', borderRadius: '4px',
+                                  background: '#000000',
+                                  border: `1px solid ${row.active ? 'rgba(255,140,0,0.35)' : 'rgba(255,255,255,0.08)'}`,
+                                  cursor: row.active && row.trades.length > 0 ? 'pointer' : 'default',
+                                }}
+                              >
+                                <span style={{ color: row.active ? '#ff8c00' : '#ffffff', fontSize: '11px', fontWeight: 800, whiteSpace: 'normal' }}>
+                                  {row.text}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Chart */}
+                    {openCharts.has(flowId) && (
+                      <div style={{ padding: '0 16px 16px' }}>
+                        <TradeCardChart
+                          symbol={trade.underlying_ticker}
+                          target1Price={typeof ladderTarget1 === 'number' ? ladderTarget1 : undefined}
+                          target2Price={typeof ladderTarget2 === 'number' ? ladderTarget2 : undefined}
+                          stopPrice={typeof ladderStopStock === 'number' ? ladderStopStock : undefined}
+                          gammaLevel={gammaLabel === 'Gamma Squeeze in Formation' ? target1 : null}
+                          structuralLevel={structuralResult.level}
+                          structuralIsResistance={structuralResult.isResistance}
+                          spamLevel={spamLabel !== 'No Spammer Detected' && spamLabel !== 'Loading…' ? spamResult.level : null}
+                        />
                       </div>
                     )}
-                  </div>
-
-                  {/* Sentiment cluster: unified panel (bull/bear call/put split rows + trend
-                      gauge in one card) plus the FlowBias (Spam/Structural/Gamma) rows next to it. */}
-                  {isMobileCard ? (
-                    <div style={{
-                      display: 'flex', flexDirection: 'column', width: '100%',
-                      gap: '8px', marginTop: 0, opacity: histLoading ? 0.4 : 1,
-                    }}>
-                      <FlowSentimentPanel breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
-                        {[
-                          { text: spamLabel, active: spamLabel !== 'No Spammer Detected' && spamLabel !== 'Loading…', title: 'Flow Spammer', trades: spamResult.trades },
-                          { text: structuralLabel, active: structuralLabel !== 'No Structural Formation Detected', title: 'Structural Support/Resistance', trades: structuralResult.trades },
-                          { text: gammaLabel, active: gammaLabel === 'Gamma Squeeze in Formation', title: 'Gamma Attack', trades: gammaResult.trades },
-                        ].map((row, i) => (
-                          <div
-                            key={i}
-                            onClick={() => row.active && row.trades.length > 0 && setFlowBiasDetail({ title: `${trade.underlying_ticker} - ${row.title}`, trades: row.trades })}
-                            style={{
-                              display: 'flex', alignItems: 'center', padding: '4px 8px', borderRadius: '4px',
-                              background: '#000000',
-                              border: `1px solid ${row.active ? 'rgba(255,140,0,0.35)' : 'rgba(255,255,255,0.08)'}`,
-                              cursor: row.active && row.trades.length > 0 ? 'pointer' : 'default',
-                            }}
-                          >
-                            <span style={{ color: row.active ? '#ff8c00' : '#ffffff', fontSize: '11px', fontWeight: 800, whiteSpace: 'normal' }}>
-                              {row.text}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'row', gap: '14px', alignItems: 'flex-start', flexWrap: 'nowrap', marginTop: '0', opacity: histLoading ? 0.4 : 1 }}>
-                      <FlowSentimentPanel breakdown={effectiveBreakdown} isMobileCard={isMobileCard} />
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '228px' }}>
-                        {[
-                          { text: spamLabel, active: spamLabel !== 'No Spammer Detected' && spamLabel !== 'Loading…', title: 'Flow Spammer', trades: spamResult.trades },
-                          { text: structuralLabel, active: structuralLabel !== 'No Structural Formation Detected', title: 'Structural Support/Resistance', trades: structuralResult.trades },
-                          { text: gammaLabel, active: gammaLabel === 'Gamma Squeeze in Formation', title: 'Gamma Attack', trades: gammaResult.trades },
-                        ].map((row, i) => (
-                          <div
-                            key={i}
-                            onClick={() => row.active && row.trades.length > 0 && setFlowBiasDetail({ title: `${trade.underlying_ticker} - ${row.title}`, trades: row.trades })}
-                            style={{
-                              display: 'flex', alignItems: 'center', padding: '4px 8px', borderRadius: '4px',
-                              background: '#000000',
-                              border: `1px solid ${row.active ? 'rgba(255,140,0,0.35)' : 'rgba(255,255,255,0.08)'}`,
-                              cursor: row.active && row.trades.length > 0 ? 'pointer' : 'default',
-                            }}
-                          >
-                            <span style={{ color: row.active ? '#ff8c00' : '#ffffff', fontSize: '11px', fontWeight: 800, whiteSpace: 'normal' }}>
-                              {row.text}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Chart */}
-                {openCharts.has(flowId) && (
-                  <div style={{ padding: '0 16px 16px' }}>
-                    <TradeCardChart
-                      symbol={trade.underlying_ticker}
-                      target1Price={typeof ladderTarget1 === 'number' ? ladderTarget1 : undefined}
-                      target2Price={typeof ladderTarget2 === 'number' ? ladderTarget2 : undefined}
-                      stopPrice={typeof ladderStopStock === 'number' ? ladderStopStock : undefined}
-                      gammaLevel={gammaLabel === 'Gamma Squeeze in Formation' ? target1 : null}
-                      structuralLevel={structuralResult.level}
-                      structuralIsResistance={structuralResult.isResistance}
-                      spamLevel={spamLabel !== 'No Spammer Detected' && spamLabel !== 'Loading…' ? spamResult.level : null}
-                    />
-                  </div>
+                  </>
                 )}
 
               </div>
@@ -1706,6 +2992,28 @@ function SweepSenseTab({
                 ×
               </span>
             </div>
+            {flowBiasDetail.structuralMeta && (
+              <StructuralWallChart
+                trades={flowBiasDetail.trades}
+                callLevel={flowBiasDetail.structuralMeta.callLevel}
+                putLevel={flowBiasDetail.structuralMeta.putLevel}
+              />
+            )}
+            {flowBiasDetail.gammaMeta && (
+              <GammaDayCard
+                ticker={flowBiasDetail.gammaMeta.ticker}
+                trades={flowBiasDetail.trades}
+                strike={flowBiasDetail.gammaMeta.strike}
+                spot={flowBiasDetail.gammaMeta.spot}
+                sigma={flowBiasDetail.gammaMeta.sigma}
+                cardExpiry={flowBiasDetail.gammaMeta.expiry}
+              />
+            )}
+            {flowBiasDetail.uniqueness && (
+              <div style={{ padding: '18px 20px', borderBottom: '1px solid #262626', background: '#050505', display: 'flex', justifyContent: 'center' }}>
+                <SpamUniquenessGauge score={flowBiasDetail.uniqueness} />
+              </div>
+            )}
             <div style={{ overflowY: 'auto', overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
@@ -1838,6 +3146,7 @@ export default function FlowTrackingPanel({
       dte?: number
       spot?: number
       breakdown: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }
+      otherLegs?: OptionsFlowData[]
     }>
     stats: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }
     bubbles: Array<{ ticker: string; premium: number; bias: 'bull' | 'bear'; biasStrength: number }>
@@ -1846,6 +3155,7 @@ export default function FlowTrackingPanel({
   sweepSenseProgress?: { current: number; total: number } | null
 } = {}) {
   const [panelTab, setPanelTab] = useState<'TRACKER' | 'SWEEPSENSE'>(initialTab ?? 'SWEEPSENSE')
+  const [sweepSenseSummaryMode, setSweepSenseSummaryMode] = useState(false)
   useEffect(() => {
     if (initialTab) setPanelTab(initialTab)
   }, [initialTab])
@@ -2252,6 +3562,32 @@ export default function FlowTrackingPanel({
               )}
             </button>
           )}
+          {(!isMobile || panelTab === 'SWEEPSENSE') && panelTab === 'SWEEPSENSE' && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setSweepSenseSummaryMode((v) => !v) }}
+              style={{
+                flex: isMobile ? undefined : '0 0 auto',
+                padding: isMobile ? '6px 8px' : '12px 14px', cursor: 'pointer',
+                border: sweepSenseSummaryMode ? '1px solid rgba(255,133,0,0.5)' : '1px solid rgba(255,255,255,0.10)',
+                borderRadius: isMobile ? '6px' : '10px',
+                background: sweepSenseSummaryMode
+                  ? 'linear-gradient(180deg, rgba(255,133,0,0.22) 0%, rgba(255,133,0,0.06) 100%)'
+                  : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)',
+                backdropFilter: 'blur(10px)',
+                WebkitBackdropFilter: 'blur(10px)',
+                boxShadow: sweepSenseSummaryMode
+                  ? '0 0 10px rgba(255,133,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15)'
+                  : 'inset 0 1px 0 rgba(255,255,255,0.10)',
+                color: sweepSenseSummaryMode ? '#ff8500' : '#ffffff',
+                fontWeight: 900, fontSize: isMobile ? '9px' : '14px', letterSpacing: '0.5px', textTransform: 'uppercase',
+                transition: 'all 0.18s ease',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', whiteSpace: 'nowrap',
+              }}
+            >
+              <QuickFilterIcon icon="summary" color={sweepSenseSummaryMode ? '#ff8500' : '#ffffff'} />
+              Summary
+            </button>
+          )}
           {(!isMobile || panelTab === 'TRACKER') && (
             <button
               onClick={() => setPanelTab('TRACKER')}
@@ -2306,7 +3642,7 @@ export default function FlowTrackingPanel({
 
       {/* ── SWEEPSENSE TAB ── */}
       {panelTab === 'SWEEPSENSE' && (
-        <SweepSenseTab data={sweepSenseData ?? null} isScanning={sweepSenseScanning} progress={sweepSenseProgress} />
+        <SweepSenseTab data={sweepSenseData ?? null} isScanning={sweepSenseScanning} progress={sweepSenseProgress} summaryMode={sweepSenseSummaryMode} />
       )}
 
       {/* ── TRACKING TAB ── */}

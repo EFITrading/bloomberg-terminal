@@ -79,3 +79,14 @@ model FlowBatch {
   @@index([tradingDate])
   @@index([batchTime])
 }
+
+model SweepSenseSnapshot {
+  id          String   @id @default(cuid())
+  tradingDate String   @unique // the trading day this final scan is FOR
+  data        String   // gzip base64 of the final { trades, stats, bubbles } SweepSense result
+  tradeCount  Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tradingDate])
+}

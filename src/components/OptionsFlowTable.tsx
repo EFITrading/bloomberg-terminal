@@ -3,7 +3,7 @@
 import { TbStar, TbStarFilled } from 'react-icons/tb'
 import * as XLSX from 'xlsx'
 
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -2807,36 +2807,83 @@ Stock Reaction: ${scores.stockReaction}/15`
   // Large-cap tickers that require elevated premium thresholds
   const LARGE_CAP_PREMIUM_TICKERS = new Set(['AAPL', 'NVDA', 'TSLA', 'MSFT', 'GOOGL', 'GOOG', 'LLY', 'META', 'SPCX', 'TSM', 'AVGO', 'MU', 'AMD', 'AMZN'])
 
+  // "Mag 7" mega-caps require an even higher per-leg premium for MULTI-LEG combo qualification.
+  const MAG7_TICKERS = new Set(['AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'NVDA', 'META', 'TSLA'])
+
+  // MULTI-LEG trades are excluded from SweepSense by default, EXCEPT when they form a genuine
+  // paired risk-reversal combo: same ticker + same expiry + printed within the same ~100ms
+  // window (the collector groups multi-leg legs into 100ms buckets - see collector.mjs - so
+  // sibling legs of the SAME combo rarely share the exact same millisecond trade_timestamp),
+  // with a CALL leg filled A/AA (buy) paired against a PUT leg filled B/BB (sell), OR a CALL leg
+  // filled B/BB paired against a PUT leg filled A/AA - i.e. the two legs must be opposite option
+  // types (one call, one put) with opposite buy/sell fill styles. Each leg must be $300K+
+  // premium, except Mag 7 tickers (AAPL/MSFT/GOOGL/AMZN/NVDA/META/TSLA) which require $1M+ per leg.
+  // Exactly 2 legs only - 3-leg and 4-leg combos in the same window are filtered out entirely.
+  // multiLegPartnerLegs maps each qualifying leg -> the OTHER qualifying leg(s) in its group,
+  // so the SweepSense card can display both sides of the combo instead of just the one leg
+  // that happened to become the card's primary `trade`.
+  const { multiLegPairedTrades, multiLegPartnerLegs } = useMemo(() => {
+    const qualified = new Set<OptionsFlowData>()
+    const partners = new Map<OptionsFlowData, OptionsFlowData[]>()
+    if (!data || data.length === 0) return { multiLegPairedTrades: qualified, multiLegPartnerLegs: partners }
+    const groups = new Map<string, OptionsFlowData[]>()
+    for (const t of data) {
+      if ((t.classification || t.trade_type || '').toUpperCase() !== 'MULTI-LEG') continue
+      const bucket = Math.floor(new Date(t.trade_timestamp).getTime() / 100) * 100
+      const key = `${t.underlying_ticker}-${t.expiry}-${bucket}`
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)!.push(t)
+    }
+    groups.forEach((legs) => {
+      // Only genuine 2-leg combos qualify - 3 or 4 legs printed in the same window are filtered out.
+      if (legs.length !== 2) return
+      const bigLegs = legs.filter((l) => l.total_premium >= (MAG7_TICKERS.has(l.underlying_ticker.toUpperCase()) ? 1000000 : 300000))
+      if (bigLegs.length !== 2) return
+      const isBuy = (l: OptionsFlowData) => l.fill_style === 'A' || l.fill_style === 'AA'
+      const isSell = (l: OptionsFlowData) => l.fill_style === 'B' || l.fill_style === 'BB'
+      const callBuyPutSell = bigLegs.some((l) => l.type === 'call' && isBuy(l)) && bigLegs.some((l) => l.type === 'put' && isSell(l))
+      const callSellPutBuy = bigLegs.some((l) => l.type === 'call' && isSell(l)) && bigLegs.some((l) => l.type === 'put' && isBuy(l))
+      if (callBuyPutSell || callSellPutBuy) {
+        bigLegs.forEach((l) => {
+          qualified.add(l)
+          partners.set(l, bigLegs.filter((other) => other !== l))
+        })
+      }
+    })
+    return { multiLegPairedTrades: qualified, multiLegPartnerLegs: partners }
+  }, [data])
+
   // Long-Term criteria: 35-120 DTE, OTM, indexes excluded
   // Large-caps: $900K+ premium; others: $300K-$1.3M
   const meetsLongTermCriteria = (trade: OptionsFlowData): boolean => {
     if (INDEX_ONLY_EXCLUSIONS.has(trade.underlying_ticker.toUpperCase())) return false
     if (trade.days_to_expiry < 35 || trade.days_to_expiry > 120) return false
+    const tradeType = (trade.classification || trade.trade_type || '').toUpperCase()
+    // MULTI-LEG: qualifies only when it's part of a paired buy+sell combo (see multiLegPairedTrades)
+    if (tradeType === 'MULTI-LEG') return multiLegPairedTrades.has(trade)
     const isLargeCap = LARGE_CAP_PREMIUM_TICKERS.has(trade.underlying_ticker.toUpperCase())
     const minPremium = isLargeCap ? 900000 : 300000
     const maxPremium = isLargeCap ? Infinity : 1300000
     if (trade.total_premium < minPremium || trade.total_premium > maxPremium) return false
     if (trade.trade_size < 450) return false
     if (!trade.moneyness || trade.moneyness !== 'OTM') return false
-    // MULTI-LEG trades are excluded from SweepSense entirely
-    const tradeType = (trade.classification || trade.trade_type || '').toUpperCase()
-    if (tradeType === 'MULTI-LEG') return false
     return true
   }
 
-  // Short-Term criteria: 0-28 DTE, OTM, SWEEP/BLOCK only (MULTI-LEG excluded), ETFs+indexes excluded
+  // Short-Term criteria: 0-28 DTE, OTM, SWEEP/BLOCK only, ETFs+indexes excluded
   // Large-caps: $450K+ premium; others: $99K-$340K
   const meetsShortTermCriteria = (trade: OptionsFlowData): boolean => {
     if (ETF_INDEX_EXCLUSIONS.has(trade.underlying_ticker.toUpperCase())) return false
     if (trade.days_to_expiry < 0 || trade.days_to_expiry > 28) return false
+    const tradeType = (trade.classification || trade.trade_type || '').toUpperCase()
+    // MULTI-LEG: qualifies only when it's part of a paired buy+sell combo (see multiLegPairedTrades)
+    if (tradeType === 'MULTI-LEG') return multiLegPairedTrades.has(trade)
     const isLargeCap = LARGE_CAP_PREMIUM_TICKERS.has(trade.underlying_ticker.toUpperCase())
     const minPremium = isLargeCap ? 450000 : 99000
     const maxPremium = isLargeCap ? Infinity : 340000
     if (trade.total_premium < minPremium || trade.total_premium > maxPremium) return false
     if (trade.trade_size < 650) return false
     if (!trade.moneyness || trade.moneyness !== 'OTM') return false
-    const tradeType = (trade.classification || trade.trade_type || '').toUpperCase()
-    // MULTI-LEG trades are excluded from SweepSense entirely
     if (!['SWEEP', 'BLOCK'].includes(tradeType)) return false
     return true
   }
@@ -4507,6 +4554,9 @@ Stock Reaction: ${scores.stockReaction}/15`
         // above was built from - lets FlowTrackingPanel cluster the structural support/resistance
         // strike level without a separate DB round-trip.
         liveRawTrades: tickerRawTrades.get(trade.underlying_ticker) || [],
+        // Other leg(s) of a qualifying MULTI-LEG combo (empty for normal SWEEP/BLOCK trades) -
+        // lets the card display both sides of the paired buy/sell combo.
+        otherLegs: multiLegPartnerLegs.get(trade) || [],
       }
     })
 
@@ -4553,6 +4603,94 @@ Stock Reaction: ${scores.stockReaction}/15`
     }, 900)
     return () => clearTimeout(timer)
   }, [sweepSenseData, modeLoadingStep, sweepSenseSettling])
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SweepSense end-of-day DB persistence — save the FINAL settled scan once,
+  // ~1 minute after market close, and load it back during afterhours instead
+  // of re-scanning live. Mirrors the existing Flow save/load-afterhours
+  // pattern, but scoped to just the SweepSense result (never saved mid-day).
+  // ─────────────────────────────────────────────────────────────────────────
+  const getSweepSenseTradingDate = useCallback((): string => {
+    const nowPST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+    const hour = nowPST.getHours()
+    const minute = nowPST.getMinutes()
+    const target = new Date(nowPST)
+    if (hour < 6 || (hour === 6 && minute < 30)) target.setDate(target.getDate() - 1)
+    const toDs = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    while (target.getDay() === 0 || target.getDay() === 6) target.setDate(target.getDate() - 1)
+    return toDs(target)
+  }, [])
+
+  const isSweepSenseMarketOpen = useCallback((): boolean => {
+    const pst = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+    const dow = pst.getDay()
+    const h = pst.getHours(), m = pst.getMinutes()
+    return dow >= 1 && dow <= 5 && (h > 6 || (h === 6 && m >= 30)) && h < 13
+  }, [])
+
+  // 1 minute (or more) past the 1:00 PM PST close, but still same afternoon (guards against
+  // firing on a stale tab left open overnight - re-checked every poll).
+  const isJustAfterSweepSenseClose = useCallback((): boolean => {
+    const pst = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+    const dow = pst.getDay()
+    const h = pst.getHours(), m = pst.getMinutes()
+    // 1:01 PM - 1:59 PM PST (i.e. just past the 1:00 PM PST / 4:00 PM ET close)
+    return dow >= 1 && dow <= 5 && h === 13 && m >= 1
+  }, [])
+
+  const sweepSenseSnapshotSavedRef = useRef(false)
+  const sweepSenseSnapshotLoadedRef = useRef(false)
+
+  // Save the final settled SweepSense result exactly ONCE per day, right after close.
+  useEffect(() => {
+    if (!sweepSenseDataStable || sweepSenseDataStable.trades.length === 0) return
+    if (sweepSenseSnapshotSavedRef.current) return
+    if (isSweepSenseMarketOpen()) return
+    if (!isJustAfterSweepSenseClose()) return
+
+    const tradingDate = getSweepSenseTradingDate()
+    const storageKey = `sweepsense_snapshot_saved_${tradingDate}`
+    if (typeof window !== 'undefined' && window.localStorage.getItem(storageKey)) {
+      sweepSenseSnapshotSavedRef.current = true
+      return
+    }
+
+    sweepSenseSnapshotSavedRef.current = true
+    fetch('/api/sweepsense/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tradingDate, data: sweepSenseDataStable }),
+    })
+      .then((res) => res.json())
+      .then((result) => {
+        if (result?.success && typeof window !== 'undefined') {
+          window.localStorage.setItem(storageKey, '1')
+        }
+      })
+      .catch((err) => console.error('[SweepSense] Failed to save end-of-day snapshot:', err))
+  }, [sweepSenseDataStable, isSweepSenseMarketOpen, isJustAfterSweepSenseClose, getSweepSenseTradingDate])
+
+  // During afterhours, load the saved snapshot from the DB instead of relying on whatever
+  // was live-computed in this session - covers a fresh page load after close, or before
+  // this session's own scan has finished settling.
+  useEffect(() => {
+    if (sweepSenseSnapshotLoadedRef.current) return
+    if (isSweepSenseMarketOpen()) return
+
+    sweepSenseSnapshotLoadedRef.current = true
+    const tradingDate = getSweepSenseTradingDate()
+    fetch(`/api/sweepsense/load?date=${tradingDate}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((result) => {
+        if (result?.data) {
+          sweepSenseAutoRanRef.current = true // skip the live auto-scan entirely
+          setSweepSenseBgActive(true)
+          setSweepSenseDataStable(result.data)
+        }
+      })
+      .catch(() => { /* fall back to live scan on failure */ })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // When the mobile SweepSense filter button is active, restrict the visible table to ONLY
   // the trades that qualified for the SweepSense tab - everything else is hidden. Turning the
