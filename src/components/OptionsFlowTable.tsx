@@ -467,13 +467,18 @@ function computePlanEntry(params: {
   if (primary.aligned) {
     const primaryLabel = primary.label
     const hasStretchTarget = secondary !== null && secondary.aligned
-    if (primary.dist / spot <= near) {
+    // Pivot is never a "trade toward as a target" level — it's traded on a confirmed break
+    // (or as a reaction/entry point once price actually gets there), regardless of how far
+    // away it currently sits. Only magnet supports the "aligned + far away" target phrasing;
+    // magnet still uses the near-distance breakout wording when price is already close to it.
+    const useBreakWording = primaryLabel === 'pivot' || primary.dist / spot <= near
+    if (useBreakWording) {
       if (spot < primary.value) {
         sigCode = `Break Above $${primary.value.toFixed(2)}`; sigColor = '#00e5ff'
-        planText = `Price sits just below the ${primaryLabel} ($${primary.value.toFixed(2)}). Wait for a clean break above ${primary.value.toFixed(2)} with momentum/volume; on confirmed break expect continuation higher — enter on breakout.`
+        planText = `Wait for price to reach and break above the ${primaryLabel} at $${primary.value.toFixed(2)} with momentum/volume; on confirmed break expect continuation higher — enter on breakout.`
       } else {
         sigCode = `Break Below $${primary.value.toFixed(2)}`; sigColor = '#ff0000'
-        planText = `Price sits just above the ${primaryLabel} ($${primary.value.toFixed(2)}). Wait for a clean break below ${primary.value.toFixed(2)} with momentum/volume; on confirmed breakdown expect continuation lower — enter on breakdown.`
+        planText = `Wait for price to reach and break below the ${primaryLabel} at $${primary.value.toFixed(2)} with momentum/volume; on confirmed breakdown expect continuation lower — enter on breakdown.`
       }
     } else {
       sigCode = `Target $${primary.value.toFixed(2)}`; sigColor = '#ff8500'
@@ -1017,18 +1022,6 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [expandedSweepSenseRowId, setExpandedSweepSenseRowId] = useState<string | null>(null)
   // Grade column sort mode - toggles between long_first (cyan) and short_first (yellow)
   const [gradeColumnMode, setGradeColumnMode] = useState<'long_first' | 'short_first'>('long_first')
-
-  const [selectedNotableTrade, setSelectedNotableTrade] = useState<OptionsFlowData | null>(null)
-  const [notableAnalysisLoading, setNotableAnalysisLoading] = useState<boolean>(false)
-  const [notableAnalysisData, setNotableAnalysisData] = useState<{
-    t1: number
-    t2: number
-    spotAtEntry: number
-    pctToT1: number
-    pctToT2: number
-    goldenZones: Array<{ strike: number; oi: number; expiry: string }>
-    purpleZones: Array<{ strike: number; oi: number; expiry: string }>
-  } | null>(null)
 
   // Cache: key = `${ticker}_${expiry}` ? { golden: strike|null, purple: strike|null }
   const getDealerZone = useDealerZonesStore((s) => s.getZone)
@@ -3067,186 +3060,6 @@ Stock Reaction: ${scores.stockReaction}/15`
     return true
   }
 
-  // Notable Trade Analysis - targets + dealer zones
-  const openNotableAnalysis = async (trade: OptionsFlowData) => {
-    setSelectedNotableTrade(trade)
-    setNotableAnalysisLoading(true)
-    setNotableAnalysisData(null)
-
-    try {
-      const isCall = trade.type === 'call'
-      const spotPrice = trade.spot_price
-      const expiryForApi = trade.expiry
-
-      // -- Fetch real option chain for IV + tower detection --
-      const response = await fetch(
-        `/api/options-chain?ticker=${trade.underlying_ticker}&expiration=${expiryForApi}`
-      )
-      const result = await response.json()
-
-      let t1 = 0
-      let t2 = 0
-      let pctToT1 = 0
-      let pctToT2 = 0
-      let goldenZone: { strike: number; oi: number } | null = null
-      let purpleZone: { strike: number; oi: number } | null = null
-
-      if (result.success && result.data) {
-        const expData = result.data[expiryForApi] || (Object.values(result.data)[0] as any)
-
-        if (expData) {
-          // -- EXACT same Black-Scholes as DealerOpenInterestChart --
-          const normalCDF = (x: number): number => {
-            const a1 = 0.254829592,
-              a2 = -0.284496736,
-              a3 = 1.421413741,
-              a4 = -1.453152027,
-              a5 = 1.061405429,
-              p = 0.3275911
-            const sign = x >= 0 ? 1 : -1
-            x = Math.abs(x)
-            const t = 1.0 / (1.0 + p * x)
-            const y = 1.0 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp(-x * x)
-            return 0.5 * (1 + sign * y)
-          }
-          const calculateD2 = (S: number, K: number, r: number, sigma: number, T: number) => {
-            const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T))
-            return d1 - sigma * Math.sqrt(T)
-          }
-          const chanceOfProfitSellCall = (
-            S: number,
-            K: number,
-            r: number,
-            sigma: number,
-            T: number
-          ) => (1 - normalCDF(calculateD2(S, K, r, sigma, T))) * 100
-          const chanceOfProfitSellPut = (
-            S: number,
-            K: number,
-            r: number,
-            sigma: number,
-            T: number
-          ) => normalCDF(calculateD2(S, K, r, sigma, T)) * 100
-          const findStrikeForProbability = (
-            S: number,
-            r: number,
-            sigma: number,
-            T: number,
-            targetProb: number,
-            isCallDir: boolean
-          ): number => {
-            if (isCallDir) {
-              let low = S + 0.01,
-                high = S * 1.5
-              for (let i = 0; i < 50; i++) {
-                const mid = (low + high) / 2
-                const prob = chanceOfProfitSellCall(S, mid, r, sigma, T)
-                if (Math.abs(prob - targetProb) < 0.1) return mid
-                if (prob < targetProb) low = mid
-                else high = mid
-              }
-              return (low + high) / 2
-            } else {
-              let low = S * 0.5,
-                high = S - 0.01
-              for (let i = 0; i < 50; i++) {
-                const mid = (low + high) / 2
-                const prob = chanceOfProfitSellPut(S, mid, r, sigma, T)
-                if (Math.abs(prob - targetProb) < 0.1) return mid
-                if (prob < targetProb) high = mid
-                else low = mid
-              }
-              return (low + high) / 2
-            }
-          }
-
-          // Compute avgIV from ATM options (same as DealerOpenInterestChart)
-          const allContracts: Array<{ strike: number; iv: number }> = []
-          Object.entries(expData.calls || {}).forEach(([s, d]: [string, any]) => {
-            if (d.implied_volatility > 0)
-              allContracts.push({ strike: parseFloat(s), iv: d.implied_volatility })
-          })
-          Object.entries(expData.puts || {}).forEach(([s, d]: [string, any]) => {
-            if (d.implied_volatility > 0)
-              allContracts.push({ strike: parseFloat(s), iv: d.implied_volatility })
-          })
-          const atmContracts = allContracts.filter(
-            (c) => Math.abs((c.strike - spotPrice) / spotPrice) <= 0.05
-          )
-          const avgIV =
-            atmContracts.length > 0
-              ? atmContracts.reduce((sum, c) => sum + c.iv, 0) / atmContracts.length
-              : trade.implied_volatility || 0.3
-
-          const daysToExpiry = trade.days_to_expiry > 0 ? trade.days_to_expiry : 1
-          const T = daysToExpiry / 365
-          const r = 0.0387
-
-          // For CALL: T1 = call80 (80% range upper), T2 = call90
-          // For PUT:  T1 = put80 (80% range lower),  T2 = put90
-          t1 = +findStrikeForProbability(spotPrice, r, avgIV, T, 80, isCall).toFixed(2)
-          t2 = +findStrikeForProbability(spotPrice, r, avgIV, T, 90, isCall).toFixed(2)
-          pctToT1 = +((Math.abs(t1 - spotPrice) / spotPrice) * 100).toFixed(2)
-          pctToT2 = +((Math.abs(t2 - spotPrice) / spotPrice) * 100).toFixed(2)
-
-          // -- EXACT tower detection from DealerOpenInterestChart --
-          // Build OI arrays sorted by strike
-          const callEntries = Object.entries(expData.calls || {})
-            .map(([s, d]: [string, any]) => ({ strike: parseFloat(s), oi: d.open_interest || 0 }))
-            .filter((e) => e.oi > 0)
-            .sort((a, b) => a.strike - b.strike)
-
-          const putEntries = Object.entries(expData.puts || {})
-            .map(([s, d]: [string, any]) => ({ strike: parseFloat(s), oi: d.open_interest || 0 }))
-            .filter((e) => e.oi > 0)
-            .sort((a, b) => a.strike - b.strike)
-
-          // Detect top tower: highest OI center where left+right neighbors are 25-65% of center
-          const detectTopTower = (entries: Array<{ strike: number; oi: number }>) => {
-            const sorted = [...entries].sort((a, b) => b.oi - a.oi)
-            for (const candidate of sorted) {
-              const idx = entries.findIndex((e) => e.strike === candidate.strike)
-              if (idx <= 0 || idx >= entries.length - 1) continue
-              const leftPct = (entries[idx - 1].oi / candidate.oi) * 100
-              const rightPct = (entries[idx + 1].oi / candidate.oi) * 100
-              if (leftPct >= 25 && leftPct <= 65 && rightPct >= 25 && rightPct <= 65) {
-                return candidate
-              }
-            }
-            // fallback: highest OI strike
-            return sorted[0] || null
-          }
-
-          goldenZone = detectTopTower(callEntries)
-          purpleZone = detectTopTower(putEntries)
-        }
-      }
-
-      setNotableAnalysisData({
-        t1,
-        t2,
-        spotAtEntry: spotPrice,
-        pctToT1,
-        pctToT2,
-        goldenZones: goldenZone ? [{ ...goldenZone, expiry: expiryForApi }] : [],
-        purpleZones: purpleZone ? [{ ...purpleZone, expiry: expiryForApi }] : [],
-      })
-    } catch (err) {
-      console.error('[NOTABLE] Analysis failed', err)
-      setNotableAnalysisData({
-        t1: 0,
-        t2: 0,
-        spotAtEntry: trade.spot_price,
-        pctToT1: 0,
-        pctToT2: 0,
-        goldenZones: [],
-        purpleZones: [],
-      })
-    } finally {
-      setNotableAnalysisLoading(false)
-    }
-  }
-
   // Flow Tracking (Watchlist) Functions
 
   const generateFlowId = (trade: OptionsFlowData): string => {
@@ -4589,6 +4402,153 @@ Stock Reaction: ${scores.stockReaction}/15`
 
     return { trades, stats, bubbles }
   }, [sweepSenseBgActive, sweepSenseQualifyingData, dealerZoneCache, currentPrices, data, expiryIVCache, longTermIVCache, currentOptionPrices, sweepSenseHistoricalQualifiedAt, dailyCandleCache])
+
+  // A+ Tracker tab data - SAME exact card shape/logic as sweepSenseData above (magnet/pivot,
+  // computePlanEntry, breakdown gauge, conviction score), just built from the user's explicitly
+  // tracked flows (trackedFlows) instead of the SweepSense candidate pool, and with NO grade gate
+  // - every tracked flow always shows up here regardless of grade, it just displays whatever real
+  // conviction score/grade it currently has (instead of requiring A-/A/A+ to appear at all).
+  const trackedFlowsSweepData = useMemo(() => {
+    if (trackedFlows.length === 0) {
+      return { trades: [], stats: { buyCallsPct: 0, bearCallsPct: 0, buyPutsPct: 0, bearPutsPct: 0 }, bubbles: [] }
+    }
+
+    const tickerPrem = new Map<string, { buyCalls: number; bearCalls: number; buyPuts: number; bearPuts: number }>()
+    const tickerRawTrades = new Map<string, Array<{ strike: number; type: string; fillStyle: string; expiry: string; trade_timestamp: string; tradeSize: number; premium: number; totalPremium: number; spot: number; tradeType: string }>>()
+    for (const t of data) {
+      const fs = (t.fill_style || '') as string
+      const isCall = t.type === 'call'
+      let isBullish = isCall
+      if (fs === 'B' || fs === 'BB') isBullish = !isBullish
+      const isBearish = !isBullish
+      const entry = tickerPrem.get(t.underlying_ticker) || { buyCalls: 0, bearCalls: 0, buyPuts: 0, bearPuts: 0 }
+      if (isCall && isBullish) entry.buyCalls += t.total_premium
+      else if (isCall && isBearish) entry.bearCalls += t.total_premium
+      else if (!isCall && isBullish) entry.buyPuts += t.total_premium
+      else if (!isCall && isBearish) entry.bearPuts += t.total_premium
+      tickerPrem.set(t.underlying_ticker, entry)
+
+      const rawList = tickerRawTrades.get(t.underlying_ticker) || []
+      rawList.push({
+        strike: t.strike,
+        type: t.type,
+        fillStyle: fs,
+        expiry: t.expiry,
+        trade_timestamp: t.trade_timestamp,
+        tradeSize: t.trade_size,
+        premium: t.premium_per_contract,
+        totalPremium: t.total_premium,
+        spot: t.spot_price,
+        tradeType: t.classification || t.trade_type,
+      })
+      tickerRawTrades.set(t.underlying_ticker, rawList)
+    }
+
+    const trades = trackedFlows.map((trade) => {
+      const useLeap = meetsLongTermCriteria(trade)
+      const g = useLeap ? calculateLeapGrade(trade, comboTradeMap) : calculatePositioningGrade(trade, comboTradeMap)
+      const convictionScore = Math.round(useLeap ? (g.score / 75) * 100 : g.score)
+
+      const zone = dealerZoneCache[trade.underlying_ticker]
+      const rawMagnet = zone?.golden ?? null
+      const rawPivot = zone?.purple ?? null
+      const cur = currentPrices[trade.underlying_ticker]
+      const pctMove = trade.spot_price && cur ? ((cur - trade.spot_price) / trade.spot_price) * 100 : null
+
+      const useLongTerm = meetsLongTermCriteria(trade)
+      const sigma = useLongTerm
+        ? (longTermIVCache[trade.underlying_ticker]?.iv ?? 0)
+        : (expiryIVCache[`${trade.underlying_ticker}_${trade.expiry}`] ?? 0)
+      const dte = useLongTerm
+        ? (longTermIVCache[trade.underlying_ticker]?.dte ?? 45)
+        : (trade.days_to_expiry > 0 ? trade.days_to_expiry : 1)
+      const spot = cur ?? trade.spot_price
+
+      const candles = dailyCandleCache[trade.underlying_ticker]
+      const band90Call = sigma > 0 ? bsStrikeForProb(spot, sigma, dte, 90, true) : null
+      const band90Put = sigma > 0 ? bsStrikeForProb(spot, sigma, dte, 90, false) : null
+      const band90Lo = band90Call !== null && band90Put !== null ? Math.min(band90Call, band90Put) : undefined
+      const band90Hi = band90Call !== null && band90Put !== null ? Math.max(band90Call, band90Put) : undefined
+      const magnet = refinePivotalLevel(candles, rawMagnet, spot, band90Lo, band90Hi) ?? rawMagnet
+      const pivot = refinePivotalLevel(candles, rawPivot, spot, band90Lo, band90Hi) ?? rawPivot
+
+      const { sigCode, sigColor, planText } = computePlanEntry({
+        spot, magnet, pivot, sigma, dte, type: trade.type, fillStyle: trade.fill_style, grade: g.grade, gradeColor: g.color,
+      })
+
+      const bd = tickerPrem.get(trade.underlying_ticker) || { buyCalls: 0, bearCalls: 0, buyPuts: 0, bearPuts: 0 }
+      const bdTotal = bd.buyCalls + bd.bearCalls + bd.buyPuts + bd.bearPuts || 1
+
+      const optExpiry = trade.expiry.replace(/-/g, '').slice(2)
+      const optStrikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
+      const optType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
+      const optTicker = `O:${normalizeTickerForOptions(trade.underlying_ticker)}${optExpiry}${optType}${optStrikeFormatted}`
+      const currentOptionPrice = currentOptionPrices[optTicker] ?? null
+      let contractPctChange: number | null = null
+      if (currentOptionPrice && currentOptionPrice > 0 && trade.premium_per_contract > 0) {
+        const rawPct = ((currentOptionPrice - trade.premium_per_contract) / trade.premium_per_contract) * 100
+        const isSoldToOpen = trade.fill_style === 'B' || trade.fill_style === 'BB'
+        contractPctChange = isSoldToOpen ? -rawPct : rawPct
+      }
+
+      return {
+        trade,
+        grade: g.grade,
+        gradeColor: g.color,
+        convictionScore,
+        pctMove,
+        currentStockPrice: cur ?? null,
+        currentOptionPrice,
+        contractPctChange,
+        magnet,
+        pivot,
+        sigCode,
+        sigColor,
+        planText,
+        // Tracked flows aren't gated by a grade-qualification moment - use when the user
+        // actually tracked it (falls back to the raw flow timestamp, then now()).
+        qualifiedAt: (trade as any).addedAt ?? new Date(trade.trade_timestamp).getTime() ?? Date.now(),
+        sigma,
+        dte,
+        spot,
+        breakdown: {
+          buyCallsPct: (bd.buyCalls / bdTotal) * 100,
+          bearCallsPct: (bd.bearCalls / bdTotal) * 100,
+          buyPutsPct: (bd.buyPuts / bdTotal) * 100,
+          bearPutsPct: (bd.bearPuts / bdTotal) * 100,
+        },
+        liveRawTrades: tickerRawTrades.get(trade.underlying_ticker) || [],
+        otherLegs: multiLegPartnerLegs.get(trade) || [],
+      }
+    })
+
+    let buyCalls = 0, bearCalls = 0, buyPuts = 0, bearPuts = 0
+    const bubbles = trades.map(({ trade }) => {
+      const bd = tickerPrem.get(trade.underlying_ticker) || { buyCalls: 0, bearCalls: 0, buyPuts: 0, bearPuts: 0 }
+      buyCalls += bd.buyCalls
+      bearCalls += bd.bearCalls
+      buyPuts += bd.buyPuts
+      bearPuts += bd.bearPuts
+      const premium = bd.buyCalls + bd.bearCalls + bd.buyPuts + bd.bearPuts
+      const bullPrem = bd.buyCalls + bd.bearPuts
+      const bearPrem = bd.bearCalls + bd.buyPuts
+      return {
+        ticker: trade.underlying_ticker,
+        premium,
+        bias: bullPrem >= bearPrem ? ('bull' as const) : ('bear' as const),
+        biasStrength: Math.abs(bullPrem - bearPrem) / (premium || 1),
+      }
+    })
+    const statsTotal = buyCalls + bearCalls + buyPuts + bearPuts || 1
+    const stats = {
+      buyCallsPct: (buyCalls / statsTotal) * 100,
+      bearCallsPct: (bearCalls / statsTotal) * 100,
+      buyPutsPct: (buyPuts / statsTotal) * 100,
+      bearPutsPct: (bearPuts / statsTotal) * 100,
+    }
+
+    return { trades, stats, bubbles }
+  }, [trackedFlows, comboTradeMap, dealerZoneCache, currentPrices, data, expiryIVCache, longTermIVCache, currentOptionPrices, dailyCandleCache])
 
   // The tab must only ever show ONE final, settled result - never the churn of intermediate
   // in-progress computations (which flicker as grades/prices/dealer-zones trickle in). We
@@ -6448,9 +6408,10 @@ Stock Reaction: ${scores.stockReaction}/15`
             marginTop: 0,
           }}
         >
-          {/* Mobile Layout - 2 Rows */}
+          {/* Mobile Layout - 2 Rows (also forced on for the sidebar Flow panel, which is
+              always narrow regardless of actual viewport width) */}
 
-          <div className="md:hidden px-4 py-0">
+          <div className={isSidebarPanel ? 'px-4 py-0' : 'md:hidden px-4 py-0'}>
             {/* Row 1: Search, Highlights, Clear, Filter, Track */}
 
             <div className="flex items-center gap-px">
@@ -6821,10 +6782,11 @@ Stock Reaction: ${scores.stockReaction}/15`
             </div>
           </div>
 
-          {/* Desktop Layout - Single Row */}
+          {/* Desktop Layout - Single Row (hidden entirely for the sidebar Flow panel, which
+              always uses the mobile-style row above instead) */}
 
           <div
-            className="hidden md:block"
+            className={isSidebarPanel ? 'hidden' : 'hidden md:block'}
             style={{
               width: '100%',
 
@@ -8325,27 +8287,12 @@ Stock Reaction: ${scores.stockReaction}/15`
                   })()}
 
                   {paginatedData.map((trade, index) => {
-                    const isEfiHighlight = shortTermActive && meetsShortTermCriteria(trade)
-
-                    // Short-term pick: meets criteria + grade A-, A, or A+
-                    const isShortTermPick = shortTermActive && meetsShortTermCriteria(trade) && (() => {
-                      if (optionPricesFetching || Object.keys(currentOptionPrices).length === 0) return false
-                      const g = getCachedGrade(trade)
-                      return ['A-', 'A', 'A+'].includes(g.grade)
-                    })()
-
-                    // Long-term pick: meets criteria + grade A-, A, or A+
-                    const isLongTermPick = longTermActive && meetsLongTermCriteria(trade) && (() => {
-                      if (optionPricesFetching || Object.keys(currentOptionPrices).length === 0) return false
-                      const g = getCachedGrade(trade)
-                      return ['A-', 'A', 'A+'].includes(g.grade)
-                    })()
-
-                    const isAnyNotable = isShortTermPick || isLongTermPick
-
-                    // Row color helper
-                    const notableColor = (fallback?: string) =>
-                      isLongTermPick ? '#00e5ff' : isShortTermPick ? '#FFD700' : (fallback || undefined)
+                    // EFI Highlights / notable-pick coloring removed - shortTermActive/longTermActive
+                    // (the toggles that used to drive it) are never turned on anywhere in the app,
+                    // so this was permanently dead/unreachable code. Kept as constants so the many
+                    // downstream style ternaries below don't need to be touched individually.
+                    const isAnyNotable = false
+                    const notableColor = (fallback?: string) => fallback || undefined
 
                     // SweepSense filter (mobile "SweepSense" button) - color the ticker cyan
                     // (long-term/LEAP) or yellow (short-term) same as the SweepSense tab, and
@@ -8357,8 +8304,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                     const sweepSenseTickerColor = sweepSenseEntry ? (sweepSenseIsLongTerm ? '#00e5ff' : '#ffd400') : null
 
                     // Keep legacy alias so downstream row JSX that references isNotablePick still works
-                    const isNotablePick = isShortTermPick
-                    const isLeapNotable = isLongTermPick
+                    const isNotablePick = false
+                    const isLeapNotable = false
 
                     // Determine if short-term highlight is bullish or bearish
 
@@ -8366,7 +8313,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
                     let isBearishEfi = false
 
-                    if (isEfiHighlight) {
+                    if (isAnyNotable) {
                       const fillStyle = (trade as any).fill_style || ''
 
                       const isCall = trade.type.toLowerCase() === 'call'
@@ -8399,7 +8346,6 @@ Stock Reaction: ${scores.stockReaction}/15`
                               : '',
                           ].join(' ')}
                           onClick={() => {
-                            if (isAnyNotable) openNotableAnalysis(trade)
                             if (sweepSenseEntry) {
                               const id = generateFlowId(trade)
                               setExpandedSweepSenseRowId((prev) => (prev === id ? null : id))
@@ -10467,6 +10413,8 @@ Stock Reaction: ${scores.stockReaction}/15`
             sweepSenseData={sweepSenseDataStable}
             sweepSenseScanning={modeLoadingStep !== null || sweepSenseSettling || (sweepSenseBgActive && !sweepSenseDataStable)}
             sweepSenseProgress={gradingProgress}
+            trackedFlowsSweepData={trackedFlowsSweepData}
+            onRemoveTrackedFlow={removeFromFlowTracking}
           />
         </div>
       )}
@@ -10501,6 +10449,8 @@ Stock Reaction: ${scores.stockReaction}/15`
             sweepSenseData={sweepSenseDataStable}
             sweepSenseScanning={modeLoadingStep !== null || sweepSenseSettling || (sweepSenseBgActive && !sweepSenseDataStable)}
             sweepSenseProgress={gradingProgress}
+            trackedFlowsSweepData={trackedFlowsSweepData}
+            onRemoveTrackedFlow={removeFromFlowTracking}
           />
         </div>
       )}
@@ -10604,6 +10554,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                 sweepSenseData={sweepSenseDataStable}
                 sweepSenseScanning={modeLoadingStep !== null || sweepSenseSettling || (sweepSenseBgActive && !sweepSenseDataStable)}
                 sweepSenseProgress={gradingProgress}
+                trackedFlowsSweepData={trackedFlowsSweepData}
+                onRemoveTrackedFlow={removeFromFlowTracking}
               />
             </div>
           </div>

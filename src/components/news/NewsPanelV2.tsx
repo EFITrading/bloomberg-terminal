@@ -2404,7 +2404,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                       )
                       return (
                         <div
-                          key={ticker}
+                          key={`${ticker}-${isPre ? 'pre' : 'post'}-${xOffset}`}
                           style={{ position: 'absolute', bottom: `${mToFrac(pct) * 100}%`, left: '50%', transform: `translateX(calc(-50% + ${xOffset}px))`, display: 'flex', flexDirection: labelSide === 'above' ? 'column-reverse' : labelSide === 'left' ? 'row-reverse' : labelSide === 'right' ? 'row' : 'column', alignItems: 'center', gap: isHoriz ? 4 : 2 }}
                         >
                           {logoEl}
@@ -2540,7 +2540,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                           )
                           return (
                             <div
-                              key={ticker}
+                              key={`${ticker}-${isPre ? 'pre' : 'post'}-${leftPct}`}
                               style={{ position: 'absolute', bottom: `${toFrac(placedPct) * 100}%`, left: `${leftPct}%`, transform: 'translateX(-50%) translateY(50%)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}
                             >
                               {logoEl}
@@ -2567,13 +2567,13 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
       if (weeklySubView === 'notable') {
         const NM_SIZE = Math.round(144 * 0.9) // 130px
         const NM_SIZE_HYPED = Math.round(NM_SIZE * 0.9) // 10% smaller when glow ring present
-        const renderNotableLogo = (ev: CalendarEvent, isPre: boolean) => {
+        const renderNotableLogo = (ev: CalendarEvent, isPre: boolean, idx: number) => {
           const ticker = extractTicker(ev.event)
           if (!ticker) return null
           const isHyped = HYPED_TICKERS.has(ticker)
           const logoSize = isHyped ? NM_SIZE_HYPED : NM_SIZE
           return (
-            <div key={ticker} className="flex flex-col items-center gap-1 cursor-default">
+            <div key={`${ticker}-${ev.date}-${ev.time}-${isPre ? 'pre' : 'post'}-${idx}`} className="flex flex-col items-center gap-1 cursor-default">
               <div style={isHyped
                 ? { borderRadius: 18, padding: 3, border: '2px solid #f97316', boxShadow: '0 0 12px rgba(249,115,22,0.7), 0 0 24px rgba(249,115,22,0.25)' }
                 : { borderRadius: 18, padding: 2, border: '2px solid transparent' }
@@ -2604,7 +2604,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                     <div style={{ padding: '16px', textAlign: 'center', color: 'rgba(255,255,255,0.2)', fontSize: 13, fontWeight: 700 }}>—</div>
                   ) : (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14, padding: '14px' }}>
-                      {nmPre.map((ev) => renderNotableLogo(ev, true))}
+                      {nmPre.map((ev, idx) => renderNotableLogo(ev, true, idx))}
                     </div>
                   )}
                 </div>
@@ -2618,7 +2618,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                     <div style={{ padding: '16px', textAlign: 'center', color: 'rgba(255,255,255,0.2)', fontSize: 13, fontWeight: 700 }}>—</div>
                   ) : (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14, padding: '14px' }}>
-                      {nmPost.map((ev) => renderNotableLogo(ev, false))}
+                      {nmPost.map((ev, idx) => renderNotableLogo(ev, false, idx))}
                     </div>
                   )}
                 </div>
@@ -2658,14 +2658,14 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                           <div className="grid grid-cols-2 gap-3 p-2 content-start" style={{ borderRight: '2px solid #d4af37', background: 'linear-gradient(180deg, rgba(15,5,0,0.25) 0%, rgba(5,1,0,0.18) 40%, rgba(2,0,0,0.22) 100%)' }}>
                             {preEvs.length === 0
                               ? <span className="text-xs text-white/15 font-bold italic mt-1 col-span-2">—</span>
-                              : preEvs.map((ev) => renderNotableLogo(ev, true))
+                              : preEvs.map((ev, idx) => renderNotableLogo(ev, true, idx))
                             }
                           </div>
                           {/* After-Hours — 2 columns, round 144px logos */}
                           <div className="grid grid-cols-2 gap-3 p-2 content-start" style={{ background: 'linear-gradient(180deg, rgba(2,8,20,0.25) 0%, rgba(0,3,8,0.18) 40%, rgba(0,1,4,0.22) 100%)' }}>
                             {postEvs.length === 0
                               ? <span className="text-xs text-white/15 font-bold italic mt-1 col-span-2">—</span>
-                              : postEvs.map((ev) => renderNotableLogo(ev, false))
+                              : postEvs.map((ev, idx) => renderNotableLogo(ev, false, idx))
                             }
                           </div>
                         </div>

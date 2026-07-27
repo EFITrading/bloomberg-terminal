@@ -1599,7 +1599,9 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const ETF_SET = new Set(['SPY', 'QQQ', 'IWM', 'DIA', 'SMH', 'VXX', 'UVXY', 'EFA', 'EEM', 'VTI', 'IEFA', 'AGG', 'LQD', 'HYG', 'XLF', 'XLE', 'XLK', 'XLV', 'XLI', 'XLU', 'XLP', 'XLY', 'XLB', 'XLRE', 'XLC', 'GLD', 'SLV', 'TLT', 'IEF', 'SHY', 'VTEB', 'VXUS', 'BND', 'BNDX', 'SQQQ', 'TQQQ', 'SPXL', 'SPXS', 'SPYG', 'SPYV', 'IVV', 'VOO', 'VEA', 'VWO', 'ARKK', 'ARKG', 'ARKW', 'ARKF', 'ARKQ', 'RSP', 'MDY', 'IJH', 'IJR', 'IWF', 'IWD', 'IWB', 'IWO', 'IWN', 'XBI', 'IBB', 'SOXX', 'HACK', 'BOTZ', 'ROBO', 'SKYY', 'CLOU', 'GDX', 'GDXJ', 'SIL', 'SILJ', 'IAU', 'SGOL', 'USO', 'UNG', 'PDBC', 'DBO', 'DBB', 'DBC', 'TBT', 'TMF', 'TMV', 'TLH', 'IEI', 'GOVT', 'FXI', 'KWEB', 'MCHI', 'ASHR', 'VGK', 'EWJ', 'EWZ', 'EWC', 'EWG', 'EWU', 'EURL', 'HEDJ', 'DBJP', 'DBEF'])
 
   // Fast analysis built directly from already-classified saved trades "-- no re-processing
-  const buildFastAnalysisFromSaved = (trades: OptionsFlowData[], displayLabel?: string): AlgoFlowAnalysis | null => {
+  const buildFastAnalysisFromSaved = (allTrades: OptionsFlowData[], displayLabel?: string): AlgoFlowAnalysis | null => {
+    if (!allTrades.length) return null
+    const trades = allTrades.filter((t) => String(t.trade_type) !== 'MULTI-LEG')
     if (!trades.length) return null
     const ticker = displayLabel ?? trades[0].underlying_ticker
     const currentPrice = displayLabel ? 0 : (trades[0].spot_price ?? 0)
@@ -1679,7 +1681,11 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       cumPutsPlus += b.putsPlus
       cumPutsMinus += b.putsMinus
       const d = new Date(time)
-      const timeLabel = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Los_Angeles' })
+      // Always prefix the date (M/D/YYYY) - not just the time - so multi-day scans (30MIN/1H/1D
+      // views) can tell each day's points apart on the X-axis instead of every day repeating the
+      // same bare "12:55 PM" label. The chart's tickFormatter strips/shortens this date prefix
+      // back down for single-day scans, so this is a no-op visually for 1-day scans.
+      const timeLabel = `${d.toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' })} ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Los_Angeles' })}`
       const bullish = cumCallsPlus + cumPutsMinus
       const bearish = cumCallsMinus + cumPutsPlus
       return {
@@ -2110,7 +2116,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     const priceMin = priceLows.length ? Math.min(...priceLows) * 0.95 : 'auto'
     const priceMax = priceHighs.length ? Math.max(...priceHighs) * 1.05 : 'auto'
     return { visibleData, xInterval, priceMin, priceMax }
-  }, [analysis?.chartData, displayAnalysis?.trades, expiryFilter, excludeMag7, excludeEtf, excludeIndex, chartDisplayDays, scanTimeframe, brushIndices])
+  }, [analysis?.chartData, displayAnalysis?.trades, expiryFilter, excludeMag7, excludeEtf, excludeIndex, chartDisplayDays, scanTimeframe, brushIndices, timeInterval])
 
   // Keep analysisRef in sync so wheel handler never needs to call setAnalysis
   useEffect(() => { analysisRef.current = analysis }, [analysis])
@@ -2587,10 +2593,12 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   }
 
   const formatCurrency = (value: number) => {
-    if (value >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(2)}B`
-    if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`
-    if (value >= 1_000) return `$${(value / 1_000).toFixed(0)}K`
-    return `$${value.toFixed(0)}`
+    const sign = value < 0 ? '-' : ''
+    const abs = Math.abs(value)
+    if (abs >= 1_000_000_000) return `${sign}$${(abs / 1_000_000_000).toFixed(2)}B`
+    if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`
+    if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(0)}K`
+    return `${sign}$${abs.toFixed(0)}`
   }
 
   const fmtCompact = (n: number) => {
@@ -3863,12 +3871,20 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                         {!isMobile && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, letterSpacing: '0.12em', padding: '1px 6px', borderRadius: 2, marginRight: 10, background: displayAnalysis?.flowTrend === 'BULLISH' ? 'rgba(16,185,129,0.15)' : displayAnalysis?.flowTrend === 'BEARISH' ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.15)', color: displayAnalysis?.flowTrend === 'BULLISH' ? '#10b981' : displayAnalysis?.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308', border: `1px solid ${displayAnalysis?.flowTrend === 'BULLISH' ? '#10b981' : displayAnalysis?.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308'}` }}>{displayAnalysis?.flowTrend}</span>}
                         {/* Interval buttons "-- context-aware based on scan days */}
                         {(() => {
+                          // Always offer the full ladder of relevant timeframes for the scanned
+                          // range (instead of hiding 1D on 2-5 day scans, or hiding 30MIN/1H on
+                          // 6+ day scans) - all of these are pure index-downsamples of the same
+                          // underlying 5-min chartData covering the ENTIRE scanned range, so
+                          // switching between them never loses/hides any of the previously
+                          // scanned days, it just changes the resolution of the same full range.
+                          // Only 1MIN is restricted to single-day scans (per-minute resolution
+                          // across multiple days would be too dense/expensive to be useful).
                           const sd = getScanDays(scanTimeframe)
                           const opts = sd === 1
-                            ? [{ v: '1min' as const, label: '1MIN' }, { v: '5min' as const, label: '5MIN' }]
+                            ? [{ v: '1min' as const, label: '1MIN' }, { v: '5min' as const, label: '5MIN' }, { v: '30min' as const, label: '30MIN' }, { v: '1hour' as const, label: '1H' }]
                             : sd <= 5
-                              ? [{ v: '30min' as const, label: '30MIN' }, { v: '1hour' as const, label: '1H' }]
-                              : [{ v: '1day' as const, label: '1D' }]
+                              ? [{ v: '30min' as const, label: '30MIN' }, { v: '1hour' as const, label: '1H' }, { v: '1day' as const, label: '1D' }]
+                              : [{ v: '1hour' as const, label: '1H' }, { v: '1day' as const, label: '1D' }]
                           return opts.map(({ v, label }) => (
                             <button key={v} onClick={() => { setTimeInterval(v); setBrushIndices(null) }}
                               style={{ padding: '2px 8px', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, letterSpacing: '0.1em', border: `1px solid ${timeInterval === v ? 'rgba(255,133,0,0.6)' : 'rgba(255,255,255,0.15)'}`, background: 'linear-gradient(180deg,#1a1a1a 0%,#0a0a0a 50%,#050505 100%)', boxShadow: timeInterval === v ? 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6)' : 'inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.5)', color: timeInterval === v ? '#ff8500' : '#ffffff', cursor: 'pointer' }}>{label}</button>
@@ -3976,9 +3992,9 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                           >
                             {(() => {
                               const sd = getScanDays(scanTimeframe)
-                              if (sd === 1) return <><option value="1min">1MIN</option><option value="5min">5MIN</option></>
-                              if (sd <= 5) return <><option value="30min">30MIN</option><option value="1hour">1HR</option></>
-                              return <option value="1day">1DAY</option>
+                              if (sd === 1) return <><option value="1min">1MIN</option><option value="5min">5MIN</option><option value="30min">30MIN</option><option value="1hour">1HR</option></>
+                              if (sd <= 5) return <><option value="30min">30MIN</option><option value="1hour">1HR</option><option value="1day">1DAY</option></>
+                              return <><option value="1hour">1HR</option><option value="1day">1DAY</option></>
                             })()}
                           </select>
                           {/* Line mode dropdown */}

@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
-const TABS = ['PROFILE', 'MEMBERSHIP', 'SOCIAL', 'SETTINGS'] as const;
+const TABS = ['PROFILE', 'SOCIAL', 'SETTINGS'] as const;
 type Tab = typeof TABS[number];
 
 const FRIENDS = [
@@ -257,7 +257,6 @@ export default function AccountPage() {
   const [msgInput, setMsgInput] = useState('');
   const [messages, setMessages] = useState(DEMO_MSGS);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
-  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [selectedAvatar, setSelectedAvatar] = useState<AvatarStyleId>(() =>
     (typeof window !== 'undefined' ? (localStorage.getItem('efi_avatar_style') as AvatarStyleId | null) : null) ?? 'classic'
@@ -414,7 +413,6 @@ export default function AccountPage() {
           {TABS.map(t => (
             <button key={t} style={activeTabStyle(t)} onClick={() => setActiveTab(t)}>
               {t === 'PROFILE' && '⬡ '}
-              {t === 'MEMBERSHIP' && '◈ '}
               {t === 'SOCIAL' && '◉ '}
               {t === 'SETTINGS' && '⚙ '}
               {t}
@@ -544,128 +542,11 @@ export default function AccountPage() {
               <div style={{ ...S.card, padding: '30px' }}>
                 <div style={S.sectionHead}>QUICK ACTIONS</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '13px' }}>
-                  <button className="acct-btn-ghost" style={{ padding: '14px', fontSize: '13px' }} onClick={() => setActiveTab('MEMBERSHIP')}>◈ MANAGE PLAN</button>
                   <button className="acct-btn-ghost" style={{ padding: '14px', fontSize: '13px' }} onClick={() => setActiveTab('SOCIAL')}>◉ FRIENDS &amp; DMs</button>
                   <button className="acct-btn-ghost" style={{ padding: '14px', fontSize: '13px' }} onClick={() => setActiveTab('SETTINGS')}>⚙ SETTINGS</button>
                   <button className="acct-btn-ghost" style={{ padding: '14px', fontSize: '13px' }} onClick={() => router.push('/options-flow')}>← TERMINAL</button>
                 </div>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* ════════════════════════════════ MEMBERSHIP TAB ════════════════════════════════ */}
-        {activeTab === 'MEMBERSHIP' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-
-            {/* Current Plan */}
-            <div style={{ ...S.card, padding: '35px', gridColumn: '1 / -1', position: 'relative', overflow: 'hidden' }}>
-              <div style={{ position: 'absolute', top: 0, left: '10%', right: '10%', height: '2px', background: 'linear-gradient(90deg,transparent,#FF6600,transparent)' }} />
-              <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at top right, rgba(255,102,0,0.06), transparent 60%)', pointerEvents: 'none' }} />
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
-                <div>
-                  <div style={{ fontSize: '13px', color: 'rgba(255,102,0,0.9)', letterSpacing: '0.2em', fontWeight: 700, marginBottom: '8px' }}>CURRENT PLAN</div>
-                  <div style={{ fontSize: '35px', fontWeight: 900, color: '#fff', fontFamily: "'Inter',sans-serif", letterSpacing: '-0.02em' }}>
-                    PREMIUM <span style={{ color: '#FF6600' }}>ACCESS</span>
-                  </div>
-                  <div style={{ fontSize: '15px', color: '#fff', marginTop: '5px', letterSpacing: '0.08em' }}>Full terminal access · All analytics · Priority data feeds</div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '13px', color: '#fff', letterSpacing: '0.15em', marginBottom: '5px' }}>NEXT BILLING</div>
-                  <div style={{ fontSize: '28px', fontWeight: 800, color: '#fff', fontFamily: "'Inter',sans-serif" }}>Jun 19, 2026</div>
-                  <div style={{ fontSize: '25px', fontWeight: 900, color: '#FF6600', fontFamily: "'Inter',sans-serif", marginTop: '3px' }}>$49.99<span style={{ fontSize: '15px', color: '#fff', fontWeight: 400 }}>/mo</span></div>
-                </div>
-              </div>
-              <div style={{ marginTop: '20px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {['Full Terminal Access', 'Real-Time Options Flow', 'GEX Analysis', 'AI Trade Scoring', 'RRG Screener', 'VIX/SPX Suite', 'Dealer Workbench', 'Priority Support'].map(f => (
-                  <span key={f} style={{ padding: '5px 13px', background: 'rgba(255,102,0,0.08)', border: '1px solid rgba(255,102,0,0.2)', fontSize: '13px', color: '#fff', letterSpacing: '0.1em' }}>{f}</span>
-                ))}
-              </div>
-            </div>
-
-            {/* Payment Method */}
-            <div style={{ ...S.card, padding: '30px' }}>
-              <div style={S.sectionHead}>PAYMENT METHOD</div>
-              <div style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', marginBottom: '14px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <div style={{ width: 40, height: 26, background: 'linear-gradient(135deg,#1a1a3e,#2d2d6e)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '3px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '8px', color: '#fff', fontWeight: 800, letterSpacing: '0.05em' }}>VISA</div>
-                  <div>
-                    <div style={{ fontSize: '16px', color: '#fff', fontWeight: 600 }}>•••• •••• •••• 4242</div>
-                    <div style={{ fontSize: '13px', color: '#fff', marginTop: '3px' }}>Expires 12/27</div>
-                  </div>
-                  <div style={{ marginLeft: 'auto', fontSize: '10px', color: '#22c55e', fontWeight: 700, letterSpacing: '0.1em' }}>● DEFAULT</div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <button className="acct-btn-primary" style={{ padding: '14px 20px', fontSize: '14px' }}>UPDATE PAYMENT METHOD</button>
-                <button className="acct-btn-ghost" style={{ padding: '14px 20px', fontSize: '14px' }}>+ ADD NEW CARD</button>
-              </div>
-            </div>
-
-            {/* Billing History */}
-            <div style={{ ...S.card, padding: '30px' }}>
-              <div style={S.sectionHead}>BILLING HISTORY</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
-                {[
-                  { date: 'May 19, 2026', amount: '$49.99', status: 'PAID' },
-                  { date: 'Apr 19, 2026', amount: '$49.99', status: 'PAID' },
-                  { date: 'Mar 19, 2026', amount: '$49.99', status: 'PAID' },
-                  { date: 'Feb 19, 2026', amount: '$49.99', status: 'PAID' },
-                ].map(({ date, amount, status }) => (
-                  <div key={date} className="acct-row-hover" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 8px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                    <span style={{ fontSize: '15px', color: '#fff' }}>{date}</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <span style={{ fontSize: '13px', color: '#fff', fontWeight: 700 }}>{amount}</span>
-                      <span style={{ fontSize: '9px', padding: '2px 7px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', color: '#22c55e', fontWeight: 700, letterSpacing: '0.1em' }}>{status}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <button className="acct-btn-ghost" style={{ width: '100%', padding: '11px', fontSize: '13px', marginTop: '15px' }}>VIEW ALL INVOICES</button>
-            </div>
-
-            {/* Plan Options */}
-            <div style={{ ...S.card, padding: '30px' }}>
-              <div style={S.sectionHead}>CHANGE PLAN</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {[
-                  { name: 'BASIC', price: '$19.99', desc: 'Core terminal access', current: false },
-                  { name: 'PREMIUM', price: '$49.99', desc: 'Full suite + AI tools', current: true },
-                  { name: 'INSTITUTIONAL', price: '$199.99', desc: 'Multi-seat + API access', current: false },
-                ].map(({ name, price, desc, current }) => (
-                  <div key={name} style={{ padding: '14px 16px', background: current ? 'rgba(255,102,0,0.06)' : 'rgba(255,255,255,0.02)', border: `1px solid ${current ? 'rgba(255,102,0,0.35)' : 'rgba(255,255,255,0.07)'}`, cursor: current ? 'default' : 'pointer', transition: 'all 0.15s', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div>
-                      <div style={{ fontSize: '15px', fontWeight: 700, color: current ? '#FF6600' : '#fff', letterSpacing: '0.1em' }}>{name}</div>
-                      <div style={{ fontSize: '13px', color: '#fff', marginTop: '3px' }}>{desc}</div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '18px', fontWeight: 800, color: current ? '#FF6600' : '#fff' }}>{price}<span style={{ fontSize: '11px', fontWeight: 400, color: '#fff' }}>/mo</span></div>
-                      {current ? <div style={{ fontSize: '11px', color: '#FF6600', letterSpacing: '0.15em', fontWeight: 700, marginTop: '3px' }}>CURRENT</div> : <div style={{ fontSize: '11px', color: '#fff', letterSpacing: '0.1em', marginTop: '3px' }}>SELECT</div>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Danger zone */}
-            <div style={{ ...S.card, padding: '30px', border: '1px solid rgba(220,38,38,0.2)' }}>
-              <div style={{ ...S.sectionHead, color: '#f87171', borderBottomColor: 'rgba(239,68,68,0.1)' }}>DANGER ZONE</div>
-              {!showCancelConfirm ? (
-                <div>
-                  <p style={{ fontSize: '15px', color: '#fff', marginBottom: '20px', lineHeight: 1.6 }}>Cancelling your subscription will remove access to all terminal features at the end of your current billing period.</p>
-                  <button className="acct-btn-danger" style={{ width: '100%', padding: '15px', fontSize: '14px' }} onClick={() => setShowCancelConfirm(true)}>
-                    CANCEL SUBSCRIPTION
-                  </button>
-                </div>
-              ) : (
-                <div style={{ padding: '20px', background: 'rgba(220,38,38,0.06)', border: '1px solid rgba(220,38,38,0.2)' }}>
-                  <p style={{ fontSize: '15px', color: '#fca5a5', marginBottom: '18px', fontWeight: 600 }}>Are you sure? You will lose access on Jun 19, 2026.</p>
-                  <div style={{ display: 'flex', gap: '10px' }}>
-                    <button className="acct-btn-danger" style={{ flex: 1, padding: '13px', fontSize: '14px' }}>CONFIRM CANCEL</button>
-                    <button className="acct-btn-ghost" style={{ flex: 1, padding: '13px', fontSize: '14px' }} onClick={() => setShowCancelConfirm(false)}>KEEP PLAN</button>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         )}

@@ -422,7 +422,7 @@ async function runSweepSenseAutoSave() {
     } catch (err) {
         console.error('[SweepSense] Auto-save trigger failed:', err.message)
     } finally {
-        if (browser) await browser.close().catch(() => {})
+        if (browser) await browser.close().catch(() => { })
     }
 }
 

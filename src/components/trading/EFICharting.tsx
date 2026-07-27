@@ -61,7 +61,6 @@ import { useMarketRegime } from '../../contexts/MarketRegimeContext'
 import { createApiUrl } from '../../lib/apiConfig'
 import ChartDataCache from '../../lib/chartDataCache'
 import ElectionCycleService from '../../lib/electionCycleService'
-import { gexService } from '../../lib/gexService'
 import {
   IndustryAnalysisService,
   IndustryPerformance,

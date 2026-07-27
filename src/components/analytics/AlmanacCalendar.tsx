@@ -345,8 +345,6 @@ function getSpecialEvents(year: number, month: number, day: number): string[] {
   return events
 }
 
-const POLYGON_API_KEY = '' || ''
-
 // Post-election years to exclude from normal years calculation
 const POST_ELECTION_YEARS = [
   1953, 1957, 1961, 1965, 1969, 1973, 1977, 1981, 1985, 1989, 1993, 1997, 2001, 2005, 2009, 2013,
@@ -367,7 +365,7 @@ async function fetchDailyHistoricalStats(
     const endDate = `${currentYear}-12-31`
 
     const response = await fetch(
-      `/api/polygon/v2/aggs/ticker/${symbol}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`,
+      `/api/polygon/v2/aggs/ticker/${symbol}/range/1/day/${startDate}/${endDate}?adjusted=true&sort=asc`,
       { signal: AbortSignal.timeout(30000) }
     )
 
