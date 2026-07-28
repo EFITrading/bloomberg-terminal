@@ -19,14 +19,19 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'date query param is required' }, { status: 400 })
         }
 
+        console.log(`[SweepSense API][LOAD] request for ${tradingDate} at ${new Date().toISOString()}`)
+
         const snapshot = await prisma.sweepSenseSnapshot.findUnique({ where: { tradingDate } })
         if (!snapshot) {
+            console.warn(`[SweepSense API][LOAD] no snapshot found for ${tradingDate}`)
             return NextResponse.json({ error: 'SweepSense snapshot not found' }, { status: 404 })
         }
 
         const compressedBuffer = Buffer.from(snapshot.data, 'base64')
         const decompressed = await gunzipAsync(compressedBuffer)
         const data = JSON.parse(decompressed.toString('utf8'))
+
+        console.log(`[SweepSense API][LOAD] found snapshot for ${tradingDate} — tradeCount=${snapshot.tradeCount} savedAt=${snapshot.updatedAt.toISOString()}`)
 
         return NextResponse.json({
             tradingDate: snapshot.tradingDate,
@@ -35,7 +40,7 @@ export async function GET(request: NextRequest) {
             updatedAt: snapshot.updatedAt,
         })
     } catch (error) {
-        console.error('Error loading SweepSense snapshot:', error)
+        console.error('[SweepSense API][LOAD] Error loading SweepSense snapshot:', error)
         return NextResponse.json({ error: 'Failed to load SweepSense snapshot' }, { status: 500 })
     }
 }

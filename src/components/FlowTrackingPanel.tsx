@@ -1214,6 +1214,10 @@ function SweepSenseTab({
       breakdown: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }
       liveRawTrades?: Array<FlowBiasRawTrade>
       otherLegs?: OptionsFlowData[]
+      flowSpamLabel?: string
+      gammaAttackLabel?: string
+      structuralLabel?: string
+      nextEarningsDate?: string | null
     }>
     stats: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }
     bubbles: Array<{ ticker: string; premium: number; bias: 'bull' | 'bear'; biasStrength: number }>
@@ -2254,7 +2258,7 @@ function SweepSenseTab({
         </div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {filteredTrades.map(({ trade, convictionScore, pctMove, currentStockPrice, currentOptionPrice, contractPctChange, sigCode, sigColor, planText, qualifiedAt, breakdown, sigma, dte, spot, liveRawTrades, otherLegs }) => {
+        {filteredTrades.map(({ trade, convictionScore, pctMove, currentStockPrice, currentOptionPrice, contractPctChange, sigCode, sigColor, planText, qualifiedAt, breakdown, sigma, dte, spot, liveRawTrades, otherLegs, flowSpamLabel: savedSpamLabel, gammaAttackLabel: savedGammaLabel, structuralLabel: savedStructuralLabel }) => {
           const isCall = trade.type === 'call'
           const isLongTerm = trade.days_to_expiry >= 30
           const fs = trade.fill_style || ''
@@ -2307,7 +2311,15 @@ function SweepSenseTab({
           const flowBiasKey = `${trade.underlying_ticker}|${histRange || 'TODAY'}`
           const flowBiasTrades = flowBiasRaw[flowBiasKey]
           const flowBiasReady = !!flowBiasTrades
-          const spamResult = flowBiasReady ? computeSpamLabel(flowBiasTrades!, trade.type, formatDate, spot, sigma) : { label: 'Loading…', trades: [], level: null }
+          // Prefer the label already computed + persisted by the parent (OptionsFlowTable's
+          // sweepSenseData memo / saved DB snapshot) so the card never gets stuck on
+          // "Loading…" waiting on this component's own separate flowBiasRaw fetch, and so
+          // what's displayed always matches exactly what got saved to the DB.
+          const spamResult = savedSpamLabel
+            ? { label: savedSpamLabel, trades: [] as Array<FlowBiasRawTrade>, level: null as number | null }
+            : (flowBiasReady
+              ? computeSpamLabel(flowBiasTrades!, trade.type, formatDate, spot, sigma)
+              : { label: 'Loading…', trades: [], level: null })
           // Flow Spammer uniqueness heatmap scoring - only computed once a spam group is actually detected.
           const spamUniqueness = (flowBiasReady && spamResult.trades.length > 0)
             ? computeSpamUniquenessScore(spamResult.trades, flowBiasTrades!, spot, sigma, dte, trade.type)
@@ -2315,8 +2327,14 @@ function SweepSenseTab({
           // Structural support = puts SOLD (B/BB) at/below spot (a real floor); resistance = calls
           // SOLD (B/BB) at/above spot (a real overhead wall). Uses the SAME live in-memory flow feed
           // the quadrant boxes/gauge use (liveRawTrades) - no extra DB round-trip needed.
-          const structuralResult = computeStructuralLabel(liveRawTrades, spot, sigma)
-          const gammaResult = flowBiasReady ? computeGammaLabel(flowBiasTrades!, trade.type, target1, target2, targetUp, isLongTerm, trade.expiry, spot) : { label: 'Loading…', trades: [] }
+          const structuralResult = savedStructuralLabel
+            ? { label: savedStructuralLabel, trades: [] as Array<FlowBiasRawTrade>, level: null as number | null, putLevel: null as number | null, isResistance: true }
+            : computeStructuralLabel(liveRawTrades, spot, sigma)
+          const gammaResult = savedGammaLabel
+            ? { label: savedGammaLabel, trades: [] as Array<FlowBiasRawTrade> }
+            : (flowBiasReady
+              ? computeGammaLabel(flowBiasTrades!, trade.type, target1, target2, targetUp, isLongTerm, trade.expiry, spot)
+              : { label: 'Loading…', trades: [] })
           const spamLabel = spamResult.label
           const structuralLabel = structuralResult.label
           const gammaLabel = gammaResult.label
@@ -3395,6 +3413,10 @@ export default function FlowTrackingPanel({
       spot?: number
       breakdown: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }
       otherLegs?: OptionsFlowData[]
+      flowSpamLabel?: string
+      gammaAttackLabel?: string
+      structuralLabel?: string
+      nextEarningsDate?: string | null
     }>
     stats: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }
     bubbles: Array<{ ticker: string; premium: number; bias: 'bull' | 'bear'; biasStrength: number }>
@@ -3428,6 +3450,10 @@ export default function FlowTrackingPanel({
       breakdown: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }
       liveRawTrades?: Array<FlowBiasRawTrade>
       otherLegs?: OptionsFlowData[]
+      flowSpamLabel?: string
+      gammaAttackLabel?: string
+      structuralLabel?: string
+      nextEarningsDate?: string | null
     }>
     stats: { buyCallsPct: number; bearCallsPct: number; buyPutsPct: number; bearPutsPct: number }
     bubbles: Array<{ ticker: string; premium: number; bias: 'bull' | 'bear'; biasStrength: number }>

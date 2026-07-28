@@ -11,6 +11,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 import { polygonService } from '@/lib/polygonService'
 import { getDatesList, loadDateTrades, setCachedTrades } from '@/lib/flowDataCache'
+import {
+  computeSpamLabel,
+  computeStructuralLabel,
+  computeGammaLabel,
+  computeTargetLevels,
+  type FlowBiasRawTrade,
+} from '@/lib/flowBiasAnalysis'
 import DateRangePicker from '@/components/DateRangePicker'
 import { useDealerZonesStore } from '@/store/dealerZonesStore'
 
@@ -30,6 +37,26 @@ const POLYGON_API_KEY: string = ''
 
 const normalizeTickerForOptions = (ticker: string): string => {
   return ticker.replace(/\./g, '')
+}
+
+// Live stock-price fetching is only ever worth doing while Polygon actually has fresh
+// quotes to give us - regular session (6:30AM-1:00PM PST), the post-close extended session
+// (1:00PM-4:00PM PST), and the overnight/pre-market extended session (1:00AM-6:30AM PST).
+// Outside those three windows (4:00PM-1:00AM PST, the ~9hr fully-closed gap) there is no new
+// trade data to fetch - every fetch would just re-return the exact same last price, so we
+// skip it entirely and keep showing whatever price/snapshot is already in memory instead of
+// re-fetching (and re-rendering) on a timer for no reason.
+const isLivePriceWindow = (): boolean => {
+  const pst = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+  const dow = pst.getDay()
+  if (dow === 0 || dow === 6) return false // weekend - fully closed all day
+  const h = pst.getHours(), m = pst.getMinutes()
+  const minutes = h * 60 + m
+  const REG_OPEN = 6 * 60 + 30   // 6:30 AM
+  const EXT_CLOSE = 16 * 60      // 4:00 PM
+  const OVERNIGHT_START = 1 * 60 // 1:00 AM
+  // 6:30 AM - 4:00 PM (regular + post-close extended), OR 1:00 AM - 6:30 AM (overnight extended)
+  return (minutes >= REG_OPEN && minutes < EXT_CLOSE) || (minutes >= OVERNIGHT_START && minutes < REG_OPEN)
 }
 
 
@@ -722,6 +749,10 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   // means stockPricesLoading is still false for a brief window before that) - lets the
   // SweepSense auto-run effect tell "hasn't started yet" apart from "already finished".
   const pricesFetchStartedRef = useRef(false)
+  // Guards the ONE allowed price fetch while fully outside all 3 live-price windows (the
+  // 4:00PM-1:00AM PST dead zone) - seeds prices once on initial load so the table isn't blank
+  // all session, but prevents it from repeating on every later `data` update while still dead.
+  const deadZoneInitialFetchDoneRef = useRef(false)
 
   const [currentOptionPrices, setCurrentOptionPrices] = useState<Record<string, number>>({})
 
@@ -1254,6 +1285,20 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     if (!data || data.length === 0) {
       return
     }
+    // Fully outside all 3 live-price windows (i.e. the 4:00PM-1:00AM PST dead zone, or weekend) -
+    // still do exactly ONE fetch on initial load so prices aren't blank all session (Polygon
+    // just returns the last trade/prevDay close anyway, which IS "the last price" - no different
+    // than a live quote at this hour), but never repeat it: no recurring interval, and no
+    // re-fetch on every subsequent `data` update while the dead zone is still in effect.
+    if (!isLivePriceWindow()) {
+      if (deadZoneInitialFetchDoneRef.current) return
+      const debounceTimer = setTimeout(() => {
+        deadZoneInitialFetchDoneRef.current = true
+        const tickers = [...new Set(data.map((trade) => trade.underlying_ticker))]
+        if (tickers.length > 0) fetchCurrentPrices(tickers)
+      }, 500)
+      return () => clearTimeout(debounceTimer)
+    }
 
     // Debounce API calls to prevent excessive requests
 
@@ -1265,22 +1310,16 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     return () => clearTimeout(debounceTimer)
   }, [data])
 
-  // Auto-refresh prices every 5 minutes during market hours only.
-  // After hours: one-time fetch on load (handled by the debounced effect above), no interval.
+  // Auto-refresh prices every 5 minutes while inside any of the 3 live-price windows
+  // (6:30AM-4:00PM and 1:00AM-6:30AM PST). Outside those windows: no fetch, no interval -
+  // the last fetched/loaded price is simply left as-is until a live window opens again.
   useEffect(() => {
     if (!data || data.length === 0) return
 
-    const marketOpen = (): boolean => {
-      const pst = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-      const dow = pst.getDay()
-      const h = pst.getHours(), m = pst.getMinutes()
-      return dow >= 1 && dow <= 5 && (h > 6 || (h === 6 && m >= 30)) && h < 13
-    }
-
-    if (!marketOpen()) return // after hours - no interval needed
+    if (!isLivePriceWindow()) return // fully closed - no interval needed
 
     const interval = setInterval(() => {
-      if (!marketOpen()) return // stop refreshing if market closed mid-interval
+      if (!isLivePriceWindow()) return // stop refreshing the moment we leave a live window
       const uniqueTickers = [...new Set(data.map((trade) => trade.underlying_ticker))]
       fetchCurrentPrices(uniqueTickers)
     }, 5 * 60 * 1000)
@@ -4111,16 +4150,20 @@ Stock Reaction: ${scores.stockReaction}/15`
       const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
       return !attemptedOptionPriceTickersRef.current.has(optionTicker)
     })
-    const missingPriced = sweepSenseCandidates.filter((trade) => {
-      const expiry = trade.expiry.replace(/-/g, '').slice(2)
-      const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
-      const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
-      const normalizedTicker = normalizeTickerForOptions(trade.underlying_ticker)
-      const optionTicker = `O:${normalizedTicker}${expiry}${optionType}${strikeFormatted}`
-      return !(optionTicker in currentOptionPrices)
-    })
-    return neverAttempted.length > 0
-  }, [sweepSenseCandidates, currentOptionPrices, optionPricesFetching])
+    if (neverAttempted.length > 0) return true
+
+    // Magnet/Pivot come from dealerZoneCache + dailyCandleCache, both fetched per-ticker in
+    // separate effects that only start once sweepSenseBgActive is true - i.e. AFTER this scan
+    // already began. If either is still missing an entry for any candidate ticker, magnet/pivot
+    // for that ticker would still be null - never treat the scan as "settled" until both have
+    // at least attempted every candidate ticker.
+    const tickers = [...new Set(sweepSenseCandidates.map((t) => t.underlying_ticker))]
+    const missingDealerZone = tickers.filter((t) => !(t in dealerZoneCache))
+    const missingCandles = tickers.filter((t) => !(t in dailyCandleCache))
+    if (missingDealerZone.length > 0 || missingCandles.length > 0) return true
+
+    return false
+  }, [sweepSenseCandidates, currentOptionPrices, optionPricesFetching, dealerZoneCache, dailyCandleCache])
 
   // `run()` above only ever fetches prices ONCE (guarded by sweepSenseAutoRanRef) for whatever
   // candidates existed at that moment. But sweepSenseCandidates is a live useMemo that keeps
@@ -4229,6 +4272,51 @@ Stock Reaction: ${scores.stockReaction}/15`
   // SweepSense tab data - built from `sweepSenseQualifyingData` (above) plus the same
   // dealerZoneCache (magnet/pivot) and the exact Plan Entry logic (computePlanEntry) used
   // previously in the Dealer column. Only populated once the background scan has run.
+  // Next earnings date per underlying, for the SweepSense save pipeline (see sweepSenseData
+  // below) - scans the current + next 2 calendar months once each, shared across all tickers,
+  // so this bakes the earnings date into what actually gets persisted in the DB snapshot.
+  const [sweepSenseEarningsCache, setSweepSenseEarningsCache] = useState<Record<string, string>>({})
+  const sweepSenseEarningsMonthsFetchedRef = useRef<Set<string>>(new Set())
+  // Counts in-flight earnings-calendar fetches - the save pipeline must wait for this to hit
+  // 0 before persisting, otherwise the snapshot gets saved with nextEarningsDate still null
+  // for tickers whose fetch simply hadn't resolved yet.
+  const sweepSenseEarningsPendingRef = useRef(0)
+  useEffect(() => {
+    if (!sweepSenseBgActive || !sweepSenseQualifyingData.length) return
+    const now = new Date()
+    const monthKeys = Array.from({ length: 3 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1)
+      return `${d.getFullYear()}-${d.getMonth()}`
+    })
+    monthKeys.forEach((key) => {
+      if (sweepSenseEarningsMonthsFetchedRef.current.has(key)) return
+      sweepSenseEarningsMonthsFetchedRef.current.add(key)
+      sweepSenseEarningsPendingRef.current += 1
+      const [yearStr, monthStr] = key.split('-')
+      fetch(`/api/earnings-calendar?year=${yearStr}&month=${monthStr}`)
+        .then((r) => (r.ok ? r.json() : { success: false, events: [] }))
+        .then((json) => {
+          const events: any[] = Array.isArray(json?.events) ? json.events : []
+          setSweepSenseEarningsCache((prev) => {
+            const next = { ...prev }
+            for (const ev of events) {
+              const m = ev.event?.match(/\(([A-Z]{1,5})\)/)
+              if (!m) continue
+              const ticker = m[1]
+              const dateStr = ev.date as string
+              // Keep the SOONEST earnings date per ticker across all fetched months.
+              if (!next[ticker] || new Date(dateStr).getTime() < new Date(next[ticker]).getTime()) {
+                next[ticker] = dateStr
+              }
+            }
+            return next
+          })
+        })
+        .catch(() => { /* best-effort - snapshot just won't have an earnings date for these tickers */ })
+        .finally(() => { sweepSenseEarningsPendingRef.current = Math.max(0, sweepSenseEarningsPendingRef.current - 1) })
+    })
+  }, [sweepSenseBgActive, sweepSenseQualifyingData])
+
   const sweepSenseData = useMemo(() => {
     if (!sweepSenseBgActive) {
       return null
@@ -4314,6 +4402,23 @@ Stock Reaction: ${scores.stockReaction}/15`
       const bd = tickerPrem.get(trade.underlying_ticker) || { buyCalls: 0, bearCalls: 0, buyPuts: 0, bearPuts: 0 }
       const bdTotal = bd.buyCalls + bd.bearCalls + bd.buyPuts + bd.bearPuts || 1
 
+      // Flow Spammer / Structural Formation / Gamma Attack labels + next earnings date - computed
+      // here (not just live in FlowTrackingPanel) so they're baked into the saved snapshot and
+      // survive an afterhours DB reload instead of resetting to empty/"Loading…".
+      const rawTickerTrades = (tickerRawTrades.get(trade.underlying_ticker) || []) as FlowBiasRawTrade[]
+      const formatDateLocal = (dateString: string) => {
+        const [yy, mm, dd] = dateString.split('-')
+        return `${mm}/${dd}/${yy}`
+      }
+      const targetLevels = computeTargetLevels(trade, sigma, dte, spot)
+      const flowSpamLabel = computeSpamLabel(rawTickerTrades, trade.type, formatDateLocal, spot, sigma).label
+      const gammaAttackLabel = computeGammaLabel(
+        rawTickerTrades, trade.type, targetLevels.target1, targetLevels.target2, targetLevels.targetUp,
+        useLongTerm, trade.expiry, spot
+      ).label
+      const structuralLabel = computeStructuralLabel(rawTickerTrades, spot, sigma).label
+      const nextEarningsDate = sweepSenseEarningsCache[trade.underlying_ticker] ?? null
+
       // Real moment this trade first graded A-/A/A+, reconstructed from historical minute bars
       // (fetchHistoricalQualifiedAt) - this is the authoritative value. Falls back to the
       // live-scan timestamp while the historical replay is still resolving, and finally to
@@ -4370,6 +4475,12 @@ Stock Reaction: ${scores.stockReaction}/15`
         // Other leg(s) of a qualifying MULTI-LEG combo (empty for normal SWEEP/BLOCK trades) -
         // lets the card display both sides of the paired buy/sell combo.
         otherLegs: multiLegPartnerLegs.get(trade) || [],
+        // Persisted FlowBias labels + earnings date (see comment above) - saved as-is so an
+        // afterhours DB reload shows the same verdicts the live scan had at close.
+        flowSpamLabel,
+        gammaAttackLabel,
+        structuralLabel,
+        nextEarningsDate,
       }
     })
 
@@ -4401,7 +4512,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     }
 
     return { trades, stats, bubbles }
-  }, [sweepSenseBgActive, sweepSenseQualifyingData, dealerZoneCache, currentPrices, data, expiryIVCache, longTermIVCache, currentOptionPrices, sweepSenseHistoricalQualifiedAt, dailyCandleCache])
+  }, [sweepSenseBgActive, sweepSenseQualifyingData, dealerZoneCache, currentPrices, data, expiryIVCache, longTermIVCache, currentOptionPrices, sweepSenseHistoricalQualifiedAt, dailyCandleCache, sweepSenseEarningsCache])
 
   // A+ Tracker tab data - SAME exact card shape/logic as sweepSenseData above (magnet/pivot,
   // computePlanEntry, breakdown gauge, conviction score), just built from the user's explicitly
@@ -4556,8 +4667,19 @@ Stock Reaction: ${scores.stockReaction}/15`
   // once things have gone quiet (no scan in progress, not still settling, and the computed
   // result hasn't changed for a short debounce window).
   const [sweepSenseDataStable, setSweepSenseDataStable] = useState<typeof sweepSenseData>(null)
+  // Set once a DB-loaded end-of-day snapshot is in place (afterhours). Prevents this debounce
+  // effect from clobbering the loaded snapshot with the live `sweepSenseData` memo, which is
+  // empty afterhours (no live flow stream running) and would otherwise silently overwrite the
+  // just-loaded snapshot back to nothing a moment later.
+  const sweepSenseUsingLoadedSnapshotRef = useRef(false)
+  const loggedStableSkipRef = useRef(false)
   useEffect(() => {
-    if (modeLoadingStep !== null || sweepSenseSettling) return
+    if (modeLoadingStep !== null || sweepSenseSettling) {
+      return
+    }
+    if (sweepSenseUsingLoadedSnapshotRef.current) {
+      return
+    }
     const timer = setTimeout(() => {
       setSweepSenseDataStable(sweepSenseData)
     }, 900)
@@ -4603,10 +4725,22 @@ Stock Reaction: ${scores.stockReaction}/15`
 
   // Save the final settled SweepSense result exactly ONCE per day, right after close.
   useEffect(() => {
-    if (!sweepSenseDataStable || sweepSenseDataStable.trades.length === 0) return
-    if (sweepSenseSnapshotSavedRef.current) return
-    if (isSweepSenseMarketOpen()) return
-    if (!isJustAfterSweepSenseClose()) return
+    if (!sweepSenseDataStable || sweepSenseDataStable.trades.length === 0) {
+      return
+    }
+    if (sweepSenseSnapshotSavedRef.current) {
+      return
+    }
+    if (isSweepSenseMarketOpen()) {
+      return
+    }
+    if (!isJustAfterSweepSenseClose()) {
+      return
+    }
+    // Never persist a half-finished scan - wait for prices/earnings fetches to fully idle out.
+    if (sweepSenseSettling || modeLoadingStep !== null || sweepSenseEarningsPendingRef.current > 0) {
+      return
+    }
 
     const tradingDate = getSweepSenseTradingDate()
     const storageKey = `sweepsense_snapshot_saved_${tradingDate}`
@@ -4628,14 +4762,21 @@ Stock Reaction: ${scores.stockReaction}/15`
         }
       })
       .catch((err) => console.error('[SweepSense] Failed to save end-of-day snapshot:', err))
-  }, [sweepSenseDataStable, isSweepSenseMarketOpen, isJustAfterSweepSenseClose, getSweepSenseTradingDate])
+  }, [sweepSenseDataStable, isSweepSenseMarketOpen, isJustAfterSweepSenseClose, getSweepSenseTradingDate, sweepSenseSettling, modeLoadingStep])
 
   // During afterhours, load the saved snapshot from the DB instead of relying on whatever
   // was live-computed in this session - covers a fresh page load after close, or before
   // this session's own scan has finished settling.
+  // Gated on `data` actually being loaded first (the flow page's own afterhours fetch) -
+  // firing this on bare mount used to race that fetch: setSweepSenseBgActive(true)/
+  // setSweepSenseDataStable() would land mid-way through the page's own data load, causing
+  // the table to re-render/collapse and cancel the in-flight fetchCurrentPrices debounce
+  // timer before it ever fired.
   useEffect(() => {
     if (sweepSenseSnapshotLoadedRef.current) return
     if (isSweepSenseMarketOpen()) return
+    if (!data || data.length === 0) return
+    if (!pricesFetchStartedRef.current || stockPricesLoading) return
 
     sweepSenseSnapshotLoadedRef.current = true
     const tradingDate = getSweepSenseTradingDate()
@@ -4644,13 +4785,15 @@ Stock Reaction: ${scores.stockReaction}/15`
       .then((result) => {
         if (result?.data) {
           sweepSenseAutoRanRef.current = true // skip the live auto-scan entirely
+          sweepSenseUsingLoadedSnapshotRef.current = true // block the live-data debounce from overwriting this
           setSweepSenseBgActive(true)
           setSweepSenseDataStable(result.data)
         }
       })
-      .catch(() => { /* fall back to live scan on failure */ })
+      .catch((err) => console.error(`[SweepSense][DB-LOAD] fetch failed for ${tradingDate}:`, err))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [data.length, stockPricesLoading])
+
 
   // When the mobile SweepSense filter button is active, restrict the visible table to ONLY
   // the trades that qualified for the SweepSense tab - everything else is hidden. Turning the
