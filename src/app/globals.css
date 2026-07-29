@@ -175,7 +175,13 @@ nav,
 }
 
 /* Premium Custom Scrollbar */
+.custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: #FF6600 #111111;
+}
+
 .custom-scrollbar::-webkit-scrollbar {
+    display: block;
     width: 8px;
 }
 

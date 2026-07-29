@@ -4,6 +4,7 @@ import { gunzip, gzip } from 'zlib'
 import { NextRequest, NextResponse } from 'next/server'
 
 import prisma from '@/lib/prisma'
+import { setCachedSweepSense } from '@/lib/redis'
 
 const gzipAsync = promisify(gzip)
 const gunzipAsync = promisify(gunzip)
@@ -38,8 +39,6 @@ export async function POST(request: NextRequest) {
 
         const tradeCount = Array.isArray((data as any)?.trades) ? (data as any).trades.length : 0
 
-        console.log(`[SweepSense API][SAVE] received request for ${tradingDate} — ${tradeCount} trades at ${new Date().toISOString()}`)
-
         const dataString = JSON.stringify(data)
         const compressed = await gzipAsync(dataString)
         const compressedBase64 = compressed.toString('base64')
@@ -51,7 +50,14 @@ export async function POST(request: NextRequest) {
             select: { id: true, tradingDate: true, tradeCount: true, updatedAt: true },
         })
 
-        console.log(`[SweepSense API][SAVE] upsert OK for ${tradingDate} — id=${snapshot.id} tradeCount=${snapshot.tradeCount} updatedAt=${snapshot.updatedAt.toISOString()}`)
+        // Populate the cache directly with the freshly-saved snapshot so the very next
+        // load (e.g. this same session, or another tab) hits Redis instead of Postgres.
+        setCachedSweepSense(tradingDate, {
+            tradingDate,
+            data,
+            tradeCount: snapshot.tradeCount,
+            updatedAt: snapshot.updatedAt.toISOString(),
+        }).catch(() => { })
 
         return NextResponse.json({ success: true, snapshot })
     } catch (error) {

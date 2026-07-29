@@ -1684,7 +1684,15 @@ function SweepSenseTab({
     })
   }, [data])
 
+  // Every trade in a DB-loaded SweepSense snapshot already carries its own baked-in
+  // `nextEarningsDate` (computed once, at save-time) - skip the live earnings-calendar
+  // fetch entirely in that case instead of re-scanning 3 months of events for nothing.
+  const allTradesHaveSavedEarnings = !data || data.trades.every((t) => t.nextEarningsDate !== undefined)
+
   useEffect(() => {
+    if (allTradesHaveSavedEarnings) {
+      return
+    }
     wantedEarningsMonthKeys.forEach((key) => {
       if (earningsMonthCache[key] || earningsMonthLoadingRef.current.has(key)) return
       earningsMonthLoadingRef.current.add(key)
@@ -1704,7 +1712,9 @@ function SweepSenseTab({
             : []
           setEarningsMonthCache((prev) => ({ ...prev, [key]: rows }))
         })
-        .catch(() => setEarningsMonthCache((prev) => ({ ...prev, [key]: [] })))
+        .catch((err) => {
+          setEarningsMonthCache((prev) => ({ ...prev, [key]: [] }))
+        })
         .finally(() => {
           earningsMonthLoadingRef.current.delete(key)
           setEarningsMonthTick((t) => t + 1)
@@ -1859,7 +1869,8 @@ function SweepSenseTab({
   // flow-bias data (plus the earnings-date lookups) has actually loaded in, so the buttons
   // never filter against half-loaded data.
   const allFlowBiasLoaded = wantedFlowBiasKeys.length === 0 || wantedFlowBiasKeys.every((key) => !!flowBiasRaw[key])
-  const allEarningsLoaded = wantedEarningsMonthKeys.length === 0 || wantedEarningsMonthKeys.every((key) => !!earningsMonthCache[key])
+  const allEarningsLoaded = allTradesHaveSavedEarnings ||
+    wantedEarningsMonthKeys.length === 0 || wantedEarningsMonthKeys.every((key) => !!earningsMonthCache[key])
   const quickFiltersReady = !isScanning && allFlowBiasLoaded && allEarningsLoaded
 
   if (isScanning) {
@@ -2090,7 +2101,7 @@ function SweepSenseTab({
   const ORANGE = '#ff8c1a'
 
   return (
-    <div style={{
+    <div className="custom-scrollbar" style={{
       flex: 1, overflowY: 'auto', overflowX: 'hidden', WebkitOverflowScrolling: 'touch',
       // Extra bottom padding on mobile so the last card can scroll clear of the fixed
       // MobileBottomNav bar (60px tall, sits at the very top z-index over everything,
@@ -2258,12 +2269,21 @@ function SweepSenseTab({
         </div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {filteredTrades.map(({ trade, convictionScore, pctMove, currentStockPrice, currentOptionPrice, contractPctChange, sigCode, sigColor, planText, qualifiedAt, breakdown, sigma, dte, spot, liveRawTrades, otherLegs, flowSpamLabel: savedSpamLabel, gammaAttackLabel: savedGammaLabel, structuralLabel: savedStructuralLabel }) => {
+        {filteredTrades.map(({ trade, convictionScore, pctMove, currentStockPrice, currentOptionPrice, contractPctChange, sigCode, sigColor, planText, qualifiedAt, breakdown, sigma, dte, spot, liveRawTrades, otherLegs, flowSpamLabel: savedSpamLabel, gammaAttackLabel: savedGammaLabel, structuralLabel: savedStructuralLabel, nextEarningsDate: savedEarningsDate }) => {
           const isCall = trade.type === 'call'
           const isLongTerm = trade.days_to_expiry >= 30
           const fs = trade.fill_style || ''
           const tradeTypeVal = trade.classification || trade.trade_type
-          const earningsInfo = earningsByTicker[trade.underlying_ticker]
+          // Prefer the saved, baked-in earnings date from the DB snapshot (instant, no live
+          // fetch needed) - only fall back to the live earningsByTicker lookup (which has
+          // richer daysAway/timing info) when the trade doesn't carry one yet.
+          const liveEarningsInfo = earningsByTicker[trade.underlying_ticker]
+          const earningsInfo = liveEarningsInfo ?? (savedEarningsDate ? (() => {
+            const d = new Date(savedEarningsDate)
+            const today = new Date(); today.setHours(0, 0, 0, 0)
+            const daysAway = Math.round((d.getTime() - today.getTime()) / 86400000)
+            return { label: savedEarningsDate, timing: '', daysAway, year: d.getFullYear(), month: d.getMonth(), dayNum: d.getDate() }
+          })() : null)
           // Red/urgent inside 7 days (earnings risk on the position), amber inside 21 days,
           // otherwise a neutral gray - keeps the label calm unless a print is actually close.
           const earningsColor = !earningsInfo ? '#666' : earningsInfo.daysAway <= 7 ? '#ef4444' : earningsInfo.daysAway <= 21 ? '#eab308' : '#9ca3af'
@@ -2315,10 +2335,17 @@ function SweepSenseTab({
           // sweepSenseData memo / saved DB snapshot) so the card never gets stuck on
           // "Loading…" waiting on this component's own separate flowBiasRaw fetch, and so
           // what's displayed always matches exactly what got saved to the DB.
-          const spamResult = savedSpamLabel
-            ? { label: savedSpamLabel, trades: [] as Array<FlowBiasRawTrade>, level: null as number | null }
-            : (flowBiasReady
-              ? computeSpamLabel(flowBiasTrades!, trade.type, formatDate, spot, sigma)
+          // NOTE: the saved/DB label is only ever text - it never persisted the matched raw
+          // trades or strike level, so once the live flowBiasRaw/liveRawTrades data is actually
+          // available we ALWAYS prefer the freshly-computed live result (real trades + level)
+          // even if a saved label exists, so the row stays clickable (popup needs trades.length
+          // > 0) and the chart's Spam/Structural/Gamma lines get a real strike instead of null.
+          // The saved label is only used as an immediate-paint placeholder before the live data
+          // has loaded.
+          const spamResult = flowBiasReady
+            ? computeSpamLabel(flowBiasTrades!, trade.type, formatDate, spot, sigma)
+            : (savedSpamLabel
+              ? { label: savedSpamLabel, trades: [] as Array<FlowBiasRawTrade>, level: null as number | null }
               : { label: 'Loading…', trades: [], level: null })
           // Flow Spammer uniqueness heatmap scoring - only computed once a spam group is actually detected.
           const spamUniqueness = (flowBiasReady && spamResult.trades.length > 0)
@@ -2327,13 +2354,15 @@ function SweepSenseTab({
           // Structural support = puts SOLD (B/BB) at/below spot (a real floor); resistance = calls
           // SOLD (B/BB) at/above spot (a real overhead wall). Uses the SAME live in-memory flow feed
           // the quadrant boxes/gauge use (liveRawTrades) - no extra DB round-trip needed.
-          const structuralResult = savedStructuralLabel
-            ? { label: savedStructuralLabel, trades: [] as Array<FlowBiasRawTrade>, level: null as number | null, putLevel: null as number | null, isResistance: true }
-            : computeStructuralLabel(liveRawTrades, spot, sigma)
-          const gammaResult = savedGammaLabel
-            ? { label: savedGammaLabel, trades: [] as Array<FlowBiasRawTrade> }
-            : (flowBiasReady
-              ? computeGammaLabel(flowBiasTrades!, trade.type, target1, target2, targetUp, isLongTerm, trade.expiry, spot)
+          const structuralResult = (liveRawTrades && liveRawTrades.length > 0)
+            ? computeStructuralLabel(liveRawTrades, spot, sigma)
+            : (savedStructuralLabel
+              ? { label: savedStructuralLabel, trades: [] as Array<FlowBiasRawTrade>, level: null as number | null, putLevel: null as number | null, isResistance: true }
+              : computeStructuralLabel(liveRawTrades, spot, sigma))
+          const gammaResult = flowBiasReady
+            ? computeGammaLabel(flowBiasTrades!, trade.type, target1, target2, targetUp, isLongTerm, trade.expiry, spot)
+            : (savedGammaLabel
+              ? { label: savedGammaLabel, trades: [] as Array<FlowBiasRawTrade> }
               : { label: 'Loading…', trades: [] })
           const spamLabel = spamResult.label
           const structuralLabel = structuralResult.label
@@ -3256,28 +3285,6 @@ function SweepSenseTab({
                 ×
               </span>
             </div>
-            {flowBiasDetail.structuralMeta && (
-              <StructuralWallChart
-                trades={flowBiasDetail.trades}
-                callLevel={flowBiasDetail.structuralMeta.callLevel}
-                putLevel={flowBiasDetail.structuralMeta.putLevel}
-              />
-            )}
-            {flowBiasDetail.gammaMeta && (
-              <GammaDayCard
-                ticker={flowBiasDetail.gammaMeta.ticker}
-                trades={flowBiasDetail.trades}
-                strike={flowBiasDetail.gammaMeta.strike}
-                spot={flowBiasDetail.gammaMeta.spot}
-                sigma={flowBiasDetail.gammaMeta.sigma}
-                cardExpiry={flowBiasDetail.gammaMeta.expiry}
-              />
-            )}
-            {flowBiasDetail.uniqueness && (
-              <div style={{ padding: '18px 20px', borderBottom: '1px solid #262626', background: '#050505', display: 'flex', justifyContent: 'center' }}>
-                <SpamUniquenessGauge score={flowBiasDetail.uniqueness} />
-              </div>
-            )}
             <div style={{ overflowY: 'auto', overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
@@ -3952,9 +3959,13 @@ export default function FlowTrackingPanel({
       </div>
 
       {/* ── SWEEPSENSE TAB ── */}
-      {panelTab === 'SWEEPSENSE' && (
+      {/* Kept mounted (display toggle, not conditional render) so switching to the TRACKER
+          tab and back does NOT unmount this component - an unmount would wipe its flowBiasRaw/
+          earningsMonthCache state, forcing every per-ticker FlowBias/Earnings fetch to redo
+          itself from scratch on every tab switch. */}
+      <div style={{ flex: 1, display: panelTab === 'SWEEPSENSE' ? 'flex' : 'none', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
         <SweepSenseTab data={sweepSenseData ?? null} isScanning={sweepSenseScanning} progress={sweepSenseProgress} summaryMode={sweepSenseSummaryMode} />
-      )}
+      </div>
 
       {/* ── TRACKING TAB ── */}
       <div style={{ flex: 1, display: panelTab === 'TRACKER' ? 'flex' : 'none', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>

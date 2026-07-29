@@ -578,8 +578,31 @@ export function TradeCardChart({
   spamLevel?: number | null
 }) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
+  const wrapperRef = React.useRef<HTMLDivElement>(null)
   const [timeframe, setTimeframe] = React.useState('1D')
   const [overlayToggles, setOverlayToggles] = React.useState({ T1: true, T2: true, SL: true, GAMMA: true, STRUCT: true, SPAM: true })
+  // Below this width the timeframe + overlay-toggle buttons collapse into a single
+  // horizontally-scrollable row with abbreviated labels/tighter sizing instead of
+  // wrapping onto a second line (which used to overflow/clip past the card edge on mobile).
+  const [isNarrow, setIsNarrow] = React.useState(false)
+  React.useEffect(() => {
+    const el = wrapperRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setIsNarrow(el.offsetWidth < 460))
+    ro.observe(el)
+    setIsNarrow(el.offsetWidth < 460)
+    return () => ro.disconnect()
+  }, [])
+  // On mobile the toolbar collapses from a wide button row into 3 simple dropdowns:
+  // Timeframe (single-select), Targets (T1/T2/SL checkboxes), Signals (Spam/Struct/Gamma
+  // checkboxes). Only one dropdown menu is open at a time.
+  const [openDropdown, setOpenDropdown] = React.useState<'tf' | 'targets' | 'signals' | null>(null)
+  React.useEffect(() => {
+    if (!openDropdown) return
+    const close = () => setOpenDropdown(null)
+    window.addEventListener('click', close)
+    return () => window.removeEventListener('click', close)
+  }, [openDropdown])
   const [candles, setCandles] = React.useState<any[]>([])
   const [spyCandles, setSpyCandles] = React.useState<any[]>([])
   const [industryCandles, setIndustryCandles] = React.useState<any[]>([])
@@ -686,7 +709,7 @@ export function TradeCardChart({
       if (key) industryMap.set(key, c.close)
     })
 
-    const PAD_L = 56, PAD_R = 64, PAD_T = 46, PAD_B = 28
+    const PAD_L = 10, PAD_R = isNarrow ? 64 : 84, PAD_T = 46, PAD_B = 28
     const chartW = W - PAD_L - PAD_R
     const availH = H - PAD_T - PAD_B
     const CANDLE_H = availH
@@ -825,6 +848,10 @@ export function TradeCardChart({
     }
 
     // ── Trade-management overlay: target1/target2/stop as dashed horizontal lines ──
+    // Lines are drawn at their exact price immediately, but the readable labels are
+    // collected and de-overlapped afterward (see below) so T1/T2/SL never stack on
+    // top of each other when their prices are close together.
+    const rGutterLabels: { y: number; color: string; lbl: string }[] = []
     const drawHLine = (price: number, color: string, label: string) => {
       const y = Math.round(toY(price))
       if (y < PAD_T - 4 || y > PAD_T + CANDLE_H + 4) return
@@ -838,24 +865,17 @@ export function TradeCardChart({
       ctx.stroke()
       ctx.setLineDash([])
       ctx.restore()
-      const lbl = `${label} ${fmtP(price)}`
-      ctx.font = `bold ${Math.max(9, lblSize - 2)}px "Courier New",monospace`
-      ctx.textAlign = 'left'
-      ctx.textBaseline = 'middle'
-      const lw = ctx.measureText(lbl).width
-      ctx.fillStyle = color
-      ctx.fillRect(W - PAD_R + 2, y - Math.ceil(lblSize * 0.65), lw + 6, Math.ceil(lblSize * 1.3))
-      ctx.fillStyle = '#000000'
-      ctx.fillText(lbl, W - PAD_R + 4, y)
+      rGutterLabels.push({ y, color, lbl: `${label}\u2009${fmtP(price)}` })
     }
-    if (overlayToggles.T1 && typeof target1Price === 'number' && target1Price > 0) drawHLine(target1Price, '#22c55e', 'Target 1')
-    if (overlayToggles.T2 && typeof target2Price === 'number' && target2Price > 0) drawHLine(target2Price, '#16a34a', 'Target 2')
-    if (overlayToggles.SL && typeof stopPrice === 'number' && stopPrice > 0) drawHLine(stopPrice, '#ef4444', 'Stop')
+    if (overlayToggles.T1 && typeof target1Price === 'number' && target1Price > 0) drawHLine(target1Price, '#22c55e', 'T1')
+    if (overlayToggles.T2 && typeof target2Price === 'number' && target2Price > 0) drawHLine(target2Price, '#32CD32', 'T2')
+    if (overlayToggles.SL && typeof stopPrice === 'number' && stopPrice > 0) drawHLine(stopPrice, '#ef4444', 'SL')
 
     // ── Signal overlay: glowing zone lines for active Gamma Attack / Structural / Spammer
-    // detections (from FlowTrackingPanel's FlowBias rows). The level line spans the candles,
-    // but the readable label sits in the LEFT Y-axis gutter (mirroring how T1/T2/SL live in
-    // the right gutter) instead of overlapping the candles.
+    // detections (from FlowTrackingPanel's FlowBias rows). The level line spans the candles;
+    // its label is also collected into rGutterLabels so it shares the right-gutter
+    // de-overlap pass with T1/T2/SL instead of living in a separate left-gutter column
+    // (freeing up that left space for the chart itself).
     const drawGlowLine = (price: number, color: string, label: string) => {
       const y = Math.round(toY(price))
       if (y < PAD_T - 4 || y > PAD_T + CANDLE_H + 4) return
@@ -872,14 +892,7 @@ export function TradeCardChart({
       ctx.shadowBlur = 0
       ctx.setLineDash([])
       ctx.restore()
-      const fontSize = Math.max(8, Math.floor(lblSize * 0.62))
-      ctx.font = `bold ${fontSize}px "Courier New",monospace`
-      ctx.textAlign = 'left'
-      ctx.textBaseline = 'middle'
-      ctx.fillStyle = color
-      ctx.fillRect(1, y - Math.ceil(fontSize * 0.7), PAD_L - 3, Math.ceil(fontSize * 1.4))
-      ctx.fillStyle = '#000000'
-      ctx.fillText(label, 3, y)
+      rGutterLabels.push({ y, color, lbl: label })
     }
     if (overlayToggles.GAMMA && typeof gammaLevel === 'number' && gammaLevel > 0) drawGlowLine(gammaLevel, '#ff8c00', 'GAMMA')
     if (overlayToggles.STRUCT && typeof structuralLevel === 'number' && structuralLevel > 0) {
@@ -887,17 +900,42 @@ export function TradeCardChart({
     }
     if (overlayToggles.SPAM && typeof spamLevel === 'number' && spamLevel > 0) drawGlowLine(spamLevel, '#facc15', 'SPAM')
 
+    // De-overlap the collected right-gutter labels (T1/T2/SL + GAMMA/STRUCT/SPAM): sort
+    // top-to-bottom, then push any label whose center is too close to the previous one
+    // further down so they stack cleanly instead of overlapping.
+    if (rGutterLabels.length > 0) {
+      const rLblFontSize = Math.max(9, lblSize - 2)
+      const rLblGap = Math.ceil(rLblFontSize * 1.4)
+      rGutterLabels.sort((a, b) => a.y - b.y)
+      for (let i = 1; i < rGutterLabels.length; i++) {
+        const minY = rGutterLabels[i - 1].y + rLblGap
+        if (rGutterLabels[i].y < minY) rGutterLabels[i].y = minY
+      }
+      ctx.font = `bold ${rLblFontSize}px "Courier New",monospace`
+      ctx.textAlign = 'left'
+      ctx.textBaseline = 'middle'
+      for (const { y, color, lbl } of rGutterLabels) {
+        const lw = ctx.measureText(lbl).width
+        ctx.fillStyle = color
+        ctx.fillRect(W - PAD_R + 2, y - Math.ceil(rLblFontSize * 0.65), lw + 3, Math.ceil(rLblFontSize * 1.3))
+        ctx.fillStyle = '#000000'
+        ctx.fillText(lbl, W - PAD_R + 3, y)
+      }
+    }
+
     // Solid black backdrop behind the X-axis label row so candles/shading never bleed through
     ctx.fillStyle = '#000000'
     ctx.fillRect(0, H - PAD_B, W, PAD_B)
 
-    // X-axis: up to 5 evenly-spaced date labels (solid white)
-    const xLblFont = Math.min(24, Math.max(20, Math.floor(W * 0.0516)))
+    // X-axis: up to 5 evenly-spaced date labels (solid white). On mobile (isNarrow) we
+    // use a smaller font, fewer steps, and drop the date portion for intraday timeframes
+    // so labels never overlap each other.
+    const xLblFont = isNarrow ? Math.min(13, Math.max(11, Math.floor(W * 0.032))) : Math.min(24, Math.max(20, Math.floor(W * 0.0516)))
     ctx.font = `bold ${xLblFont}px "Courier New",monospace`
     ctx.fillStyle = '#ffffff'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
-    const xSteps = Math.min(5, visible.length)
+    const xSteps = Math.min(isNarrow ? 3 : 5, visible.length)
     for (let s = 0; s < xSteps; s++) {
       const i = xSteps === 1 ? 0 : Math.round(s * (visible.length - 1) / (xSteps - 1))
       const c = visible[i]
@@ -905,16 +943,20 @@ export function TradeCardChart({
       let label: string
       if (timeframe === '5M' || timeframe === '1H') {
         const date = ts ? new Date(ts) : new Date()
-        const dateStr = date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: 'America/Los_Angeles' })
         const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' })
-        label = `${dateStr} ${timeStr}`
+        if (isNarrow) {
+          label = timeStr.replace(' ', '')
+        } else {
+          const dateStr = date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: 'America/Los_Angeles' })
+          label = `${dateStr} ${timeStr}`
+        }
       } else {
         const d = ts ? new Date(ts) : new Date((c.date || '') + 'T00:00:00')
         label = `${d.getUTCMonth() + 1}/${d.getUTCDate()}`
       }
       ctx.fillText(label, PAD_L + i * barW + barW * 0.5, H - PAD_B + 3)
     }
-  }, [candles, spyCandles, industryCandles, loading, timeframe, industrySymbol, target1Price, target2Price, stopPrice, gammaLevel, structuralLevel, structuralIsResistance, spamLevel, overlayToggles])
+  }, [candles, spyCandles, industryCandles, loading, timeframe, industrySymbol, target1Price, target2Price, stopPrice, gammaLevel, structuralLevel, structuralIsResistance, spamLevel, overlayToggles, isNarrow])
 
   drawRef.current = draw
 
@@ -1079,6 +1121,7 @@ export function TradeCardChart({
 
   return (
     <div
+      ref={wrapperRef}
       style={{
         position: 'relative',
         width: '100%',
@@ -1090,6 +1133,7 @@ export function TradeCardChart({
         boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.07)',
       }}
     >
+      <style>{`.tcc-toolbar::-webkit-scrollbar { display: none; }`}</style>
       <canvas
         ref={canvasRef}
         style={{ width: '100%', height: '100%', display: 'block', cursor: 'grab' }}
@@ -1102,107 +1146,338 @@ export function TradeCardChart({
           canvas.style.cursor = e.nativeEvent.offsetX > canvas.offsetWidth - 64 ? 'ns-resize' : 'grab'
         }}
       />
-      {/* Timeframe + overlay-toggle buttons */}
-      <div
-        style={{
-          position: 'absolute', top: '6px', left: '6px', right: '6px', zIndex: 20, pointerEvents: 'auto',
-          display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap',
-          background: 'linear-gradient(180deg, #161616 0%, #060606 55%, #000000 100%)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '999px',
-          padding: '4px 6px',
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -2px 4px rgba(0,0,0,0.8), 0 2px 6px rgba(0,0,0,0.5)',
-        }}
-      >
-        <div style={{ display: 'flex', gap: '3px' }}>
-          {CARD_TIMEFRAMES.map((tf) => (
+      {/* Timeframe + overlay-toggle controls. Desktop: one wide horizontally-scrollable
+          button row. Mobile (isNarrow): 3 simple dropdowns — Timeframe (single-select),
+          Targets (T1/T2/SL checkboxes), Signals (Spam/Struct/Gamma checkboxes) — so
+          nothing wraps, clips, or overlaps on a narrow card. */}
+      {isNarrow ? (
+        <div
+          style={{
+            position: 'absolute', top: '6px', left: '6px', right: '6px', zIndex: 30, pointerEvents: 'auto',
+            display: 'flex', alignItems: 'center', gap: '5px',
+          }}
+        >
+          {/* Timeframe dropdown */}
+          <div style={{ position: 'relative', flexShrink: 0 }}>
             <button
-              key={tf.label}
               type="button"
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation()
                 dragRef.current.active = false
-                setTimeframe(tf.label)
+                setOpenDropdown((prev) => (prev === 'tf' ? null : 'tf'))
               }}
               style={{
-                padding: '4px 12px',
+                padding: '4px 10px',
                 fontFamily: '"Courier New",monospace',
-                fontSize: '14px',
+                fontSize: '11px',
                 fontWeight: 800,
-                letterSpacing: '0.05em',
-                background: timeframe === tf.label
-                  ? 'linear-gradient(180deg, #2b2b2b 0%, #050505 55%, #000000 100%)'
-                  : 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
-                color: timeframe === tf.label ? '#FF6600' : '#ffffff',
-                border: `1px solid ${timeframe === tf.label ? '#FF6600' : 'rgba(255,255,255,0.12)'}`,
+                letterSpacing: '0.04em',
+                whiteSpace: 'nowrap',
+                background: 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                color: '#FF6600',
+                border: '1px solid #FF6600',
                 borderRadius: '999px',
-                boxShadow: timeframe === tf.label
-                  ? 'inset 0 2px 3px rgba(0,0,0,0.85), inset 0 -1px 0 rgba(255,140,0,0.35)'
-                  : 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -2px 4px rgba(0,0,0,0.7)',
                 cursor: 'pointer',
               }}
             >
-              {tf.label}
+              {timeframe} ▾
             </button>
-          ))}
+            {openDropdown === 'tf' && (
+              <div
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  position: 'absolute', top: '100%', left: 0, marginTop: '4px', zIndex: 40,
+                  display: 'flex', flexDirection: 'column', gap: '2px',
+                  background: 'linear-gradient(180deg, #161616 0%, #060606 55%, #000000 100%)',
+                  border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', padding: '4px',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
+                }}
+              >
+                {CARD_TIMEFRAMES.map((tf) => (
+                  <button
+                    key={tf.label}
+                    type="button"
+                    onClick={() => {
+                      dragRef.current.active = false
+                      setTimeframe(tf.label)
+                      setOpenDropdown(null)
+                    }}
+                    style={{
+                      padding: '5px 14px',
+                      fontFamily: '"Courier New",monospace',
+                      fontSize: '11px',
+                      fontWeight: 800,
+                      whiteSpace: 'nowrap',
+                      textAlign: 'left',
+                      background: timeframe === tf.label ? 'rgba(255,102,0,0.15)' : 'transparent',
+                      color: timeframe === tf.label ? '#FF6600' : '#ffffff',
+                      border: 'none',
+                      borderRadius: '5px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {tf.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Targets dropdown (T1 / T2 / SL checkboxes) */}
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <button
+              type="button"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation()
+                dragRef.current.active = false
+                setOpenDropdown((prev) => (prev === 'targets' ? null : 'targets'))
+              }}
+              style={{
+                padding: '4px 10px',
+                fontFamily: '"Courier New",monospace',
+                fontSize: '11px',
+                fontWeight: 800,
+                letterSpacing: '0.04em',
+                whiteSpace: 'nowrap',
+                background: 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                color: '#ffffff',
+                border: '1px solid rgba(255,255,255,0.2)',
+                borderRadius: '999px',
+                cursor: 'pointer',
+              }}
+            >
+              Targets ▾
+            </button>
+            {openDropdown === 'targets' && (
+              <div
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  position: 'absolute', top: '100%', left: 0, marginTop: '4px', zIndex: 40,
+                  display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '110px',
+                  background: 'linear-gradient(180deg, #161616 0%, #060606 55%, #000000 100%)',
+                  border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', padding: '4px',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
+                }}
+              >
+                {([
+                  { key: 'T1', label: 'Target 1', color: '#22c55e' },
+                  { key: 'T2', label: 'Target 2', color: '#32CD32' },
+                  { key: 'SL', label: 'Stop', color: '#ef4444' },
+                ] as const).map((ov) => (
+                  <label
+                    key={ov.key}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      padding: '5px 10px', cursor: 'pointer', borderRadius: '5px',
+                      fontFamily: '"Courier New",monospace', fontSize: '11px', fontWeight: 700,
+                      color: overlayToggles[ov.key] ? ov.color : 'rgba(255,255,255,0.4)',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={overlayToggles[ov.key]}
+                      onChange={() => {
+                        dragRef.current.active = false
+                        setOverlayToggles((prev) => ({ ...prev, [ov.key]: !prev[ov.key] }))
+                      }}
+                      style={{ accentColor: ov.color, cursor: 'pointer' }}
+                    />
+                    {ov.label}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Signals dropdown (Spam / Structural / Gamma Attack checkboxes) */}
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <button
+              type="button"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation()
+                dragRef.current.active = false
+                setOpenDropdown((prev) => (prev === 'signals' ? null : 'signals'))
+              }}
+              style={{
+                padding: '4px 10px',
+                fontFamily: '"Courier New",monospace',
+                fontSize: '11px',
+                fontWeight: 800,
+                letterSpacing: '0.04em',
+                whiteSpace: 'nowrap',
+                background: 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                color: '#ffffff',
+                border: '1px solid rgba(255,255,255,0.2)',
+                borderRadius: '999px',
+                cursor: 'pointer',
+              }}
+            >
+              Signals ▾
+            </button>
+            {openDropdown === 'signals' && (
+              <div
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  position: 'absolute', top: '100%', right: 0, marginTop: '4px', zIndex: 40,
+                  display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '140px',
+                  background: 'linear-gradient(180deg, #161616 0%, #060606 55%, #000000 100%)',
+                  border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', padding: '4px',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
+                }}
+              >
+                {([
+                  { key: 'SPAM', label: 'Spammer', color: '#facc15', active: typeof spamLevel === 'number' && spamLevel > 0 },
+                  { key: 'STRUCT', label: 'Structural', color: '#a855f7', active: typeof structuralLevel === 'number' && structuralLevel > 0 },
+                  { key: 'GAMMA', label: 'Gamma Attack', color: '#ff8c00', active: typeof gammaLevel === 'number' && gammaLevel > 0 },
+                ] as const).map((ov) => (
+                  <label
+                    key={ov.key}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      padding: '5px 10px', borderRadius: '5px',
+                      cursor: ov.active ? 'pointer' : 'not-allowed',
+                      fontFamily: '"Courier New",monospace', fontSize: '11px', fontWeight: 700,
+                      color: !ov.active ? 'rgba(255,255,255,0.18)' : (overlayToggles[ov.key] ? ov.color : 'rgba(255,255,255,0.4)'),
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={overlayToggles[ov.key]}
+                      disabled={!ov.active}
+                      onChange={() => {
+                        if (!ov.active) return
+                        dragRef.current.active = false
+                        setOverlayToggles((prev) => ({ ...prev, [ov.key]: !prev[ov.key] }))
+                      }}
+                      style={{ accentColor: ov.color, cursor: ov.active ? 'pointer' : 'not-allowed' }}
+                    />
+                    {ov.label}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {fetching && (
+            <span style={{ fontFamily: '"Courier New",monospace', fontSize: '10px', color: '#ff6600', letterSpacing: '0.1em', marginLeft: 'auto', flexShrink: 0, whiteSpace: 'nowrap' }}>
+              LIVE…
+            </span>
+          )}
         </div>
-
-        <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.12)', flexShrink: 0 }} />
-
-        <div style={{ display: 'flex', gap: '3px' }}>
-          {([
-            { key: 'T1', label: 'Target 1', color: '#22c55e', active: true },
-            { key: 'T2', label: 'Target 2', color: '#16a34a', active: true },
-            { key: 'SL', label: 'Stop', color: '#ef4444', active: true },
-            { key: 'SPAM', label: 'Spammer', color: '#facc15', active: typeof spamLevel === 'number' && spamLevel > 0 },
-            { key: 'STRUCT', label: 'Structural', color: '#a855f7', active: typeof structuralLevel === 'number' && structuralLevel > 0 },
-            { key: 'GAMMA', label: 'Gamma Attack', color: '#ff8c00', active: typeof gammaLevel === 'number' && gammaLevel > 0 },
-          ] as const).map((ov) => {
-            const on = overlayToggles[ov.key] && ov.active
-            return (
+      ) : (
+        <div
+          className="tcc-toolbar"
+          style={{
+            position: 'absolute', top: '6px', left: '6px', right: '6px', zIndex: 20, pointerEvents: 'auto',
+            display: 'flex', alignItems: 'center', gap: isNarrow ? '5px' : '8px', flexWrap: 'nowrap',
+            overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none',
+            background: 'linear-gradient(180deg, #161616 0%, #060606 55%, #000000 100%)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '999px',
+            padding: isNarrow ? '3px 5px' : '4px 6px',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -2px 4px rgba(0,0,0,0.8), 0 2px 6px rgba(0,0,0,0.5)',
+          }}
+        >
+          <div style={{ display: 'flex', gap: '3px', flexShrink: 0 }}>
+            {CARD_TIMEFRAMES.map((tf) => (
               <button
-                key={ov.key}
+                key={tf.label}
                 type="button"
-                title={ov.active ? `Toggle ${ov.label}` : `No ${ov.label} detected`}
-                disabled={!ov.active}
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation()
-                  if (!ov.active) return
                   dragRef.current.active = false
-                  setOverlayToggles((prev) => ({ ...prev, [ov.key]: !prev[ov.key] }))
+                  setTimeframe(tf.label)
                 }}
                 style={{
-                  padding: '4px 11px',
+                  padding: isNarrow ? '3px 8px' : '4px 12px',
                   fontFamily: '"Courier New",monospace',
-                  fontSize: '12px',
+                  fontSize: isNarrow ? '11px' : '14px',
                   fontWeight: 800,
                   letterSpacing: '0.05em',
-                  background: on
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                  background: timeframe === tf.label
                     ? 'linear-gradient(180deg, #2b2b2b 0%, #050505 55%, #000000 100%)'
                     : 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
-                  color: !ov.active ? 'rgba(255,255,255,0.18)' : (on ? ov.color : 'rgba(255,255,255,0.35)'),
-                  border: `1px solid ${!ov.active ? 'rgba(255,255,255,0.06)' : (on ? ov.color : 'rgba(255,255,255,0.1)')}`,
+                  color: timeframe === tf.label ? '#FF6600' : '#ffffff',
+                  border: `1px solid ${timeframe === tf.label ? '#FF6600' : 'rgba(255,255,255,0.12)'}`,
                   borderRadius: '999px',
-                  boxShadow: on
-                    ? 'inset 0 2px 3px rgba(0,0,0,0.85), inset 0 -1px 0 rgba(255,255,255,0.08)'
-                    : 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -2px 4px rgba(0,0,0,0.7)',
-                  cursor: ov.active ? 'pointer' : 'not-allowed',
+                  boxShadow: timeframe === tf.label
+                    ? 'inset 0 2px 3px rgba(0,0,0,0.85), inset 0 -1px 0 rgba(255,140,0,0.35)'
+                    : 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -2px 4px rgba(0,0,0,0.7)',
+                  cursor: 'pointer',
                 }}
               >
-                {ov.label}
+                {tf.label}
               </button>
-            )
-          })}
-        </div>
+            ))}
+          </div>
 
-        {fetching && (
-          <span style={{ fontFamily: '"Courier New",monospace', fontSize: '10px', color: '#ff6600', letterSpacing: '0.1em', marginLeft: 'auto' }}>
-            LIVE…
-          </span>
-        )}
-      </div>
+          <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.12)', flexShrink: 0 }} />
+
+          <div style={{ display: 'flex', gap: '3px', flexShrink: 0 }}>
+            {([
+              { key: 'T1', label: 'Target 1', shortLabel: '1', color: '#22c55e', active: true },
+              { key: 'T2', label: 'Target 2', shortLabel: '2', color: '#32CD32', active: true },
+              { key: 'SL', label: 'Stop', shortLabel: 'S', color: '#ef4444', active: true },
+              { key: 'SPAM', label: 'Spammer', shortLabel: 'Spam', color: '#facc15', active: typeof spamLevel === 'number' && spamLevel > 0 },
+              { key: 'STRUCT', label: 'Structural', shortLabel: 'Struct', color: '#a855f7', active: typeof structuralLevel === 'number' && structuralLevel > 0 },
+              { key: 'GAMMA', label: 'Gamma Attack', shortLabel: 'Gamma', color: '#ff8c00', active: typeof gammaLevel === 'number' && gammaLevel > 0 },
+            ] as const).map((ov) => {
+              const on = overlayToggles[ov.key] && ov.active
+              return (
+                <button
+                  key={ov.key}
+                  type="button"
+                  title={ov.active ? `Toggle ${ov.label}` : `No ${ov.label} detected`}
+                  disabled={!ov.active}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (!ov.active) return
+                    dragRef.current.active = false
+                    setOverlayToggles((prev) => ({ ...prev, [ov.key]: !prev[ov.key] }))
+                  }}
+                  style={{
+                    padding: isNarrow ? '3px 7px' : '4px 11px',
+                    fontFamily: '"Courier New",monospace',
+                    fontSize: isNarrow ? '10px' : '12px',
+                    fontWeight: 800,
+                    letterSpacing: '0.05em',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                    background: on
+                      ? 'linear-gradient(180deg, #2b2b2b 0%, #050505 55%, #000000 100%)'
+                      : 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                    color: !ov.active ? 'rgba(255,255,255,0.18)' : (on ? ov.color : 'rgba(255,255,255,0.35)'),
+                    border: `1px solid ${!ov.active ? 'rgba(255,255,255,0.06)' : (on ? ov.color : 'rgba(255,255,255,0.1)')}`,
+                    borderRadius: '999px',
+                    boxShadow: on
+                      ? 'inset 0 2px 3px rgba(0,0,0,0.85), inset 0 -1px 0 rgba(255,255,255,0.08)'
+                      : 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -2px 4px rgba(0,0,0,0.7)',
+                    cursor: ov.active ? 'pointer' : 'not-allowed',
+                  }}
+                >
+                  {isNarrow ? ov.shortLabel : ov.label}
+                </button>
+              )
+            })}
+          </div>
+
+          {fetching && (
+            <span style={{ fontFamily: '"Courier New",monospace', fontSize: '10px', color: '#ff6600', letterSpacing: '0.1em', marginLeft: 'auto', flexShrink: 0, whiteSpace: 'nowrap' }}>
+              LIVE…
+            </span>
+          )}
+        </div>
+      )}
     </div>
   )
 }

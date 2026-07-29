@@ -4,6 +4,7 @@ import { gunzip } from 'zlib'
 import { NextRequest, NextResponse } from 'next/server'
 
 import prisma from '@/lib/prisma'
+import { getCachedSweepSense, setCachedSweepSense } from '@/lib/redis'
 
 const gunzipAsync = promisify(gunzip)
 
@@ -19,11 +20,15 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'date query param is required' }, { status: 400 })
         }
 
-        console.log(`[SweepSense API][LOAD] request for ${tradingDate} at ${new Date().toISOString()}`)
+        // Check Redis first — snapshot is immutable once saved, so a cache hit here
+        // skips Postgres entirely for every subsequent afterhours load/poll of the same day.
+        const cached = await getCachedSweepSense(tradingDate)
+        if (cached) {
+            return NextResponse.json({ ...cached, fromCache: true })
+        }
 
         const snapshot = await prisma.sweepSenseSnapshot.findUnique({ where: { tradingDate } })
         if (!snapshot) {
-            console.warn(`[SweepSense API][LOAD] no snapshot found for ${tradingDate}`)
             return NextResponse.json({ error: 'SweepSense snapshot not found' }, { status: 404 })
         }
 
@@ -31,14 +36,17 @@ export async function GET(request: NextRequest) {
         const decompressed = await gunzipAsync(compressedBuffer)
         const data = JSON.parse(decompressed.toString('utf8'))
 
-        console.log(`[SweepSense API][LOAD] found snapshot for ${tradingDate} — tradeCount=${snapshot.tradeCount} savedAt=${snapshot.updatedAt.toISOString()}`)
-
-        return NextResponse.json({
+        const payload = {
             tradingDate: snapshot.tradingDate,
             data,
             tradeCount: snapshot.tradeCount,
-            updatedAt: snapshot.updatedAt,
-        })
+            updatedAt: snapshot.updatedAt.toISOString(),
+        }
+
+        // Populate cache for subsequent polls — fire-and-forget, don't block the response
+        setCachedSweepSense(tradingDate, payload).catch(() => { })
+
+        return NextResponse.json(payload)
     } catch (error) {
         console.error('[SweepSense API][LOAD] Error loading SweepSense snapshot:', error)
         return NextResponse.json({ error: 'Failed to load SweepSense snapshot' }, { status: 500 })

@@ -732,6 +732,11 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   // Deliberately kept separate from shortTermActive/longTermActive so the main table's
   // row filtering/criteria (which read those two) is never touched by the tab's auto-scan.
   const [sweepSenseBgActive, setSweepSenseBgActive] = useState<boolean>(false)
+  // Gates every SweepSense background-scan effect below so none of them fire real Polygon
+  // API calls (fetchCurrentOptionPrices, RS/52wk/seasonal, historical stdDev/ranges, etc.)
+  // while it's still unknown whether a DB snapshot exists - 'pending' until the DB-load
+  // effect (further down) resolves it to 'found'/'not-found'.
+  const [sweepSenseDbStatus, setSweepSenseDbStatus] = useState<'pending' | 'found' | 'not-found'>('pending')
   // Tracks the exact array reference loaded from a saved flow - dedup is skipped for this ref
   const loadedDataRef = useRef<OptionsFlowData[] | null>(null)
 
@@ -1332,6 +1337,9 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   useEffect(() => {
     if (!sweepSenseBgActive) return
     if (!data || data.length === 0) return
+    // Never bulk-fetch stdDevs for the ENTIRE raw data feed's tickers when a DB snapshot is
+    // already loaded and displayed - that snapshot doesn't need this at all.
+    if (sweepSenseDbStatus === 'found') return
     const tickers = [...new Set(data.map((t) => t.underlying_ticker))]
     const missing = tickers.filter((t) => !historicalStdDevs.has(t))
     if (missing.length === 0) return
@@ -1376,12 +1384,15 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
           )
         }
       })()
-  }, [data.length, sweepSenseBgActive])
+  }, [data.length, sweepSenseBgActive, sweepSenseDbStatus])
 
   // Fetch historical ranges when the SweepSense background scan is active
 
   useEffect(() => {
     if (!sweepSenseBgActive || !data || data.length === 0) return
+    // Same reasoning as the stdDev effect above - a loaded DB snapshot never needs this bulk
+    // fetch across the entire raw data feed's tickers.
+    if (sweepSenseDbStatus === 'found') return
 
     const uniqueTickers = [...new Set(data.map((trade) => trade.underlying_ticker))]
 
@@ -1454,7 +1465,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     }
 
     fetchAllRanges()
-  }, [sweepSenseBgActive, data.length])
+  }, [sweepSenseBgActive, data.length, sweepSenseDbStatus])
   // Fetch current option prices for position tracking (only when EFI Highlights is ON)
 
   const fetchCurrentOptionPrices = async (trades: OptionsFlowData[]) => {
@@ -2938,6 +2949,16 @@ Stock Reaction: ${scores.stockReaction}/15`
     if (!pricesFetchStartedRef.current || stockPricesLoading) {
       return
     }
+    // Wait for the DB-load check (above) to resolve first - avoids firing off real Polygon
+    // price-fetch API calls for a scan whose result would just get discarded once the DB
+    // snapshot shows up and wins the race anyway.
+    if (sweepSenseDbStatus === 'pending') {
+      return
+    }
+    if (sweepSenseDbStatus === 'found') {
+      sweepSenseAutoRanRef.current = true // DB snapshot already loaded - never run the live scan
+      return
+    }
     sweepSenseAutoRanRef.current = true
 
     const run = async () => {
@@ -2973,7 +2994,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     }
     run()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, stockPricesLoading])
+  }, [data, stockPricesLoading, sweepSenseDbStatus])
 
   // SweepSense keeps running against LIVE, ever-changing data, but the RS/52wk/seasonal
   // fetches only ran once (at button-click time) for whatever tickers existed then.
@@ -2984,6 +3005,11 @@ Stock Reaction: ${scores.stockReaction}/15`
   useEffect(() => {
     if (!sweepSenseBgActive) return
     if (!data || data.length === 0) return
+    // A DB-loaded snapshot is already fully graded/enriched - this backfill exists only to
+    // top up RS/52wk/seasonal data for a LIVE scan's newly-arrived tickers. Running it against
+    // a loaded snapshot would recompute RS/52wk/seasonal for the whole day's raw candidate
+    // universe (hundreds of tickers) for absolutely no display benefit.
+    if (sweepSenseDbStatus === 'found') return
 
     const shortTermTrades = data.filter(meetsShortTermCriteria)
     const longTermTrades = data.filter(meetsLongTermCriteria)
@@ -3018,7 +3044,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
     return () => clearTimeout(debounceTimer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.length, sweepSenseBgActive])
+  }, [data.length, sweepSenseBgActive, sweepSenseDbStatus])
 
   // Notable Flow Pick criteria checker (8 criteria)
 
@@ -4058,6 +4084,14 @@ Stock Reaction: ${scores.stockReaction}/15`
   // otherwise a trade that hasn't been priced yet can never pass the gate to get priced in
   // the first place (deadlock -> permanent "settling"/infinite loading).
   const sweepSenseCandidates = useMemo(() => {
+    // A DB snapshot is already fully graded/enriched (prices, dealer zones, RS, etc. all
+    // baked in at save time) - recomputing this pool from the raw live `data` feed would
+    // reopen the ENTIRE day's matching trades (hundreds) as "candidates" and kick off real
+    // Polygon price/dealer-zone/candle scans against all of them for nothing, since the
+    // loaded snapshot is what's actually displayed either way.
+    if (sweepSenseDbStatus === 'found') {
+      return [] as OptionsFlowData[]
+    }
     if (!sweepSenseBgActive || !data || data.length === 0) {
       return [] as OptionsFlowData[]
     }
@@ -4071,7 +4105,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     const longOnly = notExpired.filter((t) => meetsLeapCriteria(t))
     const combined = notExpired.filter((trade) => meetsEfiCriteria(trade) || meetsLeapCriteria(trade))
     return combined
-  }, [sweepSenseBgActive, data])
+  }, [sweepSenseBgActive, data, sweepSenseDbStatus])
 
   // Records the first moment (wall-clock time) each trade was actually observed to have an
   // A-/A/A+ grade, stamped on every grading pass (which reruns on each price poll) - not just
@@ -4774,7 +4808,10 @@ Stock Reaction: ${scores.stockReaction}/15`
   // timer before it ever fired.
   useEffect(() => {
     if (sweepSenseSnapshotLoadedRef.current) return
-    if (isSweepSenseMarketOpen()) return
+    if (isSweepSenseMarketOpen()) {
+      setSweepSenseDbStatus('not-found')
+      return
+    }
     if (!data || data.length === 0) return
     if (!pricesFetchStartedRef.current || stockPricesLoading) return
 
@@ -4788,9 +4825,15 @@ Stock Reaction: ${scores.stockReaction}/15`
           sweepSenseUsingLoadedSnapshotRef.current = true // block the live-data debounce from overwriting this
           setSweepSenseBgActive(true)
           setSweepSenseDataStable(result.data)
+          setSweepSenseDbStatus('found')
+        } else {
+          setSweepSenseDbStatus('not-found')
         }
       })
-      .catch((err) => console.error(`[SweepSense][DB-LOAD] fetch failed for ${tradingDate}:`, err))
+      .catch((err) => {
+        console.error(`[SweepSense][DB-LOAD] fetch failed for ${tradingDate}:`, err)
+        setSweepSenseDbStatus('not-found') // don't block the live scan forever on a network error
+      })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.length, stockPricesLoading])
 
@@ -4926,7 +4969,10 @@ Stock Reaction: ${scores.stockReaction}/15`
   // (the options-chain page's logic) — not the multi-expiry aggregate atmIV from dealer-zones.
   useEffect(() => {
     if (!sweepSenseBgActive || modeLoadingStep !== null) return
-    const notableTrades = sweepSenseCandidates
+    // Also covers manually-tracked A+ Tracker flows (addToFlowTracking) - those never pass
+    // through the SweepSense candidate pool, so without this they'd never get an IV cached
+    // and their Target 1/2 + stop would show N/A forever.
+    const notableTrades = [...sweepSenseCandidates, ...trackedFlows]
     const seenKeys = new Set<string>()
     for (const trade of notableTrades) {
       const key = `${trade.underlying_ticker}_${trade.expiry}`
@@ -4960,14 +5006,16 @@ Stock Reaction: ${scores.stockReaction}/15`
         .catch(() => { })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sweepSenseCandidates, sweepSenseBgActive, modeLoadingStep, currentPrices])
+  }, [sweepSenseCandidates, trackedFlows, sweepSenseBgActive, modeLoadingStep, currentPrices])
 
   // Auto-fetch the 45-day-window ATM IV for LONG-TERM (LEAP) trades' expected-range gate.
   // Long-term picks use the expiry closest to 45 calendar days out - not the trade's own
   // (much farther-dated) expiry - for the Plan Entry / Magnet-Pivot range calculation.
   useEffect(() => {
     if (!sweepSenseBgActive || modeLoadingStep !== null) return
-    const longTermTrades = sweepSenseCandidates.filter(meetsLongTermCriteria)
+    // Also covers manually-tracked long-term A+ Tracker flows for the same reason as the
+    // expiry-IV effect above - tracked trades never pass through sweepSenseCandidates.
+    const longTermTrades = [...sweepSenseCandidates, ...trackedFlows].filter(meetsLongTermCriteria)
     const seenTickers = new Set<string>()
     for (const trade of longTermTrades) {
       const ticker = trade.underlying_ticker
@@ -5015,7 +5063,7 @@ Stock Reaction: ${scores.stockReaction}/15`
         .catch(() => { })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sweepSenseCandidates, sweepSenseBgActive, modeLoadingStep, currentPrices])
+  }, [sweepSenseCandidates, trackedFlows, sweepSenseBgActive, modeLoadingStep, currentPrices])
 
   // Reset to page 1 when filters change
 

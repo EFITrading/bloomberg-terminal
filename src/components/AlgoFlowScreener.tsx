@@ -1,5 +1,6 @@
 ﻿'use client'
 
+import { createPortal } from 'react-dom'
 import {
   Area,
   AreaChart,
@@ -17,6 +18,8 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  useYAxisDomain,
+  usePlotArea,
 } from 'recharts'
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -810,6 +813,78 @@ const CandlestickLayer = (props: any) => {
   )
 }
 
+// Draws a ticker label directly on the right Y-axis at each compare line's last visible
+// value (overlapping the $ tick text is fine -- the label sits IN FRONT of it), de-overlapping
+// labels from each other only.
+// NOTE: Recharts v3's <Customized> no longer passes xAxisMap/yAxisMap/width as props
+// like v2 did, and `useYAxis` isn't part of the public API -- so we derive the pixel
+// scale ourselves from the public usePlotArea()/useYAxisDomain() hooks. Recharts renders
+// the Y-axis ticks AFTER Customized internally, so painting order alone can't put us on
+// top -- we portal our <g> to the end of the chart's own <svg> so it's the last (topmost)
+// element in the DOM regardless of Recharts' internal ordering.
+const CompareEndLabels = (props: any) => {
+  const { data, seriesKeys, hidden, containerRef, hoveredKey, onHoverKey, onDoubleClickKey } = props
+  const plotArea = usePlotArea()
+  const domain = useYAxisDomain(0) as [number, number] | undefined
+  if (!plotArea || !domain || !data?.length || !seriesKeys?.length) return null
+  const [domainMin, domainMax] = domain
+  const domainRange = (domainMax - domainMin) || 1
+  const yScale = (value: number) => plotArea.y + plotArea.height * (1 - (value - domainMin) / domainRange)
+  // Sit right at the plot's right edge, same column as the $ axis tick labels --
+  // overlap is fine, we just don't want the labels to overlap each other.
+  const rightEdge = plotArea.x + plotArea.width
+
+  const labels = seriesKeys
+    .filter(({ key }: any) => !hidden.has(key))
+    .map(({ key, color }: any) => {
+      let lastVal: number | null = null
+      for (let i = data.length - 1; i >= 0; i--) {
+        const v = data[i][key]
+        if (v != null && !isNaN(v)) { lastVal = v; break }
+      }
+      if (lastVal == null) return null
+      const y = yScale(lastVal)
+      if (isNaN(y)) return null
+      return { key, color, y }
+    })
+    .filter(Boolean) as Array<{ key: string; color: string; y: number }>
+
+  labels.sort((a, b) => a.y - b.y)
+  const BOX_HEIGHT = 19
+  const HALF_H = BOX_HEIGHT / 2
+  const GAP = 21
+  for (let i = 1; i < labels.length; i++) {
+    if (labels[i].y - labels[i - 1].y < GAP) labels[i].y = labels[i - 1].y + GAP
+  }
+  // Keep the whole stack inside the plot area so labels never get pushed below the
+  // X-axis (or above the top) once collision-avoidance has spread them out.
+  if (labels.length) {
+    const plotTop = plotArea.y
+    const plotBottom = plotArea.y + plotArea.height
+    const overflowBottom = (labels[labels.length - 1].y + HALF_H) - plotBottom
+    if (overflowBottom > 0) for (const l of labels) l.y -= overflowBottom
+    const overflowTop = plotTop - (labels[0].y - HALF_H)
+    if (overflowTop > 0) for (const l of labels) l.y += overflowTop
+  }
+
+  const content = (
+    <g>
+      {labels.map(({ key, color, y }) => {
+        const dimmed = hoveredKey != null && hoveredKey !== key
+        return (
+          <g key={key} onMouseEnter={() => onHoverKey?.(key)} onMouseLeave={() => onHoverKey?.(null)} onDoubleClick={() => onDoubleClickKey?.(key)} style={{ cursor: 'pointer', opacity: dimmed ? 0.35 : 1 }}>
+            <rect x={rightEdge + 4} y={y - HALF_H} width={key.length * 9.7 + 11} height={BOX_HEIGHT} rx={3} fill="#0a0a0a" stroke={color} strokeWidth={hoveredKey === key ? 2 : 1} />
+            <text x={rightEdge + 10} y={y + 5} fontFamily="JetBrains Mono,monospace" fontSize={16} fontWeight={800} fill={color}>{key}</text>
+          </g>
+        )
+      })}
+    </g>
+  )
+
+  const svgNode = containerRef?.current?.querySelector('svg.recharts-surface') as SVGSVGElement | null
+  return svgNode ? createPortal(content, svgNode) : content
+}
+
 // Helper: convert scanTimeframe string ←' number of trading days
 const getScanDays = (tf: string): number => {
   if (tf === '1D') return 1
@@ -1518,6 +1593,28 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const [chartViewMode, setChartViewMode] = useState<'detailed' | 'simplified' | 'net'>(typeof window !== 'undefined' && window.innerWidth <= 768 ? 'net' : 'detailed')
   const [hiddenLines, setHiddenLines] = useState<Set<string>>(new Set())
   const toggleLine = (key: string) => setHiddenLines(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })
+  // -- Sector/Industry compare mode: 11 sectors (or all industries) plotted as separate
+  // net-flow lines, each line = aggregate net options flow across that basket's holdings
+  // ("holdings" modes) or the basket ETF's own option trades ("etfs" modes).
+  const [compareMode, setCompareMode] = useState<'off' | 'sectors' | 'industries' | 'sector-etfs' | 'industry-etfs'>('off')
+  const [compareDropdownOpen, setCompareDropdownOpen] = useState(false)
+  const [compareDropdownPos, setCompareDropdownPos] = useState<{ top: number; left: number } | null>(null)
+  const compareBtnRef = useRef<HTMLButtonElement | null>(null)
+  const compareChartWrapRef = useRef<HTMLDivElement | null>(null)
+  const [compareData, setCompareData] = useState<any[] | null>(null)
+  const [compareKeys, setCompareKeys] = useState<Array<{ key: string; label: string; color: string }>>([])
+  const [compareLoading, setCompareLoading] = useState(false)
+  const [hiddenCompareLines, setHiddenCompareLines] = useState<Set<string>>(new Set())
+  const toggleCompareLine = (key: string) => setHiddenCompareLines(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })
+  const [hoveredCompareKey, setHoveredCompareKey] = useState<string | null>(null)
+  // Drill-down: double-click a basket's Y-axis label -> see each of its holdings plotted
+  // individually. Double-click a ticker's label in THAT view -> full single-ticker AlgoFlow.
+  const [compareDrillBasket, setCompareDrillBasket] = useState<{ etf: string; label: string; basketMode: 'sectors' | 'industries' } | null>(null)
+  type CompareBackEntry =
+    | { type: 'baskets'; mode: 'sectors' | 'industries' | 'sector-etfs' | 'industry-etfs' }
+    | { type: 'tickers'; etf: string; label: string; basketMode: 'sectors' | 'industries' }
+  const [compareBackStack, setCompareBackStack] = useState<CompareBackEntry[]>([])
+  const drilledFromCompareRef = useRef(false)
   const [scanTimeframe, setScanTimeframe] = useState<string>('1D')
   const [chartDisplayDays, setChartDisplayDays] = useState<number>(1)
   const [brushIndices, setBrushIndices] = useState<{ start: number; end: number } | null>(null)
@@ -1573,6 +1670,8 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const [excludeIndex, setExcludeIndex] = useState(false)
   const [sectorFilter, setSectorFilter] = useState<string | null>(null)
   const [sectorPopupOpen, setSectorPopupOpen] = useState(false)
+  const [sectorPopupPos, setSectorPopupPos] = useState<{ top: number; left: number } | null>(null)
+  const sectorBtnRef = useRef<HTMLButtonElement | null>(null)
   const sectorHoldingsCacheRef = useRef<Map<string, string[]>>(new Map())
 
   const SECTORS = [
@@ -1970,10 +2069,16 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     return { isMultiDay, liveOIMap, baseOIMap, multiDayOIChange, lastDayVolumeMap, lastDayOISnapshotMap }
   }, [analysis?.trades, flowData, scanTimeframe])
 
-  // Memoize chart data so button clicks don't recompute on unrelated re-renders
-  const chartMemo = useMemo(() => {
+  // Memoize the EXPENSIVE part of chart data prep (filter rebuild, 1-min resample from raw
+  // trades, interval downsampling) separately from the CHEAP part (brush slice + point-cap
+  // downsample). This is split specifically so dragging the chart to pan/zoom - which only
+  // changes `brushIndices` on every animation frame - never re-triggers the expensive trade
+  // filtering/bucketing pipeline below. Previously both were fused into one useMemo keyed on
+  // brushIndices too, so every drag frame re-filtered/re-bucketed the full trade set from
+  // scratch, which is what caused the stuttering/laggy zoom-pan feel.
+  const baseChartMemo = useMemo(() => {
     if (!analysis?.chartData) {
-      return { visibleData: [] as any[], xInterval: 0, priceMin: 'auto' as any, priceMax: 'auto' as any }
+      return { baseData: [] as any[] }
     }
 
     // When a filter is active, rebuild the time-series from the filtered trades
@@ -2098,6 +2203,16 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     const baseData = chartDisplayDays >= scanDays
       ? activeChartData
       : activeChartData.filter((d: any) => d.time >= Date.now() - chartDisplayDays * 1.5 * 24 * 60 * 60 * 1000)
+    return { baseData }
+  }, [analysis?.chartData, displayAnalysis?.trades, expiryFilter, excludeMag7, excludeEtf, excludeIndex, chartDisplayDays, scanTimeframe, timeInterval])
+
+  // Cheap slice + point-cap downsample - the ONLY thing that needs to re-run while dragging
+  // (brushIndices changes every RAF frame during a pan/zoom drag).
+  const chartMemo = useMemo(() => {
+    const baseData = baseChartMemo.baseData
+    if (!baseData.length) {
+      return { visibleData: [] as any[], xInterval: 0, priceMin: 'auto' as any, priceMax: 'auto' as any }
+    }
     const len = baseData.length
     const bStart = brushIndices ? Math.max(0, Math.min(brushIndices.start, len - 1)) : 0
     const bEnd = brushIndices ? Math.max(bStart + 1, Math.min(brushIndices.end, len - 1)) : len - 1
@@ -2116,7 +2231,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     const priceMin = priceLows.length ? Math.min(...priceLows) * 0.95 : 'auto'
     const priceMax = priceHighs.length ? Math.max(...priceHighs) * 1.05 : 'auto'
     return { visibleData, xInterval, priceMin, priceMax }
-  }, [analysis?.chartData, displayAnalysis?.trades, expiryFilter, excludeMag7, excludeEtf, excludeIndex, chartDisplayDays, scanTimeframe, brushIndices, timeInterval])
+  }, [baseChartMemo, brushIndices])
 
   // Keep analysisRef in sync so wheel handler never needs to call setAnalysis
   useEffect(() => { analysisRef.current = analysis }, [analysis])
@@ -2292,7 +2407,6 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               accumulatedTradesRef.current = saved
               liveOICache.clear()
               setIsStreamComplete(true)
-              setStreamStatus(`Loaded from saved - ${saved.length} trades`)
               setLoading(false)
               // Trades are already classified "-- build analysis directly from saved fields, skip re-processing
               const fastAnalysis = buildFastAnalysisFromSaved(saved, displayLabel)
@@ -2575,6 +2689,213 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     // No ALL cache --” fetch flow for ETF holdings
     fetchTickerFlow(etf + '100')
   }
+
+  const COMPARE_PALETTE = ['#00ff7f', '#4da6ff', '#ffcc00', '#ff2222', '#a78bfa', '#34d399', '#f472b6', '#facc15', '#38bdf8', '#fb923c', '#c084fc', '#22d3ee', '#84cc16', '#f87171', '#e879f9']
+
+  // Shared time-bucketed, quadrant-classified (bull/bear calls+puts) net-flow series builder
+  // used by every compare view (baskets or individual tickers). `matchTickers` maps each
+  // basket/series key to the set of underlying tickers whose trades should be counted in it.
+  const buildCompareSeries = (
+    keys: Array<{ key: string; matchTickers: Set<string> }>,
+    allTrades: OptionsFlowData[],
+    slotTimes: number[],
+    template: any[] | undefined
+  ) => {
+    const cum: Record<string, { bc: number; cc: number; bp: number; rp: number }> = {}
+    const buckets: Record<string, Record<number, { bc: number; cc: number; bp: number; rp: number }>> = {}
+    for (const { key } of keys) { cum[key] = { bc: 0, cc: 0, bp: 0, rp: 0 }; buckets[key] = {} }
+
+    for (const trade of allTrades) {
+      const tradeDate = new Date(trade.trade_timestamp)
+      const ptTime = new Date(tradeDate.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+      const hour = ptTime.getHours(); const minute = ptTime.getMinutes()
+      if (hour < 6 || hour > 13 || (hour === 6 && minute < 30)) continue
+      const tradeMs = ptTime.getTime()
+      let slotMs = slotTimes[0]
+      for (const st of slotTimes) { if (st <= tradeMs) slotMs = st; else break }
+      const ticker = trade.underlying_ticker?.toUpperCase() ?? ''
+      const isCall = trade.type?.toLowerCase() === 'call'
+      const fs = (trade as any).fill_style as string | undefined
+      const isBullish = !fs || fs === 'N/A' || fs === 'A' || fs === 'AA'
+      const isBearish = fs === 'B' || fs === 'BB'
+      const premium = trade.total_premium || 0
+      for (const { key, matchTickers } of keys) {
+        if (!matchTickers.has(ticker)) continue
+        const b = buckets[key][slotMs] ?? { bc: 0, cc: 0, bp: 0, rp: 0 }
+        if (isCall) { if (isBullish) b.bc += premium; else if (isBearish) b.cc += premium }
+        else { if (isBullish) b.bp += premium; else if (isBearish) b.rp += premium }
+        buckets[key][slotMs] = b
+      }
+    }
+
+    return slotTimes.map((slotMs) => {
+      const orig = (template || []).find((p: any) => Number(p.time) === slotMs)
+      const row: any = { time: slotMs, timeLabel: orig?.timeLabel ?? '' }
+      for (const { key } of keys) {
+        const b = buckets[key][slotMs] || { bc: 0, cc: 0, bp: 0, rp: 0 }
+        const c = cum[key]
+        c.bc += b.bc; c.cc += b.cc; c.bp += b.bp; c.rp += b.rp
+        row[key] = (c.bc - c.cc) + (c.bp - c.rp) // net (matches main chart's netFlow convention)
+        row[`${key}__bull`] = c.bc + c.bp
+        row[`${key}__bear`] = c.cc + c.rp
+        row[`${key}__bc`] = c.bc
+        row[`${key}__cc`] = c.cc
+        row[`${key}__bp`] = c.bp
+        row[`${key}__rp`] = c.rp
+      }
+      return row
+    })
+  }
+
+  const getCompareSlotTemplate = () => {
+    const template = analysisRef.current?.chartData?.length ? analysisRef.current.chartData : allScanCacheRef.current?.analysis?.chartData
+    const slotTimes: number[] = (template || []).map((p: any) => Number(p.time)).sort((a: number, b: number) => a - b)
+    return { template, slotTimes }
+  }
+
+  // Build one aggregate net-flow line per sector/industry basket "-- requires an ALL scan
+  // already cached so we can filter its trades by each basket's holdings (or, in "-etfs" modes,
+  // the basket ETF's own trades) without re-scanning.
+  const runCompareScan = async (mode: 'sectors' | 'industries' | 'sector-etfs' | 'industry-etfs') => {
+    setCompareDropdownOpen(false)
+    setCompareDrillBasket(null)
+    setCompareBackStack([])
+    const isSelfEtf = mode === 'sector-etfs' || mode === 'industry-etfs'
+    const baskets = (mode === 'sectors' || mode === 'sector-etfs') ? SECTORS : INDUSTRIES
+    const basketMode: 'sectors' | 'industries' = (mode === 'sectors' || mode === 'sector-etfs') ? 'sectors' : 'industries'
+    const allTrades = allScanCacheRef.current?.flowData
+    if (!allTrades?.length) {
+      setError('Run an ALL TICKERS scan first, then compare sectors/industries.')
+      return
+    }
+    setCompareMode(mode)
+    setCompareLoading(true)
+    setHiddenCompareLines(new Set())
+    try {
+      const keys: Array<{ key: string; matchTickers: Set<string> }> = []
+      if (isSelfEtf) {
+        for (const { etf } of baskets) keys.push({ key: etf, matchTickers: new Set([etf.toUpperCase()]) })
+      } else {
+        // Resolve holdings for every basket (cached where possible)
+        await Promise.all(baskets.map(async ({ etf }) => {
+          let holdings = sectorHoldingsCacheRef.current.get(etf)
+          if (!holdings) {
+            try {
+              const resp = await fetch(`/api/etf-holdings?etf=${etf}&limit=100`)
+              if (resp.ok) {
+                const data = await resp.json()
+                holdings = (data.symbols || []) as string[]
+                sectorHoldingsCacheRef.current.set(etf, holdings)
+              }
+            } catch { }
+          }
+          keys.push({ key: etf, matchTickers: new Set((holdings || []).map((s: string) => s.toUpperCase())) })
+        }))
+      }
+
+      // Use the existing ALL-scan chart's time slots as the shared time axis so every
+      // basket's line lines up on the same x-axis as the main chart.
+      const { template, slotTimes } = getCompareSlotTemplate()
+      if (!slotTimes.length) { setError('No chart timeline available to compare against.'); setCompareLoading(false); return }
+
+      const series = buildCompareSeries(keys, allTrades, slotTimes, template)
+      setCompareData(series)
+      setCompareKeys(baskets.map(({ etf, label }, i) => ({ key: etf, label: `${etf} · ${label}`, color: COMPARE_PALETTE[i % COMPARE_PALETTE.length] })))
+      void basketMode // referenced by drill-down entry points below
+    } finally {
+      setCompareLoading(false)
+    }
+  }
+
+  // Drill down from a basket's Y-axis label into its individual holding tickers, each
+  // plotted as its own line (capped to the top N by traded premium so it stays readable).
+  const runTickerDrillScan = async (etf: string, label: string, basketMode: 'sectors' | 'industries', pushBack: boolean) => {
+    const allTrades = allScanCacheRef.current?.flowData
+    if (!allTrades?.length) return
+    setCompareLoading(true)
+    setHiddenCompareLines(new Set())
+    try {
+      let holdings = sectorHoldingsCacheRef.current.get(etf)
+      if (!holdings) {
+        try {
+          const resp = await fetch(`/api/etf-holdings?etf=${etf}&limit=100`)
+          if (resp.ok) {
+            const data = await resp.json()
+            holdings = (data.symbols || []) as string[]
+            sectorHoldingsCacheRef.current.set(etf, holdings)
+          }
+        } catch { }
+      }
+      const holdingSet = new Set((holdings || []).map((s: string) => s.toUpperCase()))
+
+      // Rank holdings by total traded premium within this ALL-scan and keep only the top 12
+      // so the ticker-level compare chart stays readable.
+      const premiumByTicker = new Map<string, number>()
+      for (const t of allTrades) {
+        const tk = t.underlying_ticker?.toUpperCase() ?? ''
+        if (!holdingSet.has(tk)) continue
+        premiumByTicker.set(tk, (premiumByTicker.get(tk) || 0) + (t.total_premium || 0))
+      }
+      const topTickers = Array.from(premiumByTicker.entries()).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([tk]) => tk)
+      if (!topTickers.length) { setError(`No traded holdings found for ${etf}.`); setCompareLoading(false); return }
+
+      const { template, slotTimes } = getCompareSlotTemplate()
+      if (!slotTimes.length) { setError('No chart timeline available to compare against.'); setCompareLoading(false); return }
+
+      const keys = topTickers.map(tk => ({ key: tk, matchTickers: new Set([tk]) }))
+      const series = buildCompareSeries(keys, allTrades, slotTimes, template)
+      setCompareData(series)
+      setCompareKeys(topTickers.map((tk, i) => ({ key: tk, label: tk, color: COMPARE_PALETTE[i % COMPARE_PALETTE.length] })))
+      if (pushBack) setCompareBackStack(prev => [...prev, { type: 'baskets', mode: (basketMode === 'sectors' ? 'sectors' : 'industries') }])
+      setCompareDrillBasket({ etf, label, basketMode })
+    } finally {
+      setCompareLoading(false)
+    }
+  }
+
+  // Drill down from an individual ticker's Y-axis label (within a ticker-level compare view)
+  // into that ticker's own full single-ticker AlgoFlow chart.
+  const drillIntoCompareTicker = (tk: string) => {
+    const allTrades = allScanCacheRef.current?.flowData
+    if (!allTrades?.length || !compareDrillBasket) return
+    const filtered = allTrades.filter(t => (t.underlying_ticker?.toUpperCase() ?? '') === tk)
+    if (!filtered.length) return
+    setCompareBackStack(prev => [...prev, { type: 'tickers', etf: compareDrillBasket.etf, label: compareDrillBasket.label, basketMode: compareDrillBasket.basketMode }])
+    drilledFromCompareRef.current = true
+    setCompareMode('off')
+    setCompareData(null)
+    setDrilledTicker(tk)
+    setSearchTicker(tk)
+    setFlowData(filtered)
+    performAnalysis(filtered, tk)
+  }
+
+  // Steps one level back through compare drill-downs (ticker -> basket -> off).
+  const goBackCompareLevel = () => {
+    setCompareBackStack(prev => {
+      if (!prev.length) {
+        // Nothing left in the drill-down stack -- we're at the top-level basket view,
+        // so one more "back" should exit compare mode entirely and return to the
+        // ALL-scan chart the user started from.
+        setCompareMode('off')
+        setCompareData(null)
+        setCompareDrillBasket(null)
+        return prev
+      }
+      const next = [...prev]
+      const entry = next.pop()!
+      if (entry.type === 'baskets') {
+        void runCompareScan(entry.mode)
+      } else {
+        // Re-enable compare mode (it gets set to 'off' when drilling into a single ticker)
+        // so the ticker-level compare chart actually renders again.
+        setCompareMode(entry.basketMode)
+        void runTickerDrillScan(entry.etf, entry.label, entry.basketMode, false)
+      }
+      return next
+    })
+  }
+
 
   // Show full-screen ALL-scan loading scene (match OptionsFlow visuals)
   const [isAllScan, setIsAllScan] = useState(false)
@@ -2899,7 +3220,6 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       accumulatedTradesRef.current = savedTrades
       liveOICache.clear()
       setIsStreamComplete(true)
-      setStreamStatus(`Loaded from saved - ${savedTrades.length} trades`)
       performAnalysis(savedTrades, displayLabel)
     } else {
       setError('No saved data available for this selection.')
@@ -3544,6 +3864,84 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
 
           <div className="af-sep" />
 
+          {/* Ticker input */}
+          <input type="text" value={ticker} onChange={e => setTicker(e.target.value.toUpperCase())} onKeyPress={handleKeyPress} placeholder="TICKER"
+            disabled={loading}
+            style={{ height: 32, width: 110, padding: '0 10px', background: 'linear-gradient(180deg,#111 0%,#080808 100%)', border: '1px solid rgba(255,255,255,0.2)', borderTop: '1px solid rgba(255,255,255,0.3)', borderRadius: 6, color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, letterSpacing: '0.12em', outline: 'none', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.8)', flexShrink: 0 }} />
+
+          {/* Timeframe select */}
+          <select value={scanTimeframe} onChange={e => setScanTimeframe(e.target.value)} disabled={loading}
+            style={{ height: 32, padding: '0 8px', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 100%)', border: '1px solid rgba(255,255,255,0.14)', borderTop: '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: '#ccc', fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, outline: 'none', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06),inset 0 -1px 0 rgba(0,0,0,0.6)', flexShrink: 0, colorScheme: 'dark' }}>
+            <option value="1D" style={{ background: '#0a0a0a', color: '#ccc' }}>TODAY</option>
+            <option value="2" style={{ background: '#0a0a0a', color: '#ccc' }}>2 DAYS</option>
+            <option value="3" style={{ background: '#0a0a0a', color: '#ccc' }}>3 DAYS</option>
+            <option value="4" style={{ background: '#0a0a0a', color: '#ccc' }}>4 DAYS</option>
+            <option value="5" style={{ background: '#0a0a0a', color: '#ccc' }}>5 DAYS</option>
+            <option value="7" style={{ background: '#0a0a0a', color: '#ccc' }}>7 DAYS</option>
+            <option value="10" style={{ background: '#0a0a0a', color: '#ccc' }}>10 DAYS</option>
+            <option value="14" style={{ background: '#0a0a0a', color: '#ccc' }}>14 DAYS</option>
+            <option value="20" style={{ background: '#0a0a0a', color: '#ccc' }}>20 DAYS</option>
+            <option value="30" style={{ background: '#0a0a0a', color: '#ccc' }}>30 DAYS</option>
+            <option value="45" style={{ background: '#0a0a0a', color: '#ccc' }}>45 DAYS</option>
+            <option value="60" style={{ background: '#0a0a0a', color: '#ccc' }}>60 DAYS</option>
+            <option value="90" style={{ background: '#0a0a0a', color: '#ccc' }}>90 DAYS</option>
+            <option value="126" style={{ background: '#0a0a0a', color: '#ccc' }}>126 DAYS</option>
+            <option value="189" style={{ background: '#0a0a0a', color: '#ccc' }}>189 DAYS</option>
+            <option value="252" style={{ background: '#0a0a0a', color: '#ccc' }}>252 DAYS</option>
+          </select>
+
+          {/* SCAN */}
+          <button onClick={handleSearch} disabled={loading || isAnalyzing || !ticker.trim()}
+            style={{ height: 32, padding: '0 18px', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 60%,#040404 100%)', border: '1px solid rgba(255,255,255,0.14)', borderTop: '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: loading || isAnalyzing ? '#555' : '#ff8500', fontFamily: 'JetBrains Mono,monospace', fontSize: 15, fontWeight: 800, letterSpacing: '1.5px', cursor: loading || isAnalyzing || !ticker.trim() ? 'not-allowed' : 'pointer', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.10),inset 0 -1px 0 rgba(0,0,0,0.7),0 2px 4px rgba(0,0,0,0.9)', display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap', flexShrink: 0, opacity: !ticker.trim() || loading || isAnalyzing ? 0.6 : 1 }}>
+            {isAnalyzing ? (<><div className="animate-spin" style={{ width: 10, height: 10, borderRadius: '50%', border: '2px solid #ff8500', borderTopColor: 'transparent' }} />SCANNING {flowData.length.toLocaleString()}</>) : loading ? 'SCANNING...' : 'SCAN'}
+          </button>
+
+          {/* Per-ticker LIVE */}
+          {ticker.trim() && ticker !== 'ALL' && (
+            <button className={`af-btn${isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? ' af-active-emerald' : ''}`}
+              onClick={() => isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? stopAlgoLive() : startAlgoLive(ticker.trim())}
+              title={`Stream ${ticker} options live`}>
+              <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? '#22c55e' : '#555', marginRight: 5 }} />
+              {isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? `STOP · ${algoLiveTradeCount}` : 'LIVE'}
+            </button>
+          )}
+
+          {/* COMPARE (sectors/industries holdings or ETF-self net-flow) */}
+          {compareDropdownOpen && <div onClick={() => setCompareDropdownOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />}
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <button ref={compareBtnRef} className={`af-btn${compareMode !== 'off' ? ' af-active-orange' : ''}`}
+              onClick={() => {
+                if (!compareDropdownOpen && compareBtnRef.current) {
+                  const r = compareBtnRef.current.getBoundingClientRect()
+                  setCompareDropdownPos({ top: r.bottom + 6, left: r.left })
+                }
+                setCompareDropdownOpen(o => !o)
+              }}
+              disabled={compareLoading}
+              title="Plot each sector/industry's net flow as its own line">
+              {compareLoading ? 'COMPARING...' : compareMode === 'off' ? 'COMPARE' : `COMPARE: ${compareMode.toUpperCase()}`} {compareDropdownOpen ? '▲' : '▾'}
+            </button>
+            {compareDropdownOpen && compareDropdownPos && (
+              <div style={{ position: 'fixed', top: compareDropdownPos.top, left: compareDropdownPos.left, background: 'linear-gradient(180deg,#0d1420 0%,#060810 100%)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: '6px 0', width: 220, zIndex: 10000, boxShadow: '0 16px 48px rgba(0,0,0,0.95)' }}>
+                <div onClick={() => runCompareScan('sectors')} style={{ padding: '9px 14px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 700, color: compareMode === 'sectors' ? '#ff8500' : '#fff' }}>SECTOR HOLDINGS</div>
+                <div onClick={() => runCompareScan('sector-etfs')} style={{ padding: '9px 14px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 700, color: compareMode === 'sector-etfs' ? '#ff8500' : '#fff' }}>SECTOR ETFs</div>
+                <div onClick={() => runCompareScan('industries')} style={{ padding: '9px 14px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 700, color: compareMode === 'industries' ? '#ff8500' : '#fff' }}>INDUSTRY HOLDINGS</div>
+                <div onClick={() => runCompareScan('industry-etfs')} style={{ padding: '9px 14px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 700, color: compareMode === 'industry-etfs' ? '#ff8500' : '#fff' }}>INDUSTRY ETFs</div>
+                {compareMode !== 'off' && (
+                  <div onClick={() => { setCompareMode('off'); setCompareData(null); setCompareDrillBasket(null); setCompareBackStack([]); setCompareDropdownOpen(false) }} style={{ padding: '9px 14px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 700, color: '#ef4444', borderTop: '1px solid rgba(255,255,255,0.07)' }}>✕ TURN OFF</div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Compare drill-down back button -- also lets you step all the way back to
+              the ALL-scan chart once the drill-down stack is empty */}
+          {compareMode !== 'off' && (
+            <button className="af-btn" onClick={goBackCompareLevel} title="Back one level in the compare drill-down">← BACK</button>
+          )}
+
+          <div className="af-sep" />
+
           {/* Expiry filters */}
           <button className={`af-btn${expiryFilter === '45d' ? ' af-active-yellow' : ''}`} onClick={() => setExpiryFilter(expiryFilter === '45d' ? 'all' : '45d')} title="Contracts expiring within 45 days">45D</button>
           <button className={`af-btn${expiryFilter === 'weekly' ? ' af-active-yellow' : ''}`} onClick={() => setExpiryFilter(expiryFilter === 'weekly' ? 'all' : 'weekly')} title="This-week expiries only">WEEKLIES</button>
@@ -3578,96 +3976,49 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             disabled={loading} title="Scan all tickers">ALL TICKERS</button>
 
           {/* SECTORS */}
-          {sectorPopupOpen && <div onClick={() => setSectorPopupOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 398 }} />}
-          <div style={{ position: 'relative', zIndex: sectorPopupOpen ? 400 : undefined, flexShrink: 0 }}>
-            <button className={`af-btn${sectorFilter ? ' af-active-green' : ''}`}
-              onClick={() => setSectorPopupOpen(o => !o)}
+          {sectorPopupOpen && <div onClick={() => setSectorPopupOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />}
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <button ref={sectorBtnRef} className={`af-btn${sectorFilter ? ' af-active-green' : ''}`}
+              onClick={() => {
+                if (!sectorPopupOpen && sectorBtnRef.current) {
+                  const r = sectorBtnRef.current.getBoundingClientRect()
+                  setSectorPopupPos({ top: r.bottom + 6, left: r.left })
+                }
+                setSectorPopupOpen(o => !o)
+              }}
               title="Filter by sector or industry ETF">
               {sectorFilter ? sectorFilter : 'SECTORS'} {sectorPopupOpen ? '▲' : '▾'}
             </button>
-            {sectorPopupOpen && (
-              <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, background: 'linear-gradient(180deg,#0d1420 0%,#060810 100%)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: '6px 0', width: 220, zIndex: 999, boxShadow: '0 16px 48px rgba(0,0,0,0.95)', maxHeight: '70vh', overflowY: 'auto' }}>
+            {sectorPopupOpen && sectorPopupPos && (
+              <div style={{ position: 'fixed', top: sectorPopupPos.top, left: sectorPopupPos.left, background: 'linear-gradient(180deg,#0d1420 0%,#060810 100%)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: '6px 0', width: 220, zIndex: 10000, boxShadow: '0 16px 48px rgba(0,0,0,0.95)', maxHeight: '70vh', overflowY: 'auto' }}>
                 <div style={{ padding: '5px 14px 3px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#34d399', letterSpacing: '0.2em', fontWeight: 800 }}>SECTORS</div>
                 {SECTORS.map(({ etf, label }) => {
                   const active = sectorFilter === etf
-                  return <div key={etf} onClick={() => handleSectorSelect(etf)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', background: active ? 'rgba(52,211,153,0.1)' : 'transparent' }}>
+                  return <div key={etf} onClick={() => handleSectorSelect(etf)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: 'pointer', background: active ? 'rgba(52,211,153,0.1)' : 'transparent' }}>
                     <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${active ? '#34d399' : 'rgba(255,255,255,0.3)'}`, background: active ? '#34d399' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{active && <span style={{ color: '#000', fontSize: 10, fontWeight: 900 }}>-</span>}</div>
-                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 700, color: active ? '#34d399' : '#fff' }}>{etf} <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>{label}</span></span>
+                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, color: active ? '#34d399' : '#fff' }}>{etf} <span style={{ color: '#5eead4', fontSize: 13, fontWeight: 600 }}>{label}</span></span>
                   </div>
                 })}
                 <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
                 <div style={{ padding: '5px 14px 3px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#a78bfa', letterSpacing: '0.2em', fontWeight: 800 }}>INDUSTRIES</div>
                 {INDUSTRIES.map(({ etf, label }) => {
                   const active = sectorFilter === etf
-                  return <div key={etf} onClick={() => handleSectorSelect(etf)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', background: active ? 'rgba(167,139,250,0.1)' : 'transparent' }}>
+                  return <div key={etf} onClick={() => handleSectorSelect(etf)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: 'pointer', background: active ? 'rgba(167,139,250,0.1)' : 'transparent' }}>
                     <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${active ? '#a78bfa' : 'rgba(255,255,255,0.3)'}`, background: active ? '#a78bfa' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{active && <span style={{ color: '#fff', fontSize: 10, fontWeight: 900 }}>-</span>}</div>
-                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 700, color: active ? '#a78bfa' : '#fff' }}>{etf} <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>{label}</span></span>
+                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, color: active ? '#a78bfa' : '#fff' }}>{etf} <span style={{ color: '#c4b5fd', fontSize: 13, fontWeight: 600 }}>{label}</span></span>
                   </div>
                 })}
                 {sectorFilter && (
                   <>
                     <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
-                    <div onClick={() => { setSectorFilter(null); setSectorPopupOpen(false); if (allScanCacheRef.current) { setFlowData(allScanCacheRef.current.flowData); setAnalysis(allScanCacheRef.current.analysis) } }} style={{ padding: '8px 14px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 700, color: '#ef4444' }}>✕ CLEAR SECTOR</div>
+                    <div onClick={() => { setSectorFilter(null); setSectorPopupOpen(false); if (allScanCacheRef.current) { setFlowData(allScanCacheRef.current.flowData); setAnalysis(allScanCacheRef.current.analysis) } }} style={{ padding: '9px 14px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 700, color: '#ef4444' }}>✕ CLEAR SECTOR</div>
                   </>
                 )}
               </div>
             )}
           </div>
 
-          {/* ALL TICKERS LIVE */}
-          <button className={`af-btn${isAlgoLive && algoLiveTicker === 'ALL' ? ' af-active-emerald' : ''}`}
-            onClick={() => isAlgoLive && algoLiveTicker === 'ALL' ? stopAlgoLive() : startAlgoLive('ALL')}
-            title={isAlgoLive && algoLiveTicker === 'ALL' ? 'Stop live stream' : 'Stream all options live'}>
-            <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: isAlgoLive && algoLiveTicker === 'ALL' ? '#22c55e' : '#555', marginRight: 5, boxShadow: isAlgoLive && algoLiveTicker === 'ALL' ? '0 0 5px #22c55e' : 'none' }} />
-            {isAlgoLive && algoLiveTicker === 'ALL' ? 'STOP ALL LIVE' : '● ALL TICKERS LIVE'}
-          </button>
-
-          <div className="af-sep" />
-
-          {/* Ticker input */}
-          <input type="text" value={ticker} onChange={e => setTicker(e.target.value.toUpperCase())} onKeyPress={handleKeyPress} placeholder="TICKER"
-            disabled={loading}
-            style={{ height: 32, width: 110, padding: '0 10px', background: 'linear-gradient(180deg,#111 0%,#080808 100%)', border: '1px solid rgba(255,255,255,0.2)', borderTop: '1px solid rgba(255,255,255,0.3)', borderRadius: 6, color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, letterSpacing: '0.12em', outline: 'none', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.8)', flexShrink: 0 }} />
-
-          {/* Timeframe select */}
-          <select value={scanTimeframe} onChange={e => setScanTimeframe(e.target.value)} disabled={loading}
-            style={{ height: 32, padding: '0 8px', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 100%)', border: '1px solid rgba(255,255,255,0.14)', borderTop: '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: '#ccc', fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, outline: 'none', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06),inset 0 -1px 0 rgba(0,0,0,0.6)', flexShrink: 0 }}>
-            <option value="1D">TODAY</option>
-            <option value="2">2 DAYS</option>
-            <option value="3">3 DAYS</option>
-            <option value="4">4 DAYS</option>
-            <option value="5">5 DAYS</option>
-            <option value="7">7 DAYS</option>
-            <option value="10">10 DAYS</option>
-            <option value="14">14 DAYS</option>
-            <option value="20">20 DAYS</option>
-            <option value="30">30 DAYS</option>
-            <option value="45">45 DAYS</option>
-            <option value="60">60 DAYS</option>
-            <option value="90">90 DAYS</option>
-            <option value="126">126 DAYS</option>
-            <option value="189">189 DAYS</option>
-            <option value="252">252 DAYS</option>
-          </select>
-
-          {/* SCAN */}
-          <button onClick={handleSearch} disabled={loading || isAnalyzing || !ticker.trim()}
-            style={{ height: 32, padding: '0 18px', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 60%,#040404 100%)', border: '1px solid rgba(255,255,255,0.14)', borderTop: '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: loading || isAnalyzing ? '#555' : '#ff8500', fontFamily: 'JetBrains Mono,monospace', fontSize: 15, fontWeight: 800, letterSpacing: '1.5px', cursor: loading || isAnalyzing || !ticker.trim() ? 'not-allowed' : 'pointer', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.10),inset 0 -1px 0 rgba(0,0,0,0.7),0 2px 4px rgba(0,0,0,0.9)', display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap', flexShrink: 0, opacity: !ticker.trim() || loading || isAnalyzing ? 0.6 : 1 }}>
-            {isAnalyzing ? (<><div className="animate-spin" style={{ width: 10, height: 10, borderRadius: '50%', border: '2px solid #ff8500', borderTopColor: 'transparent' }} />SCANNING {flowData.length.toLocaleString()}</>) : loading ? 'SCANNING...' : 'SCAN'}
-          </button>
-
-          {/* Per-ticker LIVE */}
-          {ticker.trim() && ticker !== 'ALL' && (
-            <button className={`af-btn${isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? ' af-active-emerald' : ''}`}
-              onClick={() => isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? stopAlgoLive() : startAlgoLive(ticker.trim())}
-              title={`Stream ${ticker} options live`}>
-              <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? '#22c55e' : '#555', marginRight: 5 }} />
-              {isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? `STOP · ${algoLiveTradeCount}` : 'LIVE'}
-            </button>
-          )}
-
           {/* Status / error */}
-          {streamStatus && <span style={{ color: '#22d3ee', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, letterSpacing: '0.1em', flexShrink: 0 }}>{streamStatus}</span>}
           {error && <span style={{ color: '#ef4444', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, flexShrink: 0 }}>{error}</span>}
           {isAlgoLive && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: algoLiveConnected ? '#22c55e' : '#facc15', flexShrink: 0 }}>{algoLiveConnected ? '● LIVE' : '○ CONNECTING'}</span>}
 
@@ -3857,6 +4208,15 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                         {drilledTicker && (
                           <button
                             onClick={() => {
+                              // If we drilled into this ticker FROM the sector/industry compare
+                              // view, back should return to that ticker-level compare chart
+                              // (one level up) instead of jumping all the way out to ALL.
+                              if (drilledFromCompareRef.current && compareBackStack.length) {
+                                drilledFromCompareRef.current = false
+                                setDrilledTicker(null)
+                                goBackCompareLevel()
+                                return
+                              }
                               if (!allScanCacheRef.current) return
                               setDrilledTicker(null)
                               setSearchTicker('ALL')
@@ -3864,7 +4224,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                               setAnalysis(allScanCacheRef.current.analysis)
                             }}
                             style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 800, letterSpacing: '0.1em', padding: '2px 10px', background: 'rgba(255,133,0,0.15)', border: '1px solid #ff8500', color: '#ff8500', cursor: 'pointer', borderRadius: 3, marginRight: 6 }}
-                          >← ALL</button>
+                          >{drilledFromCompareRef.current ? '← BACK' : '← ALL'}</button>
                         )}
                         <span style={{ color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: isMobile ? 14 : 21, fontWeight: 900, letterSpacing: '0.1em', marginRight: 2 }}>{analysis.ticker}</span>
                         {analysis.currentPrice > 0 && !isMobile && <span style={{ color: '#aaa', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 700, marginRight: 4 }}>${analysis.currentPrice.toFixed(2)}</span>}
@@ -4021,7 +4381,88 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       )}
                       {/* Glossy top-edge sheen */}
                       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 32, background: 'linear-gradient(180deg, rgba(255,255,255,0.035) 0%, transparent 100%)', pointerEvents: 'none', zIndex: 2 }} />
-                      <div ref={mainChartWrapRef} style={{ height: isMobile ? (showBullBear ? 400 : 494) : (embeddedMode ? 440 : (showBullBear ? 445 : 569)), flexShrink: 0, overflow: 'hidden', borderBottom: showBullBear ? '2px solid rgba(167,139,250,0.55)' : 'none' }}>
+
+                      {/* SECTOR/INDUSTRY COMPARE chart "-- one net-flow line per basket */}
+                      {compareMode !== 'off' && (
+                        <div style={{ height: isMobile ? 494 : (embeddedMode ? 440 : 569), flexShrink: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', padding: '8px 82px 6px 30px', flexShrink: 0 }}>
+                            {compareKeys.map(({ key, label, color }) => (
+                              <span key={key} onClick={() => toggleCompareLine(key)} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', opacity: hiddenCompareLines.has(key) ? 0.3 : 1 }}>
+                                <svg width="14" height="4"><line x1="0" y1="2" x2="14" y2="2" stroke={color} strokeWidth="2.5" /></svg>
+                                <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color, fontWeight: 700 }}>{label}</span>
+                              </span>
+                            ))}
+                          </div>
+                          <div ref={compareChartWrapRef} style={{ flex: 1, minHeight: 0 }}>
+                            <ResponsiveContainer width="100%" height="100%" debounce={16}>
+                              <LineChart data={compareData || []} margin={{ top: 6, right: 0, bottom: 0, left: 30 }}>
+                                <XAxis dataKey="timeLabel" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#ffffff', fontSize: isMobile ? 11 : 15, fontWeight: 700, textAnchor: 'start' }} height={isMobile ? 22 : 34}
+                                  interval={Math.max(0, Math.floor((compareData?.length || 0) / (isMobile ? 3 : 6)) - 1)} padding={{ left: 5, right: 10 }}
+                                  tickFormatter={(label: string, index: number) => {
+                                    if (!label?.includes('/')) return label
+                                    const spaceIdx = label.indexOf(' ')
+                                    const datePart = label.slice(0, spaceIdx)
+                                    const timePart = label.slice(spaceIdx + 1)
+                                    const shortDate = datePart.replace(/\/\d{4}$/, '')
+                                    if (index === 0) return `${shortDate} ${timePart}`
+                                    const prevLabel = (compareData || [])[index - 1]?.timeLabel as string | undefined
+                                    const prevDate = prevLabel?.includes(' ') ? prevLabel.slice(0, prevLabel.indexOf(' ')) : undefined
+                                    return prevDate === datePart ? timePart : `${shortDate} ${timePart}`
+                                  }} />
+                                <YAxis orientation="right" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#ffffff', fontSize: 15, fontWeight: 'bold' }} width={82}
+                                  tickFormatter={(value) => {
+                                    const absValue = Math.abs(value); const sign = value < 0 ? '-' : ''
+                                    if (absValue >= 1_000_000_000) return `${sign}$${(absValue / 1_000_000_000).toFixed(2)}B`
+                                    if (absValue >= 1_000_000) return `${sign}$${Math.round(absValue / 1_000_000)}M`
+                                    if (absValue >= 1_000) return `${sign}$${Math.round(absValue / 1_000)}K`
+                                    return `${sign}$${absValue}`
+                                  }} />
+                                <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.2)', fontWeight: 'bold', fontSize: '13px' }} labelStyle={{ color: '#fff', fontWeight: 'bold' }}
+                                  formatter={(value: any, name: any) => {
+                                    const num = Number(value); const absNum = Math.abs(num); const sign = num < 0 ? '-' : ''
+                                    const fmt = absNum >= 1_000_000_000 ? `${sign}$${(absNum / 1_000_000_000).toFixed(2)}B` : absNum >= 1_000_000 ? `${sign}$${(absNum / 1_000_000).toFixed(2)}M` : absNum >= 1_000 ? `${sign}$${(absNum / 1_000).toFixed(1)}K` : `${sign}$${absNum.toLocaleString()}`
+                                    return [fmt, name]
+                                  }} />
+                                {compareKeys.flatMap(({ key, label, color }) => {
+                                  const hiddenLine = hiddenCompareLines.has(key)
+                                  const dimmed = hoveredCompareKey != null && hoveredCompareKey !== key
+                                  const baseOpacity = dimmed ? 0.15 : 1
+                                  const baseWidth = hoveredCompareKey === key ? 4 : 2.5
+                                  if (chartViewMode === 'detailed') {
+                                    return [
+                                      <Line key={`${key}-bc`} type="linear" dataKey={`${key}__bc`} stroke={color} strokeWidth={baseWidth} strokeOpacity={baseOpacity} name={`${label} BULL CALLS`} dot={false} hide={hiddenLine} />,
+                                      <Line key={`${key}-cc`} type="linear" dataKey={`${key}__cc`} stroke={color} strokeDasharray="5 3" strokeWidth={baseWidth} strokeOpacity={baseOpacity} name={`${label} BEAR CALLS`} dot={false} hide={hiddenLine} />,
+                                      <Line key={`${key}-bp`} type="linear" dataKey={`${key}__bp`} stroke={color} strokeDasharray="1 3" strokeWidth={baseWidth} strokeOpacity={baseOpacity} name={`${label} BULL PUTS`} dot={false} hide={hiddenLine} />,
+                                      <Line key={`${key}-rp`} type="linear" dataKey={`${key}__rp`} stroke={color} strokeDasharray="6 2 1 2" strokeWidth={baseWidth} strokeOpacity={baseOpacity} name={`${label} BEAR PUTS`} dot={false} hide={hiddenLine} />,
+                                    ]
+                                  }
+                                  if (chartViewMode === 'simplified') {
+                                    return [
+                                      <Line key={`${key}-bull`} type="linear" dataKey={`${key}__bull`} stroke={color} strokeWidth={baseWidth} strokeOpacity={baseOpacity} name={`${label} BULLISH`} dot={false} hide={hiddenLine} />,
+                                      <Line key={`${key}-bear`} type="linear" dataKey={`${key}__bear`} stroke={color} strokeDasharray="5 3" strokeWidth={baseWidth} strokeOpacity={baseOpacity} name={`${label} BEARISH`} dot={false} hide={hiddenLine} />,
+                                    ]
+                                  }
+                                  return [
+                                    <Line key={key} type="linear" dataKey={key} stroke={color} strokeWidth={baseWidth} strokeOpacity={baseOpacity} name={label} dot={false} hide={hiddenLine} />,
+                                  ]
+                                })}
+                                <Customized component={CompareEndLabels} data={compareData || []} seriesKeys={compareKeys} hidden={hiddenCompareLines} containerRef={compareChartWrapRef} hoveredKey={hoveredCompareKey} onHoverKey={setHoveredCompareKey}
+                                  onDoubleClickKey={(key: string) => {
+                                    if (compareDrillBasket) { drillIntoCompareTicker(key) }
+                                    else {
+                                      const basketMode: 'sectors' | 'industries' = (compareMode === 'sectors' || compareMode === 'sector-etfs') ? 'sectors' : 'industries'
+                                      const list = basketMode === 'sectors' ? SECTORS : INDUSTRIES
+                                      const found = list.find(b => b.etf === key)
+                                      if (found) void runTickerDrillScan(found.etf, found.label, basketMode, true)
+                                    }
+                                  }} />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </div>
+                      )}
+
+                      <div ref={mainChartWrapRef} style={{ height: isMobile ? (showBullBear ? 400 : 494) : (embeddedMode ? 440 : (showBullBear ? 445 : 569)), flexShrink: 0, overflow: 'hidden', borderBottom: showBullBear ? '2px solid rgba(167,139,250,0.55)' : 'none', display: compareMode !== 'off' ? 'none' : undefined }}>
                         <ResponsiveContainer width="100%" height="100%" debounce={16}>
                           <ComposedChart data={chartMemo.visibleData} margin={{ top: isMobile ? 36 : 10, right: 0, bottom: 0, left: 30 }}>
                             <XAxis dataKey="timeLabel" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#ffffff', fontSize: isMobile ? 11 : 17, fontWeight: 700 }} height={isMobile ? 22 : 34} interval={Math.max(0, Math.floor(chartMemo.visibleData.length / (isMobile ? 3 : 6)) - 1)} padding={{ left: 10, right: 10 }}
@@ -4392,6 +4833,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                                           onDoubleClick={() => {
                                             if (!allScanCacheRef.current) return
                                             const t = trade.underlying_ticker
+                                            drilledFromCompareRef.current = false
                                             setDrilledTicker(t); setSearchTicker(t)
                                             const filtered = allScanCacheRef.current.flowData.filter(x => x.underlying_ticker === t)
                                             setFlowData(filtered); setIsAnalyzing(true)
@@ -4455,6 +4897,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                                     onDoubleClick={() => {
                                       if (!allScanCacheRef.current) return
                                       const t = trade.underlying_ticker
+                                      drilledFromCompareRef.current = false
                                       setDrilledTicker(t); setSearchTicker(t)
                                       const filtered = allScanCacheRef.current.flowData.filter(x => x.underlying_ticker === t)
                                       setFlowData(filtered); setIsAnalyzing(true)

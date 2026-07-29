@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { gunzip } from 'zlib';
 import { promisify } from 'util';
+import { getCachedFullDay, setCachedFullDay } from '@/lib/redis';
 
 const gunzipAsync = promisify(gunzip);
 
@@ -37,16 +38,25 @@ export async function GET(
     // Falls back to 2 parallel half-queries if Prisma Accelerate rejects the large response.
     const tradingDate = decodedDate.split('T')[0]
 
+    // Redis full-day cache (shared with /api/flows/save-batch) - avoids re-decompressing
+    // every FlowBatch row for the whole day on every single per-ticker FlowBias request.
+    // A single scan's worth of per-ticker requests (e.g. SweepSense's FlowBias fetch, one
+    // per unique underlying) previously each triggered their own full-day gunzip pass.
+    const cachedFullDay = await getCachedFullDay(tradingDate)
+    if (cachedFullDay) {
+      const allTrades = cachedFullDay.trades
+      const filtered = tickerSet
+        ? allTrades.filter((t) => tickerSet.has((t as any)?.underlying_ticker?.toUpperCase() ?? ''))
+        : allTrades
+      return NextResponse.json({ date: cachedFullDay.batchTime, data: filtered, size: filtered.length, createdAt: cachedFullDay.batchTime, source: 'stream', fromCache: true })
+    }
+
     async function fetchAndDecompress(rows: { id: string; data: string; batchTime: Date }[]): Promise<unknown[]> {
       const bufs = await Promise.all(rows.map(b => gunzipAsync(Buffer.from(b.data, 'base64'))))
       const trades: unknown[] = []
       for (const buf of bufs) {
         const batch: unknown[] = JSON.parse(buf.toString('utf8'))
-        for (const item of batch) {
-          if (!tickerSet || tickerSet.has((item as any)?.underlying_ticker?.toUpperCase() ?? '')) {
-            trades.push(item)
-          }
-        }
+        trades.push(...batch)
       }
       return trades
     }
@@ -86,7 +96,13 @@ export async function GET(
     if (allRows.length > 0) {
       const allTrades = await fetchAndDecompress(allRows)
       const latestBatchTime = allRows[allRows.length - 1].batchTime
-      return NextResponse.json({ date: latestBatchTime.toISOString(), data: allTrades, size: allTrades.length, createdAt: latestBatchTime, source: 'stream' })
+      // Populate the shared full-day cache (unfiltered) so subsequent per-ticker requests
+      // for this same date hit Redis instead of re-querying/decompressing Postgres.
+      setCachedFullDay(tradingDate, { trades: allTrades, tradeCount: allTrades.length, batchTime: latestBatchTime.toISOString() }).catch(() => { })
+      const filteredAllTrades = tickerSet
+        ? allTrades.filter((t) => tickerSet.has((t as any)?.underlying_ticker?.toUpperCase() ?? ''))
+        : allTrades
+      return NextResponse.json({ date: latestBatchTime.toISOString(), data: filteredAllTrades, size: filteredAllTrades.length, createdAt: latestBatchTime, source: 'stream' })
     }
 
     // Fall back to Flow table (scan saves)

@@ -62,3 +62,58 @@ export async function invalidateFullDay(tradingDate: string): Promise<void> {
         // Non-critical
     }
 }
+
+// ── SweepSense snapshot cache helpers ──────────────────────────────────────────
+// Mirrors the flow-cache pattern above: check Redis before hitting Postgres.
+// Snapshots are saved once/day (after close) and never mutated afterward, so a much
+// longer TTL is safe here — this just saves a round-trip to Postgres on every
+// afterhours page load/poll for the same trading date.
+
+const SWEEPSENSE_TTL = 60 * 60 * 12 // 12 hours — comfortably covers a full afterhours session
+
+/** Cache key for a saved SweepSense snapshot for a trading date */
+const sweepSenseKey = (tradingDate: string) => `sweepsense:${tradingDate}`
+
+export interface CachedSweepSenseSnapshot {
+    tradingDate: string
+    data: unknown
+    tradeCount: number
+    updatedAt: string
+}
+
+/** Read cached SweepSense snapshot. Returns null on miss, Redis unavailable, or any error. */
+export async function getCachedSweepSense(
+    tradingDate: string
+): Promise<CachedSweepSenseSnapshot | null> {
+    if (!redis) return null
+    try {
+        const raw = await redis.get<string>(sweepSenseKey(tradingDate))
+        if (!raw) return null
+        return JSON.parse(raw)
+    } catch {
+        return null
+    }
+}
+
+/** Store a SweepSense snapshot in Redis. Silently ignores errors (cache is best-effort). */
+export async function setCachedSweepSense(
+    tradingDate: string,
+    payload: CachedSweepSenseSnapshot
+): Promise<void> {
+    if (!redis) return
+    try {
+        await redis.set(sweepSenseKey(tradingDate), JSON.stringify(payload), { ex: SWEEPSENSE_TTL })
+    } catch {
+        // Non-critical — fall through to Postgres on next request
+    }
+}
+
+/** Invalidate the SweepSense cache (called after a new snapshot is saved). */
+export async function invalidateSweepSense(tradingDate: string): Promise<void> {
+    if (!redis) return
+    try {
+        await redis.del(sweepSenseKey(tradingDate))
+    } catch {
+        // Non-critical
+    }
+}
