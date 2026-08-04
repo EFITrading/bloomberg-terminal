@@ -1056,6 +1056,10 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   const [sweepSenseFilterActive, setSweepSenseFilterActive] = useState<boolean>(false)
   // Mobile: which SweepSense row (if any) is expanded to reveal its breakdown % + Plan Entry
   const [expandedSweepSenseRowId, setExpandedSweepSenseRowId] = useState<string | null>(null)
+  // SpamAlert toolbar button - filters the main table down to only the trades that make up a
+  // Flow Spammer group for their ticker, using the IDENTICAL detection logic the SweepSense
+  // cards use (flowBiasAnalysis.ts).
+  const [flowBiasFilter, setFlowBiasFilter] = useState<'spam' | null>(null)
   // Grade column sort mode - toggles between long_first (cyan) and short_first (yellow)
   const [gradeColumnMode, setGradeColumnMode] = useState<'long_first' | 'short_first'>('long_first')
 
@@ -4847,6 +4851,85 @@ Stock Reaction: ${scores.stockReaction}/15`
     return filteredAndSortedData.filter((trade) => idSet.has(generateFlowId(trade)))
   }, [sweepSenseFilterActive, sweepSenseDataStable, filteredAndSortedData])
 
+  // SpamAlert - IDs of the raw trades that make up a qualifying Flow Spammer group for their
+  // ticker, using the exact same computeSpamLabel function the SweepSense cards call
+  // (flowBiasAnalysis.ts) - zero changes to that math, just reused across ALL of `data`
+  // instead of only the SweepSense-qualifying subset.
+  const flowBiasQualifyingIds = useMemo(() => {
+    if (!flowBiasFilter) return null
+    const ids = new Set<string>()
+    const formatDateLocal = (dateString: string) => {
+      const [yy, mm, dd] = dateString.split('-')
+      return `${mm}/${dd}/${yy}`
+    }
+    const rawTradeId = (ticker: string, r: FlowBiasRawTrade) =>
+      `${ticker}-${r.strike}-${r.expiry}-${r.type}-${r.trade_timestamp}-${r.tradeSize}`
+
+    const tickerRawTrades = new Map<string, FlowBiasRawTrade[]>()
+    const tickerRealTrades = new Map<string, OptionsFlowData[]>()
+    for (const t of data) {
+      const rawList = tickerRawTrades.get(t.underlying_ticker) || []
+      rawList.push({
+        strike: t.strike,
+        type: t.type,
+        fillStyle: (t.fill_style || '') as string,
+        expiry: t.expiry,
+        trade_timestamp: t.trade_timestamp,
+        tradeSize: t.trade_size,
+        premium: t.premium_per_contract,
+        totalPremium: t.total_premium,
+        spot: t.spot_price,
+        tradeType: t.classification || t.trade_type,
+      })
+      tickerRawTrades.set(t.underlying_ticker, rawList)
+      const realList = tickerRealTrades.get(t.underlying_ticker) || []
+      realList.push(t)
+      tickerRealTrades.set(t.underlying_ticker, realList)
+    }
+
+    for (const [ticker, rawTrades] of tickerRawTrades) {
+      const realTrades = tickerRealTrades.get(ticker) || []
+      const spot = currentPrices[ticker] || rawTrades[rawTrades.length - 1]?.spot || 0
+
+      for (const cardType of ['call', 'put'] as const) {
+        const typeReal = realTrades.filter((t) => t.type === cardType)
+        if (!typeReal.length) continue
+        const representative = typeReal[typeReal.length - 1]
+        const sigma = representative.implied_volatility || 0
+        const result = computeSpamLabel(rawTrades, cardType, formatDateLocal, spot, sigma)
+        for (const r of result.trades) ids.add(rawTradeId(ticker, r))
+      }
+    }
+
+    console.debug('[SpamAlert] TOTAL qualifying trade ids:', ids.size, 'out of tickers scanned:', tickerRawTrades.size)
+    return ids
+  }, [flowBiasFilter, data, currentPrices])
+
+
+
+  // Applies the SpamAlert filter (if active) on top of the
+  // SweepSense filter above, then groups same-ticker rows together so the row divider added
+  // to the table body below always separates one ticker's group from the next.
+  const flowBiasFilteredView = useMemo(() => {
+    if (!flowBiasFilter || !flowBiasQualifyingIds) return sweepSenseFilteredView
+    const matched = sweepSenseFilteredView.filter((trade) => flowBiasQualifyingIds.has(generateFlowId(trade)))
+    console.debug('[FlowBiasFilter]', flowBiasFilter, {
+      sweepSenseFilteredViewCount: sweepSenseFilteredView.length,
+      qualifyingIdsCount: flowBiasQualifyingIds.size,
+      matchedCount: matched.length,
+    })
+    const tickerOrder: string[] = []
+    const seenTickers = new Set<string>()
+    for (const t of matched) {
+      if (!seenTickers.has(t.underlying_ticker)) {
+        seenTickers.add(t.underlying_ticker)
+        tickerOrder.push(t.underlying_ticker)
+      }
+    }
+    const rank = new Map(tickerOrder.map((tk, i) => [tk, i]))
+    return [...matched].sort((a, b) => (rank.get(a.underlying_ticker)! - rank.get(b.underlying_ticker)!))
+  }, [flowBiasFilter, flowBiasQualifyingIds, sweepSenseFilteredView])
+
   // Automatically enrich trades with Vol/OI AND Fill Style in ONE combined call - IMMEDIATELY as part of scan
 
   useEffect(() => {
@@ -4866,10 +4949,10 @@ Stock Reaction: ${scores.stockReaction}/15`
 
     const endIndex = startIndex + itemsPerPage
 
-    return sweepSenseFilteredView.slice(startIndex, endIndex)
-  }, [sweepSenseFilteredView, currentPage, itemsPerPage])
+    return flowBiasFilteredView.slice(startIndex, endIndex)
+  }, [flowBiasFilteredView, currentPage, itemsPerPage])
 
-  const totalPages = Math.ceil(sweepSenseFilteredView.length / itemsPerPage)
+  const totalPages = Math.ceil(flowBiasFilteredView.length / itemsPerPage)
 
   // Auto-fetch dealer zones for the SweepSense tab's qualifying trades (short-term + long-term picks)
   // Skip while a scan is in progress - dealer zones fetch after the scan completes
@@ -6671,6 +6754,7 @@ Stock Reaction: ${scores.stockReaction}/15`
                   <button
                     onClick={() => {
                       setInputTicker('')
+                      setSelectedTickerFilter('')
                       onTickerChange('')
                       onRefresh?.('')
                     }}
@@ -7064,6 +7148,8 @@ Stock Reaction: ${scores.stockReaction}/15`
                       onClick={() => {
                         setInputTicker('')
                         setSelectedTickerFilter('')
+                        onTickerChange('')
+                        onRefresh?.('')
                       }}
                       style={{
                         position: 'absolute',
@@ -7355,7 +7441,12 @@ Stock Reaction: ${scores.stockReaction}/15`
                       </span>
 
                       <button
-                        onClick={() => setSelectedTickerFilter('')}
+                        onClick={() => {
+                          setSelectedTickerFilter('')
+                          setInputTicker('')
+                          onTickerChange('')
+                          onRefresh?.('')
+                        }}
                         className="text-orange-400 hover:text-white hover:bg-orange-500 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold transition-all duration-200"
                         title="Clear filter"
                       >
@@ -7527,6 +7618,39 @@ Stock Reaction: ${scores.stockReaction}/15`
                     </span>
                     <span style={{ fontWeight: 900, color: '#8b5cf6' }}>{loadingHistory ? 'Loading' : 'Historical'}</span>
                   </button>
+
+                  {/* SpamAlert - filters the table down to only the trades that make up a Flow
+                      Spammer group for their ticker (same detection math as the SweepSense cards). */}
+                  {([
+                    { key: 'spam' as const, label: 'SpamAlert', color: '#ec4899' },
+                  ]).map(({ key, label, color }) => {
+                    const active = flowBiasFilter === key
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => setFlowBiasFilter((prev) => (prev === key ? null : key))}
+                        title={label}
+                        className="hidden md:flex items-center gap-2 justify-center font-bold uppercase transition-all duration-150 focus:outline-none"
+                        style={{
+                          height: tbH || '42px',
+                          padding: tbPad || '0 12px',
+                          background: active
+                            ? `linear-gradient(180deg, ${color}38 0%, ${color}14 55%, rgba(0,0,0,0.2) 100%)`
+                            : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)',
+                          border: `1px solid ${color}`,
+                          borderRadius: '7px',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                          color,
+                          boxShadow: active
+                            ? `inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.6), 0 0 14px ${color}59`
+                            : 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.5)',
+                        }}
+                      >
+                        <span style={{ fontWeight: 900, fontSize: tbFs || '12px', letterSpacing: tbLs || '1.2px' }}>{label}</span>
+                      </button>
+                    )
+                  })}
 
                   {/* Clear Data Button - Desktop Only */}
 
@@ -8524,10 +8648,22 @@ Stock Reaction: ${scores.stockReaction}/15`
                       }
                     }
 
+                    // SpamAlert - a thin divider row between each
+                    // ticker's group so the filtered results read as distinct per-ticker blocks.
+                    const showTickerDivider = !!flowBiasFilter && index > 0 &&
+                      paginatedData[index - 1].underlying_ticker !== trade.underlying_ticker
+
                     return (
                       <React.Fragment
                         key={`${trade.ticker}-${trade.strike}-${trade.trade_timestamp}-${trade.trade_size}-${index}`}
                       >
+                        {showTickerDivider && (
+                          <tr>
+                            <td colSpan={10} style={{ padding: 0, border: 'none' }}>
+                              <div style={{ height: '10px', background: 'linear-gradient(90deg, rgba(255,133,0,0) 0%, rgba(255,133,0,0.55) 50%, rgba(255,133,0,0) 100%)' }} />
+                            </td>
+                          </tr>
+                        )}
                         <tr
                           className={[
                             'border-b border-slate-700/50 transition-all duration-150',
@@ -10591,6 +10727,7 @@ Stock Reaction: ${scores.stockReaction}/15`
           }}
         >
           <FlowTrackingPanel
+            allFlowData={data}
             relativeStrengthData={relativeStrengthData}
             historicalStdDevs={historicalStdDevs}
             comboTradeMap={comboTradeMap}
@@ -10627,6 +10764,7 @@ Stock Reaction: ${scores.stockReaction}/15`
           <FlowTrackingPanel
             onClose={() => setIsFlowTrackingOpen(false)}
             initialTab={mobileFlowInitialTab}
+            allFlowData={data}
             relativeStrengthData={relativeStrengthData}
             historicalStdDevs={historicalStdDevs}
             comboTradeMap={comboTradeMap}
@@ -10732,6 +10870,7 @@ Stock Reaction: ${scores.stockReaction}/15`
             <div style={{ flex: 1, overflowY: 'auto' }}>
               <FlowTrackingPanel
                 onClose={() => setTabletPanelOpen(false)}
+                allFlowData={data}
                 relativeStrengthData={relativeStrengthData}
                 historicalStdDevs={historicalStdDevs}
                 comboTradeMap={comboTradeMap}

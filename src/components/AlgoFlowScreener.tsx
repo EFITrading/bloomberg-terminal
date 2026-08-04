@@ -1353,6 +1353,8 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const [tabletFlowMatrixOpen, setTabletFlowMatrixOpen] = useState(false)
   const [afExcludeOpen, setAfExcludeOpen] = useState(false)
   const [afTimeOpen, setAfTimeOpen] = useState(false)
+  const [rrgTicker, setRrgTicker] = useState('')
+  const [rrgScanDays, setRrgScanDays] = useState('1')
 
   // -- Tab state ----------------------------------------------------------------
   const [activeTab, setActiveTab] = useState<'algoflow' | 'flowbias'>('algoflow')
@@ -1371,6 +1373,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const rrgDragRef = useRef({ dragging: false, mouseDownActive: false, lastSvgX: 0, lastSvgY: 0 })
   const rrgSvgRef = useRef<SVGSVGElement | null>(null)
   const [rrgTickerMode, setRrgTickerMode] = useState<'all' | 'mag7only' | 'exmag7' | 'etfonly' | 'exetf' | 'stockonly'>('all')
+  const [rrgExpiryFilter, setRrgExpiryFilter] = useState<'all' | '45d' | 'weekly' | '0dte'>('all')
   const [rrgDropdownOpen, setRrgDropdownOpen] = useState<'ticker' | 'time' | 'filter' | null>(null)
   const [shouldAutoScanRRG, setShouldAutoScanRRG] = useState(0)
   const [showRegime, setShowRegime] = useState(false)
@@ -1582,6 +1585,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     if (embeddedTrades === embeddedTradesRef.current) return
     embeddedTradesRef.current = embeddedTrades
     const label = embeddedTicker || undefined
+    setFlowData(embeddedTrades)
     performAnalysis(embeddedTrades, label)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [embeddedMode, embeddedTrades, embeddedTicker])
@@ -1600,6 +1604,14 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const [compareDropdownOpen, setCompareDropdownOpen] = useState(false)
   const [compareDropdownPos, setCompareDropdownPos] = useState<{ top: number; left: number } | null>(null)
   const compareBtnRef = useRef<HTMLButtonElement | null>(null)
+  const [afTimeDropdownPos, setAfTimeDropdownPos] = useState<{ top: number; left: number } | null>(null)
+  const afTimeBtnRef = useRef<HTMLButtonElement | null>(null)
+  const [afExcludeDropdownPos, setAfExcludeDropdownPos] = useState<{ top: number; left: number } | null>(null)
+  const afExcludeBtnRef = useRef<HTMLButtonElement | null>(null)
+  const [rrgTickersDropdownPos, setRrgTickersDropdownPos] = useState<{ top: number; right: number } | null>(null)
+  const rrgTickersBtnRef = useRef<HTMLButtonElement | null>(null)
+  const [rrgTimeDropdownPos, setRrgTimeDropdownPos] = useState<{ top: number; right: number } | null>(null)
+  const rrgTimeBtnRef = useRef<HTMLButtonElement | null>(null)
   const compareChartWrapRef = useRef<HTMLDivElement | null>(null)
   const [compareData, setCompareData] = useState<any[] | null>(null)
   const [compareKeys, setCompareKeys] = useState<Array<{ key: string; label: string; color: string }>>([])
@@ -1924,6 +1936,24 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       algoFlowScore,
     }
   }, [analysis, expiryFilter])
+
+  // Details toggle "-- shows the expiry-breakdown boxes (Weekly/Monthly/Quarterly/Leap)
+  const [showExpiryDetails, setShowExpiryDetails] = useState(false)
+
+  // Expiry breakdown counts: Weekly (<=7d), Monthly (8-28d), Quarterly (29-112d), Leap (113d+)
+  const expiryBreakdown = useMemo(() => {
+    const trades = displayAnalysis?.trades ?? []
+    let weekly = 0, monthly = 0, quarterly = 0, leap = 0
+    for (const t of trades) {
+      const dte = t.days_to_expiry ?? 0
+      if (dte <= 7) weekly++
+      else if (dte <= 28) monthly++
+      else if (dte <= 112) quarterly++
+      else leap++
+    }
+    const total = weekly + monthly + quarterly + leap || 1
+    return { weekly, monthly, quarterly, leap, total }
+  }, [displayAnalysis])
 
   // ALL-scan drill-down: cache the full ALL results so we can return to them
   const allScanCacheRef = useRef<{ flowData: OptionsFlowData[]; analysis: AlgoFlowAnalysis } | null>(null)
@@ -3064,6 +3094,81 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     )
   }
 
+  // Expiry Quadrant Gauge "-- same liquid-box style as FlowQuadrantGauge, but for
+  // Weekly/Monthly/Quarterly/Leap expiry-bucket breakdown (percentage of trade count)
+  const ExpiryQuadrantGauge = ({
+    weekly, monthly, quarterly, leap,
+  }: {
+    weekly: number; monthly: number; quarterly: number; leap: number
+  }) => {
+    const total = weekly + monthly + quarterly + leap || 1
+    const W = isMobile ? 60 : 136, H = isMobile ? 60 : 100, amp = isMobile ? 3 : 6
+    const quads = isMobile
+      ? [
+        { id: 'wk', lbl: 'WEEKLY', val: weekly, color: '#8b5cf6', x: 2, y: 5 },
+        { id: 'mo', lbl: 'MONTHLY', val: monthly, color: '#ec4899', x: 64, y: 5 },
+        { id: 'qt', lbl: 'QUARTERLY', val: quarterly, color: '#f59e0b', x: 178, y: 5 },
+        { id: 'lp', lbl: 'LEAP', val: leap, color: '#22c55e', x: 240, y: 5 },
+      ]
+      : [
+        { id: 'wk', lbl: 'WEEKLY', val: weekly, color: '#8b5cf6', x: 2, y: 4 },
+        { id: 'mo', lbl: 'MONTHLY', val: monthly, color: '#ec4899', x: 142, y: 4 },
+        { id: 'qt', lbl: 'QUARTERLY', val: quarterly, color: '#f59e0b', x: 2, y: 110 },
+        { id: 'lp', lbl: 'LEAP', val: leap, color: '#22c55e', x: 142, y: 110 },
+      ]
+    const speeds = [2.0, 2.6, 1.8, 2.3]
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: isMobile ? '6px 4px 2px' : '10px 4px 4px', width: '100%' }}>
+        <svg width={isMobile ? '100%' : '290'} {...(isMobile ? {} : { height: '220' })} viewBox={isMobile ? '0 0 302 70' : '0 0 280 218'} style={{ overflow: 'visible' }}>
+          <style>{`
+            @keyframes eqw0{from{transform:translateX(0px)}to{transform:translateX(-${W}px)}}
+            @keyframes eqw1{from{transform:translateX(0px)}to{transform:translateX(-${W}px)}}
+            @keyframes eqw2{from{transform:translateX(0px)}to{transform:translateX(-${W}px)}}
+            @keyframes eqw3{from{transform:translateX(0px)}to{transform:translateX(-${W}px)}}
+          `}</style>
+          {quads.map((q, i) => {
+            const fill = q.val / total
+            const liquidH = fill * H
+            const waveY = q.y + H - liquidH
+            const clipId = `eq${i}`
+            const wx = q.x - W
+            const bottom = q.y + H
+            const wp = `M${wx} ${waveY} ` +
+              `q${W / 4} ${-amp} ${W / 2} 0 q${W / 4} ${amp} ${W / 2} 0 ` +
+              `q${W / 4} ${-amp} ${W / 2} 0 q${W / 4} ${amp} ${W / 2} 0 ` +
+              `q${W / 4} ${-amp} ${W / 2} 0 q${W / 4} ${amp} ${W / 2} 0 ` +
+              `V${bottom} H${wx} Z`
+            return (
+              <g key={q.id}>
+                <defs><clipPath id={clipId}><rect x={q.x} y={q.y} width={W} height={H} rx="3" /></clipPath></defs>
+                <rect x={q.x} y={q.y} width={W} height={H} rx="3" fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.07)" strokeWidth="0.5" />
+                <g clipPath={`url(#${clipId})`}>
+                  {fill > 0.005 && (
+                    <>
+                      <rect x={q.x} y={Math.max(q.y, waveY + amp)} width={W} height={Math.max(0, bottom - Math.max(q.y, waveY + amp))} fill={q.color} opacity={0.35} />
+                      <g style={{ animationName: `eqw${i}`, animationDuration: `${speeds[i]}s`, animationTimingFunction: 'linear', animationIterationCount: 'infinite' }}>
+                        <path d={wp} fill={q.color} opacity={0.65} />
+                      </g>
+                    </>
+                  )}
+                </g>
+                <text x={q.x + W / 2} y={q.y + 20} textAnchor="middle" fill="#ffffff" fontSize={isMobile ? '8.5' : '15'} fontFamily="JetBrains Mono,monospace" fontWeight="700" letterSpacing="0.5">{q.lbl}</text>
+                <text x={q.x + W / 2} y={q.y + H - 10} textAnchor="middle" fill="#ffffff" fontSize={isMobile ? '14' : '28'} fontFamily="JetBrains Mono,monospace" fontWeight="800">{(fill * 100).toFixed(0)}%</text>
+              </g>
+            )
+          })}
+          {!isMobile && (
+            <>
+              <circle cx={140} cy={109} r={22} fill="rgba(4,4,12,0.92)" stroke="rgba(255,255,255,0.13)" strokeWidth="1" />
+              <text x={140} y={103} textAnchor="middle" dominantBaseline="middle" fill="#ffffff" fontSize="11" fontFamily="JetBrains Mono,monospace" fontWeight="700">EXP</text>
+              <text x={140} y={118} textAnchor="middle" dominantBaseline="middle" fill="#ff8500" fontSize="10" fontFamily="JetBrains Mono,monospace" fontWeight="800">BRKDN</text>
+            </>
+          )}
+        </svg>
+      </div>
+    )
+  }
+
   // Legacy gauge (unused "-- kept for reference)
   const _GaugeChart = ({
     value,
@@ -3245,30 +3350,43 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     return Array.from(map.values())
   }
 
-  const getBiasFlowData = async (): Promise<OptionsFlowData[]> => {
-    // 1. Use ALL-scan cache if available
+  const getBiasFlowData = async (tfOverride?: string): Promise<OptionsFlowData[]> => {
+    // 1. Use ALL-scan cache if available (shared with the AlgoFlow chart's ALL scan)
     if (allScanCacheRef.current?.flowData?.length) {
+      console.debug('[RRG] getBiasFlowData: using allScanCacheRef cache, trades=', allScanCacheRef.current.flowData.length)
       setBiasDataStatus(`Using cached scan (${allScanCacheRef.current.flowData.length} trades)`)
       return allScanCacheRef.current.flowData
     }
-    // 2. Load from DB
+    // 2. Load from DB --” same exact "smart" multi-day logic AlgoFlow's ALL scan uses
+    //    (getAlgoTradingDays + shared getDatesList/loadMultiDateTrades cache), but purely
+    //    data-only --” does NOT touch searchTicker/isAllScan/analysis, so it never changes
+    //    what's shown on the left AlgoFlow chart. This is what lets RRG be triggered
+    //    independently from AlgoFlow while still reading the identical DB data.
+    console.debug('[RRG] getBiasFlowData: no cache, loading from DB. tfOverride=', tfOverride)
     setBiasDataStatus('Loading from database...')
     try {
-      const datesResp = await fetch('/api/flows/dates')
-      if (!datesResp.ok) throw new Error('No DB dates')
-      const dates: { date: string }[] = await datesResp.json()
+      const dates = await getDatesList()
+      console.debug('[RRG] getDatesList() returned', dates.length, 'dates', dates.slice(0, 5))
       if (!dates.length) throw new Error('No saved flow dates')
-      const sorted = [...dates].sort((a, b) => b.date.localeCompare(a.date))
-      const rowsToLoad = sorted.slice(0, 1).map(d => d.date)
-      const payloads = await Promise.all(rowsToLoad.map(async (rawDate) => {
-        const r = await fetch(`/api/flows/${encodeURIComponent(rawDate)}`)
-        return r.ok ? r.json() : null
-      }))
-      const combined: OptionsFlowData[] = []
-      for (const p of payloads) { if (Array.isArray(p?.data)) for (const t of p.data) combined.push(t) }
+      const allRequiredDays = getAlgoTradingDays(tfOverride ?? '1D')
+      const requiredDayCount = allRequiredDays.length
+      console.debug('[RRG] requiredDayCount=', requiredDayCount, 'allRequiredDays=', allRequiredDays)
+      const seenDayKeys = new Set<string>()
+      const rowsToLoad: string[] = []
+      const sortedDates = [...dates].sort((a, b) => b.date.localeCompare(a.date))
+      for (const { date: rawDate } of sortedDates) {
+        const dayKey = new Date(rawDate).toISOString().split('T')[0]
+        if (!seenDayKeys.has(dayKey)) { seenDayKeys.add(dayKey); rowsToLoad.push(rawDate) }
+        if (rowsToLoad.length >= requiredDayCount) break
+      }
+      console.debug('[RRG] rowsToLoad=', rowsToLoad)
+      if (!rowsToLoad.length) throw new Error('No rows to load')
+      const combined = await loadMultiDateTrades(rowsToLoad)
+      console.debug('[RRG] loadMultiDateTrades returned', combined.length, 'trades. sample=', combined[0])
       setBiasDataStatus(`Loaded ${combined.length} trades from DB`)
       return combined
     } catch (e) {
+      console.debug('[RRG] getBiasFlowData FAILED:', e)
       setBiasDataStatus('No cached data --” run an ALL scan first')
       return []
     }
@@ -3278,37 +3396,50 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (shouldAutoScanRRG > 0) runRRGScan() }, [shouldAutoScanRRG])
 
-  // Re-run RRG when expiry filter changes (if data already loaded)
+  // Re-run RRG when its own expiry filter changes (if data already loaded)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (allScanCacheRef.current?.flowData?.length) runRRGScan() }, [expiryFilter])
+  useEffect(() => { if (allScanCacheRef.current?.flowData?.length) runRRGScan() }, [rrgExpiryFilter])
 
   const runRRGScan = async () => {
+    console.debug('[RRG] runRRGScan START. rrgTicker=', rrgTicker, 'rrgTickerMode=', rrgTickerMode, 'rrgExpiryFilter=', rrgExpiryFilter, 'rrgScanDays=', rrgScanDays)
     setBiasRRGLoading(true); setBiasRRGData(null)
-    let trades = await getBiasFlowData()
-    if (!trades.length) { setBiasRRGLoading(false); return }
+    // Same DB / same smart multi-day logic as the AlgoFlow ALL scan, but triggered
+    // independently --” does not touch the left AlgoFlow chart's state.
+    let trades = await getBiasFlowData(rrgScanDays)
+    console.debug('[RRG] after getBiasFlowData: trades=', trades.length)
+    if (!trades.length) { console.debug('[RRG] ABORT: 0 trades returned from getBiasFlowData'); setBiasRRGLoading(false); return }
+    // Apply own ticker search --” "ALL" (or blank) means no filter, exactly like the AlgoFlow search box
+    if (rrgTicker.trim() && rrgTicker.trim().toUpperCase() !== 'ALL') {
+      const q = rrgTicker.trim().toUpperCase()
+      trades = trades.filter(t => t.underlying_ticker.toUpperCase() === q)
+      console.debug('[RRG] after ticker search filter ("' + q + '"):', trades.length)
+    }
     // Apply ticker filter
     if (rrgTickerMode === 'mag7only') trades = trades.filter(t => MAG7_TICKERS.includes(t.underlying_ticker))
     else if (rrgTickerMode === 'exmag7') trades = trades.filter(t => !MAG7_TICKERS.includes(t.underlying_ticker))
     else if (rrgTickerMode === 'etfonly') trades = trades.filter(t => ETF_SET.has(t.underlying_ticker))
     else if (rrgTickerMode === 'exetf') trades = trades.filter(t => !ETF_SET.has(t.underlying_ticker))
     else if (rrgTickerMode === 'stockonly') trades = trades.filter(t => !MAG7_TICKERS.includes(t.underlying_ticker) && !ETF_SET.has(t.underlying_ticker))
-    if (expiryFilter !== 'all') {
+    console.debug('[RRG] after rrgTickerMode filter:', trades.length)
+    if (rrgExpiryFilter !== 'all') {
       const todayPT = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
       const todayDate = new Date(todayPT)
       const getExp = (t: any): string => t.expiration_date ?? t.expiry ?? ''
-      if (expiryFilter === '0dte') {
+      if (rrgExpiryFilter === '0dte') {
         const odteDate = new Date(todayDate)
         if ([0, 6].includes(odteDate.getDay())) { do { odteDate.setDate(odteDate.getDate() + 1) } while ([0, 6].includes(odteDate.getDay())) }
         const odteStr = odteDate.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
         trades = trades.filter(t => getExp(t) === odteStr)
-      } else if (expiryFilter === 'weekly') {
+      } else if (rrgExpiryFilter === 'weekly') {
         trades = trades.filter(t => { const e = getExp(t); if (!e) return false; const d = new Date(e + 'T00:00:00'); return d.getDay() === 5 })
-      } else if (expiryFilter === '45d') {
+      } else if (rrgExpiryFilter === '45d') {
         const cutoff = new Date(todayDate); cutoff.setDate(cutoff.getDate() + 45)
         trades = trades.filter(t => { const e = getExp(t); if (!e) return false; return new Date(e + 'T00:00:00') <= cutoff })
       }
+      console.debug('[RRG] after rrgExpiryFilter filter:', trades.length)
     }
     const aggs = aggregateFlowByTicker(trades)
+    console.debug('[RRG] aggregateFlowByTicker produced', aggs.length, 'ticker aggregates')
     const MIN_THRESHOLD = 0.35
     const MIN_PREMIUM = 1_000_000
     const result = { bullCalls: [] as typeof aggs, bearCalls: [] as typeof aggs, bullPuts: [] as typeof aggs, bearPuts: [] as typeof aggs }
@@ -3323,6 +3454,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       else result.bearPuts.push(a)
     }
     for (const k of Object.keys(result) as (keyof typeof result)[]) result[k].sort((a, b) => b.total - a.total)
+    console.debug('[RRG] FINAL result counts:', { bullCalls: result.bullCalls.length, bearCalls: result.bearCalls.length, bullPuts: result.bullPuts.length, bearPuts: result.bearPuts.length })
     setBiasRRGData(result); setBiasRRGLoading(false)
     setRrgTransform({ tx: 0, ty: 0, k: 1 })
   }
@@ -3857,170 +3989,328 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             .af-sep { width: 1px; height: 24px; background: rgba(255,255,255,0.1); flex-shrink: 0; margin: 0 2px; }
           `}</style>
 
-          {/* BACK */}
-          {onBack && (
-            <button className="af-btn" onClick={onBack}>← BACK</button>
-          )}
+          {/* ============ ALGOFLOW controls --” left column, width matches the left chart column below ============ */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, overflowX: 'auto' }}>
 
-          <div className="af-sep" />
-
-          {/* Ticker input */}
-          <input type="text" value={ticker} onChange={e => setTicker(e.target.value.toUpperCase())} onKeyPress={handleKeyPress} placeholder="TICKER"
-            disabled={loading}
-            style={{ height: 32, width: 110, padding: '0 10px', background: 'linear-gradient(180deg,#111 0%,#080808 100%)', border: '1px solid rgba(255,255,255,0.2)', borderTop: '1px solid rgba(255,255,255,0.3)', borderRadius: 6, color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, letterSpacing: '0.12em', outline: 'none', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.8)', flexShrink: 0 }} />
-
-          {/* Timeframe select */}
-          <select value={scanTimeframe} onChange={e => setScanTimeframe(e.target.value)} disabled={loading}
-            style={{ height: 32, padding: '0 8px', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 100%)', border: '1px solid rgba(255,255,255,0.14)', borderTop: '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: '#ccc', fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, outline: 'none', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06),inset 0 -1px 0 rgba(0,0,0,0.6)', flexShrink: 0, colorScheme: 'dark' }}>
-            <option value="1D" style={{ background: '#0a0a0a', color: '#ccc' }}>TODAY</option>
-            <option value="2" style={{ background: '#0a0a0a', color: '#ccc' }}>2 DAYS</option>
-            <option value="3" style={{ background: '#0a0a0a', color: '#ccc' }}>3 DAYS</option>
-            <option value="4" style={{ background: '#0a0a0a', color: '#ccc' }}>4 DAYS</option>
-            <option value="5" style={{ background: '#0a0a0a', color: '#ccc' }}>5 DAYS</option>
-            <option value="7" style={{ background: '#0a0a0a', color: '#ccc' }}>7 DAYS</option>
-            <option value="10" style={{ background: '#0a0a0a', color: '#ccc' }}>10 DAYS</option>
-            <option value="14" style={{ background: '#0a0a0a', color: '#ccc' }}>14 DAYS</option>
-            <option value="20" style={{ background: '#0a0a0a', color: '#ccc' }}>20 DAYS</option>
-            <option value="30" style={{ background: '#0a0a0a', color: '#ccc' }}>30 DAYS</option>
-            <option value="45" style={{ background: '#0a0a0a', color: '#ccc' }}>45 DAYS</option>
-            <option value="60" style={{ background: '#0a0a0a', color: '#ccc' }}>60 DAYS</option>
-            <option value="90" style={{ background: '#0a0a0a', color: '#ccc' }}>90 DAYS</option>
-            <option value="126" style={{ background: '#0a0a0a', color: '#ccc' }}>126 DAYS</option>
-            <option value="189" style={{ background: '#0a0a0a', color: '#ccc' }}>189 DAYS</option>
-            <option value="252" style={{ background: '#0a0a0a', color: '#ccc' }}>252 DAYS</option>
-          </select>
-
-          {/* SCAN */}
-          <button onClick={handleSearch} disabled={loading || isAnalyzing || !ticker.trim()}
-            style={{ height: 32, padding: '0 18px', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 60%,#040404 100%)', border: '1px solid rgba(255,255,255,0.14)', borderTop: '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: loading || isAnalyzing ? '#555' : '#ff8500', fontFamily: 'JetBrains Mono,monospace', fontSize: 15, fontWeight: 800, letterSpacing: '1.5px', cursor: loading || isAnalyzing || !ticker.trim() ? 'not-allowed' : 'pointer', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.10),inset 0 -1px 0 rgba(0,0,0,0.7),0 2px 4px rgba(0,0,0,0.9)', display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap', flexShrink: 0, opacity: !ticker.trim() || loading || isAnalyzing ? 0.6 : 1 }}>
-            {isAnalyzing ? (<><div className="animate-spin" style={{ width: 10, height: 10, borderRadius: '50%', border: '2px solid #ff8500', borderTopColor: 'transparent' }} />SCANNING {flowData.length.toLocaleString()}</>) : loading ? 'SCANNING...' : 'SCAN'}
-          </button>
-
-          {/* Per-ticker LIVE */}
-          {ticker.trim() && ticker !== 'ALL' && (
-            <button className={`af-btn${isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? ' af-active-emerald' : ''}`}
-              onClick={() => isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? stopAlgoLive() : startAlgoLive(ticker.trim())}
-              title={`Stream ${ticker} options live`}>
-              <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? '#22c55e' : '#555', marginRight: 5 }} />
-              {isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? `STOP · ${algoLiveTradeCount}` : 'LIVE'}
-            </button>
-          )}
-
-          {/* COMPARE (sectors/industries holdings or ETF-self net-flow) */}
-          {compareDropdownOpen && <div onClick={() => setCompareDropdownOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />}
-          <div style={{ position: 'relative', flexShrink: 0 }}>
-            <button ref={compareBtnRef} className={`af-btn${compareMode !== 'off' ? ' af-active-orange' : ''}`}
-              onClick={() => {
-                if (!compareDropdownOpen && compareBtnRef.current) {
-                  const r = compareBtnRef.current.getBoundingClientRect()
-                  setCompareDropdownPos({ top: r.bottom + 6, left: r.left })
-                }
-                setCompareDropdownOpen(o => !o)
-              }}
-              disabled={compareLoading}
-              title="Plot each sector/industry's net flow as its own line">
-              {compareLoading ? 'COMPARING...' : compareMode === 'off' ? 'COMPARE' : `COMPARE: ${compareMode.toUpperCase()}`} {compareDropdownOpen ? '▲' : '▾'}
-            </button>
-            {compareDropdownOpen && compareDropdownPos && (
-              <div style={{ position: 'fixed', top: compareDropdownPos.top, left: compareDropdownPos.left, background: 'linear-gradient(180deg,#0d1420 0%,#060810 100%)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: '6px 0', width: 220, zIndex: 10000, boxShadow: '0 16px 48px rgba(0,0,0,0.95)' }}>
-                <div onClick={() => runCompareScan('sectors')} style={{ padding: '9px 14px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 700, color: compareMode === 'sectors' ? '#ff8500' : '#fff' }}>SECTOR HOLDINGS</div>
-                <div onClick={() => runCompareScan('sector-etfs')} style={{ padding: '9px 14px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 700, color: compareMode === 'sector-etfs' ? '#ff8500' : '#fff' }}>SECTOR ETFs</div>
-                <div onClick={() => runCompareScan('industries')} style={{ padding: '9px 14px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 700, color: compareMode === 'industries' ? '#ff8500' : '#fff' }}>INDUSTRY HOLDINGS</div>
-                <div onClick={() => runCompareScan('industry-etfs')} style={{ padding: '9px 14px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 700, color: compareMode === 'industry-etfs' ? '#ff8500' : '#fff' }}>INDUSTRY ETFs</div>
-                {compareMode !== 'off' && (
-                  <div onClick={() => { setCompareMode('off'); setCompareData(null); setCompareDrillBasket(null); setCompareBackStack([]); setCompareDropdownOpen(false) }} style={{ padding: '9px 14px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 700, color: '#ef4444', borderTop: '1px solid rgba(255,255,255,0.07)' }}>✕ TURN OFF</div>
-                )}
-              </div>
+            {/* BACK */}
+            {onBack && (
+              <button className="af-btn" onClick={onBack}>← BACK</button>
             )}
-          </div>
 
-          {/* Compare drill-down back button -- also lets you step all the way back to
-              the ALL-scan chart once the drill-down stack is empty */}
-          {compareMode !== 'off' && (
-            <button className="af-btn" onClick={goBackCompareLevel} title="Back one level in the compare drill-down">← BACK</button>
-          )}
-
-          <div className="af-sep" />
-
-          {/* Expiry filters */}
-          <button className={`af-btn${expiryFilter === '45d' ? ' af-active-yellow' : ''}`} onClick={() => setExpiryFilter(expiryFilter === '45d' ? 'all' : '45d')} title="Contracts expiring within 45 days">45D</button>
-          <button className={`af-btn${expiryFilter === 'weekly' ? ' af-active-yellow' : ''}`} onClick={() => setExpiryFilter(expiryFilter === 'weekly' ? 'all' : 'weekly')} title="This-week expiries only">WEEKLIES</button>
-          <button className={`af-btn${expiryFilter === '0dte' ? ' af-active-purple' : ''}`} onClick={() => setExpiryFilter(expiryFilter === '0dte' ? 'all' : '0dte')} title="0DTE only">0DTE</button>
-
-          <div className="af-sep" />
-
-          {/* Exclusion filters */}
-          <button className={`af-btn${excludeMag7 ? ' af-active-orange' : ''}`} onClick={() => { setExcludeMag7(v => !v); setExcludeEtf(false) }} title="Exclude MAG7">EXCL MAG7</button>
-          <button className={`af-btn${excludeEtf ? ' af-active-green' : ''}`} onClick={() => { setExcludeEtf(v => !v); setExcludeMag7(false) }} title="Exclude ETFs">EXCL ETFs</button>
-          <button className={`af-btn${excludeIndex ? ' af-active-violet' : ''}`} onClick={() => setExcludeIndex((v: boolean) => !v)} title="Exclude SPX/NDX/RUT/VIX etc.">EXCL INDEX</button>
-          <button className={`af-btn${excludeMag7 && excludeEtf ? ' af-active-blue' : ''}`} onClick={() => { const both = excludeMag7 && excludeEtf; setExcludeMag7(!both); setExcludeEtf(!both) }} title="Stocks only">STOCKS ONLY</button>
-
-          <div className="af-sep" />
-
-          {/* REGIME + GROUPING toggles */}
-          <button className={`af-btn${showRegime ? ' af-active-violet' : ''}`} onClick={() => setShowRegime(v => !v)} title="Show regime circles on Flow Matrix">REGIME</button>
-          <button className={`af-btn${showRegimeGrouping ? ' af-active-blue' : ''}`} onClick={() => setShowRegimeGrouping(v => !v)} title="Show grouping ellipses on Flow Matrix">GROUPING</button>
-
-          <div className="af-sep" />
-
-          {/* Chart overlays --” single ticker only */}
-          {analysis && !isAllScan && (<>
-            <button className={`af-btn${showGammaLine ? ' af-active-orange' : ''}`} onClick={() => setShowGammaLine(v => !v)} title="Cumulative gamma from flow">GAMMA</button>
-            <button className={`af-btn${showBullBear ? ' af-active-violet' : ''}`} onClick={() => setShowBullBear(v => !v)} title="Bull/Bear ratio">BULL/BEAR</button>
             <div className="af-sep" />
-          </>)}
 
-          {/* ALL TICKERS */}
-          <button className={`af-btn${ticker === 'ALL' ? ' af-active-orange' : ''}`}
-            onClick={() => { setSearchTicker('ALL'); setIsAllScan(true); fetchTickerFlow('ALL') }}
-            disabled={loading} title="Scan all tickers">ALL TICKERS</button>
+            {/* Ticker input */}
+            <input type="text" value={ticker} onChange={e => setTicker(e.target.value.toUpperCase())} onKeyPress={handleKeyPress} placeholder="TICKER"
+              disabled={loading}
+              style={{ height: 32, width: 110, padding: '0 10px', background: 'linear-gradient(180deg,#111 0%,#080808 100%)', border: '1px solid rgba(255,255,255,0.2)', borderTop: '1px solid rgba(255,255,255,0.3)', borderRadius: 6, color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, letterSpacing: '0.12em', outline: 'none', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.8)', flexShrink: 0 }} />
 
-          {/* SECTORS */}
-          {sectorPopupOpen && <div onClick={() => setSectorPopupOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />}
-          <div style={{ position: 'relative', flexShrink: 0 }}>
-            <button ref={sectorBtnRef} className={`af-btn${sectorFilter ? ' af-active-green' : ''}`}
-              onClick={() => {
-                if (!sectorPopupOpen && sectorBtnRef.current) {
-                  const r = sectorBtnRef.current.getBoundingClientRect()
-                  setSectorPopupPos({ top: r.bottom + 6, left: r.left })
-                }
-                setSectorPopupOpen(o => !o)
-              }}
-              title="Filter by sector or industry ETF">
-              {sectorFilter ? sectorFilter : 'SECTORS'} {sectorPopupOpen ? '▲' : '▾'}
+            {/* Timeframe select */}
+            <select value={scanTimeframe} onChange={e => setScanTimeframe(e.target.value)} disabled={loading}
+              style={{ height: 32, padding: '0 8px', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 100%)', border: '1px solid rgba(255,255,255,0.14)', borderTop: '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: '#ccc', fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, outline: 'none', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06),inset 0 -1px 0 rgba(0,0,0,0.6)', flexShrink: 0, colorScheme: 'dark' }}>
+              <option value="1D" style={{ background: '#0a0a0a', color: '#ccc' }}>TODAY</option>
+              <option value="2" style={{ background: '#0a0a0a', color: '#ccc' }}>2 DAYS</option>
+              <option value="3" style={{ background: '#0a0a0a', color: '#ccc' }}>3 DAYS</option>
+              <option value="4" style={{ background: '#0a0a0a', color: '#ccc' }}>4 DAYS</option>
+              <option value="5" style={{ background: '#0a0a0a', color: '#ccc' }}>5 DAYS</option>
+              <option value="7" style={{ background: '#0a0a0a', color: '#ccc' }}>7 DAYS</option>
+              <option value="10" style={{ background: '#0a0a0a', color: '#ccc' }}>10 DAYS</option>
+              <option value="14" style={{ background: '#0a0a0a', color: '#ccc' }}>14 DAYS</option>
+              <option value="20" style={{ background: '#0a0a0a', color: '#ccc' }}>20 DAYS</option>
+              <option value="30" style={{ background: '#0a0a0a', color: '#ccc' }}>30 DAYS</option>
+              <option value="45" style={{ background: '#0a0a0a', color: '#ccc' }}>45 DAYS</option>
+              <option value="60" style={{ background: '#0a0a0a', color: '#ccc' }}>60 DAYS</option>
+              <option value="90" style={{ background: '#0a0a0a', color: '#ccc' }}>90 DAYS</option>
+              <option value="126" style={{ background: '#0a0a0a', color: '#ccc' }}>126 DAYS</option>
+              <option value="189" style={{ background: '#0a0a0a', color: '#ccc' }}>189 DAYS</option>
+              <option value="252" style={{ background: '#0a0a0a', color: '#ccc' }}>252 DAYS</option>
+            </select>
+
+            {/* SCAN */}
+            <button onClick={handleSearch} disabled={loading || isAnalyzing || !ticker.trim()}
+              style={{ height: 32, padding: '0 18px', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 60%,#040404 100%)', border: '1px solid rgba(255,255,255,0.14)', borderTop: '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: loading || isAnalyzing ? '#555' : '#ff8500', fontFamily: 'JetBrains Mono,monospace', fontSize: 15, fontWeight: 800, letterSpacing: '1.5px', cursor: loading || isAnalyzing || !ticker.trim() ? 'not-allowed' : 'pointer', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.10),inset 0 -1px 0 rgba(0,0,0,0.7),0 2px 4px rgba(0,0,0,0.9)', display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap', flexShrink: 0, opacity: !ticker.trim() || loading || isAnalyzing ? 0.6 : 1 }}>
+              {isAnalyzing ? (<><div className="animate-spin" style={{ width: 10, height: 10, borderRadius: '50%', border: '2px solid #ff8500', borderTopColor: 'transparent' }} />SCANNING {flowData.length.toLocaleString()}</>) : loading ? 'SCANNING...' : 'SCAN'}
             </button>
-            {sectorPopupOpen && sectorPopupPos && (
-              <div style={{ position: 'fixed', top: sectorPopupPos.top, left: sectorPopupPos.left, background: 'linear-gradient(180deg,#0d1420 0%,#060810 100%)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: '6px 0', width: 220, zIndex: 10000, boxShadow: '0 16px 48px rgba(0,0,0,0.95)', maxHeight: '70vh', overflowY: 'auto' }}>
-                <div style={{ padding: '5px 14px 3px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#34d399', letterSpacing: '0.2em', fontWeight: 800 }}>SECTORS</div>
-                {SECTORS.map(({ etf, label }) => {
-                  const active = sectorFilter === etf
-                  return <div key={etf} onClick={() => handleSectorSelect(etf)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: 'pointer', background: active ? 'rgba(52,211,153,0.1)' : 'transparent' }}>
-                    <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${active ? '#34d399' : 'rgba(255,255,255,0.3)'}`, background: active ? '#34d399' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{active && <span style={{ color: '#000', fontSize: 10, fontWeight: 900 }}>-</span>}</div>
-                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, color: active ? '#34d399' : '#fff' }}>{etf} <span style={{ color: '#5eead4', fontSize: 13, fontWeight: 600 }}>{label}</span></span>
-                  </div>
-                })}
-                <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
-                <div style={{ padding: '5px 14px 3px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#a78bfa', letterSpacing: '0.2em', fontWeight: 800 }}>INDUSTRIES</div>
-                {INDUSTRIES.map(({ etf, label }) => {
-                  const active = sectorFilter === etf
-                  return <div key={etf} onClick={() => handleSectorSelect(etf)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: 'pointer', background: active ? 'rgba(167,139,250,0.1)' : 'transparent' }}>
-                    <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${active ? '#a78bfa' : 'rgba(255,255,255,0.3)'}`, background: active ? '#a78bfa' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{active && <span style={{ color: '#fff', fontSize: 10, fontWeight: 900 }}>-</span>}</div>
-                    <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, color: active ? '#a78bfa' : '#fff' }}>{etf} <span style={{ color: '#c4b5fd', fontSize: 13, fontWeight: 600 }}>{label}</span></span>
-                  </div>
-                })}
-                {sectorFilter && (
-                  <>
-                    <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
-                    <div onClick={() => { setSectorFilter(null); setSectorPopupOpen(false); if (allScanCacheRef.current) { setFlowData(allScanCacheRef.current.flowData); setAnalysis(allScanCacheRef.current.analysis) } }} style={{ padding: '9px 14px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 700, color: '#ef4444' }}>✕ CLEAR SECTOR</div>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
 
-          {/* Status / error */}
-          {error && <span style={{ color: '#ef4444', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, flexShrink: 0 }}>{error}</span>}
-          {isAlgoLive && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: algoLiveConnected ? '#22c55e' : '#facc15', flexShrink: 0 }}>{algoLiveConnected ? '● LIVE' : '○ CONNECTING'}</span>}
+            {/* Per-ticker LIVE */}
+            {ticker.trim() && ticker !== 'ALL' && (
+              <button className={`af-btn${isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? ' af-active-emerald' : ''}`}
+                onClick={() => isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? stopAlgoLive() : startAlgoLive(ticker.trim())}
+                title={`Stream ${ticker} options live`}>
+                <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? '#22c55e' : '#555', marginRight: 5 }} />
+                {isAlgoLive && algoLiveTicker === ticker.trim().toUpperCase() ? `STOP · ${algoLiveTradeCount}` : 'LIVE'}
+              </button>
+            )}
+
+            {/* COMPARE (sectors/industries holdings or ETF-self net-flow) */}
+            {compareDropdownOpen && <div onClick={() => setCompareDropdownOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />}
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <button ref={compareBtnRef} className={`af-btn${compareMode !== 'off' ? ' af-active-orange' : ''}`}
+                onClick={() => {
+                  if (!compareDropdownOpen && compareBtnRef.current) {
+                    const r = compareBtnRef.current.getBoundingClientRect()
+                    setCompareDropdownPos({ top: r.bottom + 6, left: r.left })
+                  }
+                  setCompareDropdownOpen(o => !o)
+                }}
+                disabled={compareLoading}
+                title="Plot each sector/industry's net flow as its own line">
+                {compareLoading ? 'COMPARING...' : compareMode === 'off' ? 'COMPARE' : `COMPARE: ${compareMode.toUpperCase()}`} {compareDropdownOpen ? '▲' : '▾'}
+              </button>
+              {compareDropdownOpen && compareDropdownPos && (
+                <div style={{ position: 'fixed', top: compareDropdownPos.top, left: compareDropdownPos.left, background: 'linear-gradient(180deg,#0d1420 0%,#060810 100%)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: '6px 0', width: 220, zIndex: 10000, boxShadow: '0 16px 48px rgba(0,0,0,0.95)' }}>
+                  <div onClick={() => runCompareScan('sectors')} style={{ padding: '9px 14px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 700, color: compareMode === 'sectors' ? '#ff8500' : '#fff' }}>SECTOR HOLDINGS</div>
+                  <div onClick={() => runCompareScan('sector-etfs')} style={{ padding: '9px 14px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 700, color: compareMode === 'sector-etfs' ? '#ff8500' : '#fff' }}>SECTOR ETFs</div>
+                  <div onClick={() => runCompareScan('industries')} style={{ padding: '9px 14px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 700, color: compareMode === 'industries' ? '#ff8500' : '#fff' }}>INDUSTRY HOLDINGS</div>
+                  <div onClick={() => runCompareScan('industry-etfs')} style={{ padding: '9px 14px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 700, color: compareMode === 'industry-etfs' ? '#ff8500' : '#fff' }}>INDUSTRY ETFs</div>
+                  {compareMode !== 'off' && (
+                    <div onClick={() => { setCompareMode('off'); setCompareData(null); setCompareDrillBasket(null); setCompareBackStack([]); setCompareDropdownOpen(false) }} style={{ padding: '9px 14px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 700, color: '#ef4444', borderTop: '1px solid rgba(255,255,255,0.07)' }}>✕ TURN OFF</div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Compare drill-down back button -- also lets you step all the way back to
+              the ALL-scan chart once the drill-down stack is empty */}
+            {compareMode !== 'off' && (
+              <button className="af-btn" onClick={goBackCompareLevel} title="Back one level in the compare drill-down">← BACK</button>
+            )}
+
+            <div className="af-sep" />
+
+            {/* TIME dropdown --” 45D / WEEKLIES / 0DTE */}
+            {afTimeOpen && <div onClick={() => setAfTimeOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />}
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <button
+                ref={afTimeBtnRef}
+                className={`af-btn${expiryFilter !== 'all' ? ' af-active-yellow' : ''}`}
+                onClick={() => {
+                  if (!afTimeOpen && afTimeBtnRef.current) {
+                    const r = afTimeBtnRef.current.getBoundingClientRect()
+                    setAfTimeDropdownPos({ top: r.bottom + 6, left: r.left })
+                  }
+                  setAfTimeOpen(v => !v); setAfExcludeOpen(false)
+                }}
+              >TIME{expiryFilter !== 'all' ? `: ${expiryFilter.toUpperCase()}` : ''} {afTimeOpen ? '▲' : '▾'}</button>
+              {afTimeOpen && afTimeDropdownPos && (
+                <div style={{ position: 'fixed', top: afTimeDropdownPos.top, left: afTimeDropdownPos.left, background: 'linear-gradient(180deg,#111 0%,#080808 100%)', border: '1px solid #facc15', borderRadius: 8, overflow: 'hidden', minWidth: 170, boxShadow: '0 12px 36px rgba(0,0,0,0.9)', zIndex: 10000 }}>
+                  {[
+                    { label: '45D', value: '45d' as const },
+                    { label: 'WEEKLIES', value: 'weekly' as const },
+                    { label: '0DTE', value: '0dte' as const },
+                  ].map(opt => (
+                    <button key={opt.value} onClick={() => { setExpiryFilter(expiryFilter === opt.value ? 'all' : opt.value); setAfTimeOpen(false) }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '10px 14px', background: expiryFilter === opt.value ? 'rgba(250,204,21,0.12)' : 'none', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.06)', cursor: 'pointer', textAlign: 'left' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(250,204,21,0.1)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = expiryFilter === opt.value ? 'rgba(250,204,21,0.12)' : 'none')}
+                    >
+                      <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${expiryFilter === opt.value ? '#facc15' : 'rgba(255,255,255,0.3)'}`, background: expiryFilter === opt.value ? '#facc15' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {expiryFilter === opt.value && <span style={{ color: '#000', fontSize: 10, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+                      </div>
+                      <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, color: expiryFilter === opt.value ? '#facc15' : '#fff', letterSpacing: '0.08em' }}>{opt.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* TICKER FILTER dropdown --” EXCL MAG7 / EXCL ETFs / EXCL INDEX / STOCKS ONLY */}
+            {afExcludeOpen && <div onClick={() => setAfExcludeOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />}
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <button
+                ref={afExcludeBtnRef}
+                className={`af-btn${(excludeMag7 || excludeEtf || excludeIndex) ? ' af-active-orange' : ''}`}
+                onClick={() => {
+                  if (!afExcludeOpen && afExcludeBtnRef.current) {
+                    const r = afExcludeBtnRef.current.getBoundingClientRect()
+                    setAfExcludeDropdownPos({ top: r.bottom + 6, left: r.left })
+                  }
+                  setAfExcludeOpen(v => !v); setAfTimeOpen(false)
+                }}
+              >FILTER{(excludeMag7 && excludeEtf) ? ': STOCKS ONLY' : excludeMag7 ? ': EXCL MAG7' : excludeEtf ? ': EXCL ETFs' : ''}{excludeIndex ? ' +IDX' : ''} {afExcludeOpen ? '▲' : '▾'}</button>
+              {afExcludeOpen && afExcludeDropdownPos && (
+                <div style={{ position: 'fixed', top: afExcludeDropdownPos.top, left: afExcludeDropdownPos.left, background: 'linear-gradient(180deg,#111 0%,#080808 100%)', border: '1px solid #ff8500', borderRadius: 8, overflow: 'hidden', minWidth: 190, boxShadow: '0 12px 36px rgba(0,0,0,0.9)', zIndex: 10000 }}>
+                  {[
+                    { label: 'EXCL MAG7', active: excludeMag7, toggle: () => { setExcludeMag7((v: boolean) => !v); setExcludeEtf(false) }, color: '#ff8500' },
+                    { label: 'EXCL ETFs', active: excludeEtf, toggle: () => { setExcludeEtf((v: boolean) => !v); setExcludeMag7(false) }, color: '#22c55e' },
+                    { label: 'EXCL INDEX', active: excludeIndex, toggle: () => setExcludeIndex((v: boolean) => !v), color: '#a78bfa' },
+                    { label: 'STOCKS ONLY', active: excludeMag7 && excludeEtf, toggle: () => { const both = excludeMag7 && excludeEtf; setExcludeMag7(!both); setExcludeEtf(!both) }, color: '#38bdf8' },
+                  ].map(opt => (
+                    <button key={opt.label} onClick={opt.toggle}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '10px 14px', background: opt.active ? `${opt.color}1f` : 'none', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.06)', cursor: 'pointer', textAlign: 'left' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = `${opt.color}22`)}
+                      onMouseLeave={e => (e.currentTarget.style.background = opt.active ? `${opt.color}1f` : 'none')}
+                    >
+                      <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${opt.active ? opt.color : 'rgba(255,255,255,0.3)'}`, background: opt.active ? opt.color : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {opt.active && <span style={{ color: '#000', fontSize: 10, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+                      </div>
+                      <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, color: opt.active ? opt.color : '#fff', letterSpacing: '0.06em' }}>{opt.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="af-sep" />
+
+            {/* Chart overlays --” single ticker only */}
+            {analysis && !isAllScan && (<>
+              <button className={`af-btn${showGammaLine ? ' af-active-orange' : ''}`} onClick={() => setShowGammaLine(v => !v)} title="Cumulative gamma from flow">GAMMA</button>
+              <button className={`af-btn${showBullBear ? ' af-active-violet' : ''}`} onClick={() => setShowBullBear(v => !v)} title="Bull/Bear ratio">BULL/BEAR</button>
+              <div className="af-sep" />
+            </>)}
+
+            {/* ALL TICKERS */}
+            <button className={`af-btn${ticker === 'ALL' ? ' af-active-orange' : ''}`}
+              onClick={() => { setSearchTicker('ALL'); setIsAllScan(true); fetchTickerFlow('ALL') }}
+              disabled={loading} title="Scan all tickers">ALL TICKERS</button>
+
+            {/* SECTORS */}
+            {sectorPopupOpen && <div onClick={() => setSectorPopupOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />}
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <button ref={sectorBtnRef} className={`af-btn${sectorFilter ? ' af-active-green' : ''}`}
+                onClick={() => {
+                  if (!sectorPopupOpen && sectorBtnRef.current) {
+                    const r = sectorBtnRef.current.getBoundingClientRect()
+                    setSectorPopupPos({ top: r.bottom + 6, left: r.left })
+                  }
+                  setSectorPopupOpen(o => !o)
+                }}
+                title="Filter by sector or industry ETF">
+                {sectorFilter ? sectorFilter : 'SECTORS'} {sectorPopupOpen ? '▲' : '▾'}
+              </button>
+              {sectorPopupOpen && sectorPopupPos && (
+                <div style={{ position: 'fixed', top: sectorPopupPos.top, left: sectorPopupPos.left, background: 'linear-gradient(180deg,#0d1420 0%,#060810 100%)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: '6px 0', width: 220, zIndex: 10000, boxShadow: '0 16px 48px rgba(0,0,0,0.95)', maxHeight: '70vh', overflowY: 'auto' }}>
+                  <div style={{ padding: '5px 14px 3px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#34d399', letterSpacing: '0.2em', fontWeight: 800 }}>SECTORS</div>
+                  {SECTORS.map(({ etf, label }) => {
+                    const active = sectorFilter === etf
+                    return <div key={etf} onClick={() => handleSectorSelect(etf)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: 'pointer', background: active ? 'rgba(52,211,153,0.1)' : 'transparent' }}>
+                      <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${active ? '#34d399' : 'rgba(255,255,255,0.3)'}`, background: active ? '#34d399' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{active && <span style={{ color: '#000', fontSize: 10, fontWeight: 900 }}>-</span>}</div>
+                      <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, color: active ? '#34d399' : '#fff' }}>{etf} <span style={{ color: '#5eead4', fontSize: 13, fontWeight: 600 }}>{label}</span></span>
+                    </div>
+                  })}
+                  <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
+                  <div style={{ padding: '5px 14px 3px', fontFamily: 'JetBrains Mono,monospace', fontSize: 10, color: '#a78bfa', letterSpacing: '0.2em', fontWeight: 800 }}>INDUSTRIES</div>
+                  {INDUSTRIES.map(({ etf, label }) => {
+                    const active = sectorFilter === etf
+                    return <div key={etf} onClick={() => handleSectorSelect(etf)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: 'pointer', background: active ? 'rgba(167,139,250,0.1)' : 'transparent' }}>
+                      <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${active ? '#a78bfa' : 'rgba(255,255,255,0.3)'}`, background: active ? '#a78bfa' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{active && <span style={{ color: '#fff', fontSize: 10, fontWeight: 900 }}>-</span>}</div>
+                      <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, color: active ? '#a78bfa' : '#fff' }}>{etf} <span style={{ color: '#c4b5fd', fontSize: 13, fontWeight: 600 }}>{label}</span></span>
+                    </div>
+                  })}
+                  {sectorFilter && (
+                    <>
+                      <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
+                      <div onClick={() => { setSectorFilter(null); setSectorPopupOpen(false); if (allScanCacheRef.current) { setFlowData(allScanCacheRef.current.flowData); setAnalysis(allScanCacheRef.current.analysis) } }} style={{ padding: '9px 14px', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 700, color: '#ef4444' }}>✕ CLEAR SECTOR</div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Status / error */}
+            {error && <span style={{ color: '#ef4444', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, flexShrink: 0 }}>{error}</span>}
+            {isAlgoLive && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: algoLiveConnected ? '#22c55e' : '#facc15', flexShrink: 0 }}>{algoLiveConnected ? '● LIVE' : '○ CONNECTING'}</span>}
+
+          </div>{/* end AlgoFlow controls column */}
+
+          {/* ============ RRG / FLOW MATRIX --” its own independent toolbar, aligned to start where the Flow Matrix panel starts below ============ */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '40%', padding: '4px 12px 4px 12px', marginLeft: -16, marginTop: -7, marginBottom: -7, borderLeft: '1px solid rgba(255,255,255,0.14)', flexShrink: 0, flexWrap: 'nowrap', overflowX: 'auto', boxSizing: 'border-box', height: '100%', background: 'linear-gradient(180deg,#1c2a4a 0%,#101c33 55%,#0a1122 100%)' }}>
+            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, color: '#ff8500', letterSpacing: '0.16em', fontWeight: 900, whiteSpace: 'nowrap' }}>RRG CONTROLS:</span>
+
+            {/* RRG ticker search --” own input, mirrors AlgoFlow ticker box */}
+            <input type="text" value={rrgTicker} onChange={e => setRrgTicker(e.target.value.toUpperCase())} onKeyDown={e => e.key === 'Enter' && runRRGScan()} placeholder="TICKER"
+              style={{ height: 32, width: 90, padding: '0 10px', background: 'linear-gradient(180deg,#111 0%,#080808 100%)', border: '1px solid rgba(255,255,255,0.2)', borderTop: '1px solid rgba(255,255,255,0.3)', borderRadius: 6, color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, letterSpacing: '0.12em', outline: 'none', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.8)', flexShrink: 0 }} />
+
+            {/* RRG historical range --” own timeframe select, mirrors AlgoFlow TODAY/N DAYS select */}
+            <select value={rrgScanDays} onChange={e => setRrgScanDays(e.target.value)}
+              style={{ height: 32, padding: '0 8px', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 100%)', border: '1px solid rgba(255,255,255,0.14)', borderTop: '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: '#ccc', fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, outline: 'none', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06),inset 0 -1px 0 rgba(0,0,0,0.6)', flexShrink: 0, colorScheme: 'dark' }}>
+              <option value="1" style={{ background: '#0a0a0a', color: '#ccc' }}>TODAY</option>
+              <option value="2" style={{ background: '#0a0a0a', color: '#ccc' }}>2 DAYS</option>
+              <option value="3" style={{ background: '#0a0a0a', color: '#ccc' }}>3 DAYS</option>
+              <option value="5" style={{ background: '#0a0a0a', color: '#ccc' }}>5 DAYS</option>
+              <option value="10" style={{ background: '#0a0a0a', color: '#ccc' }}>10 DAYS</option>
+              <option value="20" style={{ background: '#0a0a0a', color: '#ccc' }}>20 DAYS</option>
+              <option value="30" style={{ background: '#0a0a0a', color: '#ccc' }}>30 DAYS</option>
+            </select>
+
+            {/* RRG SCAN */}
+            <button onClick={runRRGScan} disabled={biasRRGLoading}
+              style={{ height: 32, padding: '0 14px', borderRadius: 6, border: '1px solid #ff8500', background: biasRRGLoading ? 'rgba(255,133,0,0.25)' : '#ff8500', color: '#000', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 900, letterSpacing: '0.08em', cursor: biasRRGLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+              {biasRRGLoading ? <span style={{ display: 'inline-block', width: 9, height: 9, border: '2px solid #000', borderTopColor: 'transparent', borderRadius: '50%', animation: 'biasSpin 0.7s linear infinite' }} /> : null}
+              {biasRRGLoading ? 'SCANNING' : 'SCAN'}
+            </button>
+
+            {/* RRG TICKERS dropdown --” own ticker mode filter (mirrors rrgTickerMode) */}
+            {rrgDropdownOpen === 'ticker' && <div onClick={() => setRrgDropdownOpen(null)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />}
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <button ref={rrgTickersBtnRef} onClick={() => {
+                if (rrgDropdownOpen !== 'ticker' && rrgTickersBtnRef.current) {
+                  const r = rrgTickersBtnRef.current.getBoundingClientRect()
+                  setRrgTickersDropdownPos({ top: r.bottom + 6, right: window.innerWidth - r.right })
+                }
+                setRrgDropdownOpen(o => o === 'ticker' ? null : 'ticker')
+              }}
+                style={{ height: 32, padding: '0 12px', borderRadius: 6, border: `1px solid ${rrgTickerMode !== 'all' ? '#22d3ee' : 'rgba(255,255,255,0.18)'}`, background: rrgTickerMode !== 'all' ? '#22d3ee' : 'transparent', color: rrgTickerMode !== 'all' ? '#000' : '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 800, letterSpacing: '0.06em', cursor: 'pointer' }}>
+                TICKERS{rrgTickerMode !== 'all' ? `: ${rrgTickerMode.toUpperCase()}` : ''} {rrgDropdownOpen === 'ticker' ? '▲' : '▾'}
+              </button>
+              {rrgDropdownOpen === 'ticker' && rrgTickersDropdownPos && (
+                <div style={{ position: 'fixed', top: rrgTickersDropdownPos.top, right: rrgTickersDropdownPos.right, background: 'linear-gradient(180deg,#111 0%,#080808 100%)', border: '1px solid #22d3ee', borderRadius: 8, overflow: 'hidden', minWidth: 180, boxShadow: '0 12px 36px rgba(0,0,0,0.9)', zIndex: 10000 }}>
+                  {[
+                    { label: 'ALL', value: 'all' as const },
+                    { label: 'MAG7 ONLY', value: 'mag7only' as const },
+                    { label: 'EX MAG7', value: 'exmag7' as const },
+                    { label: 'ETF ONLY', value: 'etfonly' as const },
+                    { label: 'EX ETF', value: 'exetf' as const },
+                    { label: 'STOCK ONLY', value: 'stockonly' as const },
+                  ].map(opt => (
+                    <button key={opt.value} onClick={() => { setRrgTickerMode(opt.value); setRrgDropdownOpen(null) }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '9px 14px', background: rrgTickerMode === opt.value ? 'rgba(34,211,238,0.14)' : 'none', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.06)', cursor: 'pointer', textAlign: 'left' }}>
+                      <div style={{ width: 14, height: 14, borderRadius: 7, border: `2px solid ${rrgTickerMode === opt.value ? '#22d3ee' : 'rgba(255,255,255,0.3)'}`, background: rrgTickerMode === opt.value ? '#22d3ee' : 'transparent', flexShrink: 0 }} />
+                      <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 800, color: rrgTickerMode === opt.value ? '#22d3ee' : '#fff', letterSpacing: '0.06em' }}>{opt.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* RRG TIME dropdown --” own expiry filter (mirrors rrgExpiryFilter) */}
+            {rrgDropdownOpen === 'time' && <div onClick={() => setRrgDropdownOpen(null)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />}
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <button ref={rrgTimeBtnRef} onClick={() => {
+                if (rrgDropdownOpen !== 'time' && rrgTimeBtnRef.current) {
+                  const r = rrgTimeBtnRef.current.getBoundingClientRect()
+                  setRrgTimeDropdownPos({ top: r.bottom + 6, right: window.innerWidth - r.right })
+                }
+                setRrgDropdownOpen(o => o === 'time' ? null : 'time')
+              }}
+                style={{ height: 32, padding: '0 12px', borderRadius: 6, border: `1px solid ${rrgExpiryFilter !== 'all' ? '#facc15' : 'rgba(255,255,255,0.18)'}`, background: rrgExpiryFilter !== 'all' ? '#facc15' : 'transparent', color: rrgExpiryFilter !== 'all' ? '#000' : '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 800, letterSpacing: '0.06em', cursor: 'pointer' }}>
+                TIME{rrgExpiryFilter !== 'all' ? `: ${rrgExpiryFilter.toUpperCase()}` : ''} {rrgDropdownOpen === 'time' ? '▲' : '▾'}
+              </button>
+              {rrgDropdownOpen === 'time' && rrgTimeDropdownPos && (
+                <div style={{ position: 'fixed', top: rrgTimeDropdownPos.top, right: rrgTimeDropdownPos.right, background: 'linear-gradient(180deg,#111 0%,#080808 100%)', border: '1px solid #facc15', borderRadius: 8, overflow: 'hidden', minWidth: 150, boxShadow: '0 12px 36px rgba(0,0,0,0.9)', zIndex: 10000 }}>
+                  {[
+                    { label: '45D', value: '45d' as const },
+                    { label: 'WEEKLIES', value: 'weekly' as const },
+                    { label: '0DTE', value: '0dte' as const },
+                  ].map(opt => (
+                    <button key={opt.value} onClick={() => { setRrgExpiryFilter(rrgExpiryFilter === opt.value ? 'all' : opt.value); setRrgDropdownOpen(null) }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '9px 14px', background: rrgExpiryFilter === opt.value ? 'rgba(250,204,21,0.14)' : 'none', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.06)', cursor: 'pointer', textAlign: 'left' }}>
+                      <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${rrgExpiryFilter === opt.value ? '#facc15' : 'rgba(255,255,255,0.3)'}`, background: rrgExpiryFilter === opt.value ? '#facc15' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {rrgExpiryFilter === opt.value && <span style={{ color: '#000', fontSize: 10, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+                      </div>
+                      <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 800, color: rrgExpiryFilter === opt.value ? '#facc15' : '#fff', letterSpacing: '0.06em' }}>{opt.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* REGIME / GROUPING toggles */}
+            <button onClick={() => setShowRegime(v => !v)} title="Show regime circles on Flow Matrix"
+              style={{ height: 32, padding: '0 12px', borderRadius: 6, border: `1px solid ${showRegime ? '#a78bfa' : 'rgba(255,255,255,0.18)'}`, background: showRegime ? '#a78bfa' : 'transparent', color: showRegime ? '#000' : '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 800, letterSpacing: '0.06em', cursor: 'pointer' }}>REGIME</button>
+            <button onClick={() => setShowRegimeGrouping(v => !v)} title="Show grouping ellipses on Flow Matrix"
+              style={{ height: 32, padding: '0 12px', borderRadius: 6, border: `1px solid ${showRegimeGrouping ? '#38bdf8' : 'rgba(255,255,255,0.18)'}`, background: showRegimeGrouping ? '#38bdf8' : 'transparent', color: showRegimeGrouping ? '#000' : '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 800, letterSpacing: '0.06em', cursor: 'pointer' }}>GROUPING</button>
+          </div>
 
           <OptionsFlowScene visible={isAllScan && overlayActive} selectedTicker="ALL" streamingStatus={streamStatus} />
         </div>
@@ -4084,10 +4374,50 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       />
                     </div>
 
+                    {/* Expiry breakdown gauge --” Weekly/Monthly/Quarterly/Leap, always visible, same style as above */}
+                    <div className="algo-sidebar-gauge" style={{
+                      gridColumn: isMobile ? '1 / -1' : undefined,
+                      padding: '0 0 8px',
+                      borderBottom: '1px solid rgba(255,255,255,0.07)',
+                      background: 'linear-gradient(180deg, rgba(255,255,255,0.025) 0%, transparent 100%)',
+                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
+                      position: 'relative',
+                      overflow: 'hidden',
+                    }}>
+                      <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 200, height: 125, borderRadius: '50%', background: 'radial-gradient(ellipse at 50% 30%, rgba(139,92,246,0.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
+                      <ExpiryQuadrantGauge
+                        weekly={expiryBreakdown.weekly}
+                        monthly={expiryBreakdown.monthly}
+                        quarterly={expiryBreakdown.quarterly}
+                        leap={expiryBreakdown.leap}
+                      />
+                    </div>
+
+                    {/* Details toggle button --” reveals Bull/Bear ratio, Execution Type, and premium metrics below */}
+                    <div style={{ padding: '8px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                      <button
+                        onClick={() => setShowExpiryDetails(s => !s)}
+                        style={{
+                          width: '100%',
+                          padding: '6px 10px',
+                          fontFamily: 'JetBrains Mono,monospace',
+                          fontSize: 11,
+                          fontWeight: 800,
+                          letterSpacing: '0.18em',
+                          border: `1px solid ${showExpiryDetails ? 'rgba(255,133,0,0.6)' : 'rgba(255,255,255,0.15)'}`,
+                          background: showExpiryDetails ? 'rgba(255,133,0,0.12)' : 'linear-gradient(180deg,#1a1a1a 0%,#0a0a0a 50%,#050505 100%)',
+                          color: showExpiryDetails ? '#ff8500' : '#ffffff',
+                          cursor: 'pointer',
+                          borderRadius: 4,
+                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.5)',
+                        }}
+                      >{showExpiryDetails ? 'HIDE DETAILS ▲' : 'DETAILS ▾'}</button>
+                    </div>
+
                     {/* P/C + Execution "-- compact single row on mobile, full panels on desktop */}
                     {/* P/C + Execution --” desktop only, removed from mobile */}
                     {null /* DEBUG: B/B row removed for mobile */}
-                    {!isMobile && (
+                    {!isMobile && showExpiryDetails && (
                       <>
                         {/* P/C calls/puts bars */}
                         <div style={{
@@ -4178,8 +4508,8 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       </>
                     )}
 
-                    {/* Stacked metrics "-- desktop only */}
-                    {!isMobile && [{ label: 'CALLS PREM', value: formatCurrency(displayAnalysis?.totalCallPremium ?? 0), color: '#10b981', glow: 'rgba(16,185,129,0.35)', bg: 'rgba(16,185,129,0.04)' },
+                    {/* Stacked metrics "-- desktop only, gated behind DETAILS toggle */}
+                    {!isMobile && showExpiryDetails && [{ label: 'CALLS PREM', value: formatCurrency(displayAnalysis?.totalCallPremium ?? 0), color: '#10b981', glow: 'rgba(16,185,129,0.35)', bg: 'rgba(16,185,129,0.04)' },
                     { label: 'PUTS PREM', value: formatCurrency(displayAnalysis?.totalPutPremium ?? 0), color: '#ef4444', glow: 'rgba(239,68,68,0.35)', bg: 'rgba(239,68,68,0.04)' },
                     { label: 'NET FLOW', value: formatCurrency(analysis.netFlow), color: analysis.netFlow >= 0 ? '#10b981' : '#ef4444', glow: analysis.netFlow >= 0 ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)', bg: analysis.netFlow >= 0 ? 'rgba(16,185,129,0.04)' : 'rgba(239,68,68,0.04)' },
                     { label: 'BULL/BEAR', value: analysis.callPutRatio.toFixed(2), color: '#e2e8f0', glow: 'rgba(255,255,255,0.15)', bg: 'transparent' },
@@ -4999,8 +5329,8 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
           )}
 
         </div>{/* end left scrollable */}
-        {/* RIGHT: RRG Panel — hidden on tablet unless toggled open */}
-        {((!isMobile && (!isTablet || tabletFlowMatrixOpen)) || (activeTab === 'flowbias' && isMobile)) && (
+        {/* RIGHT: RRG Panel — hidden on tablet unless toggled open, and hidden entirely in embedded mode */}
+        {!embeddedMode && ((!isMobile && (!isTablet || tabletFlowMatrixOpen)) || (activeTab === 'flowbias' && isMobile)) && (
           <div style={{ width: isMobile ? '99%' : isTablet ? '100%' : '40%', height: isMobile ? '86vh' : isTablet ? '100%' : undefined, position: isTablet ? 'absolute' : undefined, inset: isTablet ? 0 : undefined, zIndex: isTablet ? 500 : undefined, flex: isMobile ? 'none' : undefined, marginLeft: isMobile ? 'auto' : undefined, flexShrink: 0, borderLeft: isMobile ? 'none' : '1px solid rgba(255,255,255,0.1)', background: '#060608', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {/* RRG chart */}
             <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
@@ -5189,32 +5519,6 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                             )
                           })
                         })()}
-                        {/* Quadrant labels --” inside the transform group so they stay
-                            anchored to their quadrant when the user pans/zooms.
-                            Sizes are divided by k to stay visually constant. */}
-                        {(() => {
-                          const k = rrgTransform.k
-                          const qlabels = [
-                            { label: 'BULL PUTS', g0: '#7dd3fc', g1: '#0ea5e9', x: PAD.l + CW / 4, y: PAD.t + 22 / k },
-                            { label: 'BULL CALLS', g0: '#6ee7b7', g1: '#10b981', x: CX + CW / 4, y: PAD.t + 22 / k },
-                            { label: 'BEAR PUTS', g0: '#fcd34d', g1: '#f59e0b', x: PAD.l + CW / 4, y: PAD.t + CH - 22 / k },
-                            { label: 'BEAR CALLS', g0: '#fca5a5', g1: '#ef4444', x: CX + CW / 4, y: PAD.t + CH - 22 / k },
-                          ]
-                          const tw = 150 / k, th = 24 / k, fs = 17 / k
-                          return qlabels.map(({ label, g0, g1, x, y }, i) => (
-                            <g key={label}>
-                              <defs>
-                                <linearGradient id={`qlg${i}`} x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="0%" stopColor={g0} stopOpacity="1" />
-                                  <stop offset="100%" stopColor={g1} stopOpacity="1" />
-                                </linearGradient>
-                              </defs>
-                              <rect x={x - tw / 2} y={y - th / 2} width={tw} height={th} rx={th / 2} fill={`url(#qlg${i})`} />
-                              <rect x={x - tw / 2 + 3 / k} y={y - th / 2 + 2 / k} width={tw - 6 / k} height={th / 2 - 3 / k} rx={(th / 2 - 3 / k) / 2} fill="rgba(255,255,255,0.32)" />
-                              <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontFamily="'JetBrains Mono',monospace" fontSize={fs} fontWeight={900} fill="#000" letterSpacing={2 / k}>{label}</text>
-                            </g>
-                          ))
-                        })()}
                         {/* -- Regime & RegimeGrouping overlays -- */}
                         {(showRegime || showRegimeGrouping) && (() => {
                           // Group tickers by industry per quadrant
@@ -5332,6 +5636,65 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                         })()}
                       </g>
                     </g>
+                    {/* Quadrant labels --” rendered as a SIBLING of the clipped/transformed
+                        group (NOT nested inside it), so they're never chopped by the
+                        rrg-bias-clip2 clipPath. Positioned in fixed screen-space pixels,
+                        anchored to whichever part of the quadrant is currently on-screen: the
+                        label slides along with the visible portion of its quadrant (not
+                        locked to one fixed corner), staying visible as long as ANY sliver of
+                        that quadrant is within the chart frame, while never crossing into a
+                        neighboring quadrant. */}
+                    {(() => {
+                      const { tx, ty, k } = rrgTransform
+                      const sPADl = PAD.l * k + tx, sPADr = (PAD.l + CW) * k + tx
+                      const sPADt = PAD.t * k + ty, sPADb = (PAD.t + CH) * k + ty
+                      const sCX = CX * k + tx, sCY = CY * k + ty
+                      const tw = 150, th = 24, fs = 17
+                      // Chart frame bounds (not the full canvas) --” labels should stay
+                      // within the actual plot area, matching what rrg-bias-clip2 clips to.
+                      const frameL = PAD.l, frameR = PAD.l + CW, frameT = PAD.t, frameB = PAD.t + CH
+                      // Returns the on-screen overlap of [qMin,qMax] with [visMin,visMax],
+                      // or null if there's no overlap at all (quadrant fully off-frame).
+                      // `pref` is where we'd ideally like the label (near the top for top
+                      // quadrants, near the bottom for bottom quadrants, etc.) --” we clamp
+                      // that preference into whatever sliver is actually visible, shrinking
+                      // the usable half-width/height instead of hiding the label outright.
+                      const solveAxis = (qMin: number, qMax: number, visMin: number, visMax: number, pref: number, half: number) => {
+                        const lo = Math.max(qMin, visMin)
+                        const hi = Math.min(qMax, visMax)
+                        if (hi <= lo) return null
+                        const usableHalf = Math.min(half, (hi - lo) / 2)
+                        return Math.min(hi - usableHalf, Math.max(lo + usableHalf, pref))
+                      }
+                      const mk = (xMin: number, xMax: number, yMin: number, yMax: number, xPref: number, yPref: number) => {
+                        const x = solveAxis(xMin, xMax, frameL, frameR, xPref, tw / 2)
+                        const y = solveAxis(yMin, yMax, frameT, frameB, yPref, th / 2)
+                        return x == null || y == null ? null : { x, y }
+                      }
+                      const qlabels = [
+                        { label: 'BULL PUTS', g0: '#7dd3fc', g1: '#0ea5e9', pos: mk(sPADl, sCX, sPADt, sCY, sPADl + 22, sPADt + 22) },
+                        { label: 'BULL CALLS', g0: '#6ee7b7', g1: '#10b981', pos: mk(sCX, sPADr, sPADt, sCY, sPADr - 22, sPADt + 22) },
+                        { label: 'BEAR PUTS', g0: '#fcd34d', g1: '#f59e0b', pos: mk(sPADl, sCX, sCY, sPADb, sPADl + 22, sPADb - 22) },
+                        { label: 'BEAR CALLS', g0: '#fca5a5', g1: '#ef4444', pos: mk(sCX, sPADr, sCY, sPADb, sPADr - 22, sPADb - 22) },
+                      ]
+                      return qlabels.map(({ label, g0, g1, pos }, i) => {
+                        if (!pos) return null
+                        const { x, y } = pos
+                        return (
+                          <g key={label}>
+                            <defs>
+                              <linearGradient id={`qlg${i}`} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor={g0} stopOpacity="1" />
+                                <stop offset="100%" stopColor={g1} stopOpacity="1" />
+                              </linearGradient>
+                            </defs>
+                            <rect x={x - tw / 2} y={y - th / 2} width={tw} height={th} rx={th / 2} fill={`url(#qlg${i})`} />
+                            <rect x={x - tw / 2 + 3} y={y - th / 2 + 2} width={tw - 6} height={th / 2 - 3} rx={(th / 2 - 3) / 2} fill="rgba(255,255,255,0.32)" />
+                            <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontFamily="'JetBrains Mono',monospace" fontSize={fs} fontWeight={900} fill="#000" letterSpacing={2}>{label}</text>
+                          </g>
+                        )
+                      })
+                    })()}
                   </svg>
                 )
               })() : (

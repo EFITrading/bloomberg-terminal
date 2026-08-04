@@ -9,10 +9,13 @@ import {
 } from 'react-icons/tb'
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 
 import { TOP_1000_SYMBOLS } from '../../lib/Top1000Symbols'
 import { MarketRegimeData } from '../../lib/industryAnalysisService'
 import { useRegimesPanelMobile } from './useRegimesPanelMobile'
+
+const AlgoFlowScreener = dynamic(() => import('@/components/AlgoFlowScreener'), { ssr: false })
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const POLYGON_API_KEY = ''
@@ -566,6 +569,7 @@ export const CARD_TIMEFRAMES = [
 export function TradeCardChart({
   symbol, industrySymbol, target1Price, target2Price, stopPrice,
   gammaLevel, structuralLevel, structuralIsResistance, spamLevel,
+  chartMode = 'stock', onToggleChartMode, algoFlowTrades, algoFlowTicker,
 }: {
   symbol: string
   industrySymbol?: string
@@ -576,6 +580,12 @@ export function TradeCardChart({
   structuralLevel?: number | null
   structuralIsResistance?: boolean
   spamLevel?: number | null
+  // Lets the card switch its own chart between the candlestick view and an embedded
+  // AlgoFlow net bull/bear + 4-line flow chart for the same ticker.
+  chartMode?: 'stock' | 'algoflow'
+  onToggleChartMode?: () => void
+  algoFlowTrades?: any[]
+  algoFlowTicker?: string
 }) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
   const wrapperRef = React.useRef<HTMLDivElement>(null)
@@ -1134,18 +1144,28 @@ export function TradeCardChart({
       }}
     >
       <style>{`.tcc-toolbar::-webkit-scrollbar { display: none; }`}</style>
-      <canvas
-        ref={canvasRef}
-        style={{ width: '100%', height: '100%', display: 'block', cursor: 'grab' }}
-        onMouseDown={onMouseDown}
-        onDoubleClick={onDoubleClick}
-        onMouseMove={(e) => {
-          if (dragRef.current.active) return
-          const canvas = canvasRef.current
-          if (!canvas) return
-          canvas.style.cursor = e.nativeEvent.offsetX > canvas.offsetWidth - 64 ? 'ns-resize' : 'grab'
-        }}
-      />
+      {chartMode === 'algoflow' ? (
+        <div style={{ position: 'absolute', inset: 0, top: '40px' }}>
+          <AlgoFlowScreener
+            embeddedMode
+            embeddedTicker={algoFlowTicker || symbol}
+            embeddedTrades={algoFlowTrades || []}
+          />
+        </div>
+      ) : (
+        <canvas
+          ref={canvasRef}
+          style={{ width: '100%', height: '100%', display: 'block', cursor: 'grab' }}
+          onMouseDown={onMouseDown}
+          onDoubleClick={onDoubleClick}
+          onMouseMove={(e) => {
+            if (dragRef.current.active) return
+            const canvas = canvasRef.current
+            if (!canvas) return
+            canvas.style.cursor = e.nativeEvent.offsetX > canvas.offsetWidth - 64 ? 'ns-resize' : 'grab'
+          }}
+        />
+      )}
       {/* Timeframe + overlay-toggle controls. Desktop: one wide horizontally-scrollable
           button row. Mobile (isNarrow): 3 simple dropdowns — Timeframe (single-select),
           Targets (T1/T2/SL checkboxes), Signals (Spam/Struct/Gamma checkboxes) — so
@@ -1157,217 +1177,239 @@ export function TradeCardChart({
             display: 'flex', alignItems: 'center', gap: '5px',
           }}
         >
-          {/* Timeframe dropdown */}
-          <div style={{ position: 'relative', flexShrink: 0 }}>
+          {onToggleChartMode && (
             <button
               type="button"
               onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation()
-                dragRef.current.active = false
-                setOpenDropdown((prev) => (prev === 'tf' ? null : 'tf'))
-              }}
+              onClick={(e) => { e.stopPropagation(); onToggleChartMode() }}
+              title="Switch between the stock chart and the AlgoFlow net bull/bear chart"
               style={{
-                padding: '4px 10px',
-                fontFamily: '"Courier New",monospace',
-                fontSize: '11px',
-                fontWeight: 800,
-                letterSpacing: '0.04em',
-                whiteSpace: 'nowrap',
+                padding: '4px 10px', fontFamily: '"Courier New",monospace', fontSize: '11px', fontWeight: 800,
+                letterSpacing: '0.04em', whiteSpace: 'nowrap', flexShrink: 0,
                 background: 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
-                color: '#FF6600',
-                border: '1px solid #FF6600',
-                borderRadius: '999px',
-                cursor: 'pointer',
+                color: chartMode === 'algoflow' ? '#ff8c00' : '#ffffff',
+                border: `1px solid ${chartMode === 'algoflow' ? '#ff8c00' : 'rgba(255,255,255,0.2)'}`,
+                borderRadius: '999px', cursor: 'pointer',
               }}
             >
-              {timeframe} ▾
+              {chartMode === 'algoflow' ? 'Stock' : 'AlgoFlow'}
             </button>
-            {openDropdown === 'tf' && (
-              <div
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-                style={{
-                  position: 'absolute', top: '100%', left: 0, marginTop: '4px', zIndex: 40,
-                  display: 'flex', flexDirection: 'column', gap: '2px',
-                  background: 'linear-gradient(180deg, #161616 0%, #060606 55%, #000000 100%)',
-                  border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', padding: '4px',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
-                }}
-              >
-                {CARD_TIMEFRAMES.map((tf) => (
-                  <button
-                    key={tf.label}
-                    type="button"
-                    onClick={() => {
-                      dragRef.current.active = false
-                      setTimeframe(tf.label)
-                      setOpenDropdown(null)
-                    }}
+          )}
+          {chartMode === 'stock' && (
+            <>
+              {/* Timeframe dropdown */}
+              <div style={{ position: 'relative', flexShrink: 0 }}>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    dragRef.current.active = false
+                    setOpenDropdown((prev) => (prev === 'tf' ? null : 'tf'))
+                  }}
+                  style={{
+                    padding: '4px 10px',
+                    fontFamily: '"Courier New",monospace',
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    letterSpacing: '0.04em',
+                    whiteSpace: 'nowrap',
+                    background: 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                    color: '#FF6600',
+                    border: '1px solid #FF6600',
+                    borderRadius: '999px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {timeframe} ▾
+                </button>
+                {openDropdown === 'tf' && (
+                  <div
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
                     style={{
-                      padding: '5px 14px',
-                      fontFamily: '"Courier New",monospace',
-                      fontSize: '11px',
-                      fontWeight: 800,
-                      whiteSpace: 'nowrap',
-                      textAlign: 'left',
-                      background: timeframe === tf.label ? 'rgba(255,102,0,0.15)' : 'transparent',
-                      color: timeframe === tf.label ? '#FF6600' : '#ffffff',
-                      border: 'none',
-                      borderRadius: '5px',
-                      cursor: 'pointer',
+                      position: 'absolute', top: '100%', left: 0, marginTop: '4px', zIndex: 40,
+                      display: 'flex', flexDirection: 'column', gap: '2px',
+                      background: 'linear-gradient(180deg, #161616 0%, #060606 55%, #000000 100%)',
+                      border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', padding: '4px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
                     }}
                   >
-                    {tf.label}
-                  </button>
-                ))}
+                    {CARD_TIMEFRAMES.map((tf) => (
+                      <button
+                        key={tf.label}
+                        type="button"
+                        onClick={() => {
+                          dragRef.current.active = false
+                          setTimeframe(tf.label)
+                          setOpenDropdown(null)
+                        }}
+                        style={{
+                          padding: '5px 14px',
+                          fontFamily: '"Courier New",monospace',
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          whiteSpace: 'nowrap',
+                          textAlign: 'left',
+                          background: timeframe === tf.label ? 'rgba(255,102,0,0.15)' : 'transparent',
+                          color: timeframe === tf.label ? '#FF6600' : '#ffffff',
+                          border: 'none',
+                          borderRadius: '5px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {tf.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          {/* Targets dropdown (T1 / T2 / SL checkboxes) */}
-          <div style={{ position: 'relative', flexShrink: 0 }}>
-            <button
-              type="button"
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation()
-                dragRef.current.active = false
-                setOpenDropdown((prev) => (prev === 'targets' ? null : 'targets'))
-              }}
-              style={{
-                padding: '4px 10px',
-                fontFamily: '"Courier New",monospace',
-                fontSize: '11px',
-                fontWeight: 800,
-                letterSpacing: '0.04em',
-                whiteSpace: 'nowrap',
-                background: 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
-                color: '#ffffff',
-                border: '1px solid rgba(255,255,255,0.2)',
-                borderRadius: '999px',
-                cursor: 'pointer',
-              }}
-            >
-              Targets ▾
-            </button>
-            {openDropdown === 'targets' && (
-              <div
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-                style={{
-                  position: 'absolute', top: '100%', left: 0, marginTop: '4px', zIndex: 40,
-                  display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '110px',
-                  background: 'linear-gradient(180deg, #161616 0%, #060606 55%, #000000 100%)',
-                  border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', padding: '4px',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
-                }}
-              >
-                {([
-                  { key: 'T1', label: 'Target 1', color: '#22c55e' },
-                  { key: 'T2', label: 'Target 2', color: '#32CD32' },
-                  { key: 'SL', label: 'Stop', color: '#ef4444' },
-                ] as const).map((ov) => (
-                  <label
-                    key={ov.key}
+              {/* Targets dropdown (T1 / T2 / SL checkboxes) */}
+              <div style={{ position: 'relative', flexShrink: 0 }}>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    dragRef.current.active = false
+                    setOpenDropdown((prev) => (prev === 'targets' ? null : 'targets'))
+                  }}
+                  style={{
+                    padding: '4px 10px',
+                    fontFamily: '"Courier New",monospace',
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    letterSpacing: '0.04em',
+                    whiteSpace: 'nowrap',
+                    background: 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                    color: '#ffffff',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: '999px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Targets ▾
+                </button>
+                {openDropdown === 'targets' && (
+                  <div
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
                     style={{
-                      display: 'flex', alignItems: 'center', gap: '6px',
-                      padding: '5px 10px', cursor: 'pointer', borderRadius: '5px',
-                      fontFamily: '"Courier New",monospace', fontSize: '11px', fontWeight: 700,
-                      color: overlayToggles[ov.key] ? ov.color : 'rgba(255,255,255,0.4)',
+                      position: 'absolute', top: '100%', left: 0, marginTop: '4px', zIndex: 40,
+                      display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '110px',
+                      background: 'linear-gradient(180deg, #161616 0%, #060606 55%, #000000 100%)',
+                      border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', padding: '4px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
                     }}
                   >
-                    <input
-                      type="checkbox"
-                      checked={overlayToggles[ov.key]}
-                      onChange={() => {
-                        dragRef.current.active = false
-                        setOverlayToggles((prev) => ({ ...prev, [ov.key]: !prev[ov.key] }))
-                      }}
-                      style={{ accentColor: ov.color, cursor: 'pointer' }}
-                    />
-                    {ov.label}
-                  </label>
-                ))}
+                    {([
+                      { key: 'T1', label: 'Target 1', color: '#22c55e' },
+                      { key: 'T2', label: 'Target 2', color: '#32CD32' },
+                      { key: 'SL', label: 'Stop', color: '#ef4444' },
+                    ] as const).map((ov) => (
+                      <label
+                        key={ov.key}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '6px',
+                          padding: '5px 10px', cursor: 'pointer', borderRadius: '5px',
+                          fontFamily: '"Courier New",monospace', fontSize: '11px', fontWeight: 700,
+                          color: overlayToggles[ov.key] ? ov.color : 'rgba(255,255,255,0.4)',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={overlayToggles[ov.key]}
+                          onChange={() => {
+                            dragRef.current.active = false
+                            setOverlayToggles((prev) => ({ ...prev, [ov.key]: !prev[ov.key] }))
+                          }}
+                          style={{ accentColor: ov.color, cursor: 'pointer' }}
+                        />
+                        {ov.label}
+                      </label>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          {/* Signals dropdown (Spam / Structural / Gamma Attack checkboxes) */}
-          <div style={{ position: 'relative', flexShrink: 0 }}>
-            <button
-              type="button"
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation()
-                dragRef.current.active = false
-                setOpenDropdown((prev) => (prev === 'signals' ? null : 'signals'))
-              }}
-              style={{
-                padding: '4px 10px',
-                fontFamily: '"Courier New",monospace',
-                fontSize: '11px',
-                fontWeight: 800,
-                letterSpacing: '0.04em',
-                whiteSpace: 'nowrap',
-                background: 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
-                color: '#ffffff',
-                border: '1px solid rgba(255,255,255,0.2)',
-                borderRadius: '999px',
-                cursor: 'pointer',
-              }}
-            >
-              Signals ▾
-            </button>
-            {openDropdown === 'signals' && (
-              <div
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-                style={{
-                  position: 'absolute', top: '100%', right: 0, marginTop: '4px', zIndex: 40,
-                  display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '140px',
-                  background: 'linear-gradient(180deg, #161616 0%, #060606 55%, #000000 100%)',
-                  border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', padding: '4px',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
-                }}
-              >
-                {([
-                  { key: 'SPAM', label: 'Spammer', color: '#facc15', active: typeof spamLevel === 'number' && spamLevel > 0 },
-                  { key: 'STRUCT', label: 'Structural', color: '#a855f7', active: typeof structuralLevel === 'number' && structuralLevel > 0 },
-                  { key: 'GAMMA', label: 'Gamma Attack', color: '#ff8c00', active: typeof gammaLevel === 'number' && gammaLevel > 0 },
-                ] as const).map((ov) => (
-                  <label
-                    key={ov.key}
+              {/* Signals dropdown (Spam / Structural / Gamma Attack checkboxes) */}
+              <div style={{ position: 'relative', flexShrink: 0 }}>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    dragRef.current.active = false
+                    setOpenDropdown((prev) => (prev === 'signals' ? null : 'signals'))
+                  }}
+                  style={{
+                    padding: '4px 10px',
+                    fontFamily: '"Courier New",monospace',
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    letterSpacing: '0.04em',
+                    whiteSpace: 'nowrap',
+                    background: 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                    color: '#ffffff',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: '999px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Signals ▾
+                </button>
+                {openDropdown === 'signals' && (
+                  <div
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
                     style={{
-                      display: 'flex', alignItems: 'center', gap: '6px',
-                      padding: '5px 10px', borderRadius: '5px',
-                      cursor: ov.active ? 'pointer' : 'not-allowed',
-                      fontFamily: '"Courier New",monospace', fontSize: '11px', fontWeight: 700,
-                      color: !ov.active ? 'rgba(255,255,255,0.18)' : (overlayToggles[ov.key] ? ov.color : 'rgba(255,255,255,0.4)'),
+                      position: 'absolute', top: '100%', right: 0, marginTop: '4px', zIndex: 40,
+                      display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '140px',
+                      background: 'linear-gradient(180deg, #161616 0%, #060606 55%, #000000 100%)',
+                      border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', padding: '4px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
                     }}
                   >
-                    <input
-                      type="checkbox"
-                      checked={overlayToggles[ov.key]}
-                      disabled={!ov.active}
-                      onChange={() => {
-                        if (!ov.active) return
-                        dragRef.current.active = false
-                        setOverlayToggles((prev) => ({ ...prev, [ov.key]: !prev[ov.key] }))
-                      }}
-                      style={{ accentColor: ov.color, cursor: ov.active ? 'pointer' : 'not-allowed' }}
-                    />
-                    {ov.label}
-                  </label>
-                ))}
+                    {([
+                      { key: 'SPAM', label: 'Spammer', color: '#facc15', active: typeof spamLevel === 'number' && spamLevel > 0 },
+                      { key: 'STRUCT', label: 'Structural', color: '#a855f7', active: typeof structuralLevel === 'number' && structuralLevel > 0 },
+                      { key: 'GAMMA', label: 'Gamma Attack', color: '#ff8c00', active: typeof gammaLevel === 'number' && gammaLevel > 0 },
+                    ] as const).map((ov) => (
+                      <label
+                        key={ov.key}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '6px',
+                          padding: '5px 10px', borderRadius: '5px',
+                          cursor: ov.active ? 'pointer' : 'not-allowed',
+                          fontFamily: '"Courier New",monospace', fontSize: '11px', fontWeight: 700,
+                          color: !ov.active ? 'rgba(255,255,255,0.18)' : (overlayToggles[ov.key] ? ov.color : 'rgba(255,255,255,0.4)'),
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={overlayToggles[ov.key]}
+                          disabled={!ov.active}
+                          onChange={() => {
+                            if (!ov.active) return
+                            dragRef.current.active = false
+                            setOverlayToggles((prev) => ({ ...prev, [ov.key]: !prev[ov.key] }))
+                          }}
+                          style={{ accentColor: ov.color, cursor: ov.active ? 'pointer' : 'not-allowed' }}
+                        />
+                        {ov.label}
+                      </label>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          {fetching && (
-            <span style={{ fontFamily: '"Courier New",monospace', fontSize: '10px', color: '#ff6600', letterSpacing: '0.1em', marginLeft: 'auto', flexShrink: 0, whiteSpace: 'nowrap' }}>
-              LIVE…
-            </span>
+              {fetching && (
+                <span style={{ fontFamily: '"Courier New",monospace', fontSize: '10px', color: '#ff6600', letterSpacing: '0.1em', marginLeft: 'auto', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                  LIVE…
+                </span>
+              )}
+            </>
           )}
         </div>
       ) : (
@@ -1384,97 +1426,120 @@ export function TradeCardChart({
             boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -2px 4px rgba(0,0,0,0.8), 0 2px 6px rgba(0,0,0,0.5)',
           }}
         >
-          <div style={{ display: 'flex', gap: '3px', flexShrink: 0 }}>
-            {CARD_TIMEFRAMES.map((tf) => (
-              <button
-                key={tf.label}
-                type="button"
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  dragRef.current.active = false
-                  setTimeframe(tf.label)
-                }}
-                style={{
-                  padding: isNarrow ? '3px 8px' : '4px 12px',
-                  fontFamily: '"Courier New",monospace',
-                  fontSize: isNarrow ? '11px' : '14px',
-                  fontWeight: 800,
-                  letterSpacing: '0.05em',
-                  whiteSpace: 'nowrap',
-                  flexShrink: 0,
-                  background: timeframe === tf.label
-                    ? 'linear-gradient(180deg, #2b2b2b 0%, #050505 55%, #000000 100%)'
-                    : 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
-                  color: timeframe === tf.label ? '#FF6600' : '#ffffff',
-                  border: `1px solid ${timeframe === tf.label ? '#FF6600' : 'rgba(255,255,255,0.12)'}`,
-                  borderRadius: '999px',
-                  boxShadow: timeframe === tf.label
-                    ? 'inset 0 2px 3px rgba(0,0,0,0.85), inset 0 -1px 0 rgba(255,140,0,0.35)'
-                    : 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -2px 4px rgba(0,0,0,0.7)',
-                  cursor: 'pointer',
-                }}
-              >
-                {tf.label}
-              </button>
-            ))}
-          </div>
+          {onToggleChartMode && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onToggleChartMode() }}
+              title="Switch between the stock chart and the AlgoFlow net bull/bear chart"
+              style={{
+                padding: isNarrow ? '3px 8px' : '4px 12px', fontFamily: '"Courier New",monospace',
+                fontSize: isNarrow ? '11px' : '14px', fontWeight: 800, letterSpacing: '0.05em',
+                whiteSpace: 'nowrap', flexShrink: 0,
+                background: 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                color: chartMode === 'algoflow' ? '#ff8c00' : '#ffffff',
+                border: `1px solid ${chartMode === 'algoflow' ? '#ff8c00' : 'rgba(255,255,255,0.12)'}`,
+                borderRadius: '999px', cursor: 'pointer',
+              }}
+            >
+              {chartMode === 'algoflow' ? 'Stock' : 'AlgoFlow'}
+            </button>
+          )}
+          {chartMode === 'stock' && (
+            <>
+              <div style={{ display: 'flex', gap: '3px', flexShrink: 0 }}>
+                {CARD_TIMEFRAMES.map((tf) => (
+                  <button
+                    key={tf.label}
+                    type="button"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      dragRef.current.active = false
+                      setTimeframe(tf.label)
+                    }}
+                    style={{
+                      padding: isNarrow ? '3px 8px' : '4px 12px',
+                      fontFamily: '"Courier New",monospace',
+                      fontSize: isNarrow ? '11px' : '14px',
+                      fontWeight: 800,
+                      letterSpacing: '0.05em',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                      background: timeframe === tf.label
+                        ? 'linear-gradient(180deg, #2b2b2b 0%, #050505 55%, #000000 100%)'
+                        : 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                      color: timeframe === tf.label ? '#FF6600' : '#ffffff',
+                      border: `1px solid ${timeframe === tf.label ? '#FF6600' : 'rgba(255,255,255,0.12)'}`,
+                      borderRadius: '999px',
+                      boxShadow: timeframe === tf.label
+                        ? 'inset 0 2px 3px rgba(0,0,0,0.85), inset 0 -1px 0 rgba(255,140,0,0.35)'
+                        : 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -2px 4px rgba(0,0,0,0.7)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {tf.label}
+                  </button>
+                ))}
+              </div>
 
-          <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.12)', flexShrink: 0 }} />
+              <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.12)', flexShrink: 0 }} />
 
-          <div style={{ display: 'flex', gap: '3px', flexShrink: 0 }}>
-            {([
-              { key: 'T1', label: 'Target 1', shortLabel: '1', color: '#22c55e', active: true },
-              { key: 'T2', label: 'Target 2', shortLabel: '2', color: '#32CD32', active: true },
-              { key: 'SL', label: 'Stop', shortLabel: 'S', color: '#ef4444', active: true },
-              { key: 'SPAM', label: 'Spammer', shortLabel: 'Spam', color: '#facc15', active: typeof spamLevel === 'number' && spamLevel > 0 },
-              { key: 'STRUCT', label: 'Structural', shortLabel: 'Struct', color: '#a855f7', active: typeof structuralLevel === 'number' && structuralLevel > 0 },
-              { key: 'GAMMA', label: 'Gamma Attack', shortLabel: 'Gamma', color: '#ff8c00', active: typeof gammaLevel === 'number' && gammaLevel > 0 },
-            ] as const).map((ov) => {
-              const on = overlayToggles[ov.key] && ov.active
-              return (
-                <button
-                  key={ov.key}
-                  type="button"
-                  title={ov.active ? `Toggle ${ov.label}` : `No ${ov.label} detected`}
-                  disabled={!ov.active}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    if (!ov.active) return
-                    dragRef.current.active = false
-                    setOverlayToggles((prev) => ({ ...prev, [ov.key]: !prev[ov.key] }))
-                  }}
-                  style={{
-                    padding: isNarrow ? '3px 7px' : '4px 11px',
-                    fontFamily: '"Courier New",monospace',
-                    fontSize: isNarrow ? '10px' : '12px',
-                    fontWeight: 800,
-                    letterSpacing: '0.05em',
-                    whiteSpace: 'nowrap',
-                    flexShrink: 0,
-                    background: on
-                      ? 'linear-gradient(180deg, #2b2b2b 0%, #050505 55%, #000000 100%)'
-                      : 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
-                    color: !ov.active ? 'rgba(255,255,255,0.18)' : (on ? ov.color : 'rgba(255,255,255,0.35)'),
-                    border: `1px solid ${!ov.active ? 'rgba(255,255,255,0.06)' : (on ? ov.color : 'rgba(255,255,255,0.1)')}`,
-                    borderRadius: '999px',
-                    boxShadow: on
-                      ? 'inset 0 2px 3px rgba(0,0,0,0.85), inset 0 -1px 0 rgba(255,255,255,0.08)'
-                      : 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -2px 4px rgba(0,0,0,0.7)',
-                    cursor: ov.active ? 'pointer' : 'not-allowed',
-                  }}
-                >
-                  {isNarrow ? ov.shortLabel : ov.label}
-                </button>
-              )
-            })}
-          </div>
+              <div style={{ display: 'flex', gap: '3px', flexShrink: 0 }}>
+                {([
+                  { key: 'T1', label: 'Target 1', shortLabel: '1', color: '#22c55e', active: true },
+                  { key: 'T2', label: 'Target 2', shortLabel: '2', color: '#32CD32', active: true },
+                  { key: 'SL', label: 'Stop', shortLabel: 'S', color: '#ef4444', active: true },
+                  { key: 'SPAM', label: 'Spammer', shortLabel: 'Spam', color: '#facc15', active: typeof spamLevel === 'number' && spamLevel > 0 },
+                  { key: 'STRUCT', label: 'Structural', shortLabel: 'Struct', color: '#a855f7', active: typeof structuralLevel === 'number' && structuralLevel > 0 },
+                  { key: 'GAMMA', label: 'Gamma Attack', shortLabel: 'Gamma', color: '#ff8c00', active: typeof gammaLevel === 'number' && gammaLevel > 0 },
+                ] as const).map((ov) => {
+                  const on = overlayToggles[ov.key] && ov.active
+                  return (
+                    <button
+                      key={ov.key}
+                      type="button"
+                      title={ov.active ? `Toggle ${ov.label}` : `No ${ov.label} detected`}
+                      disabled={!ov.active}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (!ov.active) return
+                        dragRef.current.active = false
+                        setOverlayToggles((prev) => ({ ...prev, [ov.key]: !prev[ov.key] }))
+                      }}
+                      style={{
+                        padding: isNarrow ? '3px 7px' : '4px 11px',
+                        fontFamily: '"Courier New",monospace',
+                        fontSize: isNarrow ? '10px' : '12px',
+                        fontWeight: 800,
+                        letterSpacing: '0.05em',
+                        whiteSpace: 'nowrap',
+                        flexShrink: 0,
+                        background: on
+                          ? 'linear-gradient(180deg, #2b2b2b 0%, #050505 55%, #000000 100%)'
+                          : 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
+                        color: !ov.active ? 'rgba(255,255,255,0.18)' : (on ? ov.color : 'rgba(255,255,255,0.35)'),
+                        border: `1px solid ${!ov.active ? 'rgba(255,255,255,0.06)' : (on ? ov.color : 'rgba(255,255,255,0.1)')}`,
+                        borderRadius: '999px',
+                        boxShadow: on
+                          ? 'inset 0 2px 3px rgba(0,0,0,0.85), inset 0 -1px 0 rgba(255,255,255,0.08)'
+                          : 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -2px 4px rgba(0,0,0,0.7)',
+                        cursor: ov.active ? 'pointer' : 'not-allowed',
+                      }}
+                    >
+                      {isNarrow ? ov.shortLabel : ov.label}
+                    </button>
+                  )
+                })}
+              </div>
 
-          {fetching && (
-            <span style={{ fontFamily: '"Courier New",monospace', fontSize: '10px', color: '#ff6600', letterSpacing: '0.1em', marginLeft: 'auto', flexShrink: 0, whiteSpace: 'nowrap' }}>
-              LIVE…
-            </span>
+              {fetching && (
+                <span style={{ fontFamily: '"Courier New",monospace', fontSize: '10px', color: '#ff6600', letterSpacing: '0.1em', marginLeft: 'auto', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                  LIVE…
+                </span>
+              )}
+            </>
           )}
         </div>
       )}

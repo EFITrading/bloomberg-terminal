@@ -2109,8 +2109,15 @@ export default function OptionsFlowPage() {
       setData(displayTrades)
       return
     }
-    // Don't re-scan if ticker was just cleared
-    if (tickerOverride === '') return
+    // Ticker was cleared (e.g. the search bar's x button) - a prior single-ticker
+    // search may have replaced `data` with only that ticker's trades via tryLoadFromSaved,
+    // so restore the full saved day instead of leaving the table stuck on one ticker.
+    if (tickerOverride === '') {
+      tryLoadFromSavedFiltered(null).then((all) => {
+        if (all) setData(all)
+      })
+      return
+    }
     setStreamError('')
     setIsStreamComplete(false)
     fetchOptionsFlowStreaming(tickerOverride)

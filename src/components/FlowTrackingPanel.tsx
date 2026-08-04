@@ -2,7 +2,7 @@
 
 import { TbStar } from 'react-icons/tb'
 
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 
 import { calculateFlowGrade, calculateLeapGradeShared } from '@/lib/flowGrading'
@@ -1182,6 +1182,7 @@ function QuickFilterIcon({ icon, color }: { icon: 'ready' | 'missed' | 'hedge' |
 
 function SweepSenseTab({
   data,
+  allFlowData,
   isScanning,
   progress,
   summaryMode,
@@ -1192,6 +1193,8 @@ function SweepSenseTab({
   // used by the A+ Tracker tab (user-tracked flows) so a card can be untracked; SweepSense's own
   // qualifying-trade cards never pass this since there's nothing to "remove" there.
   onRemove?: (trade: OptionsFlowData) => void
+  // Full unfiltered flow array - grouped by ticker below to feed the card's AlgoFlow chart mode.
+  allFlowData?: OptionsFlowData[]
   data: {
     trades: Array<{
       trade: OptionsFlowData
@@ -1227,6 +1230,19 @@ function SweepSenseTab({
 }) {
   const fmtPrem = (v: number) => (v >= 1000000 ? `$${(v / 1000000).toFixed(1)}M` : `$${(v / 1000).toFixed(0)}K`)
   const [openCharts, setOpenCharts] = useState<Set<string>>(new Set())
+  // Per-card chart mode toggle: 'stock' (default candlestick TradeCardChart) or 'algoflow'
+  // (embeds AlgoFlowScreener for that ticker - same net bull/bear + 4-line flow chart).
+  const [chartModeByFlowId, setChartModeByFlowId] = useState<Record<string, 'stock' | 'algoflow'>>({})
+  const tickerTradesMap = useMemo(() => {
+    const map = new Map<string, OptionsFlowData[]>()
+    if (!allFlowData) return map
+    for (const t of allFlowData) {
+      const list = map.get(t.underlying_ticker)
+      if (list) list.push(t)
+      else map.set(t.underlying_ticker, [t])
+    }
+    return map
+  }, [allFlowData])
 
   // ── Scanning screen background: same weather-particle canvas (rain/snow/storm cycling)
   // used by the main OptionsFlowTable loading screen - self-contained here so the SweepSense
@@ -3231,6 +3247,13 @@ function SweepSenseTab({
                       <div style={{ padding: '0 16px 16px' }}>
                         <TradeCardChart
                           symbol={trade.underlying_ticker}
+                          chartMode={chartModeByFlowId[flowId] ?? 'stock'}
+                          onToggleChartMode={() => setChartModeByFlowId((prev) => ({
+                            ...prev,
+                            [flowId]: (prev[flowId] ?? 'stock') === 'stock' ? 'algoflow' : 'stock',
+                          }))}
+                          algoFlowTicker={trade.underlying_ticker}
+                          algoFlowTrades={tickerTradesMap.get(trade.underlying_ticker) || [trade]}
                           target1Price={typeof ladderTarget1 === 'number' ? ladderTarget1 : undefined}
                           target2Price={typeof ladderTarget2 === 'number' ? ladderTarget2 : undefined}
                           stopPrice={typeof ladderStopStock === 'number' ? ladderStopStock : undefined}
@@ -3366,6 +3389,7 @@ export default function FlowTrackingPanel({
   leapSeasonalData,
   algoFlowTrades,
   algoFlowTicker,
+  allFlowData,
   parentOptionPrices,
   parentStockPrices,
   sweepSenseData,
@@ -3397,6 +3421,9 @@ export default function FlowTrackingPanel({
   leapSeasonalData?: Map<string, { inSweetSpot: boolean; inPainPoint: boolean }>
   algoFlowTrades?: OptionsFlowData[]
   algoFlowTicker?: string
+  // Full unfiltered flow array (same `data` prop OptionsFlowTable renders) - used by SweepSense
+  // cards to feed the per-ticker AlgoFlow chart toggle with real trades instead of a subset.
+  allFlowData?: OptionsFlowData[]
   parentOptionPrices?: Record<string, number>
   parentStockPrices?: Record<string, number>
   sweepSenseData?: {
@@ -3964,7 +3991,7 @@ export default function FlowTrackingPanel({
           earningsMonthCache state, forcing every per-ticker FlowBias/Earnings fetch to redo
           itself from scratch on every tab switch. */}
       <div style={{ flex: 1, display: panelTab === 'SWEEPSENSE' ? 'flex' : 'none', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
-        <SweepSenseTab data={sweepSenseData ?? null} isScanning={sweepSenseScanning} progress={sweepSenseProgress} summaryMode={sweepSenseSummaryMode} />
+        <SweepSenseTab data={sweepSenseData ?? null} allFlowData={allFlowData} isScanning={sweepSenseScanning} progress={sweepSenseProgress} summaryMode={sweepSenseSummaryMode} />
       </div>
 
       {/* ── TRACKING TAB ── */}
@@ -3975,6 +4002,7 @@ export default function FlowTrackingPanel({
             flow shows up), the real conviction score is just displayed on the card either way. */}
         <SweepSenseTab
           data={trackedFlowsSweepData ?? null}
+          allFlowData={allFlowData}
           isScanning={false}
           progress={null}
           summaryMode={sweepSenseSummaryMode}
