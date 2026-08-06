@@ -1233,6 +1233,20 @@ function SweepSenseTab({
   // Per-card chart mode toggle: 'stock' (default candlestick TradeCardChart) or 'algoflow'
   // (embeds AlgoFlowScreener for that ticker - same net bull/bear + 4-line flow chart).
   const [chartModeByFlowId, setChartModeByFlowId] = useState<Record<string, 'stock' | 'algoflow'>>({})
+
+  // Deep-link support: ?openFlow=<flowId> in the URL (e.g. from a Discord alert) auto-expands
+  // that card's interactive chart and scrolls it into view once its trades have loaded.
+  useEffect(() => {
+    const targetFlowId = new URLSearchParams(window.location.search).get('openFlow')
+    if (!targetFlowId || !data?.trades?.length) return
+    const match = data.trades.some(({ trade }) => generateFlowId(trade) === targetFlowId)
+    if (!match) return
+    setOpenCharts((prev) => new Set(prev).add(targetFlowId))
+    setTimeout(() => {
+      document.querySelector(`[data-flow-id="${targetFlowId}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 300)
+  }, [data])
+
   const tickerTradesMap = useMemo(() => {
     const map = new Map<string, OptionsFlowData[]>()
     if (!allFlowData) return map
@@ -2553,19 +2567,27 @@ function SweepSenseTab({
           const flowAlertPayload = JSON.stringify({
             flowId, ticker: trade.underlying_ticker, ready: readyForPickupNow,
             direction: targetUp ? 'BULLISH' : 'BEARISH', tradeType: tradeTypeVal,
+            term: isLongTerm ? 'LONG TERM' : 'SHORT TERM',
             strike: trade.strike, expiry: trade.expiry, optionType: trade.type,
+            fillStyle: fs, tradeSize: trade.trade_size, premiumPerContract: trade.premium_per_contract,
+            totalPremium: trade.total_premium, currentPremium: currentOptionPrice !== null ? currentOptionPrice * trade.trade_size * 100 : null,
+            contractPctChange, entrySpot: trade.spot_price, currentStockPrice,
+            takenAt: trade.trade_timestamp, qualifiedAt,
             convictionScore, planText,
             breakdown: { buyCallsPct: breakdown.buyCallsPct, bearCallsPct: breakdown.bearCallsPct, buyPutsPct: breakdown.buyPutsPct, bearPutsPct: breakdown.bearPutsPct },
+            trendScorePct: Math.round(Math.max(-1, Math.min(1, flowBiasScore)) * 100),
             spamLabel, gammaLabel, structuralLabel,
             target1: ladderTarget1, target1Opt: ladderT1Opt, target1Pct: ladderT1Pct,
             target2: ladderTarget2, target2Opt: ladderT2Opt, target2Pct: ladderT2Pct,
+            stop: ladderStopStock, stopOpt: ladderStopOpt, stopPct: ladderStopPct,
+            earnings: earningsText,
             probabilityTrade: builtTrade,
-            qualifiedAt,
           })
 
           return (
             <div
               key={flowId}
+              data-flow-id={flowId}
               data-flow-payload={flowAlertPayload}
               style={{
                 position: 'relative', overflow: 'hidden',
