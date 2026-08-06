@@ -18,6 +18,14 @@ const inter = Inter({
 export const metadata: Metadata = {
     title: 'EFI Terminal - Professional Trading Platform',
     description: 'Advanced analytics platform featuring 20-year historical seasonality patterns, real-time derivative flow analysis, and proprietary market regime detection.',
+    icons: {
+        icon: [
+            { url: '/icons/icon-192x192.svg', type: 'image/svg+xml' },
+            { url: '/icons/icon-512x512.svg', type: 'image/svg+xml', sizes: '512x512' },
+        ],
+        shortcut: '/icons/icon-192x192.svg',
+        apple: '/icons/icon-152x152.svg',
+    },
 }
 
 export default function RootLayout({

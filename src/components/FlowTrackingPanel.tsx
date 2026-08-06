@@ -2534,9 +2534,39 @@ function SweepSenseTab({
 
           const dirColor = targetUp ? '#22c55e' : '#ef4444'
           const dirGlow = targetUp ? 'rgba(34,197,94,0.35)' : 'rgba(239,68,68,0.35)'
+
+          // Headless scrape hook (Discord alert bot) - not rendered, just a stable JSON snapshot
+          // of everything the card already computed so nothing gets reimplemented server-side.
+          const readyForPickupNow = (() => {
+            const noPlan = planText === 'No Plan detected.' || planText === 'Waiting on dealer magnet/pivot data to build an entry plan.'
+            if (noPlan) return false
+            const livePrice = currentStockPrice && currentStockPrice > 0 ? currentStockPrice : (spot && spot > 0 ? spot : trade.spot_price)
+            const dollarMatch = planText.match(/\$([0-9]+(?:\.[0-9]+)?)/)
+            const level = dollarMatch ? parseFloat(dollarMatch[1]) : null
+            if (level === null || !livePrice || livePrice <= 0) return true
+            if (planText.includes('approach down to')) return livePrice <= level
+            if (planText.includes('run up to approach')) return livePrice >= level
+            if (planText.includes('break above')) return livePrice > level
+            if (planText.includes('break below')) return livePrice < level
+            return true
+          })()
+          const flowAlertPayload = JSON.stringify({
+            flowId, ticker: trade.underlying_ticker, ready: readyForPickupNow,
+            direction: targetUp ? 'BULLISH' : 'BEARISH', tradeType: tradeTypeVal,
+            strike: trade.strike, expiry: trade.expiry, optionType: trade.type,
+            convictionScore, planText,
+            breakdown: { buyCallsPct: breakdown.buyCallsPct, bearCallsPct: breakdown.bearCallsPct, buyPutsPct: breakdown.buyPutsPct, bearPutsPct: breakdown.bearPutsPct },
+            spamLabel, gammaLabel, structuralLabel,
+            target1: ladderTarget1, target1Opt: ladderT1Opt, target1Pct: ladderT1Pct,
+            target2: ladderTarget2, target2Opt: ladderT2Opt, target2Pct: ladderT2Pct,
+            probabilityTrade: builtTrade,
+            qualifiedAt,
+          })
+
           return (
             <div
               key={flowId}
+              data-flow-payload={flowAlertPayload}
               style={{
                 position: 'relative', overflow: 'hidden',
                 background: '#000',

@@ -90,3 +90,13 @@ model SweepSenseSnapshot {
 
   @@index([tradingDate])
 }
+
+model DiscordAlertedFlow {
+  id          String   @id @default(cuid())
+  flowId      String   // matches generateFlowId() used by the SweepSense card
+  tradingDate String
+  alertedAt   DateTime @default(now())
+
+  @@unique([flowId, tradingDate])
+  @@index([tradingDate])
+}

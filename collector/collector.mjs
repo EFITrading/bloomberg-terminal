@@ -21,6 +21,8 @@ if (!POLYGON_API_KEY) { console.error('[FATAL] POLYGON_API_KEY not set'); proces
 // SweepSense end-of-day auto-save (headless browser trigger) — see runSweepSenseAutoSave() below.
 const APP_URL = process.env.APP_URL
 const COLLECTOR_SECRET = process.env.COLLECTOR_SECRET
+// Discord webhook for "Ready 4 Pickup" SweepSense alerts — see runSweepSenseDiscordAlert() below.
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL
 
 // Use direct Postgres connection — bypass Prisma Accelerate proxy which has frequent 502s
 // Railway is a persistent process and doesn't need connection pooling
@@ -298,6 +300,7 @@ let ws = null
 let reconnectTimer = null
 let flushTimer = null
 let saveTimer = null
+let discordAlertTimer = null
 let rawBuffer = []          // incoming WS messages, flushed every 1s
 let pendingTrades = []      // enriched trades since last DB save — cleared after each successful save
 let intentionalStop = false // set before ws.terminate() so close handler doesn't reconnect
@@ -374,6 +377,7 @@ function stopStream() {
     if (flushTimer) { clearInterval(flushTimer); flushTimer = null }
     if (saveTimer) { clearInterval(saveTimer); saveTimer = null }
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
+    if (discordAlertTimer) { clearInterval(discordAlertTimer); discordAlertTimer = null }
 
     // Final save
     const tradingDate = getTradingDate()
@@ -424,6 +428,98 @@ async function runSweepSenseAutoSave() {
     } finally {
         if (browser) await browser.close().catch(() => { })
     }
+}
+
+// ── SweepSense "Ready 4 Pickup" Discord alerts (headless browser scrape) ──────────────────
+// Same headless-browser trick as runSweepSenseAutoSave(): the SweepSense grading/plan/gauge
+// math lives entirely client-side, so this opens the REAL page and reads the `data-flow-payload`
+// JSON each card already stamps itself with (see FlowTrackingPanel.tsx) instead of reimplementing
+// any of that logic here. Only trades not already alerted today (DiscordAlertedFlow table) get posted.
+async function runSweepSenseDiscordAlert() {
+    if (!APP_URL) return
+    if (!DISCORD_WEBHOOK_URL) { console.warn('[Discord] DISCORD_WEBHOOK_URL not set — skipping alert scan'); return }
+    const tradingDate = getTradingDate()
+    let browser
+    try {
+        const puppeteer = (await import('puppeteer')).default
+        browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] })
+        const page = await browser.newPage()
+        if (COLLECTOR_SECRET) {
+            await page.setExtraHTTPHeaders({ 'x-collector-secret': COLLECTOR_SECRET })
+        }
+        await page.goto(`${APP_URL}/options-flow`, { waitUntil: 'networkidle0', timeout: 60_000 })
+        await page.waitForSelector('[data-flow-payload]', { timeout: 60_000 }).catch(() => { })
+
+        const cards = await page.evaluate(() =>
+            Array.from(document.querySelectorAll('[data-flow-payload]')).map((el) => {
+                try { return JSON.parse(el.getAttribute('data-flow-payload')) } catch { return null }
+            }).filter(Boolean)
+        )
+        const ready = cards.filter((c) => c.ready)
+        if (ready.length === 0) { console.log('[Discord] No Ready-4-Pickup trades this scan.'); return }
+
+        const already = await prisma.discordAlertedFlow.findMany({
+            where: { tradingDate, flowId: { in: ready.map((c) => c.flowId) } },
+            select: { flowId: true },
+        })
+        const alreadySet = new Set(already.map((a) => a.flowId))
+        const newOnes = ready.filter((c) => !alreadySet.has(c.flowId))
+        if (newOnes.length === 0) { console.log('[Discord] All Ready-4-Pickup trades already alerted.'); return }
+
+        for (const c of newOnes) {
+            const embed = buildDiscordEmbed(c)
+            try {
+                const res = await fetch(DISCORD_WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ embeds: [embed] }),
+                })
+                if (!res.ok) console.error(`[Discord] Webhook post failed: ${res.status}`)
+            } catch (err) {
+                console.error('[Discord] Webhook post error:', err.message)
+                continue
+            }
+            await prisma.discordAlertedFlow.upsert({
+                where: { flowId_tradingDate: { flowId: c.flowId, tradingDate } },
+                update: {},
+                create: { flowId: c.flowId, tradingDate },
+            }).catch(() => { })
+        }
+        console.log(`[Discord] Posted ${newOnes.length} Ready-4-Pickup alert(s).`)
+    } catch (err) {
+        console.error('[Discord] Alert scan failed:', err.message)
+    } finally {
+        if (browser) await browser.close().catch(() => { })
+    }
+}
+
+// Builds the Discord embed straight from the card's own computed fields — same numbers,
+// same labels, just laid out as plain text (no emoji, per site style request).
+function buildDiscordEmbed(c) {
+    const fmt = (n) => (typeof n === 'number' ? `$${n.toFixed(2)}` : '--')
+    const pct = (n) => (typeof n === 'number' ? `${n >= 0 ? '+' : ''}${n.toFixed(1)}%` : '--')
+    const color = c.direction === 'BULLISH' ? 0x22c55e : 0xef4444
+    const fields = [
+        { name: 'Direction', value: `${c.direction} (${c.tradeType})`, inline: true },
+        { name: 'Contract', value: `${c.optionType?.toUpperCase()} $${c.strike} exp ${c.expiry}`, inline: true },
+        { name: 'Conviction', value: `${c.convictionScore}`, inline: true },
+        { name: 'Entry Plan', value: c.planText || '--' },
+        { name: 'Buy Calls / Buy Puts', value: `${c.breakdown.buyCallsPct.toFixed(1)}% / ${c.breakdown.buyPutsPct.toFixed(1)}%`, inline: true },
+        { name: 'Sell Calls / Sell Puts', value: `${c.breakdown.bearCallsPct.toFixed(1)}% / ${c.breakdown.bearPutsPct.toFixed(1)}%`, inline: true },
+        { name: 'Gamma Attack', value: c.gammaLabel || '--', inline: true },
+        { name: 'Flow Spammer', value: c.spamLabel || '--', inline: true },
+        { name: 'Structural', value: c.structuralLabel || '--', inline: true },
+        { name: 'Target 1', value: `${fmt(c.target1)} (${fmt(c.target1Opt)}, ${pct(c.target1Pct)})`, inline: true },
+        { name: 'Target 2', value: `${fmt(c.target2)} (${fmt(c.target2Opt)}, ${pct(c.target2Pct)})`, inline: true },
+    ]
+    if (c.probabilityTrade) {
+        const p = c.probabilityTrade
+        fields.push({
+            name: 'Probability Trade',
+            value: `Strike ${fmt(p.strike)} exp ${p.expiryDate} @ ${fmt(p.premium)} | T1 ${fmt(p.t1Opt)} T2 ${fmt(p.t2Opt)}`,
+        })
+    }
+    return { title: `${c.ticker} - Ready for Pickup`, color, fields, timestamp: new Date().toISOString() }
 }
 
 function startCollecting() {
@@ -482,6 +578,9 @@ function startCollecting() {
     const msToClose = msUntilMarketClose()
     console.log(`[STREAM] Market closes in ${(msToClose / 1000 / 60).toFixed(1)} minutes`)
     setTimeout(stopStream, msToClose)
+
+    // "Ready 4 Pickup" Discord alerts — every 5 minutes while the market's open
+    discordAlertTimer = setInterval(runSweepSenseDiscordAlert, 5 * 60 * 1000)
 }
 
 function scheduleNextOpen() {
@@ -513,5 +612,11 @@ function scheduleNextOpen() {
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
-console.log('[BOOT] EFI Options Flow Collector starting ...')
-scheduleNextOpen()
+// Manual one-off trigger for the Discord "Ready 4 Pickup" scan, run from Railway's
+// Console tab: `node collector.mjs --trigger-discord-alert` (skips the WS stream/scheduler).
+if (process.argv.includes('--trigger-discord-alert')) {
+    runSweepSenseDiscordAlert().then(() => process.exit(0)).catch((err) => { console.error(err); process.exit(1) })
+} else {
+    console.log('[BOOT] EFI Options Flow Collector starting ...')
+    scheduleNextOpen()
+}
