@@ -26,6 +26,8 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  const viaCollectorSecret = !!COLLECTOR_SECRET && request.headers.get('x-collector-secret') === COLLECTOR_SECRET
+
   if (!isAuthenticated(request)) {
     if (pathname.startsWith('/api/')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -42,7 +44,15 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  return NextResponse.next()
+  const response = NextResponse.next()
+  // The client-side AuthGuard only trusts document.cookie (efi-level/efi-auth), not this
+  // header - so a collector-secret request also needs the non-httpOnly UX cookie set,
+  // otherwise the server allows the page through but AuthGuard immediately bounces it
+  // to /login client-side (used by the headless SweepSense scrape in collector.mjs).
+  if (viaCollectorSecret) {
+    response.cookies.set('efi-level', 'admin', { path: '/', maxAge: 60 })
+  }
+  return response
 }
 
 export const config = {
