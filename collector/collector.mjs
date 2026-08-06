@@ -448,15 +448,19 @@ async function runSweepSenseDiscordAlert() {
             await page.setExtraHTTPHeaders({ 'x-collector-secret': COLLECTOR_SECRET })
         }
         await page.goto(`${APP_URL}/options-flow`, { waitUntil: 'networkidle0', timeout: 60_000 })
-        await page.waitForSelector('[data-flow-payload]', { timeout: 60_000 }).catch(() => { })
+        console.log(`[Discord] Loaded page: ${page.url()}`)
+        const found = await page.waitForSelector('[data-flow-payload]', { timeout: 4 * 60 * 1000 }).catch(() => null)
+        if (!found) console.log('[Discord] No [data-flow-payload] elements appeared within the wait window.')
 
         const cards = await page.evaluate(() =>
             Array.from(document.querySelectorAll('[data-flow-payload]')).map((el) => {
                 try { return JSON.parse(el.getAttribute('data-flow-payload')) } catch { return null }
             }).filter(Boolean)
         )
+        console.log(`[Discord] Scraped ${cards.length} total SweepSense card(s).`)
         const ready = cards.filter((c) => c.ready)
         if (ready.length === 0) { console.log('[Discord] No Ready-4-Pickup trades this scan.'); return }
+
 
         const already = await prisma.discordAlertedFlow.findMany({
             where: { tradingDate, flowId: { in: ready.map((c) => c.flowId) } },
