@@ -21,6 +21,9 @@ if (!POLYGON_API_KEY) { console.error('[FATAL] POLYGON_API_KEY not set'); proces
 // SweepSense end-of-day auto-save (headless browser trigger) — see runSweepSenseAutoSave() below.
 const APP_URL = process.env.APP_URL
 const COLLECTOR_SECRET = process.env.COLLECTOR_SECRET
+// Real site login used by the headless browser so it sees the actual logged-in page instead
+// of relying on a middleware bypass header. Must match ADMIN_PASSWORD or SITE_PASSWORD on Vercel.
+const COLLECTOR_LOGIN_PASSWORD = process.env.COLLECTOR_LOGIN_PASSWORD
 // Discord webhook for "Ready 4 Pickup" SweepSense alerts — see runSweepSenseDiscordAlert() below.
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL
 
@@ -393,6 +396,28 @@ function stopStream() {
     setTimeout(runSweepSenseAutoSave, 60 * 1000)
 }
 
+// Logs into the real site via POST /api/auth and returns the Set-Cookie values so a puppeteer
+// page can be seeded with them via page.setCookie() - same session a real user gets, no
+// middleware/AuthGuard bypass hacks needed.
+async function loginCookies() {
+    if (!COLLECTOR_LOGIN_PASSWORD) { console.warn('[Auth] COLLECTOR_LOGIN_PASSWORD not set — headless page will be unauthenticated'); return [] }
+    const res = await fetch(`${APP_URL}/api/auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: COLLECTOR_LOGIN_PASSWORD }),
+    })
+    if (!res.ok) { console.warn(`[Auth] Login failed: ${res.status}`); return [] }
+    const setCookie = res.headers.get('set-cookie') || ''
+    const domain = new URL(APP_URL).hostname
+    // Node's fetch folds multiple Set-Cookie headers into one string joined by ', ' in some
+    // runtimes - split on the pattern that separates distinct cookie definitions.
+    return setCookie.split(/,(?=\s*[\w-]+=)/).map((part) => {
+        const [nameValue] = part.split(';')
+        const [name, ...rest] = nameValue.split('=')
+        return { name: name.trim(), value: rest.join('=').trim(), domain, path: '/' }
+    }).filter((c) => c.name && c.value)
+}
+
 // ── SweepSense auto-save (headless browser) ───────────────────────────────────
 // The SweepSense grading pipeline lives entirely in the browser (OptionsFlowTable.tsx)
 // and depends on many other client-only functions/caches — re-implementing that math
@@ -409,9 +434,8 @@ async function runSweepSenseAutoSave() {
         const puppeteer = (await import('puppeteer')).default
         browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] })
         const page = await browser.newPage()
-        if (COLLECTOR_SECRET) {
-            await page.setExtraHTTPHeaders({ 'x-collector-secret': COLLECTOR_SECRET })
-        }
+        const cookies = await loginCookies()
+        if (cookies.length > 0) await page.setCookie(...cookies)
         await page.goto(`${APP_URL}/options-flow`, { waitUntil: 'domcontentloaded', timeout: 60_000 })
 
         try {
@@ -444,9 +468,8 @@ async function runSweepSenseDiscordAlert() {
         const puppeteer = (await import('puppeteer')).default
         browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] })
         const page = await browser.newPage()
-        if (COLLECTOR_SECRET) {
-            await page.setExtraHTTPHeaders({ 'x-collector-secret': COLLECTOR_SECRET })
-        }
+        const cookies = await loginCookies()
+        if (cookies.length > 0) await page.setCookie(...cookies)
         await page.goto(`${APP_URL}/options-flow`, { waitUntil: 'networkidle0', timeout: 60_000 })
         console.log(`[Discord] Loaded page: ${page.url()}`)
         const found = await page.waitForSelector('[data-flow-payload]', { timeout: 4 * 60 * 1000 }).catch(() => null)
