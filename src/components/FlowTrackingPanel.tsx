@@ -3082,6 +3082,7 @@ function SweepSenseTab({
                           ] as const).map((opt) => (
                             <button
                               key={opt.key}
+                              data-risk-option={opt.key}
                               title={opt.desc}
                               onClick={() => setRiskLevel((prev) => {
                                 const next = { ...prev }

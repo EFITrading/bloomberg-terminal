@@ -468,6 +468,7 @@ async function runSweepSenseDiscordAlert() {
         const puppeteer = (await import('puppeteer')).default
         browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] })
         const page = await browser.newPage()
+        await page.setViewport({ width: 1600, height: 1200, deviceScaleFactor: 2 })
         const cookies = await loginCookies()
         if (cookies.length > 0) await page.setCookie(...cookies)
         await page.goto(`${APP_URL}/options-flow`, { waitUntil: 'networkidle0', timeout: 60_000 })
@@ -498,7 +499,13 @@ async function runSweepSenseDiscordAlert() {
             try {
                 const cardHandle = await page.$(`[data-flow-id="${c.flowId}"]`)
                 if (cardHandle) {
-                    const png = await cardHandle.screenshot({ type: 'png' })
+                    const probBtn = await cardHandle.$('button[data-risk-option="PROB"]')
+                    if (probBtn) {
+                        await probBtn.click()
+                        await new Promise((r) => setTimeout(r, 400))
+                    }
+                    await cardHandle.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+                    const png = await cardHandle.screenshot({ type: 'png', captureBeyondViewport: true })
                     const form = new FormData()
                     form.append('payload_json', JSON.stringify({
                         content: `**${c.ticker} - Ready for Pickup**\n${APP_URL}/options-flow?openFlow=${encodeURIComponent(c.flowId)}`,
