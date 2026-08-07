@@ -495,43 +495,51 @@ async function runSweepSenseDiscordAlert() {
         if (newOnes.length === 0) { console.log('[Discord] All Ready-4-Pickup trades already alerted.'); return }
 
         for (const c of newOnes) {
-            let posted = false
             try {
                 const cardHandle = await page.$(`[data-flow-id="${c.flowId}"]`)
-                if (cardHandle) {
-                    const probBtn = await cardHandle.$('button[data-risk-option="PROB"]')
-                    if (probBtn) {
-                        await probBtn.click()
-                        await new Promise((r) => setTimeout(r, 400))
-                    }
-                    await cardHandle.evaluate((el) => el.scrollIntoView({ block: 'center' }))
-                    const png = await cardHandle.screenshot({ type: 'png', captureBeyondViewport: true })
-                    const form = new FormData()
-                    form.append('payload_json', JSON.stringify({
-                        content: `**${c.ticker} - Ready for Pickup**\n${APP_URL}/options-flow?openFlow=${encodeURIComponent(c.flowId)}`,
-                        attachments: [{ id: 0, filename: 'sweepsense-card.png' }],
-                    }))
-                    form.append('files[0]', new Blob([png], { type: 'image/png' }), 'sweepsense-card.png')
-                    const res = await fetch(DISCORD_WEBHOOK_URL, { method: 'POST', body: form })
-                    if (res.ok) posted = true
-                    else console.error(`[Discord] Screenshot post failed: ${res.status}`)
+                if (!cardHandle) { console.error(`[Discord] Card not found for flowId ${c.flowId} — skipping.`); continue }
+
+                const probBtn = await cardHandle.$('button[data-risk-option="PROB"]')
+                if (probBtn) {
+                    await probBtn.click()
+                    await new Promise((r) => setTimeout(r, 400))
                 }
+                await cardHandle.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+
+                // The live feed re-renders/reorders cards constantly, so re-verify (right before
+                // capturing) that this element still actually holds the flow we think it does —
+                // checking both the JSON payload's flowId AND the visible ticker text, since a
+                // mismatch on either means the wrong card would get posted under this ticker's name.
+                const verifyCard = () => cardHandle.evaluate((el, expectedFlowId, expectedTicker) => {
+                    if (el.textContent?.includes('LOADING SWEEPSENSE DATA')) return false
+                    if (!el.textContent?.toUpperCase().includes(expectedTicker.toUpperCase())) return false
+                    try {
+                        const payload = JSON.parse(el.getAttribute('data-flow-payload') || 'null')
+                        return payload?.flowId === expectedFlowId && payload?.ticker === expectedTicker
+                    } catch { return false }
+                }, c.flowId, c.ticker).catch(() => false)
+
+                let verified = await verifyCard()
+                if (!verified) {
+                    await new Promise((r) => setTimeout(r, 800))
+                    verified = await verifyCard()
+                }
+                if (!verified) { console.error(`[Discord] Card content didn't match expected flowId/ticker (${c.ticker}) — skipping.`); continue }
+
+                // Screenshot immediately after verification passes to minimize the window for the
+                // live feed to reorder/reuse this DOM node before capture.
+                const png = await cardHandle.screenshot({ type: 'png', captureBeyondViewport: true })
+                const form = new FormData()
+                form.append('payload_json', JSON.stringify({
+                    content: `**${c.ticker} - Ready for Pickup**\n${APP_URL}/options-flow?openFlow=${encodeURIComponent(c.flowId)}`,
+                    attachments: [{ id: 0, filename: 'sweepsense-card.png' }],
+                }))
+                form.append('files[0]', new Blob([png], { type: 'image/png' }), 'sweepsense-card.png')
+                const res = await fetch(DISCORD_WEBHOOK_URL, { method: 'POST', body: form })
+                if (!res.ok) { console.error(`[Discord] Screenshot post failed: ${res.status}`); continue }
             } catch (err) {
-                console.error('[Discord] Card screenshot failed, falling back to text embed:', err.message)
-            }
-            if (!posted) {
-                try {
-                    const embed = buildDiscordEmbed(c)
-                    const res = await fetch(DISCORD_WEBHOOK_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ embeds: [embed] }),
-                    })
-                    if (!res.ok) { console.error(`[Discord] Webhook post failed: ${res.status}`); continue }
-                } catch (err) {
-                    console.error('[Discord] Webhook post error:', err.message)
-                    continue
-                }
+                console.error(`[Discord] Card screenshot failed for ${c.ticker} (${c.flowId}):`, err.message)
+                continue
             }
             await prisma.discordAlertedFlow.upsert({
                 where: { flowId_tradingDate: { flowId: c.flowId, tradingDate } },
@@ -544,70 +552,6 @@ async function runSweepSenseDiscordAlert() {
         console.error('[Discord] Alert scan failed:', err.message)
     } finally {
         if (browser) await browser.close().catch(() => { })
-    }
-}
-
-// Builds the Discord embed straight from the card's own computed fields — same numbers,
-// same labels, grouped the same way the site card is (direction/contract/conviction, plan,
-// flow gauge, gamma/spam/structural, target1/target2/stop, probability trade), no emoji.
-function buildDiscordEmbed(c) {
-    const fmt = (n) => (typeof n === 'number' ? `$${n.toFixed(2)}` : '--')
-    const pct = (n) => (typeof n === 'number' ? `${n >= 0 ? '+' : ''}${n.toFixed(1)}%` : '--')
-    const money = (n) => (typeof n === 'number' ? `$${Math.round(n).toLocaleString('en-US')}` : '--')
-    const color = c.direction === 'BULLISH' ? 0x22c55e : 0xef4444
-    const fillStyleLabel = { A: 'ASK', AA: 'ABOVE ASK', B: 'BID', BB: 'BELOW BID' }[c.fillStyle] || c.fillStyle || '--'
-    const arrow = c.direction === 'BULLISH' ? '▲' : '▼'
-    const trendZones = [
-        { max: 20, label: 'Bear Trend' }, { max: 40, label: 'Bear Chop' }, { max: 60, label: 'Neutral' },
-        { max: 80, label: 'Bull Chop' }, { max: 101, label: 'Bull Trend' },
-    ]
-    const trendPct = typeof c.trendScorePct === 'number' ? c.trendScorePct : 0
-    const trendGaugePct = Math.round((trendPct + 100) / 2)
-    const trendLabel = (trendZones.find((z) => trendGaugePct <= z.max) ?? trendZones[2]).label
-    const fmtTime = (iso) => (iso ? new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Los_Angeles' }) : '--')
-    const fields = [
-        { name: 'Direction', value: `**${arrow} ${c.direction}**\n${c.tradeType} · ${c.term}`, inline: true },
-        { name: 'Contract', value: `**${c.optionType?.toUpperCase()} $${c.strike}**\nexp ${c.expiry}`, inline: true },
-        { name: 'Conviction', value: `**${c.convictionScore}** / 100`, inline: true },
-        { name: '\u200b', value: '── Flow ──', inline: false },
-        { name: 'Fill Style', value: `\`${fillStyleLabel}\``, inline: true },
-        { name: 'Size @ Price', value: `\`${c.tradeSize?.toLocaleString('en-US')} @ ${fmt(c.premiumPerContract)}\``, inline: true },
-        { name: 'Premium', value: `\`${money(c.totalPremium)} → ${money(c.currentPremium)}\` (${pct(c.contractPctChange)})`, inline: true },
-        { name: 'Stock Price', value: `\`${fmt(c.entrySpot)} → ${fmt(c.currentStockPrice)}\``, inline: true },
-        { name: '\u200b', value: '── Entry Plan ──', inline: false },
-        { name: '\u200b', value: c.planText || '--', inline: false },
-        { name: '\u200b', value: '── Sentiment Gauge ──', inline: false },
-        { name: 'Buy Calls / Buy Puts', value: `\`${c.breakdown.buyCallsPct.toFixed(1)}%\` / \`${c.breakdown.buyPutsPct.toFixed(1)}%\``, inline: true },
-        { name: 'Sell Calls / Sell Puts', value: `\`${c.breakdown.bearCallsPct.toFixed(1)}%\` / \`${c.breakdown.bearPutsPct.toFixed(1)}%\``, inline: true },
-        { name: '\u200b', value: '\u200b', inline: true },
-        { name: 'Gamma Attack', value: c.gammaLabel || '--', inline: true },
-        { name: 'Flow Spammer', value: c.spamLabel || '--', inline: true },
-        { name: 'Structural', value: c.structuralLabel || '--', inline: true },
-        { name: 'Trend Gauge', value: `**${trendPct >= 0 ? '+' : ''}${trendPct}% ${trendLabel.toUpperCase()}**`, inline: true },
-        { name: 'Taken', value: fmtTime(c.takenAt), inline: true },
-        { name: 'Qualified', value: fmtTime(c.qualifiedAt ? new Date(c.qualifiedAt).toISOString() : null), inline: true },
-        { name: '\u200b', value: '── Trade Management ──', inline: false },
-        { name: 'Target 1', value: `**${fmt(c.target1)}**\n${fmt(c.target1Opt)} (${pct(c.target1Pct)})`, inline: true },
-        { name: 'Target 2', value: `**${fmt(c.target2)}**\n${fmt(c.target2Opt)} (${pct(c.target2Pct)})`, inline: true },
-        { name: 'Stop', value: `**${fmt(c.stop)}**\n${fmt(c.stopOpt)} (${pct(c.stopPct)})`, inline: true },
-    ]
-    if (c.probabilityTrade) {
-        const p = c.probabilityTrade
-        fields.push(
-            { name: '\u200b', value: '── Probability Trade ──', inline: false },
-            { name: 'Built Contract', value: `\`$${p.strike} exp ${p.expiryDate} @ ${fmt(p.premium)}\``, inline: false },
-            { name: 'Target 1 / Target 2 / Stop', value: `\`${fmt(p.t1Opt)}\` / \`${fmt(p.t2Opt)}\` / \`${fmt(p.stopOpt)}\``, inline: false },
-        )
-    }
-    fields.push({ name: 'Next Earnings', value: c.earnings && c.earnings !== '--' ? c.earnings : 'None known', inline: true })
-    fields.push({ name: 'Interactive Chart', value: `${APP_URL}/options-flow?openFlow=${encodeURIComponent(c.flowId)}`, inline: false })
-    return {
-        author: { name: 'SweepSense · Ready for Pickup' },
-        title: `${c.ticker}`,
-        color,
-        fields,
-        footer: { text: 'EFI Terminal' },
-        timestamp: new Date().toISOString(),
     }
 }
 
