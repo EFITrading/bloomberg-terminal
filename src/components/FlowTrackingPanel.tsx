@@ -1234,19 +1234,6 @@ function SweepSenseTab({
   // (embeds AlgoFlowScreener for that ticker - same net bull/bear + 4-line flow chart).
   const [chartModeByFlowId, setChartModeByFlowId] = useState<Record<string, 'stock' | 'algoflow'>>({})
 
-  // Deep-link support: ?openFlow=<flowId> in the URL (e.g. from a Discord alert) auto-expands
-  // that card's interactive chart and scrolls it into view once its trades have loaded.
-  useEffect(() => {
-    const targetFlowId = new URLSearchParams(window.location.search).get('openFlow')
-    if (!targetFlowId || !data?.trades?.length) return
-    const match = data.trades.some(({ trade }) => generateFlowId(trade) === targetFlowId)
-    if (!match) return
-    setOpenCharts((prev) => new Set(prev).add(targetFlowId))
-    setTimeout(() => {
-      document.querySelector(`[data-flow-id="${targetFlowId}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }, 300)
-  }, [data])
-
   const tickerTradesMap = useMemo(() => {
     const map = new Map<string, OptionsFlowData[]>()
     if (!allFlowData) return map

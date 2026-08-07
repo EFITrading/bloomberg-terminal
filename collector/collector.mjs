@@ -531,7 +531,7 @@ async function runSweepSenseDiscordAlert() {
                 const png = await cardHandle.screenshot({ type: 'png', captureBeyondViewport: true })
                 const form = new FormData()
                 form.append('payload_json', JSON.stringify({
-                    content: `**${c.ticker} - Ready for Pickup**\n${APP_URL}/options-flow?openFlow=${encodeURIComponent(c.flowId)}`,
+                    content: `**${c.ticker} - Ready for Pickup**`,
                     attachments: [{ id: 0, filename: 'sweepsense-card.png' }],
                 }))
                 form.append('files[0]', new Blob([png], { type: 'image/png' }), 'sweepsense-card.png')
