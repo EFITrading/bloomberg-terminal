@@ -494,17 +494,22 @@ async function runSweepSenseDiscordAlert() {
         const newOnes = ready.filter((c) => !alreadySet.has(c.flowId))
         if (newOnes.length === 0) { console.log('[Discord] All Ready-4-Pickup trades already alerted.'); return }
 
+        let postedCount = 0
         for (const c of newOnes) {
             try {
                 const cardHandle = await page.$(`[data-flow-id="${c.flowId}"]`)
                 if (!cardHandle) { console.error(`[Discord] Card not found for flowId ${c.flowId} — skipping.`); continue }
+
+                // Must scroll into view BEFORE clicking — Puppeteer refuses to click an element
+                // that's off-screen, which was silently killing every card below the fold.
+                await cardHandle.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+                await new Promise((r) => setTimeout(r, 200))
 
                 const probBtn = await cardHandle.$('button[data-risk-option="PROB"]')
                 if (probBtn) {
                     await probBtn.click()
                     await new Promise((r) => setTimeout(r, 400))
                 }
-                await cardHandle.evaluate((el) => el.scrollIntoView({ block: 'center' }))
 
                 // The live feed re-renders/reorders cards constantly, so re-verify (right before
                 // capturing) that this element still actually holds the flow we think it does —
@@ -541,13 +546,14 @@ async function runSweepSenseDiscordAlert() {
                 console.error(`[Discord] Card screenshot failed for ${c.ticker} (${c.flowId}):`, err.message)
                 continue
             }
+            postedCount++
             await prisma.discordAlertedFlow.upsert({
                 where: { flowId_tradingDate: { flowId: c.flowId, tradingDate } },
                 update: {},
                 create: { flowId: c.flowId, tradingDate },
             }).catch(() => { })
         }
-        console.log(`[Discord] Posted ${newOnes.length} Ready-4-Pickup alert(s).`)
+        console.log(`[Discord] Posted ${postedCount}/${newOnes.length} Ready-4-Pickup alert(s).`)
     } catch (err) {
         console.error('[Discord] Alert scan failed:', err.message)
     } finally {

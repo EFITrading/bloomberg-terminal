@@ -1,0 +1,39 @@
+﻿
+[Discord] Loaded page: https://www.efitrading.com/options-flow
+[Discord] Scraped 10 total SweepSense card(s).
+[Discord] Card screenshot failed for AMD 
+(AMD-497.5-2026-08-14-call-2026-08-10T13:50:49.228Z-1213): Node is either not 
+clickable or not an Element
+[Discord] Posted 1 Ready-4-Pickup alert(s).
+[Discord] Loaded page: https://www.efitrading.com/options-flow
+[Discord] Scraped 10 total SweepSense card(s).
+[Discord] Card screenshot failed for AMD 
+(AMD-497.5-2026-08-14-call-2026-08-10T13:50:49.228Z-1213): Node is either not 
+clickable or not an Element
+[Discord] Posted 1 Ready-4-Pickup alert(s).
+[Discord] Loaded page: https://www.efitrading.com/options-flow
+[Discord] Scraped 10 total SweepSense card(s).
+[Discord] No Ready-4-Pickup trades this scan.
+[Discord] Loaded page: https://www.efitrading.com/options-flow
+[Discord] Scraped 10 total SweepSense card(s).
+[Discord] No Ready-4-Pickup trades this scan.
+[Discord] Loaded page: https://www.efitrading.com/options-flow
+[Discord] Scraped 11 total SweepSense card(s).
+[Discord] Posted 1 Ready-4-Pickup alert(s).
+[Discord] Card screenshot failed for TSM 
+(TSM-425-2026-08-14-call-2026-08-10T13:48:44.087Z-1000): Node is either not 
+clickable or not an Element
+[Discord] Loaded page: https://www.efitrading.com/options-flow
+[Discord] Scraped 12 total SweepSense card(s).
+[Discord] Card screenshot failed for TSM 
+(TSM-425-2026-08-14-call-2026-08-10T13:48:44.087Z-1000): Node is either not 
+clickable or not an Element
+[Discord] Posted 1 Ready-4-Pickup alert(s).
+[Discord] Loaded page: https://www.efitrading.com/options-flow
+[Discord] Scraped 10 total SweepSense card(s).
+[Discord] Posted 1 Ready-4-Pickup alert(s).
+[Discord] Card screenshot failed for TSM 
+(TSM-425-2026-08-14-call-2026-08-10T13:48:44.087Z-1000): Node is either not 
+clickable or not an Element
+
+
