@@ -292,7 +292,7 @@ async function saveToDB(tradingDate) {
         } catch (err) {
             lastErr = err
             console.warn(`[SAVE] Attempt ${attempt}/3 failed: ${err.message}`)
-            if (attempt < 3) await new Promise(r => setTimeout(r, 2000))
+            if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 2000))
         }
     }
     console.error('[SAVE] All retries failed — trades kept in pendingTrades for next cycle:', lastErr.message)
@@ -459,9 +459,12 @@ async function runSweepSenseAutoSave() {
 // math lives entirely client-side, so this opens the REAL page and reads the `data-flow-payload`
 // JSON each card already stamps itself with (see FlowTrackingPanel.tsx) instead of reimplementing
 // any of that logic here. Only trades not already alerted today (DiscordAlertedFlow table) get posted.
+let discordAlertRunning = false
 async function runSweepSenseDiscordAlert() {
+    if (discordAlertRunning) { console.log('[Discord] Previous scan still running — skipping this tick.'); return }
     if (!APP_URL) return
     if (!DISCORD_WEBHOOK_URL) { console.warn('[Discord] DISCORD_WEBHOOK_URL not set — skipping alert scan'); return }
+    discordAlertRunning = true
     const tradingDate = getTradingDate()
     let browser
     try {
@@ -558,6 +561,7 @@ async function runSweepSenseDiscordAlert() {
         console.error('[Discord] Alert scan failed:', err.message)
     } finally {
         if (browser) await browser.close().catch(() => { })
+        discordAlertRunning = false
     }
 }
 
