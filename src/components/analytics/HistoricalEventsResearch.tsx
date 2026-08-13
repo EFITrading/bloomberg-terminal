@@ -659,8 +659,10 @@ export default function HistoricalEventsResearch() {
                 background: isActive
                   ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
                   : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
-                border: isActive ? '2px solid #FF6B00' : '2px solid rgba(255,255,255,0.15)',
-                borderRight: index < (isMobileView ? 1 : 2) ? (isActive ? '2px solid #FF6B00' : '1px solid rgba(255,255,255,0.08)') : undefined,
+                borderTop: isActive ? '2px solid #FF6B00' : '2px solid rgba(255,255,255,0.15)',
+                borderBottom: isActive ? '2px solid #FF6B00' : '2px solid rgba(255,255,255,0.15)',
+                borderLeft: isActive ? '2px solid #FF6B00' : '2px solid rgba(255,255,255,0.15)',
+                borderRight: index < (isMobileView ? 1 : 2) ? (isActive ? '2px solid #FF6B00' : '1px solid rgba(255,255,255,0.08)') : (isActive ? '2px solid #FF6B00' : '2px solid rgba(255,255,255,0.15)'),
                 color: isActive ? '#FF6B00' : '#FFFFFF',
                 fontSize: isMobileView ? 11 : 16,
                 fontWeight: 900,

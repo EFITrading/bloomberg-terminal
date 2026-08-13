@@ -508,10 +508,18 @@ async function runSweepSenseDiscordAlert() {
                 await cardHandle.evaluate((el) => el.scrollIntoView({ block: 'center' }))
                 await new Promise((r) => setTimeout(r, 200))
 
-                const probBtn = await cardHandle.$('button[data-risk-option="PROB"]')
-                if (probBtn) {
-                    await probBtn.click()
-                    await new Promise((r) => setTimeout(r, 400))
+                // The live feed re-renders/reorders cards constantly, so the PROB button handle
+                // can go stale between the scroll and the click. This toggle is purely cosmetic
+                // (defaults to a valid view either way) so a failed click must NEVER abort the
+                // whole card/alert — only wrap-and-swallow it, same as the old code aborted here.
+                try {
+                    const probBtn = await cardHandle.$('button[data-risk-option="PROB"]')
+                    if (probBtn) {
+                        await probBtn.click()
+                        await new Promise((r) => setTimeout(r, 400))
+                    }
+                } catch (clickErr) {
+                    console.warn(`[Discord] PROB toggle click failed for ${c.ticker} (non-fatal, continuing with default view):`, clickErr.message)
                 }
 
                 // The live feed re-renders/reorders cards constantly, so re-verify (right before
@@ -535,8 +543,11 @@ async function runSweepSenseDiscordAlert() {
                 if (!verified) { console.error(`[Discord] Card content didn't match expected flowId/ticker (${c.ticker}) — skipping.`); continue }
 
                 // Screenshot immediately after verification passes to minimize the window for the
-                // live feed to reorder/reuse this DOM node before capture.
-                const png = await cardHandle.screenshot({ type: 'png', captureBeyondViewport: true })
+                // live feed to reorder/reuse this DOM node before capture. Re-acquire the handle
+                // right before the shot in case the earlier node went stale under our feet.
+                let shotHandle = await page.$(`[data-flow-id="${c.flowId}"]`)
+                if (!shotHandle) shotHandle = cardHandle
+                const png = await shotHandle.screenshot({ type: 'png', captureBeyondViewport: true })
                 const form = new FormData()
                 form.append('payload_json', JSON.stringify({
                     content: `**${c.ticker} - Ready for Pickup**`,

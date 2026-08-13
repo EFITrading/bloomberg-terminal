@@ -444,13 +444,9 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   useEffect(() => {
     if (externalYears && externalYears !== chartSettings.yearsOfData) {
       setChartSettings((prev) => ({ ...prev, yearsOfData: externalYears }))
-      // Reload data with new years
-      if (selectedSymbol) {
-        if (isElectionMode) {
-          loadElectionCycleAnalysis(selectedSymbol, selectedElectionPeriod as any, externalYears)
-        } else {
-          loadSeasonalAnalysis(selectedSymbol, externalYears)
-        }
+      // Reload data with new years — election mode always uses max years and ignores this
+      if (selectedSymbol && !isElectionMode) {
+        loadSeasonalAnalysis(selectedSymbol, externalYears)
       }
     }
   }, [externalYears])
@@ -576,16 +572,18 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
     )
   }
 
+  // Election modes always analyze the maximum available history (ignores the year dropdown)
+  const ELECTION_MAX_YEARS_BACK = 30
+
   const loadElectionCycleAnalysis = async (
     symbol: string,
-    electionType: 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election',
-    yearsOverride?: number
+    electionType: 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election'
   ) => {
     setLoading(true)
     setError(null)
 
     try {
-      const yearsToUse = Math.min(yearsOverride ?? chartSettings.yearsOfData, 20)
+      const yearsToUse = ELECTION_MAX_YEARS_BACK
       const scanTickers = quickScanTickersRef.current
 
       if (scanTickers.length > 0) {
@@ -1671,22 +1669,10 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
     const updatedSettings = { ...chartSettings, ...newSettings }
     setChartSettings(updatedSettings)
 
-    // Reload data if years changed
+    // Reload data if years changed — election mode always uses max years and ignores this dropdown
     if (newSettings.yearsOfData && newSettings.yearsOfData !== chartSettings.yearsOfData) {
-      if (selectedSymbol) {
-        if (isElectionMode) {
-          loadElectionCycleAnalysis(
-            selectedSymbol,
-            selectedElectionPeriod as
-            | 'Election Year'
-            | 'Post-Election'
-            | 'Mid-Term'
-            | 'Pre-Election',
-            newSettings.yearsOfData
-          )
-        } else {
-          loadSeasonalAnalysis(selectedSymbol, newSettings.yearsOfData)
-        }
+      if (selectedSymbol && !isElectionMode) {
+        loadSeasonalAnalysis(selectedSymbol, newSettings.yearsOfData)
       }
     }
   }
@@ -2168,7 +2154,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
         )}
 
       {error && (
-        <div style={{ display: 'grid', gridTemplateColumns: '51% 48%', gap: '1%', width: '100%' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: hideScreener ? '100%' : '51% 48%', gap: '1%', width: '100%' }}>
           <div className="seasonax-error">
             <div className="error-content">
               <h3>Error Loading Data</h3>
@@ -2194,12 +2180,12 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
               </button>
             </div>
           </div>
-          <div style={{ minWidth: 0 }}></div>
+          {!hideScreener && <div style={{ minWidth: 0 }}></div>}
         </div>
       )}
 
       {loading && (
-        <div style={{ display: 'grid', gridTemplateColumns: '51% 48%', gap: '1%', width: '100%' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: hideScreener ? '100%' : '51% 48%', gap: '1%', width: '100%' }}>
           <div className="seasonax-loading">
             <div className="loading-spinner"></div>
             <p>
@@ -2207,7 +2193,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
               ...
             </p>
           </div>
-          <div style={{ minWidth: 0 }}></div>
+          {!hideScreener && <div style={{ minWidth: 0 }}></div>}
         </div>
       )}
 

@@ -3606,7 +3606,10 @@ function SweepViewTab({ allFlowData }: { allFlowData?: OptionsFlowData[] }) {
       el.removeEventListener('touchmove', touchMove)
       el.removeEventListener('touchend', touchEnd)
     }
-  }, [CW, CH])
+    // points.length is included so this re-attaches once the SVG actually mounts (it doesn't
+    // exist yet on the first render before allFlowData/points arrive, so svgRef.current is null
+    // and the listeners never got attached otherwise).
+  }, [CW, CH, points.length])
 
   // Position bubbles radially FROM the shared center (CX,CY) OUT toward each quadrant's outer
   // corner: distance from center is driven by otmPct (ATM/near-the-money trades sit near the

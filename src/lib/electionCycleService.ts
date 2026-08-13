@@ -129,7 +129,7 @@ class ElectionCycleService {
   async analyzeElectionCycleSeasonality(
     symbol: string,
     electionType: 'Election Year' | 'Post-Election' | 'Mid-Term' | 'Pre-Election',
-    yearsBack: number = 20
+    yearsBack: number = 30
   ): Promise<ElectionCycleData | null> {
     try {
       // Get relevant years for this election cycle type
@@ -139,7 +139,7 @@ class ElectionCycleService {
 
       if (validYears.length < 2) {
         console.warn(`⚠️ Not enough ${electionType} years (need ≥2, found ${validYears.length}) in the last ${yearsBack} years`)
-        return null;
+        throw new Error(`Not enough historical data for ${electionType} \u2014 need at least 2 occurrences, found ${validYears.length}`);
       }
 
       // Get historical data for the symbol and SPY (unless symbol is SPY)
@@ -170,7 +170,7 @@ class ElectionCycleService {
 
     } catch (error) {
       console.error('Error analyzing election cycle seasonality:', error);
-      return null;
+      throw error instanceof Error ? error : new Error('Failed to load election cycle data');
     }
   }
 
