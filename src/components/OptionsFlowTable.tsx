@@ -493,7 +493,11 @@ function computePlanEntry(params: {
 
   if (primary.aligned) {
     const primaryLabel = primary.label
-    const hasStretchTarget = secondary !== null && secondary.aligned
+    // Only add a stretch-target sentence when the secondary level is a genuinely different
+    // price — magnet/pivot both get clamped into the same 90%-band edge often, which used
+    // to produce a plan that named the same price twice under two different labels.
+    const distinctSecondary = secondary !== null && Math.abs(secondary.value - primary.value) / spot > 0.001
+    const hasStretchTarget = secondary !== null && secondary.aligned && distinctSecondary
     // Pivot is never a "trade toward as a target" level — it's traded on a confirmed break
     // (or as a reaction/entry point once price actually gets there), regardless of how far
     // away it currently sits. Only magnet supports the "aligned + far away" target phrasing;
@@ -509,7 +513,7 @@ function computePlanEntry(params: {
       }
     } else {
       sigCode = `Target $${primary.value.toFixed(2)}`; sigColor = '#ff8500'
-      planText = `The ${primaryLabel} at $${primary.value.toFixed(2)} aligns with the flow intent. You can enter and trade toward ${primary.value.toFixed(2)} as your target.`
+      planText = `Enter now and trade toward the ${primaryLabel} at $${primary.value.toFixed(2)} as your target.`
     }
     if (hasStretchTarget) {
       sigCode = impliedBullish ? `Long ? $${secondary!.value.toFixed(2)}` : `Short ? $${secondary!.value.toFixed(2)}`
@@ -519,10 +523,10 @@ function computePlanEntry(params: {
     const primaryLabel = primary.label
     if (impliedBullish) {
       sigCode = `Reversal Long $${primary.value.toFixed(2)}`; sigColor = '#00e5ff'
-      planText = `The ${primaryLabel} at $${primary.value.toFixed(2)} sits against the bullish flow intent. Wait for price to approach down to $${primary.value.toFixed(2)} and buy there for entry.`
+      planText = `Wait for price to pull back down to the ${primaryLabel} at $${primary.value.toFixed(2)} and buy there for entry.`
     } else {
       sigCode = `Reversal Short $${primary.value.toFixed(2)}`; sigColor = '#ff0000'
-      planText = `The ${primaryLabel} at $${primary.value.toFixed(2)} sits against the bearish flow intent. Wait for price to run up to approach $${primary.value.toFixed(2)} and short there for entry.`
+      planText = `Wait for price to run up to the ${primaryLabel} at $${primary.value.toFixed(2)} and short there for entry.`
     }
   }
 

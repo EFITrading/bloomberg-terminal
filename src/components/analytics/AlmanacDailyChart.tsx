@@ -87,6 +87,13 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
   const [eventPerformanceData, setEventPerformanceData] = useState<
     { date: Date; avgReturn: number; tradingDay: number }[]
   >([])
+  const [eventSeriesData, setEventSeriesData] = useState<
+    { years: number; label: string; color: string; data: { date: Date; avgReturn: number; tradingDay: number }[] }[]
+  >([])
+  const [showEvent5Y, setShowEvent5Y] = useState(true)
+  const [showEvent10Y, setShowEvent10Y] = useState(true)
+  const [showEvent15Y, setShowEvent15Y] = useState(true)
+  const [showEvent20Y, setShowEvent20Y] = useState(true)
 
   // Pattern Analysis states
   const [showPatternPerformance, setShowPatternPerformance] = useState(false)
@@ -129,6 +136,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
       setSelectedEvent(null)
       setShowEventPerformance(false)
       setEventPerformanceData([])
+      setEventSeriesData([])
     }
   }, [externalSelectedEvent])
 
@@ -195,7 +203,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     if (seasonalData.length > 0 && canvasRef.current && activeView === 'chart') {
       requestAnimationFrame(() => drawChart())
     }
-  }, [seasonalData, showMaxYears, show15Y, show10Y, showElection, activeView])
+  }, [seasonalData, showMaxYears, show15Y, show10Y, showElection, activeView, eventSeriesData, showEvent5Y, showEvent10Y, showEvent15Y, showEvent20Y])
 
   useEffect(() => {
     const handleResize = () => {
@@ -347,6 +355,11 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     showElection,
     showEventPerformance,
     eventPerformanceData,
+    eventSeriesData,
+    showEvent5Y,
+    showEvent10Y,
+    showEvent15Y,
+    showEvent20Y,
     showSweetSpot,
     showPainPoint,
     sweetSpotRange,
@@ -411,7 +424,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
 
     const getEventDates = (event: string): Date[] => {
       const dates: Date[] = []
-      for (let year = currentYear - 5; year <= currentYear + 1; year++) {
+      for (let year = currentYear - 20; year <= currentYear + 1; year++) {
         switch (event) {
           case 'thanksgiving':
             const nov1 = new Date(year, 10, 1)
@@ -544,36 +557,25 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     try {
       const eventDates = getEventDates(eventType)
 
-      // Find the event date for the current month being viewed
-      const currentMonth = selectedMonth
-      const currentYear = new Date().getFullYear()
-      let targetEventDate = eventDates.find(
-        (d) => d.getMonth() === currentMonth && d.getFullYear() === currentYear
-      )
-
-      // If no event this month this year, try next year or last year
-      if (!targetEventDate) {
-        targetEventDate = eventDates.find(
-          (d) => d.getMonth() === currentMonth && d.getFullYear() === currentYear + 1
-        )
-      }
-      if (!targetEventDate) {
-        targetEventDate = eventDates.find(
-          (d) => d.getMonth() === currentMonth && d.getFullYear() === currentYear - 1
-        )
-      }
-      if (!targetEventDate) {
-        console.error('No event date found for month', currentMonth)
+      if (eventDates.length === 0) {
+        console.error('No event dates found for event', eventType)
         return
       }
 
-      console.log('Target event date for display:', targetEventDate)
+      // Use the most recent past occurrence of the event (event's own month, not the currently viewed month)
+      const currentYear = new Date().getFullYear()
+      const pastOrCurrent = eventDates.filter((d) => d.getTime() <= Date.now())
+      const targetEventDate = (pastOrCurrent.length > 0 ? pastOrCurrent[pastOrCurrent.length - 1] : eventDates[0])
 
-      const allReturns: number[][] = Array(11)
-        .fill(0)
-        .map(() => []) // 5 before + event + 5 after = 11
+      // Sync the visible month to the event's month so the chart matches
+      if (targetEventDate.getMonth() !== selectedMonth) {
+        setSelectedMonth(targetEventDate.getMonth())
+        onMonthChange?.(targetEventDate.getMonth())
+      }
 
-      let successfulFetches = 0
+      // Collect returns per-year (11-slot window: 5 before + event + 5 after) so we can
+      // later average over different lookback windows (5Y/10Y/15Y/20Y)
+      const returnsByYear = new Map<number, (number | null)[]>()
 
       for (const eventDate of eventDates) {
         // Only use events from past years for average calculation
@@ -585,8 +587,6 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
 
         const from = allDays[0].toISOString().split('T')[0]
         const to = allDays[allDays.length - 1].toISOString().split('T')[0]
-
-        console.log(`Fetching ${eventType} data for ${eventDate.getFullYear()}: ${from} to ${to}`)
 
         const response = await fetch(
           `/api/polygon/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${'' || ''}`
@@ -604,7 +604,6 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
         }
 
         const prices = data.results.map((r: any) => r.c)
-        console.log(`Got ${prices.length} prices for ${eventDate.getFullYear()}:`, prices)
 
         // Accept any result with at least 7 data points (flexible for holidays)
         if (prices.length < 7) {
@@ -612,13 +611,9 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           continue
         }
 
-        successfulFetches++
-
         // Use middle point as event reference (since event might be a holiday and excluded)
         const eventIndex = Math.floor(prices.length / 2)
         const eventPrice = prices[eventIndex]
-
-        console.log(`Using index ${eventIndex} as event price:`, eventPrice)
 
         if (!eventPrice || eventPrice === 0) {
           console.warn(`Invalid event price for ${eventDate.getFullYear()}`)
@@ -627,33 +622,36 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
 
         // Map to our 11-point array, centering around the event
         const offset = 5 - eventIndex // How many slots to shift
+        const yearSlots: (number | null)[] = Array(11).fill(null)
 
         for (let i = 0; i < prices.length; i++) {
           const targetIndex = i + offset
           if (targetIndex >= 0 && targetIndex < 11) {
             const returnPct = ((prices[i] - eventPrice) / eventPrice) * 100
-            allReturns[targetIndex].push(returnPct)
-            if (i === 0 || i === eventIndex || i === prices.length - 1) {
-              console.log(
-                `Day ${i} -> slot ${targetIndex}: price=${prices[i]}, return=${returnPct.toFixed(2)}%`
-              )
-            }
+            yearSlots[targetIndex] = returnPct
           }
         }
+
+        returnsByYear.set(eventDate.getFullYear(), yearSlots)
       }
 
-      console.log(`Successfully fetched ${successfulFetches} event occurrences`)
-
-      if (successfulFetches === 0) {
+      if (returnsByYear.size === 0) {
         console.error('No successful data fetches - cannot calculate average')
         return
       }
 
-      const avgReturns = allReturns.map((returns) =>
-        returns.length > 0 ? returns.reduce((a, b) => a + b, 0) / returns.length : 0
-      )
+      // Average the 11-slot returns across a given set of years
+      const averageYears = (years: number[]): number[] =>
+        Array(11)
+          .fill(0)
+          .map((_, slot) => {
+            const vals = years
+              .map((y) => returnsByYear.get(y)?.[slot])
+              .filter((v): v is number => v !== null && v !== undefined)
+            return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 0
+          })
 
-      console.log('Average returns calculated:', avgReturns)
+      const availableYears = Array.from(returnsByYear.keys()).sort((a, b) => b - a) // most recent first
 
       // For holidays that don't have trading, find the closest trading day before the event
       const actualEventTradingDate = new Date(targetEventDate)
@@ -661,11 +659,11 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
         actualEventTradingDate.setDate(actualEventTradingDate.getDate() - 1)
       }
 
-      console.log('Actual event trading date (adjusted for holiday):', actualEventTradingDate)
-
       // Get the trading day numbers - extend beyond month boundaries to handle events that span months
-      const monthStart = new Date(currentYear, currentMonth, 1)
-      const monthEnd = new Date(currentYear, currentMonth + 1, 0)
+      // IMPORTANT: use the event's own year, not currentYear, or the lookup below will fail for past-year events
+      const eventYear = actualEventTradingDate.getFullYear()
+      const monthStart = new Date(eventYear, targetEventDate.getMonth(), 1)
+      const monthEnd = new Date(eventYear, targetEventDate.getMonth() + 1, 0)
 
       // Extend range to include 10 trading days before and after the month
       const extendedStart = new Date(monthStart)
@@ -692,43 +690,50 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
             d.getFullYear() === actualEventTradingDate.getFullYear()
         ) + 1
 
-      console.log(`Event at trading day ${eventTradingDayNum} of ${allMonthTradingDays.length}`)
-      console.log('Event date:', actualEventTradingDate.toLocaleDateString())
+      if (eventTradingDayNum === 0) {
+        console.error('No event date found for month', targetEventDate.getMonth())
+        return
+      }
 
-      // Create simple sequential data centered around the event
-      // Use indices 0-10 where 5 is the event
-      const perfData = avgReturns
-        .map((avgReturn, index) => {
-          const dayOffset = index - 5 // -5 to +5
-          const tradingDayNum = eventTradingDayNum + dayOffset
+      // Build the display data (dates + return) for a given average-returns array
+      const buildPerfData = (avgReturns: number[]) =>
+        avgReturns
+          .map((avgReturn, index) => {
+            const dayOffset = index - 5 // -5 to +5
+            const tradingDayNum = eventTradingDayNum + dayOffset
 
-          // Only include if within the extended trading days range
-          if (tradingDayNum < 1 || tradingDayNum > allMonthTradingDays.length) {
-            console.log(`Skipping index ${index} (day ${tradingDayNum}) - out of range`)
-            return null
-          }
+            if (tradingDayNum < 1 || tradingDayNum > allMonthTradingDays.length) return null
 
-          const displayDate = allMonthTradingDays[tradingDayNum - 1]
-          console.log(
-            `Index ${index}: Day ${tradingDayNum} = ${displayDate.toLocaleDateString()}, Return: ${avgReturn.toFixed(2)}%`
-          )
+            const displayDate = allMonthTradingDays[tradingDayNum - 1]
+            return { date: displayDate, avgReturn, tradingDay: tradingDayNum }
+          })
+          .filter((d) => d !== null) as { date: Date; avgReturn: number; tradingDay: number }[]
 
-          return {
-            date: displayDate,
-            avgReturn,
-            tradingDay: tradingDayNum,
-          }
+      // Build 5Y / 10Y / 15Y / 20Y windows using whatever years are actually available
+      const windowDefs: { years: number; label: string; color: string }[] = [
+        { years: 5, label: '5Y', color: '#FFFFFF' },
+        { years: 10, label: '10Y', color: '#FF6600' },
+        { years: 15, label: '15Y', color: '#00BCD4' },
+        { years: 20, label: '20Y', color: '#FFD700' },
+      ]
+
+      const series = windowDefs
+        .map(({ years, label, color }) => {
+          const yearsInWindow = availableYears.filter((y) => y > currentYear - years)
+          if (yearsInWindow.length === 0) return null
+          return { years, label, color, data: buildPerfData(averageYears(yearsInWindow)) }
         })
-        .filter((d) => d !== null) as { date: Date; avgReturn: number; tradingDay: number }[]
+        .filter((s) => s !== null) as {
+          years: number
+          label: string
+          color: string
+          data: { date: Date; avgReturn: number; tradingDay: number }[]
+        }[]
 
-      console.log(
-        'Performance data:',
-        perfData.map(
-          (d) => `Day ${d.tradingDay} (${d.date.toLocaleDateString()}): ${d.avgReturn.toFixed(2)}%`
-        )
-      )
-
-      setEventPerformanceData(perfData)
+      setEventSeriesData(series)
+      // Keep legacy single-series state pointed at the widest available window (used for x-axis/vertical line)
+      const widest = series[series.length - 1] || series[0]
+      setEventPerformanceData(widest ? widest.data : [])
     } catch (error) {
       console.error('Event performance calculation failed:', error)
     }
@@ -771,7 +776,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
       const data = await response.json()
 
       if (!data.results || data.results.length < 252) {
-        console.error('Insufficient historical data')
+        console.warn('Insufficient historical data')
         return
       }
 
@@ -861,7 +866,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           }
         }
       } else if (patternType.startsWith('move-8-11') || patternType.startsWith('move-18-22')) {
-        // Percentage move detection
+        // Single-day percentage move detection
         const [_, minPct, maxPct, direction, method] = patternType.split('-')
         const minMove = parseFloat(minPct)
         const maxMove = parseFloat(maxPct)
@@ -901,12 +906,91 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
             }
           }
         }
+      } else if (patternType.startsWith('move-30-40')) {
+        // Bear/Bull market detection: 30-40% drawdown/rally from rolling 6mo high/low
+        // (single-day moves of this size essentially never occur)
+        const parts = patternType.split('-')
+        const direction = parts[3]
+        const method = parts[4]
+        const minMove = 30
+        const maxMove = 40
+        const lookbackWindow = 126 // ~6 trading months
+
+        for (let i = lookbackWindow; i < prices.length; i++) {
+          const window = prices.slice(i - lookbackWindow, i)
+
+          if (direction === 'down') {
+            const rollingHigh = Math.max(...window.map((p) => p.high))
+            const declineFromHigh = ((rollingHigh - prices[i].close) / rollingHigh) * 100
+
+            if (declineFromHigh >= minMove && declineFromHigh <= maxMove) {
+              const occDate = prices[i].date
+
+              if (method === 'cooldown') {
+                const lastOcc = occurrences[occurrences.length - 1]
+                if (
+                  !lastOcc ||
+                  (occDate.getTime() - lastOcc.getTime()) / (1000 * 60 * 60 * 24) >= 90
+                ) {
+                  occurrences.push(occDate)
+                  occurrenceDetails.push({
+                    date: occDate,
+                    priceAtEvent: prices[i].close,
+                    changePercent: -declineFromHigh,
+                  })
+                }
+              } else if (method === 'annual') {
+                const year = occDate.getFullYear()
+                if (!occurrences.find((d) => d.getFullYear() === year)) {
+                  occurrences.push(occDate)
+                  occurrenceDetails.push({
+                    date: occDate,
+                    priceAtEvent: prices[i].close,
+                    changePercent: -declineFromHigh,
+                  })
+                }
+              }
+            }
+          } else if (direction === 'up') {
+            const rollingLow = Math.min(...window.map((p) => p.low))
+            const rallyFromLow = ((prices[i].close - rollingLow) / rollingLow) * 100
+
+            if (rallyFromLow >= minMove && rallyFromLow <= maxMove) {
+              const occDate = prices[i].date
+
+              if (method === 'cooldown') {
+                const lastOcc = occurrences[occurrences.length - 1]
+                if (
+                  !lastOcc ||
+                  (occDate.getTime() - lastOcc.getTime()) / (1000 * 60 * 60 * 24) >= 90
+                ) {
+                  occurrences.push(occDate)
+                  occurrenceDetails.push({
+                    date: occDate,
+                    priceAtEvent: prices[i].close,
+                    changePercent: rallyFromLow,
+                  })
+                }
+              } else if (method === 'annual') {
+                const year = occDate.getFullYear()
+                if (!occurrences.find((d) => d.getFullYear() === year)) {
+                  occurrences.push(occDate)
+                  occurrenceDetails.push({
+                    date: occDate,
+                    priceAtEvent: prices[i].close,
+                    changePercent: rallyFromLow,
+                  })
+                }
+              }
+            }
+          }
+        }
       }
 
       console.log(`Found ${occurrences.length} pattern occurrences`)
 
       if (occurrences.length === 0) {
-        console.error('No pattern occurrences found')
+        console.warn('No pattern occurrences found')
         return
       }
 
@@ -1019,21 +1103,46 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           })
         })
       } else {
-        eventPerformanceData.forEach((point) => {
-          minValue = Math.min(minValue, point.avgReturn)
-          maxValue = Math.max(maxValue, point.avgReturn)
+        const activeEventSeries = eventSeriesData.filter(
+          (s) =>
+            (s.label === '5Y' && showEvent5Y) ||
+            (s.label === '10Y' && showEvent10Y) ||
+            (s.label === '15Y' && showEvent15Y) ||
+            (s.label === '20Y' && showEvent20Y)
+        )
+        const seriesToScale = activeEventSeries.length > 0 ? activeEventSeries : eventSeriesData
+        seriesToScale.forEach((s) => {
+          s.data.forEach((point) => {
+            minValue = Math.min(minValue, point.avgReturn)
+            maxValue = Math.max(maxValue, point.avgReturn)
+          })
         })
       }
 
-      // Ensure 0% is always visible and centered
-      const absMax = Math.max(Math.abs(minValue), Math.abs(maxValue))
-      minValue = -absMax
-      maxValue = absMax
+      // Only force 0% to be visible/centered when the data actually spans both signs;
+      // otherwise floor at 0% so an all-positive (or all-negative) series doesn't waste half the chart
+      const allPositive = minValue >= 0
+      const allNegative = maxValue <= 0
+      if (allPositive) {
+        minValue = 0
+      } else if (allNegative) {
+        maxValue = 0
+      } else {
+        const absMax = Math.max(Math.abs(minValue), Math.abs(maxValue))
+        minValue = -absMax
+        maxValue = absMax
+      }
 
       // Add padding
-      const range = maxValue - minValue
-      minValue -= range * 0.15
-      maxValue += range * 0.15
+      const range = maxValue - minValue || 1
+      if (allPositive) {
+        maxValue += range * 0.15
+      } else if (allNegative) {
+        minValue -= range * 0.15
+      } else {
+        minValue -= range * 0.15
+        maxValue += range * 0.15
+      }
     } else {
       // Determine visible trading day range based on zoom and pan for seasonal data
       const getVisibleRange = () => {
@@ -1045,14 +1154,26 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
 
       const visibleRange = getVisibleRange()
 
+      // Only include series in the Y-axis range calc if they're actually toggled visible
+      const indexVisibilityForScale: Record<string, boolean> = {
+        'DJIA': showMaxYears, 'S&P 500': show15Y, 'NASDAQ': show10Y, 'Russell 2000': showElection,
+      }
+
       seasonalData.forEach((index) => {
+        if (isIndex && indexVisibilityForScale[index.name] === false) return
         index.dailyData.forEach((point) => {
           if (point.tradingDay >= visibleRange.start && point.tradingDay <= visibleRange.end) {
-            minValue = Math.min(minValue, point.cumulativeReturn)
-            maxValue = Math.max(maxValue, point.cumulativeReturn)
-            if (show10Y || show15Y || showMaxYears) {
-              minValue = Math.min(minValue, point.cumulativeReturn10Y, point.cumulativeReturn15Y)
-              maxValue = Math.max(maxValue, point.cumulativeReturn10Y, point.cumulativeReturn15Y)
+            if (isIndex || showMaxYears) {
+              minValue = Math.min(minValue, point.cumulativeReturn)
+              maxValue = Math.max(maxValue, point.cumulativeReturn)
+            }
+            if (isIndex || show10Y) {
+              minValue = Math.min(minValue, point.cumulativeReturn10Y)
+              maxValue = Math.max(maxValue, point.cumulativeReturn10Y)
+            }
+            if (isIndex || show15Y) {
+              minValue = Math.min(minValue, point.cumulativeReturn15Y)
+              maxValue = Math.max(maxValue, point.cumulativeReturn15Y)
             }
             if (showElection) {
               minValue = Math.min(minValue, point.postElectionCumulative)
@@ -1065,12 +1186,19 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
       // Fallback if no visible data
       if (minValue === Infinity || maxValue === -Infinity) {
         seasonalData.forEach((index) => {
+          if (isIndex && indexVisibilityForScale[index.name] === false) return
           index.dailyData.forEach((point) => {
-            minValue = Math.min(minValue, point.cumulativeReturn)
-            maxValue = Math.max(maxValue, point.cumulativeReturn)
-            if (show10Y || show15Y || showMaxYears) {
-              minValue = Math.min(minValue, point.cumulativeReturn10Y, point.cumulativeReturn15Y)
-              maxValue = Math.max(maxValue, point.cumulativeReturn10Y, point.cumulativeReturn15Y)
+            if (isIndex || showMaxYears) {
+              minValue = Math.min(minValue, point.cumulativeReturn)
+              maxValue = Math.max(maxValue, point.cumulativeReturn)
+            }
+            if (isIndex || show10Y) {
+              minValue = Math.min(minValue, point.cumulativeReturn10Y)
+              maxValue = Math.max(maxValue, point.cumulativeReturn10Y)
+            }
+            if (isIndex || show15Y) {
+              minValue = Math.min(minValue, point.cumulativeReturn15Y)
+              maxValue = Math.max(maxValue, point.cumulativeReturn15Y)
             }
             if (showElection) {
               minValue = Math.min(minValue, point.postElectionCumulative)
@@ -1080,9 +1208,21 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
         })
       }
 
-      const range = maxValue - minValue
-      minValue -= range * 0.1
-      maxValue += range * 0.1
+      // If everything visible is positive, floor the axis at 0 (and vice versa for all-negative)
+      const allPositive = minValue >= 0
+      const allNegative = maxValue <= 0
+      if (allPositive) minValue = 0
+      if (allNegative) maxValue = 0
+
+      const range = maxValue - minValue || 1
+      if (allPositive) {
+        maxValue += range * 0.1
+      } else if (allNegative) {
+        minValue -= range * 0.1
+      } else {
+        minValue -= range * 0.1
+        maxValue += range * 0.1
+      }
     }
 
     // Helper functions for positioning with zoom and pan
@@ -1383,29 +1523,64 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
       ctx.textAlign = 'center'
       ctx.fillText('EVENT', eventX, PADDING.top - 5)
 
-      // Draw event performance line
-      ctx.strokeStyle = '#00FFFF' // Cyan for event performance line
-      ctx.lineWidth = 3
-      ctx.beginPath()
+      const visibility: Record<string, boolean> = { '5Y': showEvent5Y, '10Y': showEvent10Y, '15Y': showEvent15Y, '20Y': showEvent20Y }
+      const activeSeries = eventSeriesData.filter((s) => visibility[s.label] && s.data.length > 0)
 
-      eventPerformanceData.forEach((point, i) => {
-        const x = getEventX(i, eventPerformanceData.length)
-        const y = getY(point.avgReturn)
+      if (candlenalityMode && activeSeries.length > 0) {
+        // ── Candlenality mode: average all active windows → draw one set of OHLC candles ──
+        const refData = activeSeries[0].data
+        const avgCumulative: number[] = refData.map((_, i) => {
+          const vals = activeSeries.map((s) => s.data[i]?.avgReturn).filter((v) => v !== undefined && !isNaN(v))
+          return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 0
+        })
 
-        if (i === 0) ctx.moveTo(x, y)
-        else ctx.lineTo(x, y)
-      })
-      ctx.stroke()
+        const candleWidth = Math.max(3, Math.min(14, chartWidth / refData.length * 0.65))
 
-      // Add label
-      const lastPoint = eventPerformanceData[eventPerformanceData.length - 1]
-      const lastX = getEventX(eventPerformanceData.length - 1, eventPerformanceData.length)
-      const lastY = getY(lastPoint.avgReturn)
+        refData.forEach((_, i) => {
+          const prevCum = i === 0 ? 0 : avgCumulative[i - 1]
+          const currCum = avgCumulative[i]
+          const isUp = currCum >= prevCum
+          const wickExt = Math.max(0.05, Math.abs(currCum - prevCum) * 0.4)
+          const high = Math.max(prevCum, currCum) + wickExt
+          const low = Math.min(prevCum, currCum) - wickExt
+          const x = getEventX(i, refData.length)
+          const color = isUp ? '#00ff41' : '#ff3232'
+          ctx.strokeStyle = color
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          ctx.moveTo(x, getY(high))
+          ctx.lineTo(x, getY(low))
+          ctx.stroke()
+          const bodyTop = getY(Math.max(prevCum, currCum))
+          const bodyBot = getY(Math.min(prevCum, currCum))
+          const bodyH = Math.max(1.5, bodyBot - bodyTop)
+          ctx.fillStyle = color
+          ctx.fillRect(x - candleWidth / 2, bodyTop, candleWidth, bodyH)
+        })
+      } else {
+        // Draw one line per active lookback window (5Y/10Y/15Y/20Y)
+        activeSeries.forEach((s) => {
+          ctx.strokeStyle = s.color
+          ctx.lineWidth = 3
+          ctx.beginPath()
+          s.data.forEach((point, i) => {
+            const x = getEventX(i, s.data.length)
+            const y = getY(point.avgReturn)
+            if (i === 0) ctx.moveTo(x, y)
+            else ctx.lineTo(x, y)
+          })
+          ctx.stroke()
 
-      ctx.fillStyle = '#00FFFF'
-      ctx.font = 'bold 11px "JetBrains Mono", monospace'
-      ctx.textAlign = 'left'
-      ctx.fillText(`${lastPoint.avgReturn.toFixed(2)}%`, lastX + 5, lastY)
+          const lastPoint = s.data[s.data.length - 1]
+          const lastX = getEventX(s.data.length - 1, s.data.length)
+          const lastY = getY(lastPoint.avgReturn)
+
+          ctx.fillStyle = s.color
+          ctx.font = 'bold 11px "JetBrains Mono", monospace'
+          ctx.textAlign = 'left'
+          ctx.fillText(`${s.label} ${lastPoint.avgReturn.toFixed(2)}%`, lastX + 5, lastY)
+        })
+      }
     }
 
     // Draw pattern performance overlay if active
@@ -1430,10 +1605,16 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
         const lastX = getEventX(patternSet.data.length - 1, patternSet.data.length)
         const lastY = getY(lastPoint.avgReturn)
 
+        const tag = patternSet.patternName.includes('90d Cooldown')
+          ? 'Adj'
+          : patternSet.patternName.includes('Annual')
+            ? 'Anu'
+            : ''
+
         ctx.fillStyle = patternSet.color
         ctx.font = 'bold 11px "JetBrains Mono", monospace'
         ctx.textAlign = 'left'
-        ctx.fillText(`${lastPoint.avgReturn.toFixed(2)}%`, lastX + 5, lastY + setIndex * 15)
+        ctx.fillText(`${tag ? tag + ' ' : ''}${lastPoint.avgReturn.toFixed(2)}%`, lastX + 5, lastY + setIndex * 15)
       })
 
       // Add "DETAILS" button at the right side
@@ -1794,7 +1975,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
             }
             .almanac-ctrl-divider { width:1px; height:20px; background:rgba(255,255,255,0.12); flex-shrink:0; }
             .almanac-ctrl-select option { background:#111; color:#fff; font-family:'JetBrains Mono',monospace; font-weight:700; font-size:10px; }
-            .almanac-ctrl-select optgroup { background:#0a0a0a; color:#666; font-family:'JetBrains Mono',monospace; font-weight:700; font-size:9px; }
+            .almanac-ctrl-select optgroup { background:#000; color:#ff9933; font-family:'JetBrains Mono',monospace; font-weight:900; font-size:13px; letter-spacing:0.8px; text-transform:uppercase; padding:5px 0; }
           `}</style>
 
           {/* Single controls row — only when chart view */}
@@ -1826,9 +2007,8 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
                     <svg className="alm-icon-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ffd700" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <circle cx="12" cy="12" r="3" /><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
                     </svg>
-                    VERSATILITY
                   </span>
-                  <select value={activeView} onChange={(e) => setActiveView(e.target.value as 'chart' | 'calendar' | 'table')} className={`almanac-ctrl-select${activeView !== 'chart' ? ' has-value' : ''}`} style={{ maxWidth: '185px', border: '1px solid #ff6600', borderBottom: '3px solid #cc4400', background: 'linear-gradient(180deg,#1e0e00 0%,#120800 40%,#090400 70%,#040200 100%)', color: '#ff6600', WebkitTextFillColor: '#ff6600', boxShadow: '0 2px 0 rgba(255,120,0,0.18) inset,0 -3px 0 rgba(0,0,0,0.9) inset,0 0 12px rgba(255,102,0,0.25),0 6px 18px rgba(0,0,0,0.95),2px 0 0 rgba(255,80,0,0.15),-2px 0 0 rgba(255,80,0,0.15)' }}>
+                  <select value={activeView} onChange={(e) => setActiveView(e.target.value as 'chart' | 'calendar' | 'table')} className={`almanac-ctrl-select${activeView !== 'chart' ? ' has-value' : ''}`} style={{ maxWidth: '185px', border: '1px solid #ff6600', color: '#ff6600', WebkitTextFillColor: '#ff6600' }}>
                     <option value="chart">CHART VIEW</option>
                     <option value="calendar">SEASONAL CALENDAR</option>
                     <option value="table">SEASONAL TABLE</option>
@@ -1863,8 +2043,8 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
                   </button>
                   <div className="almanac-ctrl-divider" />
                   {/* Market Events */}
-                  <select value={selectedEvent || ''} onChange={(e) => { const v = e.target.value; if (v) { setSelectedEvent(v); setShowEventPerformance(true); calculateEventPerformance(v) } else { setSelectedEvent(null); setShowEventPerformance(false); setEventPerformanceData([]) } }} className={`almanac-ctrl-select${selectedEvent ? ' has-value' : ''}`} style={{ maxWidth: '135px' }}>
-                    <option value="">MKT EVENTS</option>
+                  <select value={selectedEvent || ''} onChange={(e) => { const v = e.target.value; if (v) { setSelectedEvent(v); setShowEventPerformance(true); calculateEventPerformance(v) } else { setSelectedEvent(null); setShowEventPerformance(false); setEventPerformanceData([]); setEventSeriesData([]) } }} className={`almanac-ctrl-select${selectedEvent ? ' has-value' : ''}`} style={{ maxWidth: '165px' }}>
+                    <option value="">MARKET EVENTS</option>
                     <optgroup label="HOLIDAYS">
                       <option value="thanksgiving">THANKSGIVING</option>
                       <option value="christmas">CHRISTMAS</option>
@@ -1899,31 +2079,23 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
                     </optgroup>
                   </select>
                   {/* Market Patterns */}
-                  <select value={selectedPattern || ''} onChange={(e) => { const pv = e.target.value; if (pv) { const pl = e.target.selectedOptions[0].text; setSelectedPattern(pl); setShowPatternPerformance(true); setShowEventPerformance(false); setPatternPerformanceData([]); const bothMap: Record<string, [string, string, string, string]> = { '52week-high-both': ['52week-high-cooldown', '52W High (90d Cooldown)', '52week-high-annual', '52W High (Annual)'], '52week-low-both': ['52week-low-cooldown', '52W Low (90d Cooldown)', '52week-low-annual', '52W Low (Annual)'], 'move-8-11-up-both': ['move-8-11-up-cooldown', '8-11% UP (90d Cooldown)', 'move-8-11-up-annual', '8-11% UP (Annual)'], 'move-8-11-down-both': ['move-8-11-down-cooldown', '8-11% DOWN (90d Cooldown)', 'move-8-11-down-annual', '8-11% DOWN (Annual)'], 'move-18-22-up-both': ['move-18-22-up-cooldown', '18-22% UP (90d Cooldown)', 'move-18-22-up-annual', '18-22% UP (Annual)'], 'move-18-22-down-both': ['move-18-22-down-cooldown', '18-22% DOWN (90d Cooldown)', 'move-18-22-down-annual', '18-22% DOWN (Annual)'] }; if (bothMap[pv]) { const [i1, l1, i2, l2] = bothMap[pv]; calculatePatternPerformance(i1, l1, symbol); calculatePatternPerformance(i2, l2, symbol) } else { calculatePatternPerformance(pv, pl, symbol) } } else { setSelectedPattern(null); setShowPatternPerformance(false); setPatternPerformanceData([]) } }} className={`almanac-ctrl-select${selectedPattern ? ' has-value' : ''}`} style={{ maxWidth: '195px' }}>
+                  <select value={selectedPattern || ''} onChange={(e) => { const pv = e.target.value; if (pv) { const pl = e.target.selectedOptions[0].text; setSelectedPattern(pl); setShowPatternPerformance(true); setShowEventPerformance(false); setPatternPerformanceData([]); const bothMap: Record<string, [string, string, string, string]> = { '52week-high-both': ['52week-high-cooldown', '52W High (90d Cooldown)', '52week-high-annual', '52W High (Annual)'], '52week-low-both': ['52week-low-cooldown', '52W Low (90d Cooldown)', '52week-low-annual', '52W Low (Annual)'], 'move-8-11-up-both': ['move-8-11-up-cooldown', '8-11% UP (90d Cooldown)', 'move-8-11-up-annual', '8-11% UP (Annual)'], 'move-8-11-down-both': ['move-8-11-down-cooldown', '8-11% DOWN (90d Cooldown)', 'move-8-11-down-annual', '8-11% DOWN (Annual)'], 'move-18-22-up-both': ['move-18-22-up-cooldown', '18-22% UP (90d Cooldown)', 'move-18-22-up-annual', '18-22% UP (Annual)'], 'move-18-22-down-both': ['move-18-22-down-cooldown', '18-22% DOWN (90d Cooldown)', 'move-18-22-down-annual', '18-22% DOWN (Annual)'], 'move-30-40-up-both': ['move-30-40-up-cooldown', '30-40% UP (90d Cooldown)', 'move-30-40-up-annual', '30-40% UP (Annual)'], 'move-30-40-down-both': ['move-30-40-down-cooldown', '30-40% DOWN (90d Cooldown)', 'move-30-40-down-annual', '30-40% DOWN (Annual)'] }; if (bothMap[pv]) { const [i1, l1, i2, l2] = bothMap[pv]; calculatePatternPerformance(i1, l1, symbol); calculatePatternPerformance(i2, l2, symbol) } else { calculatePatternPerformance(pv, pl, symbol) } } else { setSelectedPattern(null); setShowPatternPerformance(false); setPatternPerformanceData([]) } }} className={`almanac-ctrl-select${selectedPattern ? ' has-value' : ''}`} style={{ maxWidth: '195px' }}>
                     <option value="">MARKET PATTERNS</option>
-                    <optgroup label="52-WEEK BREAKOUTS">
-                      <option value="52week-high-both">52W High (BOTH)</option>
-                      <option value="52week-high-cooldown">52W High (90d Cooldown)</option>
-                      <option value="52week-high-annual">52W High (Annual)</option>
-                      <option value="52week-low-both">52W Low (BOTH)</option>
-                      <option value="52week-low-cooldown">52W Low (90d Cooldown)</option>
-                      <option value="52week-low-annual">52W Low (Annual)</option>
+                    <optgroup label="52 WEEK BREAK">
+                      <option value="52week-high-both">52wk High</option>
+                      <option value="52week-low-both">52wk Low</option>
                     </optgroup>
                     <optgroup label="8-11% MOVES">
-                      <option value="move-8-11-up-both">8-11% UP (BOTH)</option>
-                      <option value="move-8-11-up-cooldown">8-11% UP (90d Cooldown)</option>
-                      <option value="move-8-11-up-annual">8-11% UP (Annual)</option>
-                      <option value="move-8-11-down-both">8-11% DOWN (BOTH)</option>
-                      <option value="move-8-11-down-cooldown">8-11% DOWN (90d Cooldown)</option>
-                      <option value="move-8-11-down-annual">8-11% DOWN (Annual)</option>
+                      <option value="move-8-11-up-both">8-11% UP</option>
+                      <option value="move-8-11-down-both">8-11% DOWN</option>
                     </optgroup>
                     <optgroup label="18-22% MOVES">
-                      <option value="move-18-22-up-both">18-22% UP (BOTH)</option>
-                      <option value="move-18-22-up-cooldown">18-22% UP (90d Cooldown)</option>
-                      <option value="move-18-22-up-annual">18-22% UP (Annual)</option>
-                      <option value="move-18-22-down-both">18-22% DOWN (BOTH)</option>
-                      <option value="move-18-22-down-cooldown">18-22% DOWN (90d Cooldown)</option>
-                      <option value="move-18-22-down-annual">18-22% DOWN (Annual)</option>
+                      <option value="move-18-22-up-both">18-22% UP</option>
+                      <option value="move-18-22-down-both">18-22% DOWN</option>
+                    </optgroup>
+                    <optgroup label="BREAKING POINTS">
+                      <option value="move-30-40-down-both">Bear Market</option>
+                      <option value="move-30-40-up-both">Bull Market</option>
                     </optgroup>
                   </select>
                 </>)}
@@ -1968,6 +2140,27 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
                   <span style={{ color }}>{label}</span>
                 </div>
               ))
+            ) : showEventPerformance ? (
+              [{ key: '5y', label: '5Y', color: '#FFFFFF', active: showEvent5Y, toggle: () => setShowEvent5Y((v) => !v) },
+              { key: '10y', label: '10Y', color: '#FF6600', active: showEvent10Y, toggle: () => setShowEvent10Y((v) => !v) },
+              { key: '15y', label: '15Y', color: '#00BCD4', active: showEvent15Y, toggle: () => setShowEvent15Y((v) => !v) },
+              { key: '20y', label: '20Y', color: '#FFD700', active: showEvent20Y, toggle: () => setShowEvent20Y((v) => !v) },
+              ]
+                .filter(({ label }) => eventSeriesData.some((s) => s.label === label))
+                .map(({ key, label, color, active, toggle }) => (
+                  <button key={key} onClick={toggle} style={{
+                    display: 'flex', alignItems: 'center', gap: '5px',
+                    background: active ? 'rgba(8,8,8,0.80)' : 'rgba(8,8,8,0.50)',
+                    backdropFilter: 'blur(10px)',
+                    border: `1px solid ${active ? color + '88' : 'rgba(255,255,255,0.10)'}`,
+                    borderRadius: '6px', padding: '3px 8px',
+                    cursor: 'pointer', opacity: active ? 1 : 0.35, transition: 'all 0.15s',
+                    fontFamily: '"JetBrains Mono", monospace', fontSize: '11px', fontWeight: 700,
+                  }}>
+                    <div style={{ width: '16px', height: '2px', backgroundColor: color, borderRadius: '1px' }} />
+                    <span style={{ color }}>{label}</span>
+                  </button>
+                ))
             ) : (
               [{ key: 'max', label: '25Y', color: '#FFFFFF', active: showMaxYears, toggle: () => setShowMaxYears((v) => !v) },
               { key: '15y', label: '15Y', color: '#00BCD4', active: show15Y, toggle: () => setShow15Y((v) => !v) },

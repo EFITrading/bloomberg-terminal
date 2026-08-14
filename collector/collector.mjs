@@ -526,27 +526,47 @@ async function runSweepSenseDiscordAlert() {
                 // capturing) that this element still actually holds the flow we think it does —
                 // checking both the JSON payload's flowId AND the visible ticker text, since a
                 // mismatch on either means the wrong card would get posted under this ticker's name.
-                const verifyCard = () => cardHandle.evaluate((el, expectedFlowId, expectedTicker) => {
+                const verifyCard = (handle) => handle.evaluate((el, expectedFlowId, expectedTicker) => {
                     if (el.textContent?.includes('LOADING SWEEPSENSE DATA')) return false
-                    if (!el.textContent?.toUpperCase().includes(expectedTicker.toUpperCase())) return false
+                    if (!el.isConnected) return false
                     try {
                         const payload = JSON.parse(el.getAttribute('data-flow-payload') || 'null')
                         return payload?.flowId === expectedFlowId && payload?.ticker === expectedTicker
                     } catch { return false }
                 }, c.flowId, c.ticker).catch(() => false)
 
-                let verified = await verifyCard()
+                let verified = await verifyCard(cardHandle)
                 if (!verified) {
                     await new Promise((r) => setTimeout(r, 800))
-                    verified = await verifyCard()
+                    verified = await verifyCard(cardHandle)
                 }
                 if (!verified) { console.error(`[Discord] Card content didn't match expected flowId/ticker (${c.ticker}) — skipping.`); continue }
 
-                // Screenshot immediately after verification passes to minimize the window for the
-                // live feed to reorder/reuse this DOM node before capture. Re-acquire the handle
-                // right before the shot in case the earlier node went stale under our feet.
+                // Re-acquiring the handle right before the shot (in case the earlier node went
+                // stale) previously skipped re-verification, which let a stale/mismatched node
+                // slip through and get screenshotted under the WRONG ticker's caption — the
+                // re-fetched (or stale fallback) handle must pass the exact same check before
+                // it's ever used for the capture.
                 let shotHandle = await page.$(`[data-flow-id="${c.flowId}"]`)
-                if (!shotHandle) shotHandle = cardHandle
+                if (shotHandle) {
+                    const shotVerified = await verifyCard(shotHandle)
+                    if (!shotVerified) shotHandle = null
+                }
+                if (!shotHandle) {
+                    const stillGood = await verifyCard(cardHandle)
+                    if (!stillGood) { console.error(`[Discord] Card became stale right before capture (${c.ticker}) — skipping.`); continue }
+                    shotHandle = cardHandle
+                }
+
+                // Let layout settle (async chart/badge sub-renders can still be growing the
+                // element's height) before measuring/capturing, otherwise the screenshot gets
+                // cut off mid-card.
+                let box = await shotHandle.boundingBox()
+                await new Promise((r) => setTimeout(r, 250))
+                const box2 = await shotHandle.boundingBox()
+                if (box2 && (!box || box2.height > box.height)) box = box2
+                if (!box || box.height < 10) { console.error(`[Discord] Card had no stable layout (${c.ticker}) — skipping.`); continue }
+
                 const png = await shotHandle.screenshot({ type: 'png', captureBeyondViewport: true })
                 const form = new FormData()
                 form.append('payload_json', JSON.stringify({

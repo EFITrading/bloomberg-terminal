@@ -1013,6 +1013,16 @@
     color: #ffffff !important;
   }
 
+  [data-ctrl-row] select optgroup {
+    background-color: #000 !important;
+    background: #000 !important;
+    color: #ff9933 !important;
+    font-weight: 900 !important;
+    font-size: 13px !important;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+  }
+
   .almanac-mobile-btn.active {
     background: linear-gradient(180deg, #1a1a1a 0%, #000000 100%) !important;
     color: #ff6600 !important;

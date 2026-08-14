@@ -20,6 +20,22 @@ const PATTERN_VALUE_MAP: Record<string, { id: string; label: string }> = {
     'move-18-22-up-annual': { id: 'move-18-22-up-annual', label: '18-22% UP (Annual)' },
     'move-18-22-down-cooldown': { id: 'move-18-22-down-cooldown', label: '18-22% DOWN (90d Cooldown)' },
     'move-18-22-down-annual': { id: 'move-18-22-down-annual', label: '18-22% DOWN (Annual)' },
+    'move-30-40-up-cooldown': { id: 'move-30-40-up-cooldown', label: '30-40% UP (90d Cooldown)' },
+    'move-30-40-up-annual': { id: 'move-30-40-up-annual', label: '30-40% UP (Annual)' },
+    'move-30-40-down-cooldown': { id: 'move-30-40-down-cooldown', label: '30-40% DOWN (90d Cooldown)' },
+    'move-30-40-down-annual': { id: 'move-30-40-down-annual', label: '30-40% DOWN (Annual)' },
+}
+
+// "Both" selections trigger two calculatePatternPerformance calls (90d Cooldown + Annual)
+const BOTH_MAP: Record<string, [string, string]> = {
+    '52week-high-both': ['52week-high-cooldown', '52week-high-annual'],
+    '52week-low-both': ['52week-low-cooldown', '52week-low-annual'],
+    'move-8-11-up-both': ['move-8-11-up-cooldown', 'move-8-11-up-annual'],
+    'move-8-11-down-both': ['move-8-11-down-cooldown', 'move-8-11-down-annual'],
+    'move-18-22-up-both': ['move-18-22-up-cooldown', 'move-18-22-up-annual'],
+    'move-18-22-down-both': ['move-18-22-down-cooldown', 'move-18-22-down-annual'],
+    'move-30-40-down-both': ['move-30-40-down-cooldown', 'move-30-40-down-annual'],
+    'move-30-40-up-both': ['move-30-40-up-cooldown', 'move-30-40-up-annual'],
 }
 
 function patternLabelToValue(label: string | null): string {
@@ -113,6 +129,15 @@ export default function AlmanacMobileControls({
                     background: #3a3a3a;
                     background-color: #3a3a3a;
                     color: #ffffff;
+                }
+                .almanac-mobile-ctrl select optgroup {
+                    background: #000;
+                    background-color: #000;
+                    color: #ff9933;
+                    font-weight: 900;
+                    font-size: 13px;
+                    letter-spacing: 0.8px;
+                    text-transform: uppercase;
                 }
                 .almanac-mobile-ctrl select {
                     color-scheme: dark;
@@ -208,6 +233,14 @@ export default function AlmanacMobileControls({
                                 setSelectedPattern(null)
                                 setShowPatternPerformance(false)
                                 setPatternPerformanceData([])
+                            } else if (BOTH_MAP[value]) {
+                                const [id1, id2] = BOTH_MAP[value]
+                                const label = e.target.selectedOptions[0].text
+                                setSelectedPattern(label)
+                                setShowPatternPerformance(true)
+                                setShowEventPerformanceForPattern(false)
+                                calculatePatternPerformance(id1, PATTERN_VALUE_MAP[id1].label, symbol)
+                                calculatePatternPerformance(id2, PATTERN_VALUE_MAP[id2].label, symbol)
                             } else {
                                 const pattern = PATTERN_VALUE_MAP[value]
                                 if (pattern) {
@@ -222,23 +255,21 @@ export default function AlmanacMobileControls({
                         value={patternLabelToValue(selectedPattern)}
                     >
                         <option value="none">Stock Patterns</option>
-                        <optgroup label="52-WEEK BREAKOUTS">
-                            <option value="52week-high-cooldown">52W High (90d)</option>
-                            <option value="52week-high-annual">52W High (Annual)</option>
-                            <option value="52week-low-cooldown">52W Low (90d)</option>
-                            <option value="52week-low-annual">52W Low (Annual)</option>
+                        <optgroup label="52 WEEK BREAK">
+                            <option value="52week-high-both">52wk High</option>
+                            <option value="52week-low-both">52wk Low</option>
                         </optgroup>
                         <optgroup label="8-11% MOVES">
-                            <option value="move-8-11-up-cooldown">8-11% UP (90d)</option>
-                            <option value="move-8-11-up-annual">8-11% UP (Annual)</option>
-                            <option value="move-8-11-down-cooldown">8-11% DOWN (90d)</option>
-                            <option value="move-8-11-down-annual">8-11% DOWN (Annual)</option>
+                            <option value="move-8-11-up-both">8-11% UP</option>
+                            <option value="move-8-11-down-both">8-11% DOWN</option>
                         </optgroup>
                         <optgroup label="18-22% MOVES">
-                            <option value="move-18-22-up-cooldown">18-22% UP (90d)</option>
-                            <option value="move-18-22-up-annual">18-22% UP (Annual)</option>
-                            <option value="move-18-22-down-cooldown">18-22% DOWN (90d)</option>
-                            <option value="move-18-22-down-annual">18-22% DOWN (Annual)</option>
+                            <option value="move-18-22-up-both">18-22% UP</option>
+                            <option value="move-18-22-down-both">18-22% DOWN</option>
+                        </optgroup>
+                        <optgroup label="BREAKING POINTS">
+                            <option value="move-30-40-down-both">Bear Market</option>
+                            <option value="move-30-40-up-both">Bull Market</option>
                         </optgroup>
                     </select>
                 </div>
