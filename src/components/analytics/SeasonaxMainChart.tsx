@@ -68,6 +68,7 @@ interface SeasonaxMainChartProps {
   compareSymbol?: string | null
   currentYearSeries?: Array<{ dayOfYear: number; cumulativeReturn: number }> | null
   isFullscreen?: boolean
+  candlenalityMode?: boolean
 }
 
 // Helper function to smooth data - removes abnormal spikes/crashes
@@ -185,6 +186,66 @@ const drawSeasonalLine = (
   // Symbol label at end of line removed to save space
 }
 
+// Draws the seasonal cumulative-return curve as OHLC-style candles (day-over-day up/down)
+const drawSeasonalCandles = (
+  ctx: CanvasRenderingContext2D,
+  dataPoints: DailySeasonalData[],
+  containerHeight: number,
+  padding: { top: number; right: number; bottom: number; left: number },
+  chartWidth: number,
+  chartHeight: number,
+  paddedMin: number,
+  paddedRange: number,
+  isMonthlyView: boolean,
+  allDataPoints: DailySeasonalData[],
+  zoomLevel: number,
+  panOffset: number
+) => {
+  const getX = (dayData: DailySeasonalData) => {
+    let baseX: number
+    if (isMonthlyView && allDataPoints.length > 0) {
+      const firstDay = allDataPoints[0].dayOfYear
+      const lastDay = allDataPoints[allDataPoints.length - 1].dayOfYear
+      const dayRange = lastDay - firstDay + 1
+      baseX = (dayData.dayOfYear - firstDay) / dayRange
+    } else {
+      baseX = dayData.dayOfYear / 365
+    }
+    const chartCenter = 0.5
+    const zoomedX = chartCenter + (baseX - chartCenter) * zoomLevel + panOffset
+    return padding.left + zoomedX * chartWidth
+  }
+
+  const getY = (value: number) =>
+    containerHeight - padding.bottom - ((value - paddedMin) / paddedRange) * chartHeight
+
+  const candleWidth = Math.max(3, Math.min(14, (chartWidth / dataPoints.length) * 0.65))
+
+  dataPoints.forEach((point, index) => {
+    const prevCum = index === 0 ? 0 : dataPoints[index - 1].cumulativeReturn
+    const currCum = point.cumulativeReturn
+    const isUp = currCum >= prevCum
+    const wickExt = Math.max(0.05, Math.abs(point.avgReturn) * 0.4)
+    const high = Math.max(prevCum, currCum) + wickExt
+    const low = Math.min(prevCum, currCum) - wickExt
+    const x = getX(point)
+    const color = isUp ? '#00ff41' : '#ff3232'
+
+    ctx.strokeStyle = color
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(x, getY(high))
+    ctx.lineTo(x, getY(low))
+    ctx.stroke()
+
+    const bodyTop = getY(Math.max(prevCum, currCum))
+    const bodyBot = getY(Math.min(prevCum, currCum))
+    const bodyH = Math.max(1.5, bodyBot - bodyTop)
+    ctx.fillStyle = color
+    ctx.fillRect(x - candleWidth / 2, bodyTop, candleWidth, bodyH)
+  })
+}
+
 const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
   data,
   comparisonData = [],
@@ -197,6 +258,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
   compareSymbol = null,
   currentYearSeries = null,
   isFullscreen = false,
+  candlenalityMode = false,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -808,24 +870,41 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
 
       // Draw main seasonal line with processed data
       const isMonthlyView = selectedMonth !== null && selectedMonth !== undefined
-      drawSeasonalLine(
-        ctx,
-        processedData,
-        containerWidth,
-        containerHeight,
-        padding,
-        chartWidth,
-        chartHeight,
-        paddedMin,
-        paddedRange,
-        '#ffffff',
-        3,
-        data.symbol,
-        isMonthlyView,
-        processedData,
-        zoomLevel,
-        panOffset
-      )
+      if (candlenalityMode) {
+        drawSeasonalCandles(
+          ctx,
+          processedData,
+          containerHeight,
+          padding,
+          chartWidth,
+          chartHeight,
+          paddedMin,
+          paddedRange,
+          isMonthlyView,
+          processedData,
+          zoomLevel,
+          panOffset
+        )
+      } else {
+        drawSeasonalLine(
+          ctx,
+          processedData,
+          containerWidth,
+          containerHeight,
+          padding,
+          chartWidth,
+          chartHeight,
+          paddedMin,
+          paddedRange,
+          '#ffffff',
+          3,
+          data.symbol,
+          isMonthlyView,
+          processedData,
+          zoomLevel,
+          panOffset
+        )
+      }
 
       // Draw comparison lines
       const comparisonColors = ['#00FF00', '#FF00FF', '#00FFFF', '#FFFF00', '#FF8000']
@@ -1179,7 +1258,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
       // X-axis labels
       const monthStarts = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
       ctx.fillStyle = '#ffffff'
-      const xAxisFontSize = isFullscreen ? 21 : 17
+      const xAxisFontSize = isFullscreen ? 25 : 20
       ctx.font = `bold ${xAxisFontSize}px "Roboto Mono", monospace`
       ctx.textAlign = 'center'
       ctx.textBaseline = 'top'

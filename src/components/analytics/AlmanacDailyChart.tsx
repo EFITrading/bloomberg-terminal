@@ -589,7 +589,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
         const to = allDays[allDays.length - 1].toISOString().split('T')[0]
 
         const response = await fetch(
-          `/api/polygon/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${'' || ''}`
+          `/api/polygon/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc`
         )
 
         if (!response.ok) {
@@ -769,8 +769,8 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
 
       console.log(`Fetching ${yearsBack} years of data from ${startStr} to ${endStr}`)
 
-      const apiKey = '' || ''
-      const url = `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc&apiKey=${apiKey}`
+      // Real API key is injected server-side by the /api/polygon proxy route.
+      const url = `/api/polygon/v2/aggs/ticker/${ticker}/range/1/day/${startStr}/${endStr}?adjusted=true&sort=asc`
 
       const response = await fetch(url)
       const data = await response.json()
@@ -1724,7 +1724,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
 
     // Draw X-axis labels in the bottom padding area
     ctx.fillStyle = '#FFFFFF'
-    ctx.font = `bold ${isFullscreen ? '19' : '15'}px "JetBrains Mono", monospace`
+    ctx.font = `bold ${isFullscreen ? '23' : '18'}px "JetBrains Mono", monospace`
     ctx.textAlign = 'center'
 
     const { isMobile } = getAlmanacDailyChartMobile()

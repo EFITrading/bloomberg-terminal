@@ -249,7 +249,6 @@ async function fetchBars(ticker: string, startDate: string, endDate: string): Pr
   const e = end.toISOString().split('T')[0]
 
   const url = `/api/historical-data?symbol=${ticker}&startDate=${s}&endDate=${e}&timeframe=1d`
-  console.log(`[HER] fetchBars → ${ticker} | url: ${url}`)
 
   let res: Response
   try {
@@ -259,7 +258,6 @@ async function fetchBars(ticker: string, startDate: string, endDate: string): Pr
     throw err
   }
 
-  console.log(`[HER] fetchBars response ${ticker}: status=${res.status} ok=${res.ok}`)
   if (!res.ok) {
     const text = await res.text().catch(() => '(no body)')
     console.error(`[HER] fetchBars HTTP error for ${ticker}: ${res.status} — ${text}`)
@@ -267,10 +265,8 @@ async function fetchBars(ticker: string, startDate: string, endDate: string): Pr
   }
 
   const json = await res.json()
-  console.log(`[HER] fetchBars ${ticker}: json keys=${Object.keys(json).join(',')}, results=${Array.isArray(json.results) ? json.results.length : 'N/A'}`)
 
   if (!json.results || !Array.isArray(json.results)) {
-    console.warn(`[HER] fetchBars ${ticker}: no results array — full response:`, json)
     return []
   }
 
@@ -286,7 +282,6 @@ async function fetchBars(ticker: string, startDate: string, endDate: string): Pr
     }))
     .sort((a: PriceBar, b: PriceBar) => a.timestamp - b.timestamp)
 
-  console.log(`[HER] fetchBars ${ticker}: parsed ${bars.length} bars (${bars[0]?.date} → ${bars[bars.length - 1]?.date})`)
   return bars
 }
 
@@ -370,7 +365,12 @@ const StatCard = ({ label, value, color }: { label: string; value: string; color
 // ────────────────────────────────────────────────────────────────────────────
 // Main component
 // ────────────────────────────────────────────────────────────────────────────
-export default function HistoricalEventsResearch() {
+interface HistoricalEventsResearchProps {
+  inDrawer?: boolean
+  onCloseDrawer?: () => void
+}
+
+export default function HistoricalEventsResearch({ inDrawer = false, onCloseDrawer }: HistoricalEventsResearchProps = {}) {
   const [activeTab, setActiveTab] = useState<'events' | 'screener' | 'research'>('events')
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [isMobileView, setIsMobileView] = useState(false)
@@ -476,18 +476,12 @@ export default function HistoricalEventsResearch() {
       error: null,
     })
 
-    console.log(`[HER] loadEventData: event="${event.name}" start=${event.startDate} end=${event.endDate}`)
-    console.log(`[HER] fetching ${ALL_INSTRUMENTS.length} instruments:`, ALL_INSTRUMENTS.map(i => i.apiTicker))
-
     const results = await Promise.allSettled(
       ALL_INSTRUMENTS.map((ins) => fetchBars(ins.apiTicker, event.startDate, event.endDate))
     )
 
-    console.log('[HER] allSettled results:')
     results.forEach((r, i) => {
-      if (r.status === 'fulfilled') {
-        console.log(`  [HER] ${ALL_INSTRUMENTS[i].ticker}: ✓ ${r.value.length} bars`)
-      } else {
+      if (r.status === 'rejected') {
         console.error(`  [HER] ${ALL_INSTRUMENTS[i].ticker}: ✗ rejected —`, r.reason)
       }
     })
@@ -502,7 +496,6 @@ export default function HistoricalEventsResearch() {
       const key = INSTR_KEY_MAP[ins.ticker]
       const result = results[i]
       if (result.status === 'fulfilled' && result.value.length >= 2) {
-        console.log(`[HER] building stats for ${ins.ticker}: duringStart=${offsetDate(event.startDate, -10)} duringEnd=${offsetDate(event.startDate, 10)}`)
         const allBars = result.value
 
         // 'During' window: ±10 calendar days around the event START DATE
@@ -512,7 +505,6 @@ export default function HistoricalEventsResearch() {
         const duringBars = sliceBars(allBars, duringStart, duringEnd)
         const d = buildPeriodStats(duringBars.length >= 2 ? duringBars : sliceBars(allBars, duringStart, offsetDate(duringEnd, 5)))
         if (!d) {
-          console.warn(`[HER] ${ins.ticker}: buildPeriodStats returned null for during window — skipping`)
           update[key] = null
           return
         }
@@ -535,9 +527,6 @@ export default function HistoricalEventsResearch() {
           recoveryDays: d.recoveryDays,
         }
       } else {
-        if (result.status === 'fulfilled') {
-          console.warn(`[HER] ${ins.ticker}: only ${result.value.length} bars — need ≥2, setting null`)
-        }
         update[key] = null
       }
     })
@@ -584,6 +573,7 @@ export default function HistoricalEventsResearch() {
         @keyframes her-pulse-ring { 0%,100% { transform: scale(1) } 50% { transform: scale(1.12) } }
         .her-tab-btn { transition: all 0.2s ease; }
         .her-tab-btn:hover { filter: brightness(1.15); }
+        .her-tab-btn.her-tab-active, .her-tab-btn.her-tab-active * { color: #FF6B00 !important; }
         .her-wave-anim { stroke-dasharray: 60; animation: her-waveform 2s linear infinite; }
         .her-radar-sweep { transform-origin: 12px 12px; animation: her-radar-spin 2.5s linear infinite; }
         .her-scan-line { transform-origin: 11px 11px; animation: her-scan-sweep 1.5s ease-in-out infinite; }
@@ -648,7 +638,7 @@ export default function HistoricalEventsResearch() {
           return (
             <button
               key={tab.id}
-              className="her-tab-btn"
+              className={`her-tab-btn${isActive ? ' her-tab-active' : ''}`}
               onClick={() => {
                 if (tab.id === 'screener') setIsFullscreen(false)
                 setActiveTab(tab.id)
@@ -657,14 +647,17 @@ export default function HistoricalEventsResearch() {
                 flex: 1,
                 padding: isMobileView ? '10px 8px' : isFullscreen ? '28px 16px 16px' : '20px 16px',
                 background: isActive
-                  ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
+                  ? 'linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(255,140,0,0.08) 22%, rgba(20,20,20,0.55) 55%, rgba(0,0,0,0.85) 100%)'
                   : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+                backdropFilter: isActive ? 'blur(10px) saturate(160%)' : undefined,
+                WebkitBackdropFilter: isActive ? 'blur(10px) saturate(160%)' : undefined,
+                boxShadow: isActive ? 'inset 0 1px 0 rgba(255,255,255,0.25), inset 0 -12px 20px rgba(0,0,0,0.4)' : undefined,
                 borderTop: isActive ? '2px solid #FF6B00' : '2px solid rgba(255,255,255,0.15)',
                 borderBottom: isActive ? '2px solid #FF6B00' : '2px solid rgba(255,255,255,0.15)',
                 borderLeft: isActive ? '2px solid #FF6B00' : '2px solid rgba(255,255,255,0.15)',
                 borderRight: index < (isMobileView ? 1 : 2) ? (isActive ? '2px solid #FF6B00' : '1px solid rgba(255,255,255,0.08)') : (isActive ? '2px solid #FF6B00' : '2px solid rgba(255,255,255,0.15)'),
                 color: isActive ? '#FF6B00' : '#FFFFFF',
-                fontSize: isMobileView ? 11 : 16,
+                fontSize: isMobileView ? 14 : 21,
                 fontWeight: 900,
                 letterSpacing: isMobileView ? '0.05em' : '0.15em',
                 textTransform: 'uppercase',
@@ -683,8 +676,11 @@ export default function HistoricalEventsResearch() {
               {isActive && (
                 <div style={{
                   position: 'absolute',
-                  inset: 0,
-                  background: 'linear-gradient(180deg, rgba(255,107,0,0.15) 0%, transparent 100%)',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: '40%',
+                  background: 'linear-gradient(180deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0) 100%)',
                   pointerEvents: 'none',
                 }} />
               )}
@@ -693,8 +689,8 @@ export default function HistoricalEventsResearch() {
             </button>
           )
         })}
-        {/* FULLSCREEN TOGGLE — hidden on screener tab and on mobile */}
-        {!isMobileView && activeTab !== 'screener' && <button
+        {/* FULLSCREEN TOGGLE — hidden on screener tab, mobile, and inside the drawer */}
+        {!isMobileView && !inDrawer && activeTab !== 'screener' && <button
           onClick={() => setIsFullscreen((f) => !f)}
           title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           style={{
@@ -722,6 +718,27 @@ export default function HistoricalEventsResearch() {
               <line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" />
             </svg>
           )}
+        </button>}
+        {/* CLOSE DRAWER — replaces the expand toggle when this panel is shown inside the tablet/laptop drawer */}
+        {inDrawer && <button
+          onClick={onCloseDrawer}
+          title="Close"
+          style={{
+            flexShrink: 0,
+            padding: '0 18px',
+            background: '#000',
+            border: 'none',
+            borderLeft: '1px solid #1e1e1e',
+            color: 'rgba(255,255,255,0.6)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '20px',
+            lineHeight: 1,
+          }}
+        >
+          ×
         </button>}
       </div>
 
@@ -881,16 +898,19 @@ export default function HistoricalEventsResearch() {
           </div>
 
           {/* ── CATEGORY FILTERS ───────────────────────────────────────── */}
-          {/* ROW 2: CATEGORY FILTERS */}
+          {/* ROW 2: CATEGORY FILTERS — single horizontally scrollable row */}
           <div
+            className="her-category-scroll"
             style={{
               display: 'flex',
-              flexWrap: 'wrap',
-              justifyContent: 'center',
+              flexWrap: 'nowrap',
+              overflowX: 'auto',
+              justifyContent: 'flex-start',
               gap: 0,
               background: '#000000',
               borderBottom: '1px solid #1a1a1a',
               flexShrink: 0,
+              scrollbarWidth: 'thin',
             }}
           >
             {(['All', ...EVENT_CATEGORIES] as Array<EventCategory | 'All'>).map((cat) => {
@@ -914,6 +934,7 @@ export default function HistoricalEventsResearch() {
                     textTransform: 'uppercase',
                     fontFamily: '"Roboto Mono", monospace',
                     whiteSpace: 'nowrap',
+                    flexShrink: 0,
                     transition: 'all 0.12s',
                   }}
                 >

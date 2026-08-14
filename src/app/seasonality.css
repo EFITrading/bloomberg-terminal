@@ -1566,25 +1566,26 @@ body * {
   position: absolute;
   top: 100%;
   left: 0;
-  right: 0;
-  background: rgba(0, 0, 0, 0.95);
+  min-width: 160px;
+  width: max-content;
+  background: #0a0a0a;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 12px;
   margin-top: 4px;
   z-index: 1000;
-  backdrop-filter: blur(10px);
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
 }
 
 .election-option {
-  padding: 3px 4px;
+  padding: 8px 12px;
   color: #ffffff;
   cursor: pointer;
-  font-size: 5px;
+  font-size: 11px;
   font-family: 'JetBrains Mono', monospace;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  white-space: nowrap;
   transition: all 0.2s ease;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
@@ -6274,4 +6275,27 @@ button,
   .data-driven-container {
     padding: 2px !important;
   }
+}
+
+/* Category filter scrollbar (single-row horizontal scroll in drawer) — dark, subtle */
+.her-category-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #333 #0a0a0a;
+}
+
+.her-category-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+
+.her-category-scroll::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
+
+.her-category-scroll::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
+}
+
+.her-category-scroll::-webkit-scrollbar-thumb:hover {
+  background: #444;
 }

@@ -160,6 +160,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   const [electionData, setElectionData] = useState<ElectionCycleData | null>(null)
   const [isElectionMode, setIsElectionMode] = useState<boolean>(false)
   const [selectedElectionPeriod, setSelectedElectionPeriod] = useState<string>('Election Year')
+  const [candlenalityMode, setCandlenalityMode] = useState<boolean>(false)
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [sweetSpotPeriod, setSweetSpotPeriod] = useState<{
@@ -223,8 +224,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   // Stable ref for the onMonthlyDataLoaded callback — avoids infinite loop when parent passes inline fn
   const onMonthlyDataLoadedRef = useRef(onMonthlyDataLoaded)
   // ── DEBUG refs for almanac column height chain ──
-  const dbgOuterRef = useRef<HTMLDivElement>(null)
-  const dbgFlexSlotRef = useRef<HTMLDivElement>(null)
   const dbgAbsWrapRef = useRef<HTMLDivElement>(null)
   const dbgAlmanacRootRef = useRef<HTMLDivElement>(null)
   useEffect(() => { onMonthlyDataLoadedRef.current = onMonthlyDataLoaded }, [onMonthlyDataLoaded])
@@ -476,68 +475,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   }, [seasonalData])
 
   // Notify parent when election/cycle seasonal data loads/changes
-  useEffect(() => {
-    if (!isFullscreen) return
-    const report = () => {
-      const outer = dbgOuterRef.current
-      const flexSlot = dbgFlexSlotRef.current
-
-      const logEl = (label: string, el: Element | null) => {
-        if (!el) { console.warn(`[ALMANAC-DBG] ${label} — NOT FOUND`); return }
-        const cs = getComputedStyle(el)
-        const rect = el.getBoundingClientRect()
-        console.log(
-          `[ALMANAC-DBG] ${label}\n` +
-          `  rect: ${rect.width.toFixed(0)}×${rect.height.toFixed(0)} (top:${rect.top.toFixed(0)})\n` +
-          `  display:${cs.display}  flex:${cs.flex}  flexGrow:${cs.flexGrow}  flexBasis:${cs.flexBasis}\n` +
-          `  height:${cs.height}  minHeight:${cs.minHeight}  maxHeight:${cs.maxHeight}\n` +
-          `  overflow:${cs.overflow}  overflowY:${cs.overflowY}\n` +
-          `  flexDirection:${cs.flexDirection}  alignItems:${cs.alignItems}`
-        )
-      }
-
-      // Walk every element in the chain
-      logEl('1. outer (.seasonax-fullscreen-almanac)', outer)
-      logEl('2. flex-slot (flex:1 wrapper)', flexSlot)
-
-      // Walk into the almanac wrap and its children
-      const wrap = flexSlot?.querySelector('.seasonax-fs-almanac-wrap') ?? null
-      logEl('3. .seasonax-fs-almanac-wrap', wrap)
-
-      const almanacRoot = wrap?.querySelector('.almanac-daily-chart') ?? null
-      logEl('4. .almanac-daily-chart (root div)', almanacRoot)
-
-      const headerRow = almanacRoot?.querySelector('.chart-header-row') ?? null
-      logEl('5. .chart-header-row', headerRow)
-
-      const chartContainer = almanacRoot?.querySelector('.chart-container') ?? null
-      logEl('6. .chart-container', chartContainer)
-
-      const canvas = chartContainer?.querySelector('canvas') ?? null
-      if (canvas) {
-        const cs = getComputedStyle(canvas)
-        const rect = canvas.getBoundingClientRect()
-        console.log(
-          `[ALMANAC-DBG] 7. canvas\n` +
-          `  rect: ${rect.width.toFixed(0)}×${rect.height.toFixed(0)}\n` +
-          `  style.width:${(canvas as HTMLCanvasElement).style.width}  style.height:${(canvas as HTMLCanvasElement).style.height}\n` +
-          `  computed width:${cs.width}  computed height:${cs.height}\n` +
-          `  canvas.width attr:${(canvas as HTMLCanvasElement).width}  canvas.height attr:${(canvas as HTMLCanvasElement).height}`
-        )
-      } else {
-        console.warn('[ALMANAC-DBG] 7. canvas — NOT FOUND in .chart-container')
-      }
-
-      // Also check the grid parent to see what height it resolves to
-      const grid = outer?.parentElement ?? null
-      logEl('0. GRID PARENT (outer.parentElement)', grid)
-    }
-    // 300ms + 1s snapshots to see if layout changes after initial render
-    const id1 = setTimeout(report, 300)
-    const id2 = setTimeout(report, 1200)
-    return () => { clearTimeout(id1); clearTimeout(id2) }
-  }, [isFullscreen])
-
   useEffect(() => {
     if (electionData?.spyComparison?.monthlyData && onMonthlyDataLoadedRef.current) {
       onMonthlyDataLoadedRef.current(
@@ -2095,6 +2032,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
               isFullscreen={isFullscreen}
               onMonthsToggle={isMobileView && !isFullscreen ? () => setMobileMonthsOpen(v => !v) : undefined}
               monthsOpen={mobileMonthsOpen}
+              candlenalityActive={candlenalityMode}
+              onCandlenalityToggle={setCandlenalityMode}
             />
           </div>
 
@@ -2225,8 +2164,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                   `}</style>
 
                   {/* Monthly almanac — fullscreen only, 20% shorter than previous height: 70vh→56vh */}
-                  <div ref={dbgFlexSlotRef} className="seasonax-fullscreen-almanac" style={{ flex: '0 0 auto', height: 'calc(56vh - 269px)', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', width: '100%' }}>
-                    <div ref={dbgOuterRef} className="seasonax-fs-almanac-wrap">
+                  <div className="seasonax-fullscreen-almanac" style={{ flex: '0 0 auto', height: 'calc(56vh - 269px)', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', width: '100%' }}>
+                    <div className="seasonax-fs-almanac-wrap">
                       <AlmanacDailyChart
                         month={new Date().getMonth()}
                         showPostElection={true}
@@ -2256,6 +2195,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                           initialTimeframe="1d"
                           height={688}
                           lwToolbarPosition="left"
+                          lwNavyButtonTheme={true}
                           disableSidebarAutoScan={true}
                         />
                       </div>
@@ -2281,7 +2221,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                         title="Fullscreen"
                         style={{
                           position: 'absolute',
-                          bottom: '8px',
+                          top: '8px',
                           right: '8px',
                           zIndex: 10001,
                           background: 'rgba(0,0,0,0.75)',
@@ -2304,11 +2244,14 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                         onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.45)' }}
                         onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)' }}
                       >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="square">
-                          <polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" />
-                          <line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" />
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#00ff88" strokeWidth="2.5" strokeLinecap="square">
+                          <polyline points="15 3 21 3 21 9" />
+                          <line x1="21" y1="3" x2="14" y2="10" />
                         </svg>
-                        EXPAND
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ff3b3b" strokeWidth="2.5" strokeLinecap="square">
+                          <polyline points="9 21 3 21 3 15" />
+                          <line x1="3" y1="21" x2="10" y2="14" />
+                        </svg>
                       </button>}
 
                       {/* Canvas chart */}
@@ -2334,6 +2277,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                           currentYearSeries={currentYearDisplaySeries}
                           multiScanData={multiScanData.length > 0 ? multiScanData : undefined}
                           isFullscreen={false}
+                          candlenalityMode={candlenalityMode}
                         />
                         {/* Trend Sync badge */}
                         {trendSync && (
@@ -2396,6 +2340,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                   currentYearSeries={currentYearDisplaySeries}
                   multiScanData={multiScanData.length > 0 ? multiScanData : undefined}
                   isFullscreen={isFullscreen}
+                  candlenalityMode={candlenalityMode}
                 />
                 {/* Trend Sync badge */}
                 {/* EXIT button — bottom-right of chart */}
@@ -2548,6 +2493,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                 }
                 compareSymbol={isCompareMode ? compareSymbol : null}
                 multiScanData={multiScanData.length > 0 ? multiScanData : undefined}
+                candlenalityMode={candlenalityMode}
               />
             </div>
           </div>

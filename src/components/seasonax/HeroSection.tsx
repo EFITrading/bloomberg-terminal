@@ -2,6 +2,24 @@
 
 import React, { useEffect, useState } from 'react'
 
+const RocketIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+    <path d="M12 2C12 2 7 6 7 12c0 2.5 1 4.5 2 5.8L12 21l3-3.2c1-1.3 2-3.3 2-5.8 0-6-5-10-5-10Z" fill="#818cf8" opacity="0.85" />
+    <circle cx="12" cy="10.5" r="2" fill="#050508" />
+    <path d="M7 13.5 4 16l2.5.7Z" fill="#6366f1" />
+    <path d="M17 13.5 20 16l-2.5.7Z" fill="#6366f1" />
+  </svg>
+)
+
+const LayersIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+    <path d="M12 3 2 8l10 5 10-5-10-5Z" fill="#818cf8" opacity="0.9" />
+    <path d="M2 12l10 5 10-5" stroke="#6366f1" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M2 16l10 5 10-5" stroke="#4c4fb8" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+
+
 interface HeroSectionProps {
   onScreenerStart?: (market: string) => void
   timePeriod?: string
@@ -10,11 +28,6 @@ interface HeroSectionProps {
   opportunitiesCount?: number
   loading?: boolean
   timePeriodOptions?: Array<{ id: string; name: string; years: number; description: string }>
-  onFilterChange?: (filters: {
-    highWinRate: string
-    startingSoon: string
-    fiftyTwoWeek: boolean
-  }) => void
   onSeasonedScan?: (market: string) => void
   onBestScan?: (market: string) => void
 }
@@ -27,16 +40,11 @@ const HeroSection: React.FC<HeroSectionProps> = ({
   opportunitiesCount = 0,
   loading = false,
   timePeriodOptions = [],
-  onFilterChange,
   onSeasonedScan,
   onBestScan,
 }) => {
   const [selectedMarket, setSelectedMarket] = useState('S&P 500')
-  const [highWinRateFilter, setHighWinRateFilter] = useState('')
-  const [startingSoonFilter, setStartingSoonFilter] = useState('')
-  const [fiftyTwoWeekFilter, setFiftyTwoWeekFilter] = useState(false)
   const [isMobileView, setIsMobileView] = useState(false)
-  const [showFilterPanel, setShowFilterPanel] = useState(false)
 
   useEffect(() => {
     const check = () => setIsMobileView(window.innerWidth <= 768)
@@ -44,34 +52,6 @@ const HeroSection: React.FC<HeroSectionProps> = ({
     window.addEventListener('resize', check)
     return () => window.removeEventListener('resize', check)
   }, [])
-
-  const handleWinRateChange = (value: string) => {
-    setHighWinRateFilter(value)
-    onFilterChange?.({
-      highWinRate: value,
-      startingSoon: startingSoonFilter,
-      fiftyTwoWeek: fiftyTwoWeekFilter,
-    })
-  }
-
-  const handleStartingSoonChange = (value: string) => {
-    setStartingSoonFilter(value)
-    onFilterChange?.({
-      highWinRate: highWinRateFilter,
-      startingSoon: value,
-      fiftyTwoWeek: fiftyTwoWeekFilter,
-    })
-  }
-
-  const handleFilterToggle = (filterType: 'fiftyTwoWeek') => {
-    const newValue = !fiftyTwoWeekFilter
-    setFiftyTwoWeekFilter(newValue)
-    onFilterChange?.({
-      highWinRate: highWinRateFilter,
-      startingSoon: startingSoonFilter,
-      fiftyTwoWeek: newValue,
-    })
-  }
 
   const markets = ['S&P 500', 'NASDAQ 100', 'DOW JONES']
 
@@ -119,11 +99,39 @@ const HeroSection: React.FC<HeroSectionProps> = ({
   }
 
   const solidOrange: React.CSSProperties = {
-    background: 'linear-gradient(180deg, #ff8c00 0%, #FF6B00 45%, #d45800 100%)',
+    background: 'linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,133,0,0.08) 22%, rgba(20,20,20,0.55) 55%, rgba(5,5,5,0.95) 100%)',
+    backdropFilter: 'blur(10px) saturate(160%)',
+    WebkitBackdropFilter: 'blur(10px) saturate(160%)',
     boxShadow:
-      'inset 0 1px 0 rgba(255,255,255,0.22), inset 0 -1px 0 rgba(0,0,0,0.5), 0 2px 8px rgba(255,107,0,0.35), 0 1px 2px rgba(0,0,0,0.8)',
-    color: '#FFFFFF',
-    border: '1px solid #c45200',
+      'inset 0 1px 0 rgba(255,255,255,0.22), inset 0 -10px 16px rgba(0,0,0,0.4), 0 2px 8px rgba(255,107,0,0.2), 0 1px 2px rgba(0,0,0,0.8)',
+    color: '#FF6B00',
+    border: '1px solid #FF6B00',
+  }
+
+  // Scan-mode buttons (Seasonal Leaps / MultiFrame Picks) — pill-shaped badge design, distinct shape from every other flat rectangular button
+  const scanModeBtn: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '5px 16px 5px 6px',
+    borderRadius: 999,
+    border: '1px solid rgba(129,140,248,0.5)',
+    background: 'radial-gradient(120% 150% at 0% 0%, rgba(129,140,248,0.22) 0%, rgba(10,10,14,0.92) 60%)',
+    cursor: 'pointer',
+    outline: 'none',
+    fontFamily: '"Roboto Mono", monospace',
+    transition: 'filter 0.15s',
+  }
+  const scanModeIconBadge: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 22,
+    height: 22,
+    borderRadius: '50%',
+    background: 'rgba(129,140,248,0.18)',
+    border: '1px solid rgba(129,140,248,0.5)',
+    flexShrink: 0,
   }
 
   return (
@@ -136,6 +144,11 @@ const HeroSection: React.FC<HeroSectionProps> = ({
         .hs-btn:hover { filter: brightness(1.15); }
         .hs-btn:active { filter: brightness(0.9); transform: translateY(1px); }
         .hs-select:hover { filter: brightness(1.2); }
+        .hs-btn-orange-text, .hs-btn-orange-text * { color: #FF6B00 !important; }
+        .hs-mode-eyebrow, .hs-mode-eyebrow * { color: rgba(199,201,255,0.65) !important; }
+        .hs-mode-title, .hs-mode-title * { color: #c7c9ff !important; }
+        .hs-mode-btn:hover { filter: brightness(1.25); }
+        .hs-mode-btn:active { filter: brightness(0.9); transform: translateY(1px); }
       `}</style>
 
       {isMobileView ? (
@@ -177,111 +190,42 @@ const HeroSection: React.FC<HeroSectionProps> = ({
             </select>
 
             <button
-              className="hs-btn"
+              className="hs-btn hs-btn-orange-text"
               onClick={handleStartScreener}
               style={{ ...btnBase, ...solidBlack, color: '#FF6B00', fontSize: 9, padding: '0 4px', height: 24, minHeight: 24, letterSpacing: '0.5px', flex: 1, whiteSpace: 'nowrap' }}
             >
               SCAN
             </button>
-
-            {/* Filter button */}
-            <button
-              className="hs-btn"
-              onClick={() => setShowFilterPanel(v => !v)}
-              title="Filters"
-              style={{
-                ...btnBase,
-                ...((startingSoonFilter || fiftyTwoWeekFilter) ? solidOrange : solidBlack),
-                padding: '0 4px',
-                height: 24,
-                minHeight: 24,
-                flex: 1,
-                lineHeight: 1,
-                position: 'relative',
-                gap: 0,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M1 3h14M3.5 8h9M6 13h4" stroke="#fff" strokeWidth="2" strokeLinecap="round" />
-              </svg>
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.4px', marginLeft: 4, lineHeight: 1 }}>FILTER</span>
-              {(startingSoonFilter || fiftyTwoWeekFilter) && (
-                <span style={{ position: 'absolute', top: 1, right: 2, width: 4, height: 4, borderRadius: '50%', background: '#fff', display: 'block' }} />
-              )}
-            </button>
           </div>
 
           {/* Row 2: Best of Each Frame + Multi Timeframe */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'nowrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap' }}>
             <button
-              className="hs-btn"
+              className="hs-mode-btn"
               onClick={() => onBestScan?.(selectedMarket)}
               disabled={loading}
-              style={{ ...btnBase, ...solidBlack, fontSize: 7, padding: '0 4px', height: 24, minHeight: 24, letterSpacing: '0.2px', flex: 1, opacity: loading ? 0.5 : 1, whiteSpace: 'nowrap' }}
+              style={{ ...scanModeBtn, padding: '3px 10px 3px 4px', flex: 1, opacity: loading ? 0.5 : 1 }}
             >
-              SEASONAL LEAPS
+              <span style={{ ...scanModeIconBadge, width: 18, height: 18 }}><RocketIcon /></span>
+              <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.05, alignItems: 'flex-start' }}>
+                <span className="hs-mode-eyebrow" style={{ fontSize: 6, fontWeight: 700, letterSpacing: '0.5px' }}>SCAN MODE</span>
+                <span className="hs-mode-title" style={{ fontSize: 7, fontWeight: 800, letterSpacing: '0.2px', whiteSpace: 'nowrap' }}>SEASONAL LEAPS</span>
+              </span>
             </button>
 
             <button
-              className="hs-btn"
+              className="hs-mode-btn"
               onClick={() => onSeasonedScan?.(selectedMarket)}
               disabled={loading}
-              style={{ ...btnBase, ...solidBlack, fontSize: 7, padding: '0 4px', height: 24, minHeight: 24, letterSpacing: '0.2px', flex: 1, opacity: loading ? 0.5 : 1, whiteSpace: 'nowrap' }}
+              style={{ ...scanModeBtn, padding: '3px 10px 3px 4px', flex: 1, opacity: loading ? 0.5 : 1 }}
             >
-              MULTI TIMEFRAME
+              <span style={{ ...scanModeIconBadge, width: 18, height: 18 }}><LayersIcon /></span>
+              <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.05, alignItems: 'flex-start' }}>
+                <span className="hs-mode-eyebrow" style={{ fontSize: 6, fontWeight: 700, letterSpacing: '0.5px' }}>SCAN MODE</span>
+                <span className="hs-mode-title" style={{ fontSize: 7, fontWeight: 800, letterSpacing: '0.2px', whiteSpace: 'nowrap' }}>MULTIFRAME PICKS</span>
+              </span>
             </button>
           </div>
-
-          {/* Filter popover */}
-          {showFilterPanel && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '6px 8px',
-              background: '#111',
-              border: '1px solid #333',
-              borderRadius: 4,
-            }}>
-              <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 8, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Entry:</span>
-              <select
-                value={startingSoonFilter}
-                onChange={(e) => handleStartingSoonChange(e.target.value)}
-                className="hs-select"
-                style={{
-                  ...selectBase,
-                  ...solidBlack,
-                  fontSize: 8,
-                  padding: '4px 18px 4px 6px',
-                  flex: 1,
-                  minWidth: 0,
-                  letterSpacing: '0.3px',
-                  color: startingSoonFilter ? '#FFFFFF' : 'rgba(255,255,255,0.55)',
-                }}
-              >
-                <option value="" style={{ background: '#0d0d0d' }}>Any</option>
-                <option value="upcoming" style={{ background: '#0d0d0d' }}>1–9 Days</option>
-                <option value="recent" style={{ background: '#0d0d0d' }}>5–10 Days Ago</option>
-              </select>
-
-              <button
-                className="hs-btn"
-                onClick={() => handleFilterToggle('fiftyTwoWeek')}
-                style={{
-                  ...btnBase,
-                  ...(fiftyTwoWeekFilter ? solidOrange : solidBlack),
-                  fontSize: 8,
-                  padding: '4px 8px',
-                  letterSpacing: '0.3px',
-                  flex: '0 0 auto',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {fiftyTwoWeekFilter ? '✓ ' : ''}52W HIGH/LOW
-              </button>
-            </div>
-          )}
         </div>
       ) : (
         /* ── DESKTOP: original layout ── */
@@ -351,69 +295,40 @@ const HeroSection: React.FC<HeroSectionProps> = ({
 
           <div style={{ width: 1, height: 28, background: '#2a2a2a', margin: '0 4px' }} />
 
-          {/* ── Best Picks + MultiFrame Picks + SCAN ── */}
+          {/* ── Scan modes: Seasonal Leaps + MultiFrame Picks — pill badge design, distinct from every rectangular button ── */}
           <button
-            className="hs-btn"
+            className="hs-mode-btn"
             onClick={() => onBestScan?.(selectedMarket)}
             disabled={loading}
-            style={{ ...btnBase, ...solidBlack, minWidth: 120, opacity: loading ? 0.5 : 1 }}
+            style={{ ...scanModeBtn, opacity: loading ? 0.5 : 1 }}
           >
-            Seasonal Leaps
+            <span style={scanModeIconBadge}><RocketIcon /></span>
+            <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15, alignItems: 'flex-start' }}>
+              <span className="hs-mode-eyebrow" style={{ fontSize: 8, fontWeight: 700, letterSpacing: '1px' }}>SCAN MODE</span>
+              <span className="hs-mode-title" style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.4px' }}>Seasonal Leaps</span>
+            </span>
           </button>
 
           <button
-            className="hs-btn"
+            className="hs-mode-btn"
             onClick={() => onSeasonedScan?.(selectedMarket)}
             disabled={loading}
-            style={{ ...btnBase, ...solidBlack, minWidth: 160, opacity: loading ? 0.5 : 1 }}
+            style={{ ...scanModeBtn, opacity: loading ? 0.5 : 1 }}
           >
-            MultiFrame Picks
+            <span style={scanModeIconBadge}><LayersIcon /></span>
+            <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15, alignItems: 'flex-start' }}>
+              <span className="hs-mode-eyebrow" style={{ fontSize: 8, fontWeight: 700, letterSpacing: '1px' }}>SCAN MODE</span>
+              <span className="hs-mode-title" style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.4px' }}>MultiFrame Picks</span>
+            </span>
           </button>
 
           <button
-            className="hs-btn"
+            className="hs-btn hs-btn-orange-text"
             onClick={handleStartScreener}
-            style={{ ...btnBase, ...solidOrange, minWidth: 100 }}
+            style={{ ...btnBase, ...solidOrange, minWidth: 100, marginLeft: 'auto' }}
           >
             SCAN
           </button>
-
-          {/* ── Right side: Entry Window + 52 Week High/Low ── */}
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <select
-              value={startingSoonFilter}
-              onChange={(e) => handleStartingSoonChange(e.target.value)}
-              className="hs-select"
-              style={{
-                ...selectBase,
-                ...solidBlack,
-                minWidth: 150,
-                color: startingSoonFilter ? '#FFFFFF' : 'rgba(255,255,255,0.55)',
-              }}
-            >
-              <option value="" style={{ background: '#0d0d0d' }}>
-                Entry Window
-              </option>
-              <option value="upcoming" style={{ background: '#0d0d0d' }}>
-                1–9 Days Ahead
-              </option>
-              <option value="recent" style={{ background: '#0d0d0d' }}>
-                5–10 Days Ago
-              </option>
-            </select>
-
-            <button
-              className="hs-btn"
-              onClick={() => handleFilterToggle('fiftyTwoWeek')}
-              style={{
-                ...btnBase,
-                ...(fiftyTwoWeekFilter ? solidOrange : solidBlack),
-                minWidth: 170,
-              }}
-            >
-              {fiftyTwoWeekFilter ? '✓ ' : ''}52 Week High/Low
-            </button>
-          </div>
         </div>
       )}
     </div>

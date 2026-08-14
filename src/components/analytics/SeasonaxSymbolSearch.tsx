@@ -113,9 +113,11 @@ interface SeasonaxSymbolSearchProps {
   onCompareSubmit?: () => void
   onQuickScan?: (name: string, tickers: string[], benchmarkSymbol?: string) => void
   isFullscreen?: boolean
+  candlenalityActive?: boolean
+  onCandlenalityToggle?: (active: boolean) => void
 }
 
-const electionPeriods = ['Normal Mode', 'Election Year', 'Post-Election', 'Mid-Term', 'Pre-Election']
+const electionPeriods = ['Normal Mode', 'Election Year', 'Post-Election', 'Mid-Term', 'Pre-Election', 'Candlenality']
 
 const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
   onSymbolSelect,
@@ -141,6 +143,8 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
   onCompareSubmit,
   onQuickScan,
   isFullscreen = false,
+  candlenalityActive = false,
+  onCandlenalityToggle,
 }) => {
   const [searchTerm, setSearchTerm] = useState<string>(initialSymbol)
   const [isOpen, setIsOpen] = useState<boolean>(false)
@@ -220,6 +224,11 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
   }
 
   const handleElectionSelect = (period: string) => {
+    if (period === 'Candlenality') {
+      setIsElectionDropdownOpen(false)
+      onCandlenalityToggle?.(!candlenalityActive)
+      return
+    }
     setLocalElectionPeriod(period)
     setIsElectionDropdownOpen(false)
     if (period === 'Normal Mode') {
@@ -458,10 +467,12 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
         ) : (
           <div className={`election-dropdown-container${isElectionDropdownOpen ? ' open' : ''}`}>
             <button
-              className={`election-btn${isElectionActive ? ' active' : ' inactive'}`}
+              className={`election-btn${isElectionActive || candlenalityActive ? ' active' : ' inactive'}`}
               onClick={() => { setIsElectionDropdownOpen(!isElectionDropdownOpen); setIsOpen(false); setIsXtraDropdownOpen(false) }}
             >
-              <span className="election-text">{isElectionActive ? displayElection : 'Election Modes'}</span>
+              <span className="election-text">
+                {isElectionActive ? displayElection : candlenalityActive ? 'Candlenality' : 'Election Modes'}
+              </span>
               <span className="dropdown-arrow">▼</span>
             </button>
             {isElectionDropdownOpen && (
@@ -469,10 +480,10 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
                 {electionPeriods.map((period) => (
                   <div
                     key={period}
-                    className={`election-option${displayElection === period ? ' selected' : ''}`}
+                    className={`election-option${(period === 'Candlenality' ? candlenalityActive : displayElection === period) ? ' selected' : ''}`}
                     onMouseDown={() => handleElectionSelect(period)}
                   >
-                    {period}
+                    {period === 'Candlenality' ? `${candlenalityActive ? '✓ ' : ''}Candlenality` : period}
                   </div>
                 ))}
               </div>
@@ -667,11 +678,16 @@ const SeasonaxSymbolSearch: React.FC<SeasonaxSymbolSearchProps> = ({
                 style={{
                   borderColor: activeQuickScan ? QUICK_SCANS.find(s => s.name === activeQuickScan)?.color : undefined,
                   color: activeQuickScan ? QUICK_SCANS.find(s => s.name === activeQuickScan)?.color : undefined,
+                  maxWidth: '110px',
+                  flexShrink: 0,
+                  overflow: 'hidden',
                 }}
                 title="Quick multi-symbol scans"
               >
-                {activeQuickScan ? `${QUICK_SCANS.find(s => s.name === activeQuickScan)?.icon} ${QUICK_SCANS.find(s => s.name === activeQuickScan)?.label}` : 'Xtras'}
-                <span style={{ fontSize: '8px', marginLeft: '4px', opacity: 0.7 }}>▼</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {activeQuickScan ? `${QUICK_SCANS.find(s => s.name === activeQuickScan)?.icon} ${QUICK_SCANS.find(s => s.name === activeQuickScan)?.label}` : 'Xtras'}
+                </span>
+                <span style={{ fontSize: '8px', marginLeft: '4px', opacity: 0.7, flexShrink: 0 }}>▼</span>
               </button>
               {isXtraDropdownOpen && (
                 <div className="election-dropdown">
