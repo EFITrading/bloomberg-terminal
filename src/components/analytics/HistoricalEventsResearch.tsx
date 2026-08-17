@@ -549,8 +549,8 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
         fontFamily: '"Roboto Mono", "SF Mono", "Courier New", monospace',
         display: 'flex',
         flexDirection: 'column',
-        height: '100%',
-        overflow: 'hidden',
+        height: isMobileView && !isFullscreen ? 'auto' : '100%',
+        overflow: isMobileView && !isFullscreen ? 'visible' : 'hidden',
         ...(isFullscreen
           ? {
             position: 'fixed',
@@ -758,28 +758,29 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
             flexDirection: 'column',
             flex: 1,
             minHeight: 0,
-            overflow: 'hidden',
+            overflow: isMobileView ? 'visible' : 'hidden',
           }}
         >
           {/* ── SUB-HEADER: title + search ─────────────────────────────── */}
           {/* ROW 1: Title + Stats + Search */}
           <div
             style={{
-              padding: '16px 24px',
+              padding: isMobileView ? '10px 10px' : '16px 24px',
               display: 'flex',
-              alignItems: 'center',
+              alignItems: isMobileView ? 'flex-start' : 'center',
               justifyContent: 'space-between',
-              gap: 20,
+              flexWrap: isMobileView ? 'wrap' : 'nowrap',
+              gap: isMobileView ? 8 : 20,
               background: '#000000',
               borderBottom: '1px solid #1a1a1a',
               flexShrink: 0,
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: isMobileView ? 8 : 16, minWidth: 0 }}>
               <div
                 style={{
-                  width: 42,
-                  height: 42,
+                  width: isMobileView ? 28 : 42,
+                  height: isMobileView ? 28 : 42,
                   background: 'linear-gradient(135deg, #1d4ed8 0%, #7c3aed 100%)',
                   display: 'flex',
                   alignItems: 'center',
@@ -789,8 +790,8 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
                 }}
               >
                 <svg
-                  width="20"
-                  height="20"
+                  width={isMobileView ? 14 : 20}
+                  height={isMobileView ? 14 : 20}
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="#fff"
@@ -800,63 +801,95 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
                   <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
                 </svg>
               </div>
-              <div>
+              <div style={{ minWidth: 0 }}>
                 <div
                   style={{
                     color: '#FFFFFF',
-                    fontSize: 18,
+                    fontSize: isMobileView ? 12 : 18,
                     fontWeight: 800,
-                    letterSpacing: '0.12em',
+                    letterSpacing: isMobileView ? '0.04em' : '0.12em',
                     textTransform: 'uppercase',
-                    lineHeight: 1,
+                    lineHeight: 1.2,
                     fontFamily: '"Roboto Mono", monospace',
+                    whiteSpace: isMobileView ? 'normal' : 'nowrap',
                   }}
                 >
                   Historical Market Events
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', flexWrap: isMobileView ? 'wrap' : 'nowrap', gap: isMobileView ? 6 : 12, marginTop: isMobileView ? 4 : 6 }}>
                   <span
                     style={{
                       color: '#FF6B00',
-                      fontSize: 13,
+                      fontSize: isMobileView ? 10 : 13,
                       fontWeight: 700,
                       letterSpacing: '0.1em',
                       textTransform: 'uppercase',
                       fontFamily: '"Roboto Mono", monospace',
+                      whiteSpace: 'nowrap',
                     }}
                   >
                     {filteredEvents.length} Events
                   </span>
-                  <span style={{ color: '#444', fontSize: 13 }}>|</span>
+                  <span style={{ color: '#444', fontSize: isMobileView ? 10 : 13 }}>|</span>
                   <span
                     style={{
                       color: '#888',
-                      fontSize: 12,
+                      fontSize: isMobileView ? 9 : 12,
                       fontWeight: 600,
                       letterSpacing: '0.06em',
                       textTransform: 'uppercase',
                       fontFamily: '"Roboto Mono", monospace',
+                      whiteSpace: 'nowrap',
                     }}
                   >
                     2004 – Present
                   </span>
-                  <span style={{ color: '#444', fontSize: 13 }}>|</span>
-                  <span
-                    style={{
-                      color: '#888',
-                      fontSize: 12,
-                      fontWeight: 600,
-                      letterSpacing: '0.06em',
-                      textTransform: 'uppercase',
-                      fontFamily: '"Roboto Mono", monospace',
-                    }}
-                  >
-                    Multi-Asset Analysis
-                  </span>
+                  {!isMobileView && (
+                    <>
+                      <span style={{ color: '#444', fontSize: 13 }}>|</span>
+                      <span
+                        style={{
+                          color: '#888',
+                          fontSize: 12,
+                          fontWeight: 600,
+                          letterSpacing: '0.06em',
+                          textTransform: 'uppercase',
+                          fontFamily: '"Roboto Mono", monospace',
+                        }}
+                      >
+                        Multi-Asset Analysis
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
-            <div style={{ position: 'relative', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, width: isMobileView ? '100%' : 'auto', order: isMobileView ? 3 : 0 }}>
+              {isMobileView && selectedEvent && (
+                <button
+                  onClick={() => setSelectedEvent(null)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#FF6B00',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: '0.03em',
+                    textTransform: 'uppercase',
+                    padding: 0,
+                    cursor: 'pointer',
+                    flexShrink: 0,
+                    whiteSpace: 'nowrap',
+                    fontFamily: '"Roboto Mono", monospace',
+                  }}
+                >
+                  ← Back
+                </button>
+              )}
+              <div style={{ position: 'relative', flex: isMobileView ? 1 : 'none', minWidth: 0 }}>
               <svg
                 width="14"
                 height="14"
@@ -885,15 +918,17 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
                   background: '#0a0a0a',
                   border: '1px solid #2a2a2a',
                   color: '#FFFFFF',
-                  padding: '10px 14px 10px 36px',
-                  fontSize: 13,
+                  padding: isMobileView ? '8px 12px 8px 32px' : '10px 14px 10px 36px',
+                  fontSize: isMobileView ? 12 : 13,
                   outline: 'none',
-                  width: 240,
+                  width: isMobileView ? '100%' : 240,
+                  boxSizing: 'border-box',
                   fontFamily: '"Roboto Mono", monospace',
                   letterSpacing: '0.05em',
                   boxShadow: 'inset 0 1px 4px rgba(0,0,0,0.6)',
                 }}
               />
+              </div>
             </div>
           </div>
 
@@ -922,15 +957,15 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
                   className="her-cat-btn"
                   onClick={() => setSelectedCategory(cat)}
                   style={{
-                    padding: '12px 16px',
+                    padding: isMobileView ? '8px 10px' : '12px 16px',
                     background: isActive ? `${color}18` : 'transparent',
                     border: 'none',
                     borderBottom: isActive ? `3px solid ${color}` : '3px solid transparent',
                     color: isActive ? color : '#FFFFFF',
-                    fontSize: 18,
+                    fontSize: isMobileView ? 11 : 18,
                     fontWeight: isActive ? 800 : 600,
                     cursor: 'pointer',
-                    letterSpacing: '0.08em',
+                    letterSpacing: isMobileView ? '0.04em' : '0.08em',
                     textTransform: 'uppercase',
                     fontFamily: '"Roboto Mono", monospace',
                     whiteSpace: 'nowrap',
@@ -946,13 +981,14 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
 
           {/* ── MAIN BODY: event list + detail panel ───────────────────── */}
           <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-            {/* ── EVENT LIST ─────────────────────────────────────────── */}
+            {/* ── EVENT LIST (hidden on mobile once an event is selected) ── */}
+            {(!isMobileView || !selectedEvent) && (
             <div
               style={{
-                width: 300,
-                minWidth: 260,
+                width: isMobileView ? '100%' : 300,
+                minWidth: isMobileView ? 'auto' : 260,
                 borderRight: '1px solid #1a1a1a',
-                overflowY: 'auto',
+                overflowY: isMobileView ? 'visible' : 'auto',
                 background: '#030303',
               }}
             >
@@ -1050,9 +1086,11 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
                 )
               })}
             </div>
+            )}
 
-            {/* ── DETAIL PANEL ─────────────────────────────────────────── */}
-            <div style={{ flex: 1, overflowY: 'auto', background: '#000', padding: '20px 22px' }}>
+            {/* ── DETAIL PANEL (full-width drill-down on mobile) ─────────── */}
+            {(!isMobileView || selectedEvent) && (
+            <div style={{ flex: 1, overflowY: isMobileView ? 'visible' : 'auto', background: '#000', padding: isMobileView ? '14px 14px' : '20px 22px', width: isMobileView ? '100%' : 'auto' }}>
               {!selectedEvent ? (
                 <div
                   style={{
@@ -1302,7 +1340,8 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
                     background: 'linear-gradient(180deg, #141414 0%, #0a0a0a 100%)',
                     border: '1px solid #222',
                     borderRadius: 2,
-                    overflow: 'hidden',
+                    overflowX: isMobileView ? 'auto' : 'hidden',
+                    WebkitOverflowScrolling: 'touch',
                     boxShadow: '0 4px 16px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06)',
                   }}>
                     {[
@@ -1319,18 +1358,18 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
                           className="her-period-btn"
                           onClick={() => setActivePeriod(p.key)}
                           style={{
-                            flex: 1,
-                            padding: '16px 8px',
+                            flex: isMobileView ? '0 0 auto' : 1,
+                            padding: isMobileView ? '10px 12px' : '16px 8px',
                             background: 'transparent',
                             borderTop: 'none',
                             borderBottom: isActive ? `2px solid #FF6B00` : '2px solid transparent',
                             borderLeft: idx === 0 ? 'none' : '1px solid #1a1a1a',
                             borderRight: 'none',
                             color: isActive ? '#FF6B00' : 'rgba(255,255,255,0.45)',
-                            fontSize: 19,
+                            fontSize: isMobileView ? 10 : 19,
                             fontWeight: 800,
                             cursor: 'pointer',
-                            letterSpacing: '1px',
+                            letterSpacing: isMobileView ? '0.3px' : '1px',
                             textTransform: 'uppercase',
                             fontFamily: '"Roboto Mono", monospace',
                             whiteSpace: 'nowrap',
@@ -1442,14 +1481,14 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
                                       style={{
                                         display: 'flex',
                                         alignItems: 'center',
-                                        gap: 8,
-                                        padding: '9px 16px',
+                                        gap: isMobileView ? 5 : 8,
+                                        padding: isMobileView ? '6px 10px' : '9px 16px',
                                         background: isOpen
                                           ? `linear-gradient(180deg, ${GROUP_COLORS[group]}22 0%, ${GROUP_COLORS[group]}0d 100%)`
                                           : 'linear-gradient(180deg, #1a1a1a 0%, #111 100%)',
                                         border: `1px solid ${isOpen ? GROUP_COLORS[group] : '#252525'}`,
                                         color: '#fff',
-                                        fontSize: 15,
+                                        fontSize: isMobileView ? 11 : 15,
                                         fontWeight: 700,
                                         cursor: 'pointer',
                                         letterSpacing: '0.6px',
@@ -1461,21 +1500,21 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
                                         transition: 'all 0.15s',
                                       }}
                                     >
-                                      <span style={{ width: 10, height: 10, borderRadius: '50%', background: GROUP_COLORS[group], flexShrink: 0 }} />
+                                      <span style={{ width: isMobileView ? 7 : 10, height: isMobileView ? 7 : 10, borderRadius: '50%', background: GROUP_COLORS[group], flexShrink: 0 }} />
                                       {group}
                                       <span style={{
                                         background: enabledCount > 0 ? GROUP_COLORS[group] : '#333',
                                         color: enabledCount > 0 ? '#000' : '#666',
-                                        fontSize: 12,
+                                        fontSize: isMobileView ? 9 : 12,
                                         fontWeight: 900,
-                                        padding: '2px 6px',
+                                        padding: isMobileView ? '1px 4px' : '2px 6px',
                                         borderRadius: 2,
-                                        minWidth: 20,
+                                        minWidth: isMobileView ? 16 : 20,
                                         textAlign: 'center',
                                       }}>
                                         {enabledCount}/{groupInstruments.length}
                                       </span>
-                                      <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>{isOpen ? '▲' : '▼'}</span>
+                                      <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: isMobileView ? 10 : 13 }}>{isOpen ? '▲' : '▼'}</span>
                                     </button>
 
                                     {isOpen && (
@@ -1572,18 +1611,18 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
                             </div>
 
                             {active.length > 0 ? (
-                              <ResponsiveContainer width="100%" height={675}>
+                              <ResponsiveContainer width="100%" height={isMobileView ? 380 : 675}>
                                 <LineChart
                                   data={chartData}
-                                  margin={{ top: 12, right: 110, bottom: 8, left: 8 }}
+                                  margin={{ top: 12, right: isMobileView ? 46 : 110, bottom: 8, left: isMobileView ? 0 : 8 }}
                                 >
                                   <XAxis
                                     dataKey="date"
-                                    tick={{ fill: '#ffffff', fontSize: 22, fontFamily: '"Roboto Mono", monospace' }}
+                                    tick={{ fill: '#ffffff', fontSize: isMobileView ? 11 : 22, fontFamily: '"Roboto Mono", monospace' }}
                                     tickLine={{ stroke: '#333' }}
                                     axisLine={{ stroke: '#333' }}
                                     interval="preserveStartEnd"
-                                    minTickGap={40}
+                                    minTickGap={isMobileView ? 24 : 40}
                                   />
                                   <YAxis
                                     orientation="left"
@@ -1591,10 +1630,10 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
                                     tickFormatter={(v: number) =>
                                       `${v >= 100 ? '+' : ''}${(v - 100).toFixed(0)}%`
                                     }
-                                    tick={{ fill: '#ffffff', fontSize: 22, fontFamily: '"Roboto Mono", monospace' }}
+                                    tick={{ fill: '#ffffff', fontSize: isMobileView ? 11 : 22, fontFamily: '"Roboto Mono", monospace' }}
                                     tickLine={{ stroke: '#333' }}
                                     axisLine={{ stroke: '#333' }}
-                                    width={72}
+                                    width={isMobileView ? 38 : 72}
                                   />
                                   <Tooltip
                                     contentStyle={{
@@ -1631,7 +1670,7 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
                                           // all lines have written — run collision avoidance
                                           const items = Object.entries(endPos).map(([ticker, p]) => ({ ticker, x: p.x, y: p.y, color: p.color }))
                                           items.sort((a, b) => a.y - b.y)
-                                          const minGap = 26
+                                          const minGap = isMobileView ? 14 : 26
                                           for (let pass = 0; pass < 300; pass++) {
                                             let moved = false
                                             for (let i = 1; i < items.length; i++) {
@@ -1650,10 +1689,10 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
                                               {items.map(item => (
                                                 <text
                                                   key={item.ticker}
-                                                  x={item.x + 10}
+                                                  x={item.x + (isMobileView ? 5 : 10)}
                                                   y={item.y}
                                                   fill={item.color}
-                                                  fontSize={20}
+                                                  fontSize={isMobileView ? 10 : 20}
                                                   fontFamily='"Roboto Mono", monospace'
                                                   fontWeight={700}
                                                   dominantBaseline="middle"
@@ -2001,6 +2040,7 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
                 </div>
               )}
             </div>
+            )}
           </div>
         </div>
       )}

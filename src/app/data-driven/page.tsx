@@ -30,6 +30,9 @@ export default function DataDriven() {
   }, [])
 
   useEffect(() => {
+    // Desktop/tablet layouts rely on fixed-height internal panels, so the page itself
+    // must not scroll there — but mobile relies on native page scroll, so leave it alone.
+    if (windowWidth <= MOBILE_BREAKPOINT) return
     const prevBody = document.body.style.overflow
     const prevHtml = document.documentElement.style.overflow
     document.body.style.overflow = 'hidden'
@@ -38,7 +41,7 @@ export default function DataDriven() {
       document.body.style.overflow = prevBody
       document.documentElement.style.overflow = prevHtml
     }
-  }, [])
+  }, [windowWidth])
 
   const isTabletOrLaptop = windowWidth > MOBILE_BREAKPOINT && windowWidth < SIDEBAR_MIN_WIDTH
 

@@ -567,7 +567,35 @@ async function runSweepSenseDiscordAlert() {
                 if (box2 && (!box || box2.height > box.height)) box = box2
                 if (!box || box.height < 10) { console.error(`[Discord] Card had no stable layout (${c.ticker}) — skipping.`); continue }
 
-                const png = await shotHandle.screenshot({ type: 'png', captureBeyondViewport: true })
+                // shotHandle.screenshot() (no explicit clip) re-measures the element's rect
+                // itself in a separate CDP round-trip right before grabbing pixels. Because the
+                // feed reflows/reorders constantly, that internal re-measurement can race a
+                // layout shift and grab pixels from wherever the OLD rect now lands on screen —
+                // i.e. a different, misaligned card. Passing our OWN just-measured clip removes
+                // that hidden race, and re-verifying the rect/content immediately after the shot
+                // catches (and retries) any capture that still landed on a moved/wrong card.
+                let png = null
+                for (let attempt = 0; attempt < 2 && !png; attempt++) {
+                    const clipBox = await shotHandle.boundingBox()
+                    if (!clipBox || clipBox.height < 10) { await new Promise((r) => setTimeout(r, 200)); continue }
+                    const candidate = await page.screenshot({
+                        type: 'png',
+                        clip: { x: clipBox.x, y: clipBox.y, width: clipBox.width, height: clipBox.height },
+                    })
+                    const postBox = await shotHandle.boundingBox()
+                    const stillVerified = await verifyCard(shotHandle)
+                    const rectUnchanged = postBox
+                        && Math.abs(postBox.x - clipBox.x) < 1 && Math.abs(postBox.y - clipBox.y) < 1
+                        && Math.abs(postBox.width - clipBox.width) < 1 && Math.abs(postBox.height - clipBox.height) < 1
+                    if (stillVerified && rectUnchanged) {
+                        png = candidate
+                    } else {
+                        console.warn(`[Discord] Capture landed mid-reflow for ${c.ticker} — retrying (attempt ${attempt + 1}).`)
+                        await new Promise((r) => setTimeout(r, 300))
+                    }
+                }
+                if (!png) { console.error(`[Discord] Could not get a stable capture for ${c.ticker} — skipping.`); continue }
+
                 const form = new FormData()
                 form.append('payload_json', JSON.stringify({
                     content: `**${c.ticker} - Ready for Pickup**`,

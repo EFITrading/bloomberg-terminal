@@ -40,7 +40,7 @@ interface TFAvgLineData {
 const TF_COLORS: Record<number, string> = { 5: '#00FF88', 10: '#FFD700', 15: '#00BFFF', 20: '#FF6600' }
 const TF_CLR_FALLBACK = ['#FF69B4', '#9370DB', '#00FA9A', '#FF8C00', '#1E90FF']
 
-// ── Canvas-based mini seasonal chart (almanac-style, crispy, zoom+drag) ──────
+// ── Canvas-based mini seasonal chart (almanac-style, crispy) ──────
 const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean; todayDayIdx?: number }> = ({
   data,
   isPositive,
@@ -48,10 +48,6 @@ const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean; t
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const [zoomLevel, setZoomLevel] = useState(1)
-  const [panOffset, setPanOffset] = useState(0)
-  const [isDragging, setIsDragging] = useState(false)
-  const [dragStart, setDragStart] = useState<{ x: number; offset: number } | null>(null)
   const avgColor = isPositive ? '#00FF88' : '#FF4444'
 
   const draw = useCallback(() => {
@@ -81,21 +77,8 @@ const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean; t
     const { avgLine, maxDays } = data
     const chartCenter = 0.5
 
-    // Visible index range based on zoom/pan
-    const visStart =
-      zoomLevel === 1
-        ? 0
-        : Math.max(
-          0,
-          Math.floor(((0 - panOffset - chartCenter) / zoomLevel + chartCenter) * (maxDays - 1))
-        )
-    const visEnd =
-      zoomLevel === 1
-        ? maxDays - 1
-        : Math.min(
-          maxDays - 1,
-          Math.ceil(((1 - panOffset - chartCenter) / zoomLevel + chartCenter) * (maxDays - 1))
-        )
+    const visStart = 0
+    const visEnd = maxDays - 1
     const visPts = avgLine.filter((p) => p.x >= visStart && p.x <= visEnd)
     const rawMin = visPts.length > 0 ? Math.min(...visPts.map((p) => p.pct)) : data.minPct
     const rawMax = visPts.length > 0 ? Math.max(...visPts.map((p) => p.pct)) : data.maxPct
@@ -107,8 +90,7 @@ const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean; t
 
     const getX = (dayIdx: number) => {
       const baseX = dayIdx / Math.max(maxDays - 1, 1)
-      const zoomedX = chartCenter + (baseX - chartCenter) * zoomLevel + panOffset
-      return PAD.left + zoomedX * cw
+      return PAD.left + baseX * cw
     }
     const getY = (pct: number) => PAD.top + ch * ((yMax - pct) / yRng)
     const zeroY = getY(0)
@@ -213,7 +195,7 @@ const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean; t
     ctx.strokeStyle = 'rgba(255,255,255,0.18)'
     ctx.lineWidth = 0.5
     ctx.strokeRect(PAD.left, PAD.top, cw, ch)
-  }, [data, isPositive, zoomLevel, panOffset, avgColor, todayDayIdx])
+  }, [data, isPositive, avgColor, todayDayIdx])
 
   useEffect(() => {
     requestAnimationFrame(draw)
@@ -227,53 +209,11 @@ const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean; t
     return () => ro.disconnect()
   }, [draw])
 
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault()
-      const newZoom = Math.max(1, Math.min(10, zoomLevel + -e.deltaY * 0.001))
-      if (newZoom === 1) setPanOffset(0)
-      setZoomLevel(newZoom)
-    }
-    canvas.addEventListener('wheel', onWheel, { passive: false })
-    return () => canvas.removeEventListener('wheel', onWheel)
-  }, [zoomLevel])
-
-  const onMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const rect = canvasRef.current!.getBoundingClientRect()
-    setIsDragging(true)
-    setDragStart({ x: e.clientX - rect.left, offset: panOffset })
-  }
-  const onMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDragging || !dragStart || !canvasRef.current) return
-    const rect = canvasRef.current.getBoundingClientRect()
-    const maxPan = (zoomLevel - 1) * 0.5 + 0.1
-    setPanOffset(
-      Math.max(
-        -maxPan,
-        Math.min(maxPan, dragStart.offset + (e.clientX - rect.left - dragStart.x) / rect.width)
-      )
-    )
-  }
-  const onMouseUp = () => {
-    setIsDragging(false)
-    setDragStart(null)
-  }
-  const onMouseLeave = () => {
-    setIsDragging(false)
-    setDragStart(null)
-  }
-
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%' }}>
       <canvas
         ref={canvasRef}
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-        onMouseUp={onMouseUp}
-        onMouseLeave={onMouseLeave}
-        style={{ display: 'block', cursor: isDragging ? 'grabbing' : 'grab' }}
+        style={{ display: 'block' }}
       />
     </div>
   )

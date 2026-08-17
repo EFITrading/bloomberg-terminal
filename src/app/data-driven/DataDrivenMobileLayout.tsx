@@ -24,22 +24,22 @@ export default function DataDrivenMobileLayout() {
   const [active, setActive] = useState<MobileTab>('seasonal')
 
   const PANEL_STYLE: React.CSSProperties = {
-    minHeight: 'calc(100dvh - 110px)',
+    flex: 1,
+    minHeight: 0,
     overflowY: 'auto',
     WebkitOverflowScrolling: 'touch' as any,
+    overscrollBehavior: 'contain',
   }
 
   return (
     <div className="mobile-view">
-      {/* Sticky tab bar */}
+      {/* Tab bar (fixed height, never scrolls) */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(4, 1fr)',
         background: '#000000',
         borderBottom: '1px solid rgba(255,255,255,0.08)',
         flexShrink: 0,
-        position: 'sticky',
-        top: 0,
         zIndex: 20,
         padding: '6px 6px 0',
         gap: '4px',
@@ -86,7 +86,7 @@ export default function DataDrivenMobileLayout() {
       )}
 
       {active === 'monthly' && (
-        <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100dvh - 136px)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
           <AlmanacDailyChart
             month={new Date().getMonth()}
             showPostElection={true}
@@ -96,7 +96,7 @@ export default function DataDrivenMobileLayout() {
       )}
 
       {active === 'events' && (
-        <div style={{ ...PANEL_STYLE, overflowY: 'hidden' }}>
+        <div style={{ ...PANEL_STYLE, paddingBottom: 70 }}>
           <HistoricalEventsResearch />
         </div>
       )}

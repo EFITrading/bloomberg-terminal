@@ -65,12 +65,19 @@ class SeasonalScreenerService {
 
     const actualMaxStocks = Math.min(maxStocks, symbolList.length);
     const stocksToProcess = symbolList.slice(0, actualMaxStocks);
+    const totalStocksForProgress = stocksToProcess.length;
 
     try {
       // PHASE 1: Bulk fetch ALL historical data in 2-3 seconds
-
+      // Fetching is weighted as the first 40% of the progress bar so it isn't frozen while requests are in flight
+      const FETCH_WEIGHT = 0.4;
       const symbols = ['SPY', ...stocksToProcess.map(s => s.symbol)];
-      const allHistoricalData = await this.fetchBulkHistoricalData(symbols, years);
+      const allHistoricalData = await this.fetchBulkHistoricalData(symbols, years, (batchesDone, batchesTotal) => {
+        if (onProgress) {
+          const fetchProgress = Math.round(FETCH_WEIGHT * totalStocksForProgress * (batchesDone / batchesTotal));
+          onProgress(fetchProgress, totalStocksForProgress, [], `Fetching market data... (batch ${batchesDone}/${batchesTotal})`);
+        }
+      });
 
       // Verify SPY data loaded
       const spyData = allHistoricalData.get('SPY');
@@ -82,6 +89,8 @@ class SeasonalScreenerService {
 
       let processedCount = 0;
       const totalStocks = stocksToProcess.length;
+      const fetchBaseProgress = Math.round(FETCH_WEIGHT * totalStocksForProgress);
+      const PROCESS_WEIGHT = 1 - FETCH_WEIGHT;
 
       // Process all stocks with local data - NO MORE API CALLS
       for (const stock of stocksToProcess) {
@@ -116,11 +125,17 @@ class SeasonalScreenerService {
 
         processedCount++;
 
-        // Update progress frequently
-        if (onProgress && processedCount % 25 === 0) {
-          onProgress(processedCount, totalStocks, opportunities, `Processing: ${processedCount}/${totalStocks} - ${opportunities.length} found`);
+        // Update progress frequently, and yield to the event loop so the UI can actually paint
+        if (processedCount % 10 === 0 || processedCount === totalStocks) {
+          if (onProgress) {
+            const scaledProgress = fetchBaseProgress + Math.round(PROCESS_WEIGHT * totalStocksForProgress * (processedCount / totalStocks));
+            onProgress(scaledProgress, totalStocksForProgress, opportunities, `Processing: ${processedCount}/${totalStocks} - ${opportunities.length} found`);
+          }
+          // Give the browser a chance to repaint instead of blocking through the whole synchronous loop
+          await new Promise(resolve => setTimeout(resolve, 0));
         }
       }
+
 
       // Sort by average return (no filtering)
       const sortedOpportunities = opportunities
@@ -136,7 +151,8 @@ class SeasonalScreenerService {
   // BULK DATA FETCHING: Get all historical data in 2-3 large requests instead of 500 individual calls
   private async fetchBulkHistoricalData(
     symbols: string[],
-    years: number
+    years: number,
+    onBatchProgress?: (batchesDone: number, batchesTotal: number) => void
   ): Promise<Map<string, any>> {
     const dataMap = new Map<string, any>();
 
@@ -196,6 +212,7 @@ class SeasonalScreenerService {
           }
 
           const batchTime = Date.now() - batchStart;
+          onBatchProgress?.(batchIndex + 1, batches.length);
 
           // Very small delay between batches to avoid overwhelming server
           if (batchIndex < batches.length - 1) {
@@ -204,6 +221,7 @@ class SeasonalScreenerService {
 
         } catch (batchError: any) {
           // Continue with next batch rather than failing completely
+          onBatchProgress?.(batchIndex + 1, batches.length);
         }
       }
 

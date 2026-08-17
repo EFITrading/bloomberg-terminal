@@ -51,6 +51,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   const [expandedKey, setExpandedKey] = useState<string | null>(null) // Track which card is expanded
   const autoStartTriggered = useRef(false)
   const [isMobileView, setIsMobileView] = useState(false)
+  const [mobileSentiment, setMobileSentiment] = useState<'bullish' | 'bearish'>('bullish')
   useEffect(() => {
     const check = () => setIsMobileView(window.innerWidth <= 768)
     check()
@@ -230,9 +231,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
 
               // Update status with current processing info
               if (currentSymbol) {
-                setStreamStatus(
-                  `📊 ${currentSymbol} - Found ${foundOpportunities.length} qualified opportunities (${processed}/${total})`
-                )
+                setStreamStatus(`📊 ${currentSymbol}`)
               } else {
                 setStreamStatus(
                   `📊 ${processed}/${total} processed - ${foundOpportunities.length} opportunities found`
@@ -538,7 +537,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
    .seasonax-container { margin-top: 0 !important; }
    .results-grid-split {
      display: grid !important;
-     grid-template-columns: repeat(2, 1fr) !important;
+     grid-template-columns: 1fr !important;
      gap: 6px !important;
      padding: 6px !important;
      height: auto !important;
@@ -549,10 +548,10 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
    .bullish-section, .bearish-section, .seasoned-section {
      height: auto !important; min-height: 0 !important;
    }
-   .section-header-split { padding: 6px 10px !important; }
-   .section-title { font-size: 12px !important; gap: 6px !important; }
-   .section-title svg { width: 18px !important; height: 18px !important; }
-   .section-title .count { font-size: 11px !important; }
+   .section-header-split { display: none !important; }
+   .section-title { font-size: 10px !important; gap: 3px !important; line-height: 1 !important; }
+   .section-title svg { width: 11px !important; height: 11px !important; }
+   .section-title .count { font-size: 9px !important; }
    .pro-results { padding: 0 !important; }
  }
  `}
@@ -593,21 +592,23 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 10,
-                padding: '8px 14px',
+                gap: isMobileView ? 6 : 10,
+                padding: isMobileView ? '8px 10px' : '8px 14px',
                 borderBottom: '1px solid rgba(255,215,0,0.35)',
                 background: 'rgba(255,215,0,0.05)',
                 flexShrink: 0,
+                flexWrap: 'nowrap',
               }}
             >
               <span
                 style={{
                   color: '#FFD700',
-                  fontSize: 10,
+                  fontSize: isMobileView ? 8.5 : 10,
                   fontWeight: 800,
-                  letterSpacing: '1.4px',
+                  letterSpacing: isMobileView ? '0.6px' : '1.4px',
                   textTransform: 'uppercase',
                   fontFamily: '"Roboto Mono", monospace',
+                  flexShrink: 0,
                 }}
               >
                 Filters
@@ -619,13 +620,15 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                   background: 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 50%, #050505 100%)',
                   color: filters.startingSoon ? '#FFFFFF' : 'rgba(255,255,255,0.55)',
                   border: '1px solid #2e2e2e',
-                  borderRadius: 0,
-                  padding: '6px 12px',
-                  fontSize: 12,
+                  borderRadius: isMobileView ? 6 : 0,
+                  padding: isMobileView ? '6px 6px' : '6px 12px',
+                  fontSize: isMobileView ? 9.5 : 12,
                   fontWeight: 700,
                   fontFamily: '"Roboto Mono", monospace',
                   cursor: 'pointer',
                   outline: 'none',
+                  minWidth: 0,
+                  flex: isMobileView ? 1 : undefined,
                 }}
               >
                 <option value="" style={{ background: '#0d0d0d' }}>Entry Window</option>
@@ -640,20 +643,74 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                     : 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 50%, #050505 100%)',
                   color: filters.fiftyTwoWeek ? '#FFD700' : '#FFFFFF',
                   border: filters.fiftyTwoWeek ? '1px solid #FFD700' : '1px solid #2e2e2e',
-                  borderRadius: 0,
-                  padding: '6px 14px',
-                  fontSize: 12,
+                  borderRadius: isMobileView ? 6 : 0,
+                  padding: isMobileView ? '6px 8px' : '6px 14px',
+                  fontSize: isMobileView ? 9 : 12,
                   fontWeight: 700,
                   fontFamily: '"Roboto Mono", monospace',
                   cursor: 'pointer',
                   outline: 'none',
                   textTransform: 'uppercase',
-                  letterSpacing: '0.6px',
+                  letterSpacing: isMobileView ? '0.2px' : '0.6px',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
                 }}
               >
-                {filters.fiftyTwoWeek ? '✓ ' : ''}52 Week High/Low
+                {filters.fiftyTwoWeek ? '✓ ' : ''}{isMobileView ? '52W Hi/Lo' : '52 Week High/Low'}
               </button>
             </div>
+
+            {/* Mobile-only sentiment switcher — replaces the side-by-side bullish/bearish columns with one full-width section at a time */}
+            {isMobileView && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexShrink: 0,
+                  borderBottom: '1px solid rgba(255,215,0,0.35)',
+                }}
+              >
+                <button
+                  onClick={() => setMobileSentiment('bullish')}
+                  style={{
+                    flex: 1,
+                    padding: '10px 0',
+                    background: mobileSentiment === 'bullish' ? 'rgba(0,255,136,0.12)' : 'transparent',
+                    border: 'none',
+                    borderBottom: mobileSentiment === 'bullish' ? '2px solid #00FF88' : '2px solid transparent',
+                    color: mobileSentiment === 'bullish' ? '#00FF88' : 'rgba(255,255,255,0.5)',
+                    fontSize: 11,
+                    fontWeight: 800,
+                    letterSpacing: '0.8px',
+                    textTransform: 'uppercase',
+                    fontFamily: '"Roboto Mono", monospace',
+                    cursor: 'pointer',
+                    outline: 'none',
+                  }}
+                >
+                  Bullish
+                </button>
+                <button
+                  onClick={() => setMobileSentiment('bearish')}
+                  style={{
+                    flex: 1,
+                    padding: '10px 0',
+                    background: mobileSentiment === 'bearish' ? 'rgba(255,68,68,0.12)' : 'transparent',
+                    border: 'none',
+                    borderBottom: mobileSentiment === 'bearish' ? '2px solid #FF4444' : '2px solid transparent',
+                    color: mobileSentiment === 'bearish' ? '#FF4444' : 'rgba(255,255,255,0.5)',
+                    fontSize: 11,
+                    fontWeight: 800,
+                    letterSpacing: '0.8px',
+                    textTransform: 'uppercase',
+                    fontFamily: '"Roboto Mono", monospace',
+                    cursor: 'pointer',
+                    outline: 'none',
+                  }}
+                >
+                  Bearish
+                </button>
+              </div>
+            )}
 
             <div
               style={{
@@ -680,8 +737,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                       <div
                         className="seasoned-section"
                         style={{
+                          display: isMobileView && mobileSentiment !== 'bullish' ? 'none' : 'flex',
                           flex: 1,
-                          display: 'flex',
                           flexDirection: 'column',
                           height: '100%',
                           minHeight: 0,
@@ -713,9 +770,9 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                         <div
                           className="results-grid-split"
                           style={{
-                            overflowY: 'auto',
+                            overflowY: isMobileView ? 'visible' : 'auto',
                             overflowX: 'hidden',
-                            height: 'calc(82vh - 70px)',
+                            height: isMobileView ? 'auto' : 'calc(82vh - 70px)',
                           }}
                         >
                           {bullishOpps.map((opportunity, index) => {
@@ -746,19 +803,21 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                       </div>
 
                       {/* Golden Vertical Separator */}
+                      {!isMobileView && (
                       <div className="golden-separator">
                         <div className="separator-line"></div>
                         <div className="separator-orb">
                           <div className="orb-inner"></div>
                         </div>
                       </div>
+                      )}
 
                       {/* Right Column - Bearish Seasoned */}
                       <div
                         className="seasoned-section"
                         style={{
+                          display: isMobileView && mobileSentiment !== 'bearish' ? 'none' : 'flex',
                           flex: 1,
-                          display: 'flex',
                           flexDirection: 'column',
                           height: '100%',
                           minHeight: 0,
@@ -793,9 +852,9 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                         <div
                           className="results-grid-split"
                           style={{
-                            overflowY: 'auto',
+                            overflowY: isMobileView ? 'visible' : 'auto',
                             overflowX: 'hidden',
-                            height: 'calc(82vh - 70px)',
+                            height: isMobileView ? 'auto' : 'calc(82vh - 70px)',
                           }}
                         >
                           {bearishOpps.map((opportunity, index) => {
@@ -860,6 +919,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                     <div
                       className="bullish-section"
                       style={{
+                        display: isMobileView && mobileSentiment !== 'bullish' ? 'none' : 'flex',
                         flex: 1,
                         display: 'flex',
                         flexDirection: 'column',
@@ -896,9 +956,9 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                       <div
                         className="results-grid-split"
                         style={{
-                          overflowY: 'auto',
+                          overflowY: isMobileView ? 'visible' : 'auto',
                           overflowX: 'hidden',
-                          height: 'calc(82vh - 70px)',
+                          height: isMobileView ? 'auto' : 'calc(82vh - 70px)',
                         }}
                       >
                         {bullishOpps.map((opportunity, index) => {
@@ -930,19 +990,21 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                     </div>
 
                     {/* Golden Vertical Separator */}
+                    {!isMobileView && (
                     <div className="golden-separator">
                       <div className="separator-line"></div>
                       <div className="separator-orb">
                         <div className="orb-inner"></div>
                       </div>
                     </div>
+                    )}
 
                     {/* Bearish Section - Right Side */}
                     <div
                       className="bearish-section"
                       style={{
+                        display: isMobileView && mobileSentiment !== 'bearish' ? 'none' : 'flex',
                         flex: 1,
-                        display: 'flex',
                         flexDirection: 'column',
                         height: '100%',
                         minHeight: 0,
@@ -977,9 +1039,9 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                       <div
                         className="results-grid-split"
                         style={{
-                          overflowY: 'auto',
+                          overflowY: isMobileView ? 'visible' : 'auto',
                           overflowX: 'hidden',
-                          height: 'calc(82vh - 70px)',
+                          height: isMobileView ? 'auto' : 'calc(82vh - 70px)',
                         }}
                       >
                         {bearishOpps.map((opportunity, index) => {

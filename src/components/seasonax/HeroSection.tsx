@@ -44,6 +44,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
   onBestScan,
 }) => {
   const [selectedMarket, setSelectedMarket] = useState('S&P 500')
+  const [scanMode, setScanMode] = useState<'normal' | 'leaps' | 'multiframe'>('normal')
   const [isMobileView, setIsMobileView] = useState(false)
 
   useEffect(() => {
@@ -55,9 +56,13 @@ const HeroSection: React.FC<HeroSectionProps> = ({
 
   const markets = ['S&P 500', 'NASDAQ 100', 'DOW JONES']
 
-  const handleStartScreener = () => {
-    if (onScreenerStart) {
-      onScreenerStart(selectedMarket)
+  const handleStartScreener = (mode: 'normal' | 'leaps' | 'multiframe' = scanMode) => {
+    if (mode === 'leaps') {
+      onBestScan?.(selectedMarket)
+    } else if (mode === 'multiframe') {
+      onSeasonedScan?.(selectedMarket)
+    } else {
+      onScreenerStart?.(selectedMarket)
     }
   }
 
@@ -134,6 +139,34 @@ const HeroSection: React.FC<HeroSectionProps> = ({
     flexShrink: 0,
   }
 
+  // Mobile Row 1 controls — rounded select/scan buttons, replacing the old cramped 24px-tall sharp-cornered bar
+  const selectMobile: React.CSSProperties = {
+    appearance: 'none',
+    WebkitAppearance: 'none',
+    minWidth: 0,
+    height: 30,
+    boxSizing: 'border-box',
+    padding: '0 15px 0 6px',
+    fontSize: 9,
+    fontWeight: 700,
+    letterSpacing: '0.2px',
+    fontFamily: '"Roboto Mono", monospace',
+    textTransform: 'uppercase',
+    color: '#FFFFFF',
+    background: 'linear-gradient(180deg, #1c1c1c 0%, #0d0d0d 60%, #050505 100%)',
+    backgroundImage: `linear-gradient(180deg, #1c1c1c 0%, #0d0d0d 60%, #050505 100%), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='6'%3E%3Cpath d='M0 0l4.5 6 4.5-6z' fill='%23FF6B00'/%3E%3C/svg%3E")`,
+    backgroundRepeat: 'no-repeat, no-repeat',
+    backgroundPosition: '0 0, right 6px center',
+    border: '1px solid #2e2e2e',
+    borderRadius: 7,
+    outline: 'none',
+    cursor: 'pointer',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
+    textOverflow: 'ellipsis',
+    overflow: 'hidden',
+    whiteSpace: 'nowrap',
+  }
+
   return (
     <div
       style={{
@@ -149,6 +182,15 @@ const HeroSection: React.FC<HeroSectionProps> = ({
         .hs-mode-title, .hs-mode-title * { color: #c7c9ff !important; }
         .hs-mode-btn:hover { filter: brightness(1.25); }
         .hs-mode-btn:active { filter: brightness(0.9); transform: translateY(1px); }
+        .hs-mode-card:active { filter: brightness(1.3); transform: scale(0.97); }
+        .hs-mode-shine {
+          position: absolute;
+          top: 0; left: -60%;
+          width: 40%; height: 100%;
+          background: linear-gradient(120deg, transparent, rgba(255,255,255,0.10), transparent);
+          pointer-events: none;
+        }
+        .hs-select-mobile:active { filter: brightness(1.2); }
       `}</style>
 
       {isMobileView ? (
@@ -164,13 +206,13 @@ const HeroSection: React.FC<HeroSectionProps> = ({
             boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
           }}
         >
-          {/* Row 1: Index + Year + SCAN + Filter */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'nowrap' }}>
+          {/* Row 1: Index + Year + Scan mode (triggers scan on select) */}
+          <div style={{ display: 'flex', alignItems: 'stretch', gap: 5, flexWrap: 'nowrap' }}>
             <select
               value={selectedMarket}
               onChange={(e) => setSelectedMarket(e.target.value)}
-              className="hs-select"
-              style={{ ...selectBase, ...solidBlack, fontSize: 9, padding: '0 14px 0 5px', minWidth: 0, flex: 1, height: 24, minHeight: 24, boxSizing: 'border-box', letterSpacing: '0.2px' }}
+              className="hs-select-mobile"
+              style={{ ...selectMobile, flex: 1, padding: '0 16px 0 6px' }}
             >
               {markets.map((market) => (
                 <option key={market} value={market} style={{ background: '#0d0d0d' }}>{market}</option>
@@ -180,51 +222,30 @@ const HeroSection: React.FC<HeroSectionProps> = ({
             <select
               value={timePeriod}
               onChange={(e) => onTimePeriodChange?.(e.target.value)}
-              className="hs-select"
+              className="hs-select-mobile"
               disabled={loading}
-              style={{ ...selectBase, ...solidBlack, fontSize: 9, padding: '0 14px 0 5px', minWidth: 0, flex: 1, height: 24, minHeight: 24, boxSizing: 'border-box', opacity: loading ? 0.5 : 1, letterSpacing: '0.2px' }}
+              style={{ ...selectMobile, flex: 0.6, padding: '0 16px 0 6px', opacity: loading ? 0.5 : 1 }}
             >
               {timePeriodOptions.map((option) => (
                 <option key={option.id} value={option.id} style={{ background: '#0d0d0d' }}>{option.id}</option>
               ))}
             </select>
 
-            <button
-              className="hs-btn hs-btn-orange-text"
-              onClick={handleStartScreener}
-              style={{ ...btnBase, ...solidBlack, color: '#FF6B00', fontSize: 9, padding: '0 4px', height: 24, minHeight: 24, letterSpacing: '0.5px', flex: 1, whiteSpace: 'nowrap' }}
-            >
-              SCAN
-            </button>
-          </div>
-
-          {/* Row 2: Best of Each Frame + Multi Timeframe */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap' }}>
-            <button
-              className="hs-mode-btn"
-              onClick={() => onBestScan?.(selectedMarket)}
+            <select
+              value={scanMode}
+              onChange={(e) => {
+                const mode = e.target.value as 'normal' | 'leaps' | 'multiframe'
+                setScanMode(mode)
+                handleStartScreener(mode)
+              }}
+              className="hs-select-mobile"
               disabled={loading}
-              style={{ ...scanModeBtn, padding: '3px 10px 3px 4px', flex: 1, opacity: loading ? 0.5 : 1 }}
+              style={{ ...selectMobile, flex: 1, padding: '0 16px 0 6px', opacity: loading ? 0.5 : 1 }}
             >
-              <span style={{ ...scanModeIconBadge, width: 18, height: 18 }}><RocketIcon /></span>
-              <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.05, alignItems: 'flex-start' }}>
-                <span className="hs-mode-eyebrow" style={{ fontSize: 6, fontWeight: 700, letterSpacing: '0.5px' }}>SCAN MODE</span>
-                <span className="hs-mode-title" style={{ fontSize: 7, fontWeight: 800, letterSpacing: '0.2px', whiteSpace: 'nowrap' }}>SEASONAL LEAPS</span>
-              </span>
-            </button>
-
-            <button
-              className="hs-mode-btn"
-              onClick={() => onSeasonedScan?.(selectedMarket)}
-              disabled={loading}
-              style={{ ...scanModeBtn, padding: '3px 10px 3px 4px', flex: 1, opacity: loading ? 0.5 : 1 }}
-            >
-              <span style={{ ...scanModeIconBadge, width: 18, height: 18 }}><LayersIcon /></span>
-              <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.05, alignItems: 'flex-start' }}>
-                <span className="hs-mode-eyebrow" style={{ fontSize: 6, fontWeight: 700, letterSpacing: '0.5px' }}>SCAN MODE</span>
-                <span className="hs-mode-title" style={{ fontSize: 7, fontWeight: 800, letterSpacing: '0.2px', whiteSpace: 'nowrap' }}>MULTIFRAME PICKS</span>
-              </span>
-            </button>
+              <option value="normal" style={{ background: '#0d0d0d' }}>⌕ Scan Normal</option>
+              <option value="leaps" style={{ background: '#0d0d0d' }}>⌕ Scan Leaps</option>
+              <option value="multiframe" style={{ background: '#0d0d0d' }}>⌕ Scan MultiFrame</option>
+            </select>
           </div>
         </div>
       ) : (
