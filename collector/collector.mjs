@@ -454,6 +454,183 @@ async function runSweepSenseAutoSave() {
     }
 }
 
+// ── SweepSense Discord card rendering (static self-built HTML, no live-page screenshot) ────
+// Everything needed is already in the scraped `data-flow-payload` JSON (see
+// flowAlertPayload in FlowTrackingPanel.tsx). Rather than screenshotting the REAL, constantly
+// reflowing app card (the old approach - fragile: wrong-ticker / cropped captures), this builds
+// a small isolated static HTML page from that JSON and screenshots THAT instead. Since nothing
+// on this page ever changes after it's set, there's no reflow race to land a bad capture in.
+const fmtMoney = (n) => {
+    if (n === null || n === undefined || !isFinite(n)) return 'N/A'
+    const abs = Math.abs(n)
+    if (abs >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`
+    if (abs >= 1_000) return `$${(n / 1_000).toFixed(0)}K`
+    return `$${n.toFixed(2)}`
+}
+const fmtPrice = (n) => (n === null || n === undefined || !isFinite(n)) ? 'N/A' : `$${n.toFixed(2)}`
+const fmtPct = (n) => (n === null || n === undefined || !isFinite(n)) ? 'N/A' : `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`
+const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+// Icons kept as tiny inline SVGs (not emoji) - headless Chromium on Railway has no color
+// emoji font installed, so emoji would render as empty boxes.
+const ICON_CROSSHAIR = '<svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="8" fill="none" stroke="#22d3ee" stroke-width="2"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4" stroke="#22d3ee" stroke-width="2"/></svg>'
+const ICON_TARGET = '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 16l6-6 4 4 6-8" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 6h6v6" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+const ICON_SHIELD = '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5z" fill="none" stroke="#ef4444" stroke-width="2" stroke-linejoin="round"/></svg>'
+const ICON_SPAM = '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M3 10v4h4l5 4V6l-5 4H3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M16 9c1 1 1 5 0 6M19 7c2 2 2 8 0 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
+const ICON_STRUCT = '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M3 20h18M5 20V10h4v10M15 20V10h4v10M9 10V6h6v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>'
+const ICON_GAMMA = '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M13 2 4 14h6l-1 8 9-12h-6z" fill="currentColor"/></svg>'
+
+function buildSweepSenseCardHtml(c) {
+    const isCall = String(c.optionType || '').toLowerCase().startsWith('c')
+    const cpColor = isCall ? '#22c55e' : '#ef4444'
+    const termColor = c.term === 'LONG TERM' ? '#22d3ee' : '#f59e0b'
+    const expiryShort = c.expiry ? (() => { const [y, m, d] = c.expiry.split('-'); return `${m}/${d}/${y.slice(2)}` })() : 'N/A'
+    // Same fill-style coloring convention as the live table (FlowTrackingPanel.tsx):
+    // A/AA (bought at ask) green, B/BB (sold at bid) red, anything else purple.
+    const fillColor = (c.fillStyle === 'A' || c.fillStyle === 'AA') ? '#22c55e' : (c.fillStyle === 'B' || c.fillStyle === 'BB') ? '#ef4444' : '#c084fc'
+    const pctColor = (c.contractPctChange ?? 0) >= 0 ? '#22c55e' : '#ef4444'
+    const priceMoveColor = (c.currentStockPrice !== null && c.currentStockPrice !== undefined && c.entrySpot !== null && c.entrySpot !== undefined)
+        ? (c.currentStockPrice >= c.entrySpot ? '#22c55e' : '#ef4444') : '#e5e7eb'
+    // Same glossy pill badges as the live table's getTradeTypeColor() (OptionsFlowTable.tsx).
+    const tradeTypeColor = c.tradeType === 'BLOCK' ? '#00e5ff' : c.tradeType === 'MULTI-LEG' ? '#d8b4fe' : '#FFD700'
+
+    // Activity flags now carry real trade detail (call/put split, strike(s), expiry, size, premium)
+    // stamped by FlowTrackingPanel.tsx's activityDetail, instead of just a plain label string.
+    const fmtActivityDetail = (d) => {
+        if (!d || !d.count) return ''
+        const dominant = d.calls >= d.puts ? 'CALL' : 'PUT'
+        const mixed = d.calls > 0 && d.puts > 0
+        const typeText = mixed ? `${d.calls}x CALL / ${d.puts}x PUT` : `${d.count}x ${dominant}${d.count > 1 ? 'S' : ''}`
+        const strikeText = d.strikes.length === 1 ? fmtPrice(d.strikes[0]) : `${fmtPrice(d.strikes[0])}\u2013${fmtPrice(d.strikes[d.strikes.length - 1])}`
+        const expiryText = d.expiries.length === 1
+            ? (() => { const [y, m, day] = d.expiries[0].split('-'); return `${m}/${day}/${y.slice(2)}` })()
+            : `${d.expiries.length} expiries`
+        return `${typeText}  \u00b7  ${strikeText}  \u00b7  ${expiryText}  \u00b7  ${d.totalSize.toLocaleString()} ctrs  \u00b7  ${fmtMoney(d.totalPremium)}`
+    }
+    const activityRows = [
+        c.activityDetail?.spam ? { icon: ICON_SPAM, color: '#f59e0b', title: c.activityDetail.spam.label, detail: fmtActivityDetail(c.activityDetail.spam) } : null,
+        c.activityDetail?.gamma ? { icon: ICON_GAMMA, color: '#ec4899', title: c.activityDetail.gamma.label, detail: fmtActivityDetail(c.activityDetail.gamma) } : null,
+        c.activityDetail?.structural ? { icon: ICON_STRUCT, color: '#a855f7', title: c.activityDetail.structural.label, detail: fmtActivityDetail(c.activityDetail.structural) } : null,
+    ].filter(Boolean)
+
+    const row = (icon, label, labelColor, strike, opt, pct, pctColor, barColor) => `
+        <div class="row" style="background:linear-gradient(to right, rgba(0,0,0,0) 0%, ${barColor}22 55%, ${barColor}4d 100%); border-right:3px solid ${barColor};">
+            <div class="row-icon">${icon}</div>
+            <div class="row-label" style="color:${labelColor}">${esc(label)}</div>
+            <div class="row-val" style="color:${barColor}">${esc(fmtPrice(strike))}</div>
+            <div class="row-sep">/</div>
+            <div class="row-val" style="color:${barColor}">${esc(fmtPrice(opt))}</div>
+            <div class="row-pct" style="color:${pctColor}">${esc(fmtPct(pct))}</div>
+        </div>`
+
+    const rows = []
+    if (c.target1 !== null && c.target1 !== undefined) rows.push(row(ICON_TARGET, 'PROFIT TARGET #1:', '#22c55e', c.target1, c.target1Opt, c.target1Pct, '#22c55e', '#22c55e'))
+    if (c.target2 !== null && c.target2 !== undefined) rows.push(row(ICON_TARGET, 'PROFIT TARGET #2:', '#22c55e', c.target2, c.target2Opt, c.target2Pct, '#22c55e', '#22c55e'))
+    if (c.stop !== null && c.stop !== undefined) rows.push(row(ICON_SHIELD, 'STOP LOSS:', '#ef4444', c.stop, c.stopOpt, c.stopPct, '#ef4444', '#ef4444'))
+
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+        @font-face { font-family: 'Sys'; src: local('Arial'); }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: transparent; font-family: Arial, Helvetica, sans-serif; }
+        #card {
+            width: 980px; padding: 34px 38px; background: #000; border-radius: 26px;
+            border: 1px solid rgba(255,255,255,0.14);
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.03), 0 0 40px 4px rgba(34,197,94,0.18), 0 0 40px 4px rgba(239,68,68,0.14);
+        }
+        .header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+        .header-left { display: flex; align-items: baseline; gap: 14px; }
+        .ticker { font-size: 46px; font-weight: 900; letter-spacing: 1px; color: #ff7a1a; text-shadow: 0 1px 0 #ffb066, 0 2px 0 #ff8c2e, 0 3px 0 #e56a00, 0 4px 0 #b85500, 0 5px 6px rgba(0,0,0,0.6); }
+        .direction { display: flex; align-items: center; gap: 6px; font-size: 20px; font-weight: 900; letter-spacing: 1px; }
+        .direction .tri { width: 0; height: 0; }
+        .header-right { display: flex; align-items: center; gap: 26px; }
+        .stat { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+        .stat-label { font-size: 13px; font-weight: 900; color: #fff; letter-spacing: 1px; }
+        .stat-val { font-size: 18px; font-weight: 900; }
+        .term { font-size: 30px; font-weight: 900; letter-spacing: 1px; }
+        .contract { display: flex; align-items: center; gap: 14px; margin-top: 14px; flex-wrap: wrap; }
+        .contract .cp { font-size: 24px; font-weight: 900; }
+        .fill-group { display: flex; align-items: center; gap: 2px; }
+        .fill-group .size { font-size: 24px; font-weight: 900; color: #22d3ee; }
+        .fill-group .at { font-size: 22px; font-weight: 900; color: #fff; }
+        .fill-group .fill-price { font-size: 24px; font-weight: 900; color: #eab308; }
+        .fill-group .fill-badge { font-size: 15px; font-weight: 900; color: #fff; padding: 2px 8px; border-radius: 5px; letter-spacing: 0.5px; margin-left: 4px; }
+        .contract .exp { font-size: 22px; font-weight: 700; color: #fff; }
+        .contract .tt { font-size: 18px; font-weight: 900; letter-spacing: 0.05em; padding: 6px 16px; border-radius: 9999px; background-color: #000; background-image: linear-gradient(180deg, #1e1e1e 0%, #000000 50%, #111111 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(0,0,0,0.8); }
+        .contract .pct { font-size: 24px; font-weight: 900; }
+        .spot-group { display: flex; align-items: center; gap: 6px; }
+        .spot-group .spot { font-size: 22px; font-weight: 700; color: #fff; }
+        .spot-group .arrow { color: #fff; font-size: 20px; }
+        .divider { height: 1px; background: rgba(255,255,255,0.15); margin: 22px 0; }
+        .plan { display: flex; align-items: flex-start; gap: 14px; }
+        .plan-icon { width: 44px; height: 44px; border-radius: 9999px; border: 2px solid #22d3ee; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .plan-label { font-size: 22px; font-weight: 900; color: #22d3ee; letter-spacing: 1px; }
+        .plan-text { font-size: 22px; font-weight: 500; color: #e5e7eb; margin-top: 2px; }
+        .rows { display: flex; flex-direction: column; gap: 14px; margin-top: 22px; }
+        .row { display: flex; align-items: center; gap: 16px; padding: 16px 22px; border-radius: 14px; background-color: #050505; }
+        .row-icon { width: 40px; height: 40px; border-radius: 9999px; background: #0a0a0a; border: 2px solid currentColor; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .row-label { font-size: 22px; font-weight: 900; letter-spacing: 0.5px; width: 280px; flex-shrink: 0; }
+        .row-val { font-size: 26px; font-weight: 800; }
+        .row-sep { color: #555; font-size: 22px; }
+        .row-pct { font-size: 26px; font-weight: 900; margin-left: auto; }
+        .activity { margin-top: 22px; display: flex; flex-direction: column; gap: 10px; }
+        .activity-title { font-size: 15px; font-weight: 900; color: #9ca3af; letter-spacing: 1.5px; margin-bottom: 2px; }
+        .activity-row { display: flex; align-items: center; gap: 14px; padding: 12px 18px; border-radius: 12px; background-color: #0a0a0a; border: 1px solid rgba(255,255,255,0.08); }
+        .activity-icon { width: 34px; height: 34px; border-radius: 9999px; background: #000; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border: 2px solid currentColor; }
+        .activity-text { display: flex; flex-direction: column; gap: 2px; }
+        .activity-name { font-size: 18px; font-weight: 900; letter-spacing: 0.3px; }
+        .activity-detail { font-size: 16px; font-weight: 700; color: #d1d5db; }
+    </style></head><body>
+        <div id="card">
+            <div class="header">
+                <div class="header-left">
+                    <span class="ticker">${esc(c.ticker)}</span>
+                    ${c.direction ? `<span class="direction" style="color:${c.direction === 'BULLISH' ? '#00e676' : '#ff1744'}"><span class="tri" style="border-left:9px solid transparent;border-right:9px solid transparent;${c.direction === 'BULLISH' ? 'border-bottom:15px solid currentColor;' : 'border-top:15px solid currentColor;'}"></span>${esc(c.direction)}</span>` : ''}
+                </div>
+                <div class="header-right">
+                    ${c.takenTime ? `<div class="stat"><div class="stat-label">TAKEN</div><div class="stat-val" style="color:#22d3ee">${esc(c.takenTime)}</div></div>` : ''}
+                    ${c.qualifiedTime ? `<div class="stat"><div class="stat-label">QUALIFIED</div><div class="stat-val" style="color:#22c55e">${esc(c.qualifiedTime)}</div></div>` : ''}
+                    ${c.earnings ? `<div class="stat"><div class="stat-label">EARNINGS</div><div class="stat-val" style="color:#f59e0b">${esc(c.earnings)}</div></div>` : ''}
+                    <span class="term" style="color:${termColor}">${esc(c.term || 'N/A')}</span>
+                </div>
+            </div>
+            <div class="contract">
+                <span class="cp" style="color:${cpColor}">${esc(fmtPrice(c.strike))} ${isCall ? 'Call' : 'Put'}</span>
+                <div class="fill-group">
+                    <span class="size">${esc(c.tradeSize ?? 'N/A')}</span><span class="at">@</span><span class="fill-price">$${esc(typeof c.premiumPerContract === 'number' ? c.premiumPerContract.toFixed(2) : 'N/A')}</span>
+                    ${c.fillStyle ? `<span class="fill-badge" style="background:${fillColor}">${esc(c.fillStyle)}</span>` : ''}
+                </div>
+                <span class="exp">${esc(expiryShort)}</span>
+                <div class="spot-group">
+                    ${c.entrySpot !== null && c.entrySpot !== undefined ? `<span class="spot">${esc(fmtPrice(c.entrySpot))}</span>` : ''}
+                    ${c.currentStockPrice !== null && c.currentStockPrice !== undefined ? `<span class="arrow">&gt;</span><span class="spot" style="color:${priceMoveColor}">${esc(fmtPrice(c.currentStockPrice))}</span>` : ''}
+                </div>
+                <span class="tt" style="color:${tradeTypeColor};border:1px solid ${tradeTypeColor}99">${esc(c.tradeType || '')}</span>
+                ${c.contractPctChange !== null && c.contractPctChange !== undefined ? `<span class="pct" style="color:${pctColor}">${esc(fmtPct(c.contractPctChange))}</span>` : ''}
+            </div>
+            <div class="divider"></div>
+            ${c.planText ? `<div class="plan">
+                <div class="plan-icon">${ICON_CROSSHAIR}</div>
+                <div>
+                    <div class="plan-label">ENTRY PLAN:</div>
+                    <div class="plan-text">${esc(c.planText)}</div>
+                </div>
+            </div>` : ''}
+            <div class="rows">${rows.join('')}</div>
+            ${activityRows.length ? `<div class="activity">
+                <div class="activity-title">ACTIVITY</div>
+                ${activityRows.map((r) => `
+                <div class="activity-row" style="color:${r.color}">
+                    <div class="activity-icon">${r.icon}</div>
+                    <div class="activity-text">
+                        <div class="activity-name">${esc(r.title)}</div>
+                        ${r.detail ? `<div class="activity-detail">${esc(r.detail)}</div>` : ''}
+                    </div>
+                </div>`).join('')}
+            </div>` : ''}
+        </div>
+    </body></html>`
+}
+
 // ── SweepSense "Ready 4 Pickup" Discord alerts (headless browser scrape) ──────────────────
 // Same headless-browser trick as runSweepSenseAutoSave(): the SweepSense grading/plan/gauge
 // math lives entirely client-side, so this opens the REAL page and reads the `data-flow-payload`
@@ -498,114 +675,28 @@ async function runSweepSenseDiscordAlert() {
         if (newOnes.length === 0) { console.log('[Discord] All Ready-4-Pickup trades already alerted.'); return }
 
         let postedCount = 0
+        // A dedicated, static page per card - never touches the live/scraped `page` above -
+        // so there's no reflow race to land a bad capture in like the old live-scrape approach.
+        const renderPage = await browser.newPage()
+        await renderPage.setViewport({ width: 1100, height: 800, deviceScaleFactor: 2 })
         for (const c of newOnes) {
             try {
-                const cardHandle = await page.$(`[data-flow-id="${c.flowId}"]`)
-                if (!cardHandle) { console.error(`[Discord] Card not found for flowId ${c.flowId} — skipping.`); continue }
-
-                // Must scroll into view BEFORE clicking — Puppeteer refuses to click an element
-                // that's off-screen, which was silently killing every card below the fold.
-                await cardHandle.evaluate((el) => el.scrollIntoView({ block: 'center' }))
-                await new Promise((r) => setTimeout(r, 200))
-
-                // The live feed re-renders/reorders cards constantly, so the PROB button handle
-                // can go stale between the scroll and the click. This toggle is purely cosmetic
-                // (defaults to a valid view either way) so a failed click must NEVER abort the
-                // whole card/alert — only wrap-and-swallow it, same as the old code aborted here.
-                try {
-                    const probBtn = await cardHandle.$('button[data-risk-option="PROB"]')
-                    if (probBtn) {
-                        await probBtn.click()
-                        await new Promise((r) => setTimeout(r, 400))
-                    }
-                } catch (clickErr) {
-                    console.warn(`[Discord] PROB toggle click failed for ${c.ticker} (non-fatal, continuing with default view):`, clickErr.message)
-                }
-
-                // The live feed re-renders/reorders cards constantly, so re-verify (right before
-                // capturing) that this element still actually holds the flow we think it does —
-                // checking both the JSON payload's flowId AND the visible ticker text, since a
-                // mismatch on either means the wrong card would get posted under this ticker's name.
-                const verifyCard = (handle) => handle.evaluate((el, expectedFlowId, expectedTicker) => {
-                    if (el.textContent?.includes('LOADING SWEEPSENSE DATA')) return false
-                    if (!el.isConnected) return false
-                    try {
-                        const payload = JSON.parse(el.getAttribute('data-flow-payload') || 'null')
-                        return payload?.flowId === expectedFlowId && payload?.ticker === expectedTicker
-                    } catch { return false }
-                }, c.flowId, c.ticker).catch(() => false)
-
-                let verified = await verifyCard(cardHandle)
-                if (!verified) {
-                    await new Promise((r) => setTimeout(r, 800))
-                    verified = await verifyCard(cardHandle)
-                }
-                if (!verified) { console.error(`[Discord] Card content didn't match expected flowId/ticker (${c.ticker}) — skipping.`); continue }
-
-                // Re-acquiring the handle right before the shot (in case the earlier node went
-                // stale) previously skipped re-verification, which let a stale/mismatched node
-                // slip through and get screenshotted under the WRONG ticker's caption — the
-                // re-fetched (or stale fallback) handle must pass the exact same check before
-                // it's ever used for the capture.
-                let shotHandle = await page.$(`[data-flow-id="${c.flowId}"]`)
-                if (shotHandle) {
-                    const shotVerified = await verifyCard(shotHandle)
-                    if (!shotVerified) shotHandle = null
-                }
-                if (!shotHandle) {
-                    const stillGood = await verifyCard(cardHandle)
-                    if (!stillGood) { console.error(`[Discord] Card became stale right before capture (${c.ticker}) — skipping.`); continue }
-                    shotHandle = cardHandle
-                }
-
-                // Let layout settle (async chart/badge sub-renders can still be growing the
-                // element's height) before measuring/capturing, otherwise the screenshot gets
-                // cut off mid-card.
-                let box = await shotHandle.boundingBox()
-                await new Promise((r) => setTimeout(r, 250))
-                const box2 = await shotHandle.boundingBox()
-                if (box2 && (!box || box2.height > box.height)) box = box2
-                if (!box || box.height < 10) { console.error(`[Discord] Card had no stable layout (${c.ticker}) — skipping.`); continue }
-
-                // shotHandle.screenshot() (no explicit clip) re-measures the element's rect
-                // itself in a separate CDP round-trip right before grabbing pixels. Because the
-                // feed reflows/reorders constantly, that internal re-measurement can race a
-                // layout shift and grab pixels from wherever the OLD rect now lands on screen —
-                // i.e. a different, misaligned card. Passing our OWN just-measured clip removes
-                // that hidden race, and re-verifying the rect/content immediately after the shot
-                // catches (and retries) any capture that still landed on a moved/wrong card.
-                let png = null
-                for (let attempt = 0; attempt < 2 && !png; attempt++) {
-                    const clipBox = await shotHandle.boundingBox()
-                    if (!clipBox || clipBox.height < 10) { await new Promise((r) => setTimeout(r, 200)); continue }
-                    const candidate = await page.screenshot({
-                        type: 'png',
-                        clip: { x: clipBox.x, y: clipBox.y, width: clipBox.width, height: clipBox.height },
-                    })
-                    const postBox = await shotHandle.boundingBox()
-                    const stillVerified = await verifyCard(shotHandle)
-                    const rectUnchanged = postBox
-                        && Math.abs(postBox.x - clipBox.x) < 1 && Math.abs(postBox.y - clipBox.y) < 1
-                        && Math.abs(postBox.width - clipBox.width) < 1 && Math.abs(postBox.height - clipBox.height) < 1
-                    if (stillVerified && rectUnchanged) {
-                        png = candidate
-                    } else {
-                        console.warn(`[Discord] Capture landed mid-reflow for ${c.ticker} — retrying (attempt ${attempt + 1}).`)
-                        await new Promise((r) => setTimeout(r, 300))
-                    }
-                }
-                if (!png) { console.error(`[Discord] Could not get a stable capture for ${c.ticker} — skipping.`); continue }
+                await renderPage.setContent(buildSweepSenseCardHtml(c), { waitUntil: 'load' })
+                const cardHandle = await renderPage.$('#card')
+                if (!cardHandle) { console.error(`[Discord] Card render failed for ${c.ticker} — skipping.`); continue }
+                const png = await cardHandle.screenshot({ type: 'png' })
 
                 const form = new FormData()
                 form.append('payload_json', JSON.stringify({
-                    content: `**${c.ticker} - Ready for Pickup**`,
+                    content: `@here **${c.ticker} - Ready for Pickup**`,
+                    allowed_mentions: { parse: ['everyone'] },
                     attachments: [{ id: 0, filename: 'sweepsense-card.png' }],
                 }))
                 form.append('files[0]', new Blob([png], { type: 'image/png' }), 'sweepsense-card.png')
                 const res = await fetch(DISCORD_WEBHOOK_URL, { method: 'POST', body: form })
-                if (!res.ok) { console.error(`[Discord] Screenshot post failed: ${res.status}`); continue }
+                if (!res.ok) { console.error(`[Discord] Post failed for ${c.ticker}: ${res.status}`); continue }
             } catch (err) {
-                console.error(`[Discord] Card screenshot failed for ${c.ticker} (${c.flowId}):`, err.message)
+                console.error(`[Discord] Post failed for ${c.ticker} (${c.flowId}):`, err.message)
                 continue
             }
             postedCount++

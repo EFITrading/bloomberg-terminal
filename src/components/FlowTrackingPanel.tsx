@@ -2385,6 +2385,24 @@ function SweepSenseTab({
           const structuralLabel = structuralResult.label
           const gammaLabel = gammaResult.label
 
+          // Compact summary of the underlying trades behind an activity flag (Discord card needs
+          // real call/put + strike + expiry + size/premium detail, not just the label text).
+          const summarizeActivityTrades = (trades: Array<FlowBiasRawTrade>) => {
+            if (!trades || trades.length === 0) return null
+            const calls = trades.filter((t) => t.type === 'call').length
+            const puts = trades.filter((t) => t.type === 'put').length
+            const totalSize = trades.reduce((s, t) => s + (t.tradeSize || 0), 0)
+            const totalPremium = trades.reduce((s, t) => s + (t.totalPremium || 0), 0)
+            const strikes = Array.from(new Set(trades.map((t) => t.strike))).sort((a, b) => a - b)
+            const expiries = Array.from(new Set(trades.map((t) => t.expiry).filter(Boolean)))
+            return { count: trades.length, calls, puts, totalSize, totalPremium, strikes, expiries }
+          }
+          const activityDetail = {
+            spam: (spamLabel !== 'No Spammer Detected' && spamLabel !== 'Loading…') ? { label: spamLabel, ...summarizeActivityTrades(spamResult.trades) } : null,
+            structural: (structuralLabel !== 'No Structural Formation Detected') ? { label: structuralLabel, ...summarizeActivityTrades(structuralResult.trades) } : null,
+            gamma: (gammaLabel === 'Gamma Squeeze in Formation') ? { label: gammaLabel, ...summarizeActivityTrades(gammaResult.trades) } : null,
+          }
+
           // No default risk profile - the built-trade box/ladder only appears once the user
           // explicitly clicks PROBABILITY / ON A ROLE / LUCKY for this card.
           const risk = riskLevel[flowId]
@@ -2563,7 +2581,7 @@ function SweepSenseTab({
             convictionScore, planText,
             breakdown: { buyCallsPct: breakdown.buyCallsPct, bearCallsPct: breakdown.bearCallsPct, buyPutsPct: breakdown.buyPutsPct, bearPutsPct: breakdown.bearPutsPct },
             trendScorePct: Math.round(Math.max(-1, Math.min(1, flowBiasScore)) * 100),
-            spamLabel, gammaLabel, structuralLabel,
+            spamLabel, gammaLabel, structuralLabel, activityDetail,
             target1: ladderTarget1, target1Opt: ladderT1Opt, target1Pct: ladderT1Pct,
             target2: ladderTarget2, target2Opt: ladderT2Opt, target2Pct: ladderT2Pct,
             stop: ladderStopStock, stopOpt: ladderStopOpt, stopPct: ladderStopPct,

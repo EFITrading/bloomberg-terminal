@@ -2858,6 +2858,9 @@ Stock Reaction: ${scores.stockReaction}/15`
   // Large-cap tickers that require elevated premium thresholds
   const LARGE_CAP_PREMIUM_TICKERS = new Set(['AAPL', 'NVDA', 'TSLA', 'MSFT', 'GOOGL', 'GOOG', 'LLY', 'META', 'SPCX', 'TSM', 'AVGO', 'MU', 'AMD', 'AMZN'])
 
+  // Mega-caps banned from SweepSense entirely (too liquid/noisy for reliable flow signal)
+  const SWEEPSENSE_BANNED_TICKERS = new Set(['NVDA', 'AAPL', 'MSFT', 'META', 'GOOG', 'GOOGL', 'AVGO', 'MU'])
+
   // "Mag 7" mega-caps require an even higher per-leg premium for MULTI-LEG combo qualification.
   const MAG7_TICKERS = new Set(['AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'NVDA', 'META', 'TSLA'])
 
@@ -2880,6 +2883,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     const groups = new Map<string, OptionsFlowData[]>()
     for (const t of data) {
       if ((t.classification || t.trade_type || '').toUpperCase() !== 'MULTI-LEG') continue
+      if (SWEEPSENSE_BANNED_TICKERS.has(t.underlying_ticker.toUpperCase())) continue
       const bucket = Math.floor(new Date(t.trade_timestamp).getTime() / 100) * 100
       const key = `${t.underlying_ticker}-${t.expiry}-${bucket}`
       if (!groups.has(key)) groups.set(key, [])
@@ -2908,6 +2912,7 @@ Stock Reaction: ${scores.stockReaction}/15`
   // Large-caps: $900K+ premium; others: $300K-$1.3M
   const meetsLongTermCriteria = (trade: OptionsFlowData): boolean => {
     if (INDEX_ONLY_EXCLUSIONS.has(trade.underlying_ticker.toUpperCase())) return false
+    if (SWEEPSENSE_BANNED_TICKERS.has(trade.underlying_ticker.toUpperCase())) return false
     if (trade.days_to_expiry < 35 || trade.days_to_expiry > 120) return false
     const tradeType = (trade.classification || trade.trade_type || '').toUpperCase()
     // MULTI-LEG: qualifies only when it's part of a paired buy+sell combo (see multiLegPairedTrades)
@@ -2922,15 +2927,16 @@ Stock Reaction: ${scores.stockReaction}/15`
   }
 
   // Short-Term criteria: 0-28 DTE, OTM, SWEEP/BLOCK only, ETFs+indexes excluded
-  // Large-caps: $450K+ premium; others: $99K-$340K
+  // Large-caps: $450K+ premium; others: $125K-$340K
   const meetsShortTermCriteria = (trade: OptionsFlowData): boolean => {
     if (ETF_INDEX_EXCLUSIONS.has(trade.underlying_ticker.toUpperCase())) return false
+    if (SWEEPSENSE_BANNED_TICKERS.has(trade.underlying_ticker.toUpperCase())) return false
     if (trade.days_to_expiry < 0 || trade.days_to_expiry > 28) return false
     const tradeType = (trade.classification || trade.trade_type || '').toUpperCase()
     // MULTI-LEG: qualifies only when it's part of a paired buy+sell combo (see multiLegPairedTrades)
     if (tradeType === 'MULTI-LEG') return multiLegPairedTrades.has(trade)
     const isLargeCap = LARGE_CAP_PREMIUM_TICKERS.has(trade.underlying_ticker.toUpperCase())
-    const minPremium = isLargeCap ? 450000 : 99000
+    const minPremium = isLargeCap ? 450000 : 125000
     const maxPremium = isLargeCap ? Infinity : 340000
     if (trade.total_premium < minPremium || trade.total_premium > maxPremium) return false
     if (trade.trade_size < 650) return false
