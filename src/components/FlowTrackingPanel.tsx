@@ -1489,10 +1489,11 @@ function SweepSenseTab({
   const chainLoadingRef = React.useRef<Set<string>>(new Set())
   const [chainLoadingTick, setChainLoadingTick] = useState(0)
 
+  // Targets/stop-loss are always probability-based now (PROBABILITY is the default risk
+  // profile for every card), so the chain needs to be fetched for every displayed ticker,
+  // not just ones with an explicit user-picked risk override.
   const wantedChainTickers = data ? Array.from(new Set(
-    data.trades
-      .filter(({ trade }) => riskLevel[generateFlowId(trade)])
-      .map(({ trade }) => trade.underlying_ticker)
+    data.trades.map(({ trade }) => trade.underlying_ticker)
   )) : []
 
   useEffect(() => {
@@ -2403,9 +2404,9 @@ function SweepSenseTab({
             gamma: (gammaLabel === 'Gamma Squeeze in Formation') ? { label: gammaLabel, ...summarizeActivityTrades(gammaResult.trades) } : null,
           }
 
-          // No default risk profile - the built-trade box/ladder only appears once the user
-          // explicitly clicks PROBABILITY / ON A ROLE / LUCKY for this card.
-          const risk = riskLevel[flowId]
+          // Targets/stop-loss are based on the probability-of-profit build, not the raw flow
+          // trade - defaults to PROBABILITY until the user picks ON A ROLE / LUCKY instead.
+          const risk = riskLevel[flowId] ?? 'PROB'
           const baseDte = Math.max(1, Math.round(dte ?? trade.days_to_expiry))
           const baseSigma = sigma && sigma > 0 ? sigma : (trade.implied_volatility || 0)
           const baseSpot = spot && spot > 0 ? spot : trade.spot_price
@@ -2559,6 +2560,11 @@ function SweepSenseTab({
           const readyForPickupNow = (() => {
             const noPlan = planText === 'No Plan detected.' || planText === 'Waiting on dealer magnet/pivot data to build an entry plan.'
             if (noPlan) return false
+            // SweepSense alerts only fire for short-term trades - long-term never qualifies.
+            if (isLongTerm) return false
+            // SweepSense alerts only fire for directional trades - hedges (and anything the
+            // classifier can't score, e.g. MULTI-LEG) never qualify regardless of plan/price.
+            if (tradeTypeVal !== 'MULTI-LEG' && classifyHedgeDirectional({ trade, sigma, dte, spot } as Parameters<typeof classifyHedgeDirectional>[0]) !== 'DIRECTIONAL') return false
             const livePrice = currentStockPrice && currentStockPrice > 0 ? currentStockPrice : (spot && spot > 0 ? spot : trade.spot_price)
             const dollarMatch = planText.match(/\$([0-9]+(?:\.[0-9]+)?)/)
             const level = dollarMatch ? parseFloat(dollarMatch[1]) : null

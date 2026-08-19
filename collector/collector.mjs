@@ -488,7 +488,6 @@ function buildSweepSenseCardHtml(c) {
     // Same fill-style coloring convention as the live table (FlowTrackingPanel.tsx):
     // A/AA (bought at ask) green, B/BB (sold at bid) red, anything else purple.
     const fillColor = (c.fillStyle === 'A' || c.fillStyle === 'AA') ? '#22c55e' : (c.fillStyle === 'B' || c.fillStyle === 'BB') ? '#ef4444' : '#c084fc'
-    const pctColor = (c.contractPctChange ?? 0) >= 0 ? '#22c55e' : '#ef4444'
     const priceMoveColor = (c.currentStockPrice !== null && c.currentStockPrice !== undefined && c.entrySpot !== null && c.entrySpot !== undefined)
         ? (c.currentStockPrice >= c.entrySpot ? '#22c55e' : '#ef4444') : '#e5e7eb'
     // Same glossy pill badges as the live table's getTradeTypeColor() (OptionsFlowTable.tsx).
@@ -533,9 +532,16 @@ function buildSweepSenseCardHtml(c) {
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: transparent; font-family: Arial, Helvetica, sans-serif; }
         #card {
-            width: 980px; padding: 34px 38px; background: #000; border-radius: 26px;
+            position: relative; width: 980px; padding: 34px 38px; border-radius: 26px;
+            background-color: #000;
+            background-image: linear-gradient(180deg, #1c1c1c 0%, #000000 12%, #000000 88%, #141414 100%);
             border: 1px solid rgba(255,255,255,0.14);
-            box-shadow: 0 0 0 1px rgba(255,255,255,0.03), 0 0 40px 4px rgba(34,197,94,0.18), 0 0 40px 4px rgba(239,68,68,0.14);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 1px rgba(255,255,255,0.03), 0 0 40px 4px rgba(34,197,94,0.18), 0 0 40px 4px rgba(239,68,68,0.14);
+        }
+        #card::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 46%;
+            border-radius: 26px 26px 0 0; pointer-events: none;
+            background: linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.02) 60%, rgba(255,255,255,0) 100%);
         }
         .header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
         .header-left { display: flex; align-items: baseline; gap: 14px; }
@@ -605,7 +611,6 @@ function buildSweepSenseCardHtml(c) {
                     ${c.currentStockPrice !== null && c.currentStockPrice !== undefined ? `<span class="arrow">&gt;</span><span class="spot" style="color:${priceMoveColor}">${esc(fmtPrice(c.currentStockPrice))}</span>` : ''}
                 </div>
                 <span class="tt" style="color:${tradeTypeColor};border:1px solid ${tradeTypeColor}99">${esc(c.tradeType || '')}</span>
-                ${c.contractPctChange !== null && c.contractPctChange !== undefined ? `<span class="pct" style="color:${pctColor}">${esc(fmtPct(c.contractPctChange))}</span>` : ''}
             </div>
             <div class="divider"></div>
             ${c.planText ? `<div class="plan">
