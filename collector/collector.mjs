@@ -522,10 +522,31 @@ function buildSweepSenseCardHtml(c) {
             <div class="row-pct" style="color:${pctColor}">${esc(fmtPct(pct))}</div>
         </div>`
 
+    // Whole-dollar prices print without a pointless ".00" (e.g. $672 not $672.00); anything
+    // with real cents still shows them.
+    const fmtClean = (n) => (n === null || n === undefined || !isFinite(n)) ? 'N/A' : (Number.isInteger(n) ? `$${n}` : `$${n.toFixed(2)}`)
+
     const rows = []
     if (c.target1 !== null && c.target1 !== undefined) rows.push(row(ICON_TARGET, 'PROFIT TARGET #1:', '#22c55e', c.target1, c.target1Opt, c.target1Pct, '#22c55e', '#22c55e'))
     if (c.target2 !== null && c.target2 !== undefined) rows.push(row(ICON_TARGET, 'PROFIT TARGET #2:', '#22c55e', c.target2, c.target2Opt, c.target2Pct, '#22c55e', '#22c55e'))
-    if (c.stop !== null && c.stop !== undefined) rows.push(row(ICON_SHIELD, 'STOP LOSS:', '#ef4444', c.stop, c.stopOpt, c.stopPct, '#ef4444', '#ef4444'))
+    // Gated on stopOpt (the option premium stop), not c.stop (a stock price) - the probability
+    // ladder's stop is always a premium-decline stop with no stock-price target (c.stop is
+    // always null for it), so gating on c.stop silently dropped the whole row.
+    if (c.stopOpt !== null && c.stopOpt !== undefined) rows.push(row(ICON_SHIELD, 'STOP LOSS:', '#ef4444', c.stop, c.stopOpt, c.stopPct, '#ef4444', '#ef4444'))
+
+    // Targets/stop above are all repriced off the PROBABILITY-selected contract (a different,
+    // real listed strike/expiry than the raw flow's own contract) - spell it out as a plain
+    // sentence, shown right under the entry plan and above the target rows it explains.
+    const pt = c.probabilityTrade
+    const ptExpiryShort = pt?.expiryDate ? (() => { const [y, m, d] = pt.expiryDate.split('-'); return `${m}/${d}/${y.slice(2)}` })() : null
+    const beDirection = c.direction === 'BEARISH' ? '-' : '+'
+    const probTradeHtml = pt ? `<div class="prob-trade">
+        <div class="prob-trade-text">Picking up ${esc(fmtClean(pt.strike))} ${isCall ? 'Calls' : 'Puts'} ${esc(ptExpiryShort || 'N/A')} expiry for around ${esc(fmtClean(pt.premium * 100))}</div>
+        <div class="prob-trade-row">
+            ${typeof pt.ivPct === 'number' ? `<span class="prob-trade-iv">Implied Volatility: ${pt.ivPct.toFixed(0)}%</span>` : ''}
+            ${typeof pt.bePct === 'number' ? `<span class="prob-trade-be">Breakeven: ${beDirection}${pt.bePct.toFixed(1)}% move</span>` : ''}
+        </div>
+    </div>` : ''
 
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
         @font-face { font-family: 'Sys'; src: local('Arial'); }
@@ -585,6 +606,11 @@ function buildSweepSenseCardHtml(c) {
         .activity-text { display: flex; flex-direction: column; gap: 2px; }
         .activity-name { font-size: 18px; font-weight: 900; letter-spacing: 0.3px; }
         .activity-detail { font-size: 16px; font-weight: 700; color: #d1d5db; }
+        .prob-trade { margin-top: 14px; padding: 14px 20px; border-radius: 12px; background-color: #050505; border: 1px solid rgba(255,255,255,0.1); }
+        .prob-trade-text { font-size: 19px; font-weight: 700; color: #e5e7eb; margin-bottom: 10px; }
+        .prob-trade-row { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+        .prob-trade-iv { font-size: 15px; font-weight: 900; color: #c084fc; }
+        .prob-trade-be { font-size: 15px; font-weight: 900; color: #00ff66; }
     </style></head><body>
         <div id="card">
             <div class="header">
@@ -620,6 +646,7 @@ function buildSweepSenseCardHtml(c) {
                     <div class="plan-text">${esc(c.planText)}</div>
                 </div>
             </div>` : ''}
+            ${probTradeHtml}
             <div class="rows">${rows.join('')}</div>
             ${activityRows.length ? `<div class="activity">
                 <div class="activity-title">ACTIVITY</div>

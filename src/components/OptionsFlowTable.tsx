@@ -427,6 +427,94 @@ function refinePivotalLevel(
   return cands[0].level
 }
 
+// -- Real technical-tool candidate levels (NOT fibs, NOT the dealer magnet) used to weigh the
+// entry-plan pullback level alongside the dealer magnet/pivot. Each returns raw {price, kind}
+// levels that clusterConfluenceZones groups into zones scored by how many independent tools
+// agree.
+type TechLevel = { price: number; kind: string }
+type Candle = { c: number; h: number; l: number; v?: number }
+
+function computeSMALevel(candles: Candle[], period: number): number | null {
+  if (candles.length < period) return null
+  const window = candles.slice(-period)
+  return window.reduce((s, c) => s + c.c, 0) / period
+}
+function computeVWAPLevel(candles: Candle[], lookback = 20): number | null {
+  const window = candles.slice(-lookback)
+  if (!window.length) return null
+  let pv = 0, v = 0
+  for (const c of window) { pv += c.c * (c.v ?? 0); v += c.v ?? 0 }
+  return v > 0 ? pv / v : null
+}
+// Linear regression trend channel (mid + 1st/2nd stdev-of-residual bands) - what a TradingView
+// LinReg channel draws. A break of the 1st deviation and a bounce off the 2nd deviation are
+// real, currently-respected trend levels, distinct from any static support/resistance.
+function computeRegressionChannelLevels(candles: Candle[], lookback = 40): { mid: number; lower1: number; upper1: number; lower2: number; upper2: number } | null {
+  const window = candles.slice(-lookback)
+  const n = window.length
+  if (n < 10) return null
+  let sx = 0, sy = 0, sxy = 0, sxx = 0
+  window.forEach((c, i) => { sx += i; sy += c.c; sxy += i * c.c; sxx += i * i })
+  const slope = (n * sxy - sx * sy) / (n * sxx - sx * sx)
+  const intercept = (sy - slope * sx) / n
+  let sse = 0
+  window.forEach((c, i) => { const resid = c.c - (intercept + slope * i); sse += resid * resid })
+  const sd = Math.sqrt(sse / n)
+  const mid = intercept + slope * (n - 1)
+  return { mid, lower1: mid - sd, upper1: mid + sd, lower2: mid - 2 * sd, upper2: mid + 2 * sd }
+}
+function computeFairValueGapLevels(candles: Candle[], lookback = 60): TechLevel[] {
+  const window = candles.slice(-lookback)
+  const gaps: TechLevel[] = []
+  for (let i = 2; i < window.length; i++) {
+    const c1 = window[i - 2], c3 = window[i]
+    if (c1.h < c3.l) gaps.push({ price: c1.h, kind: 'fvg' })
+    if (c1.l > c3.h) gaps.push({ price: c1.l, kind: 'fvg' })
+  }
+  return gaps
+}
+function computeUnfilledGapLevels(candles: Candle[], lookback = 60): TechLevel[] {
+  const window = candles.slice(-lookback)
+  const gaps: TechLevel[] = []
+  for (let i = 1; i < window.length; i++) {
+    const prev = window[i - 1], cur = window[i]
+    if (cur.l > prev.h) gaps.push({ price: prev.h, kind: 'price-gap' })
+    if (cur.h < prev.l) gaps.push({ price: prev.l, kind: 'price-gap' })
+  }
+  return gaps
+}
+function computeRecentCloseExtremeLevels(candles: Candle[], lookback = 5): TechLevel[] {
+  const window = candles.slice(-lookback)
+  if (!window.length) return []
+  let hi = window[0], lo = window[0]
+  for (const c of window) { if (c.c > hi.c) hi = c; if (c.c < lo.c) lo = c }
+  return [{ price: hi.c, kind: 'recent-close-hi' }, { price: lo.c, kind: 'recent-close-lo' }]
+}
+function computeLiquidationNodeLevel(candles: Candle[], lookback = 60): number | null {
+  const window = candles.slice(-lookback)
+  if (!window.length || window.some((c) => !(c.v && c.v > 0))) return null
+  let best = window[0]
+  for (const c of window) if ((c.v ?? 0) > (best.v ?? 0)) best = c
+  return best.c
+}
+// Groups every raw technical level within ~0.75% of each other into one confluence zone -
+// a zone confirmed by multiple independent tools scores higher than any single tool's level.
+function clusterConfluenceZones(levels: TechLevel[], spot: number): { price: number; confluence: number; tools: string[] }[] {
+  const tol = spot * 0.0075
+  const sorted = [...levels].sort((a, b) => a.price - b.price)
+  const clusters: { avgPrice: number; tools: Set<string> }[] = []
+  for (const lvl of sorted) {
+    const last = clusters[clusters.length - 1]
+    if (last && lvl.price - last.avgPrice <= tol) {
+      last.tools.add(lvl.kind)
+      last.avgPrice = (last.avgPrice + lvl.price) / 2
+    } else {
+      clusters.push({ avgPrice: lvl.price, tools: new Set([lvl.kind]) })
+    }
+  }
+  return clusters.map((c) => ({ price: c.avgPrice, confluence: c.tools.size, tools: [...c.tools] }))
+}
+
 // -- Plan Entry: the exact Magnet/Pivot entry-plan decision tree used in the Dealer column.
 // Extracted as a pure function so the SweepSense tab can reuse the IDENTICAL logic instead
 // of reimplementing it.
@@ -440,8 +528,9 @@ function computePlanEntry(params: {
   fillStyle?: string
   grade: string
   gradeColor: string
+  candles?: Candle[] | null
 }): { sigCode: string; sigColor: string; planText: string } {
-  const { spot, magnet: rawMagnetIn, pivot: rawPivotIn, sigma, dte, type, fillStyle, grade, gradeColor } = params
+  const { spot, magnet: rawMagnetIn, pivot: rawPivotIn, sigma, dte, type, fillStyle, grade, gradeColor, candles } = params
   let sigCode = grade
   let sigColor = gradeColor
   let planText = 'Waiting on dealer magnet/pivot data to build an entry plan.'
@@ -477,6 +566,64 @@ function computePlanEntry(params: {
   const magnetAligned = magnet !== null && ((magnetAbove && impliedBullish) || (!magnetAbove && !impliedBullish))
   const pivotAligned = pivot !== null && ((pivotAbove && impliedBullish) || (!pivotAbove && !impliedBullish))
 
+  // -- Weighted blend: the dealer magnet/pivot only ever contributes 30% of an entry's score;
+  // the other 70% comes from real technical confluence (SMA/VWAP/regression-channel deviations/
+  // FVGs/unfilled gaps/recent close extremes/liquidation node) - NOT fibs. Candidates are
+  // restricted to a realistic near-term pullback zone (0.5%-8% from spot, on the side that
+  // matches the trade's direction), so the entry is always a close, multi-confirmed dip/rip -
+  // never a level the dealer magnet alone dictates.
+  if (candles && candles.length >= 20) {
+    const pullbackSide = (price: number) => (impliedBullish ? price < spot : price > spot)
+    const minDist = spot * 0.005
+    const maxDist = spot * 0.08
+
+    const rawLevels: TechLevel[] = []
+    const sma20 = computeSMALevel(candles, 20); if (sma20 !== null) rawLevels.push({ price: sma20, kind: 'sma20' })
+    const sma50 = computeSMALevel(candles, 50); if (sma50 !== null) rawLevels.push({ price: sma50, kind: 'sma50' })
+    const vwap20 = computeVWAPLevel(candles, 20); if (vwap20 !== null) rawLevels.push({ price: vwap20, kind: 'vwap20' })
+    const chan = computeRegressionChannelLevels(candles)
+    if (chan) {
+      rawLevels.push({ price: chan.lower1, kind: 'chan-dev1' }, { price: chan.upper1, kind: 'chan-dev1' })
+      rawLevels.push({ price: chan.lower2, kind: 'chan-dev2' }, { price: chan.upper2, kind: 'chan-dev2' })
+    }
+    const liqNode = computeLiquidationNodeLevel(candles); if (liqNode !== null) rawLevels.push({ price: liqNode, kind: 'liquidation-node' })
+    rawLevels.push(...computeFairValueGapLevels(candles))
+    rawLevels.push(...computeUnfilledGapLevels(candles))
+    rawLevels.push(...computeRecentCloseExtremeLevels(candles))
+
+    const zones = clusterConfluenceZones(rawLevels, spot)
+    const inBand = zones.filter((z) => {
+      const dist = Math.abs(z.price - spot)
+      return pullbackSide(z.price) && dist >= minDist && dist <= maxDist
+    })
+
+    if (inBand.length > 0) {
+      const dealerTol = spot * 0.0075
+      const scored = inBand.map((z) => {
+        const distPct = Math.abs(z.price - spot) / spot
+        const proximityScore = 1 - distPct / 0.08
+        const confluenceScore = Math.min(1, z.confluence / 4)
+        const techScore = confluenceScore * 0.55 + proximityScore * 0.15 // 70% bucket total
+        const dealerAgrees = (magnet !== null && Math.abs(magnet - z.price) <= dealerTol) || (pivot !== null && Math.abs(pivot - z.price) <= dealerTol)
+        const dealerScore = dealerAgrees ? 0.3 : 0 // 30% bucket - only when the dealer level agrees
+        return { ...z, finalScore: techScore + dealerScore, dealerAgrees }
+      }).sort((a, b) => b.finalScore - a.finalScore)
+
+      const winner = scored[0]
+      const label = winner.tools.join('+') + (winner.dealerAgrees ? '+dealer' : '')
+      if (impliedBullish) {
+        sigCode = `Reversal Long $${winner.price.toFixed(2)}`; sigColor = '#00e5ff'
+        planText = `Wait for price to pull back down to $${winner.price.toFixed(2)} (${label}) and buy there for entry.`
+      } else {
+        sigCode = `Reversal Short $${winner.price.toFixed(2)}`; sigColor = '#ff0000'
+        planText = `Wait for price to run up to $${winner.price.toFixed(2)} (${label}) and short there for entry.`
+      }
+      return { sigCode, sigColor, planText }
+    }
+  }
+
+  // -- Fallback (no candle history yet, or no technical zone qualifies in the pullback band):
+  // the original magnet/pivot-only decision tree.
   const near = 0.025
 
   type Lvl = { label: 'magnet' | 'pivot'; value: number; aligned: boolean; dist: number }
@@ -1092,7 +1239,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   // down to the EXACT chart level nearby (a real unique swing close - trend-break/rejection/
   // breakout point) instead of the raw round dealer-gamma strike. See refinePivotalLevel below.
   const [dailyCandleCache, setDailyCandleCache] = useState<
-    Record<string, { c: number; h: number; l: number }[] | null>
+    Record<string, { c: number; h: number; l: number; v: number }[] | null>
   >({})
   const dailyCandleFetchingRef = useRef<Set<string>>(new Set())
   const dailyCandleRetryCountRef = useRef<Record<string, number>>({})
@@ -4444,7 +4591,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       const pivot = refinePivotalLevel(candles, rawPivot, spot, band90Lo, band90Hi) ?? rawPivot
 
       const { sigCode, sigColor, planText } = computePlanEntry({
-        spot, magnet, pivot, sigma, dte, type: trade.type, fillStyle: trade.fill_style, grade: g.grade, gradeColor: g.color,
+        spot, magnet, pivot, sigma, dte, type: trade.type, fillStyle: trade.fill_style, grade: g.grade, gradeColor: g.color, candles,
       })
 
       const bd = tickerPrem.get(trade.underlying_ticker) || { buyCalls: 0, bearCalls: 0, buyPuts: 0, bearPuts: 0 }
@@ -4632,7 +4779,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       const pivot = refinePivotalLevel(candles, rawPivot, spot, band90Lo, band90Hi) ?? rawPivot
 
       const { sigCode, sigColor, planText } = computePlanEntry({
-        spot, magnet, pivot, sigma, dte, type: trade.type, fillStyle: trade.fill_style, grade: g.grade, gradeColor: g.color,
+        spot, magnet, pivot, sigma, dte, type: trade.type, fillStyle: trade.fill_style, grade: g.grade, gradeColor: g.color, candles,
       })
 
       const bd = tickerPrem.get(trade.underlying_ticker) || { buyCalls: 0, bearCalls: 0, buyPuts: 0, bearPuts: 0 }
@@ -5042,7 +5189,7 @@ Stock Reaction: ${scores.stockReaction}/15`
             if (res.ok) {
               const json = await res.json()
               const results = Array.isArray(json?.results) ? json.results : []
-              const candles = results.map((b: any) => ({ c: b.c, h: b.h, l: b.l }))
+              const candles = results.map((b: any) => ({ c: b.c, h: b.h, l: b.l, v: b.v }))
               setDailyCandleCache((prev) => ({ ...prev, [ticker]: candles.length > 0 ? candles : null }))
               dailyCandleFetchingRef.current.delete(ticker)
               return
