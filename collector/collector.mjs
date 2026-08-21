@@ -513,13 +513,15 @@ function buildSweepSenseCardHtml(c) {
     ].filter(Boolean)
 
     const row = (icon, label, labelColor, strike, opt, pct, pctColor, barColor) => `
-        <div class="row" style="background:linear-gradient(to right, rgba(0,0,0,0) 0%, ${barColor}22 55%, ${barColor}4d 100%); border-right:3px solid ${barColor};">
-            <div class="row-icon">${icon}</div>
+        <div class="row">
+            <div class="row-icon" style="color:${barColor}">${icon}</div>
             <div class="row-label" style="color:${labelColor}">${esc(label)}</div>
-            <div class="row-val" style="color:${barColor}">${esc(fmtPrice(strike))}</div>
-            <div class="row-sep">/</div>
-            <div class="row-val" style="color:${barColor}">${esc(fmtPrice(opt))}</div>
-            <div class="row-pct" style="color:${pctColor}">${esc(fmtPct(pct))}</div>
+            <div class="row-vals">
+                <span class="row-val">${esc(fmtPrice(strike))}</span>
+                <span class="row-sep">/</span>
+                <span class="row-val-sub">${esc(fmtPrice(opt))}</span>
+            </div>
+            <div class="row-pct-pill" style="color:${pctColor};background:${pctColor}18;border:1px solid ${pctColor}4d;">${esc(fmtPct(pct))}</div>
         </div>`
 
     // Whole-dollar prices print without a pointless ".00" (e.g. $672 not $672.00); anything
@@ -540,116 +542,154 @@ function buildSweepSenseCardHtml(c) {
     const pt = c.probabilityTrade
     const ptExpiryShort = pt?.expiryDate ? (() => { const [y, m, d] = pt.expiryDate.split('-'); return `${m}/${d}/${y.slice(2)}` })() : null
     const beDirection = c.direction === 'BEARISH' ? '-' : '+'
-    const probTradeHtml = pt ? `<div class="prob-trade">
-        <div class="prob-trade-text">Picking up ${esc(fmtClean(pt.strike))} ${isCall ? 'Calls' : 'Puts'} ${esc(ptExpiryShort || 'N/A')} expiry for around ${esc(fmtClean(pt.premium * 100))}</div>
-        <div class="prob-trade-row">
-            ${typeof pt.ivPct === 'number' ? `<span class="prob-trade-iv">Implied Volatility: ${pt.ivPct.toFixed(0)}%</span>` : ''}
-            ${typeof pt.bePct === 'number' ? `<span class="prob-trade-be">Breakeven: ${beDirection}${pt.bePct.toFixed(1)}% move</span>` : ''}
-        </div>
-    </div>` : ''
+
+    const dirColor = c.direction === 'BULLISH' ? '#34d399' : c.direction === 'BEARISH' ? '#f87171' : '#9ca3af'
 
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-        @font-face { font-family: 'Sys'; src: local('Arial'); }
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: transparent; font-family: Arial, Helvetica, sans-serif; }
+        body { background: transparent; font-family: 'Inter', 'Segoe UI', Arial, Helvetica, sans-serif; }
         #card {
-            position: relative; width: 980px; padding: 34px 38px; border-radius: 26px;
-            background-color: #000;
-            background-image: linear-gradient(180deg, #1c1c1c 0%, #000000 12%, #000000 88%, #141414 100%);
-            border: 1px solid rgba(255,255,255,0.14);
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 1px rgba(255,255,255,0.03), 0 0 40px 4px rgba(34,197,94,0.18), 0 0 40px 4px rgba(239,68,68,0.14);
+            position: relative; width: 1360px; padding: 44px 48px 38px; border-radius: 22px;
+            background-color: #0a0c11;
+            background-image:
+                radial-gradient(1100px 420px at 15% -10%, ${dirColor}14 0%, transparent 55%),
+                linear-gradient(180deg, #12151d 0%, #0a0c11 45%, #07080b 100%);
+            border: 1px solid rgba(255,255,255,0.07);
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.02), 0 30px 70px -16px rgba(0,0,0,0.75);
+            overflow: hidden;
         }
         #card::before {
-            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 46%;
-            border-radius: 26px 26px 0 0; pointer-events: none;
-            background: linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.02) 60%, rgba(255,255,255,0) 100%);
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+            background: ${dirColor};
         }
         .header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
-        .header-left { display: flex; align-items: baseline; gap: 14px; }
-        .ticker { font-size: 46px; font-weight: 900; letter-spacing: 1px; color: #ff7a1a; text-shadow: 0 1px 0 #ffb066, 0 2px 0 #ff8c2e, 0 3px 0 #e56a00, 0 4px 0 #b85500, 0 5px 6px rgba(0,0,0,0.6); }
-        .direction { display: flex; align-items: center; gap: 6px; font-size: 20px; font-weight: 900; letter-spacing: 1px; }
+        .header-left { display: flex; align-items: center; gap: 14px; }
+        .ticker { font-size: 46px; font-weight: 800; letter-spacing: -0.5px; color: #ffffff; }
+        .direction { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 800; letter-spacing: 1.6px; padding: 8px 16px 8px 12px; border-radius: 999px; background: ${dirColor}18; border: 1px solid ${dirColor}55; }
         .direction .tri { width: 0; height: 0; }
-        .header-right { display: flex; align-items: center; gap: 26px; }
-        .stat { display: flex; flex-direction: column; align-items: center; gap: 3px; }
-        .stat-label { font-size: 13px; font-weight: 900; color: #fff; letter-spacing: 1px; }
-        .stat-val { font-size: 18px; font-weight: 900; }
-        .term { font-size: 30px; font-weight: 900; letter-spacing: 1px; }
-        .contract { display: flex; align-items: center; gap: 14px; margin-top: 14px; flex-wrap: wrap; }
-        .contract .cp { font-size: 24px; font-weight: 900; }
-        .fill-group { display: flex; align-items: center; gap: 2px; }
-        .fill-group .size { font-size: 24px; font-weight: 900; color: #22d3ee; }
-        .fill-group .at { font-size: 22px; font-weight: 900; color: #fff; }
-        .fill-group .fill-price { font-size: 24px; font-weight: 900; color: #eab308; }
-        .fill-group .fill-badge { font-size: 15px; font-weight: 900; color: #fff; padding: 2px 8px; border-radius: 5px; letter-spacing: 0.5px; margin-left: 4px; }
-        .contract .exp { font-size: 22px; font-weight: 700; color: #fff; }
-        .contract .tt { font-size: 18px; font-weight: 900; letter-spacing: 0.05em; padding: 6px 16px; border-radius: 9999px; background-color: #000; background-image: linear-gradient(180deg, #1e1e1e 0%, #000000 50%, #111111 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(0,0,0,0.8); }
-        .contract .pct { font-size: 24px; font-weight: 900; }
-        .spot-group { display: flex; align-items: center; gap: 6px; }
-        .spot-group .spot { font-size: 22px; font-weight: 700; color: #fff; }
-        .spot-group .arrow { color: #fff; font-size: 20px; }
-        .divider { height: 1px; background: rgba(255,255,255,0.15); margin: 22px 0; }
-        .plan { display: flex; align-items: flex-start; gap: 14px; }
-        .plan-icon { width: 44px; height: 44px; border-radius: 9999px; border: 2px solid #22d3ee; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        .plan-label { font-size: 22px; font-weight: 900; color: #22d3ee; letter-spacing: 1px; }
-        .plan-text { font-size: 22px; font-weight: 500; color: #e5e7eb; margin-top: 2px; }
-        .rows { display: flex; flex-direction: column; gap: 14px; margin-top: 22px; }
-        .row { display: flex; align-items: center; gap: 16px; padding: 16px 22px; border-radius: 14px; background-color: #050505; }
-        .row-icon { width: 40px; height: 40px; border-radius: 9999px; background: #0a0a0a; border: 2px solid currentColor; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        .row-label { font-size: 22px; font-weight: 900; letter-spacing: 0.5px; width: 280px; flex-shrink: 0; }
-        .row-val { font-size: 26px; font-weight: 800; }
-        .row-sep { color: #555; font-size: 22px; }
-        .row-pct { font-size: 26px; font-weight: 900; margin-left: auto; }
-        .activity { margin-top: 22px; display: flex; flex-direction: column; gap: 10px; }
-        .activity-title { font-size: 15px; font-weight: 900; color: #9ca3af; letter-spacing: 1.5px; margin-bottom: 2px; }
-        .activity-row { display: flex; align-items: center; gap: 14px; padding: 12px 18px; border-radius: 12px; background-color: #0a0a0a; border: 1px solid rgba(255,255,255,0.08); }
-        .activity-icon { width: 34px; height: 34px; border-radius: 9999px; background: #000; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border: 2px solid currentColor; }
+        .meta-strip { display: flex; align-items: center; gap: 0; }
+        .meta-item { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; padding: 0 20px; border-right: 1px solid rgba(255,255,255,0.09); }
+        .meta-item:last-of-type { border-right: none; padding-right: 0; }
+        .meta-label { font-size: 11px; font-weight: 800; color: #cbd5e1; letter-spacing: 1.6px; }
+        .meta-val { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+        .term-badge { font-size: 14px; font-weight: 800; letter-spacing: 1.4px; padding: 10px 20px; border-radius: 999px; margin-left: 18px; color: ${termColor}; background: ${termColor}16; border: 1px solid ${termColor}4d; }
+
+        .ticket { display: flex; align-items: stretch; margin-top: 26px; border-radius: 14px; background: linear-gradient(180deg, #12161e 0%, #0d1016 100%); border: 1px solid rgba(255,255,255,0.07); overflow: hidden; }
+        .ticket-seg { display: flex; flex-direction: column; justify-content: center; gap: 5px; padding: 18px 24px; border-right: 1px solid rgba(255,255,255,0.06); }
+        .ticket-seg:last-child { border-right: none; margin-left: auto; align-items: flex-end; }
+        .ticket-label { font-size: 11px; font-weight: 800; color: #cbd5e1; letter-spacing: 1.4px; }
+        .ticket-val { font-size: 23px; font-weight: 800; font-variant-numeric: tabular-nums; }
+        .ticket-sub { font-size: 16px; font-weight: 700; color: #e5e7eb; }
+        .fill-badge { font-size: 12px; font-weight: 800; color: #05070a; padding: 3px 9px; border-radius: 5px; letter-spacing: 0.4px; margin-left: 8px; }
+        .spot-line { display: flex; align-items: center; gap: 8px; }
+        .spot-line .arrow { color: #9ca3af; font-size: 15px; }
+        .tt-pill { font-size: 13px; font-weight: 800; letter-spacing: 0.08em; padding: 8px 18px; border-radius: 999px; border: 1px solid currentColor; background: rgba(255,255,255,0.03); align-self: center; }
+
+        .section-label { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 800; letter-spacing: 2.2px; color: #d1d5db; margin: 24px 0 13px; }
+        .section-label::before { content: ''; width: 4px; height: 14px; border-radius: 2px; background: currentColor; }
+
+        .plan { display: flex; align-items: flex-start; gap: 16px; padding: 18px 22px; border-radius: 14px; background: linear-gradient(135deg, rgba(34,211,238,0.08), rgba(34,211,238,0.02)); border: 1px solid rgba(34,211,238,0.22); }
+        .plan-icon { width: 34px; height: 34px; border-radius: 9px; background: rgba(34,211,238,0.12); display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: #22d3ee; }
+        .plan-text { font-size: 19px; font-weight: 600; color: #f8fafc; line-height: 1.45; }
+
+        .prob-trade { display: flex; align-items: center; gap: 16px; padding: 16px 22px; border-radius: 14px; background: linear-gradient(135deg, rgba(192,132,252,0.08), rgba(192,132,252,0.02)); border: 1px solid rgba(192,132,252,0.2); }
+        .prob-trade-icon { width: 34px; height: 34px; border-radius: 9px; background: rgba(192,132,252,0.14); display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: #c084fc; font-weight: 800; font-size: 16px; }
+        .prob-trade-text { font-size: 17px; font-weight: 700; color: #f8fafc; }
+        .prob-trade-chips { display: flex; align-items: center; gap: 10px; margin-left: auto; flex-shrink: 0; }
+        .chip { font-size: 13px; font-weight: 800; letter-spacing: 0.3px; padding: 6px 13px; border-radius: 999px; white-space: nowrap; }
+        .chip-iv { color: #c084fc; background: rgba(192,132,252,0.12); border: 1px solid rgba(192,132,252,0.3); }
+        .chip-be { color: #34d399; background: rgba(52,211,153,0.12); border: 1px solid rgba(52,211,153,0.3); }
+
+        .body-grid { display: flex; align-items: stretch; gap: 24px; margin-top: 4px; }
+        .body-left { flex: 0 0 560px; display: flex; flex-direction: column; }
+        .body-right { flex: 1; display: flex; flex-direction: column; }
+        .chart-wrap { margin-top: 24px; border-radius: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); background: #000; flex: 1; min-height: 260px; }
+        .chart-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+        .rows { display: flex; flex-direction: column; gap: 10px; }
+        .row { display: grid; grid-template-columns: 44px 190px 1fr auto; align-items: center; gap: 16px; padding: 16px 20px; border-radius: 14px; background: linear-gradient(180deg, #12161e 0%, #0d1016 100%); border: 1px solid rgba(255,255,255,0.06); }
+        .row-icon { width: 34px; height: 34px; border-radius: 999px; background: currentColor; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .row-icon svg { filter: brightness(0) saturate(100%); }
+        .row-icon svg path, .row-icon svg circle { stroke: #05070a; }
+        .row-label { font-size: 13px; font-weight: 800; letter-spacing: 1.3px; }
+        .row-vals { display: flex; align-items: baseline; gap: 9px; font-variant-numeric: tabular-nums; }
+        .row-val { font-size: 23px; font-weight: 800; color: #ffffff; }
+        .row-sep { color: #9ca3af; font-size: 16px; }
+        .row-val-sub { font-size: 16px; font-weight: 700; color: #e5e7eb; }
+        .row-pct-pill { font-size: 16px; font-weight: 800; text-align: center; font-variant-numeric: tabular-nums; padding: 7px 14px; border-radius: 999px; justify-self: end; }
+
+        .activity { margin-top: 26px; display: flex; flex-direction: column; gap: 9px; }
+        .activity-row { display: flex; align-items: center; gap: 16px; padding: 13px 20px; border-radius: 14px; background: linear-gradient(180deg, #12161e 0%, #0d1016 100%); border: 1px solid rgba(255,255,255,0.06); }
+        .activity-icon { width: 30px; height: 30px; border-radius: 9px; background: rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: currentColor; }
         .activity-text { display: flex; flex-direction: column; gap: 2px; }
-        .activity-name { font-size: 18px; font-weight: 900; letter-spacing: 0.3px; }
-        .activity-detail { font-size: 16px; font-weight: 700; color: #d1d5db; }
-        .prob-trade { margin-top: 14px; padding: 14px 20px; border-radius: 12px; background-color: #050505; border: 1px solid rgba(255,255,255,0.1); }
-        .prob-trade-text { font-size: 19px; font-weight: 700; color: #e5e7eb; margin-bottom: 10px; }
-        .prob-trade-row { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
-        .prob-trade-iv { font-size: 15px; font-weight: 900; color: #c084fc; }
-        .prob-trade-be { font-size: 15px; font-weight: 900; color: #00ff66; }
+        .activity-name { font-size: 16px; font-weight: 800; letter-spacing: 0.3px; }
+        .activity-detail { font-size: 14px; font-weight: 600; color: #e5e7eb; }
     </style></head><body>
         <div id="card">
             <div class="header">
                 <div class="header-left">
                     <span class="ticker">${esc(c.ticker)}</span>
-                    ${c.direction ? `<span class="direction" style="color:${c.direction === 'BULLISH' ? '#00e676' : '#ff1744'}"><span class="tri" style="border-left:9px solid transparent;border-right:9px solid transparent;${c.direction === 'BULLISH' ? 'border-bottom:15px solid currentColor;' : 'border-top:15px solid currentColor;'}"></span>${esc(c.direction)}</span>` : ''}
+                    ${c.direction ? `<span class="direction" style="color:${dirColor}"><span class="tri" style="border-left:5px solid transparent;border-right:5px solid transparent;${c.direction === 'BULLISH' ? 'border-bottom:9px solid currentColor;' : 'border-top:9px solid currentColor;'}"></span>${esc(c.direction)}</span>` : ''}
                 </div>
-                <div class="header-right">
-                    ${c.takenTime ? `<div class="stat"><div class="stat-label">TAKEN</div><div class="stat-val" style="color:#22d3ee">${esc(c.takenTime)}</div></div>` : ''}
-                    ${c.qualifiedTime ? `<div class="stat"><div class="stat-label">QUALIFIED</div><div class="stat-val" style="color:#22c55e">${esc(c.qualifiedTime)}</div></div>` : ''}
-                    ${c.earnings ? `<div class="stat"><div class="stat-label">EARNINGS</div><div class="stat-val" style="color:#f59e0b">${esc(c.earnings)}</div></div>` : ''}
-                    <span class="term" style="color:${termColor}">${esc(c.term || 'N/A')}</span>
+                <div style="display:flex;align-items:center;">
+                    <div class="meta-strip">
+                        ${c.takenTime ? `<div class="meta-item"><div class="meta-label">TAKEN</div><div class="meta-val" style="color:#22d3ee">${esc(c.takenTime)}</div></div>` : ''}
+                        ${c.qualifiedTime ? `<div class="meta-item"><div class="meta-label">QUALIFIED</div><div class="meta-val" style="color:#34d399">${esc(c.qualifiedTime)}</div></div>` : ''}
+                        ${c.earnings ? `<div class="meta-item"><div class="meta-label">EARNINGS</div><div class="meta-val" style="color:#f59e0b">${esc(c.earnings)}</div></div>` : ''}
+                    </div>
+                    <span class="term-badge">${esc(c.term || 'N/A')}</span>
                 </div>
             </div>
-            <div class="contract">
-                <span class="cp" style="color:${cpColor}">${esc(fmtPrice(c.strike))} ${isCall ? 'Call' : 'Put'}</span>
-                <div class="fill-group">
-                    <span class="size">${esc(c.tradeSize ?? 'N/A')}</span><span class="at">@</span><span class="fill-price">$${esc(typeof c.premiumPerContract === 'number' ? c.premiumPerContract.toFixed(2) : 'N/A')}</span>
-                    ${c.fillStyle ? `<span class="fill-badge" style="background:${fillColor}">${esc(c.fillStyle)}</span>` : ''}
+            <div class="ticket">
+                <div class="ticket-seg">
+                    <div class="ticket-label">CONTRACT</div>
+                    <div class="ticket-val" style="color:${cpColor}">${esc(fmtPrice(c.strike))} ${isCall ? 'CALL' : 'PUT'}</div>
                 </div>
-                <span class="exp">${esc(expiryShort)}</span>
-                <div class="spot-group">
-                    ${c.entrySpot !== null && c.entrySpot !== undefined ? `<span class="spot">${esc(fmtPrice(c.entrySpot))}</span>` : ''}
-                    ${c.currentStockPrice !== null && c.currentStockPrice !== undefined ? `<span class="arrow">&gt;</span><span class="spot" style="color:${priceMoveColor}">${esc(fmtPrice(c.currentStockPrice))}</span>` : ''}
+                <div class="ticket-seg">
+                    <div class="ticket-label">FILL</div>
+                    <div class="ticket-val" style="color:#ffffff">${esc(c.tradeSize ?? 'N/A')} <span style="color:#cbd5e1;font-weight:700;">@</span> $${esc(typeof c.premiumPerContract === 'number' ? c.premiumPerContract.toFixed(2) : 'N/A')}${c.fillStyle ? `<span class="fill-badge" style="background:${fillColor}">${esc(c.fillStyle)}</span>` : ''}</div>
                 </div>
-                <span class="tt" style="color:${tradeTypeColor};border:1px solid ${tradeTypeColor}99">${esc(c.tradeType || '')}</span>
+                <div class="ticket-seg">
+                    <div class="ticket-label">EXPIRY</div>
+                    <div class="ticket-sub">${esc(expiryShort)}</div>
+                </div>
+                <div class="ticket-seg">
+                    <div class="ticket-label">SPOT</div>
+                    <div class="spot-line ticket-sub">
+                        ${c.entrySpot !== null && c.entrySpot !== undefined ? `<span>${esc(fmtPrice(c.entrySpot))}</span>` : ''}
+                        ${c.currentStockPrice !== null && c.currentStockPrice !== undefined ? `<span class="arrow">&rarr;</span><span style="color:${priceMoveColor};font-weight:800;">${esc(fmtPrice(c.currentStockPrice))}</span>` : ''}
+                    </div>
+                </div>
+                <div class="ticket-seg" style="justify-content:center;">
+                    <span class="tt-pill" style="color:${tradeTypeColor}">${esc(c.tradeType || '')}</span>
+                </div>
             </div>
-            <div class="divider"></div>
-            ${c.planText ? `<div class="plan">
-                <div class="plan-icon">${ICON_CROSSHAIR}</div>
-                <div>
-                    <div class="plan-label">ENTRY PLAN:</div>
-                    <div class="plan-text">${esc(c.planText)}</div>
+            <div class="body-grid">
+                <div class="body-left">
+                    ${c.planText ? `<div class="section-label" style="color:#22d3ee;">ENTRY PLAN</div>
+                    <div class="plan">
+                        <div class="plan-icon">${ICON_CROSSHAIR}</div>
+                        <div class="plan-text">${esc(c.planText)}</div>
+                    </div>` : ''}
+                    ${pt ? `<div class="section-label" style="color:#c084fc;">CONTRACT USED FOR TARGETS</div>
+                    <div class="prob-trade">
+                        <div class="prob-trade-icon">$</div>
+                        <div class="prob-trade-text">Picking up ${esc(fmtClean(pt.strike))} ${isCall ? 'Calls' : 'Puts'} ${esc(ptExpiryShort || 'N/A')} expiry for around ${esc(fmtClean(pt.premium * 100))}</div>
+                        <div class="prob-trade-chips">
+                            ${typeof pt.ivPct === 'number' ? `<span class="chip chip-iv">IV ${pt.ivPct.toFixed(0)}%</span>` : ''}
+                            ${typeof pt.bePct === 'number' ? `<span class="chip chip-be">BE ${beDirection}${pt.bePct.toFixed(1)}%</span>` : ''}
+                        </div>
+                    </div>` : ''}
+                    <div class="section-label" style="color:#e5e7eb;">TARGETS &amp; RISK</div>
+                    <div class="rows">${rows.join('')}</div>
                 </div>
-            </div>` : ''}
-            ${probTradeHtml}
-            <div class="rows">${rows.join('')}</div>
+                <div class="body-right">
+                    <div class="section-label" style="color:#f59e0b;">5M CHART @ ENTRY</div>
+                    <div class="chart-wrap">${c.chartImageBase64 ? `<img src="data:image/png;base64,${c.chartImageBase64}" />` : ''}</div>
+                </div>
+            </div>
             ${activityRows.length ? `<div class="activity">
-                <div class="activity-title">ACTIVITY</div>
+                <div class="section-label" style="color:#a855f7;">ACTIVITY</div>
                 ${activityRows.map((r) => `
                 <div class="activity-row" style="color:${r.color}">
                     <div class="activity-icon">${r.icon}</div>
@@ -710,9 +750,29 @@ async function runSweepSenseDiscordAlert() {
         // A dedicated, static page per card - never touches the live/scraped `page` above -
         // so there's no reflow race to land a bad capture in like the old live-scrape approach.
         const renderPage = await browser.newPage()
-        await renderPage.setViewport({ width: 1100, height: 800, deviceScaleFactor: 2 })
+        await renderPage.setViewport({ width: 1460, height: 1000, deviceScaleFactor: 2 })
+        // Second dedicated page just for the 5m chart screenshot - reuses the REAL trade-detail
+        // popup chart component (TradePopupChart) via /chart-embed, never a reimplementation.
+        const chartPage = await browser.newPage()
+        await chartPage.setViewport({ width: 900, height: 480, deviceScaleFactor: 2 })
+        if (cookies.length > 0) await chartPage.setCookie(...cookies)
         for (const c of newOnes) {
             try {
+                try {
+                    const entryTime = c.takenAt ? new Date(c.takenAt).getTime() : null
+                    const chartUrl = `${APP_URL}/chart-embed?ticker=${encodeURIComponent(c.ticker)}${entryTime ? `&entryTime=${entryTime}` : ''}`
+                    await chartPage.goto(chartUrl, { waitUntil: 'networkidle0', timeout: 30_000 })
+                    await chartPage.waitForSelector('canvas', { timeout: 15_000 })
+                    // Let the candle fetch + draw settle before capturing.
+                    await new Promise((r) => setTimeout(r, 2500))
+                    const canvasHandle = await chartPage.$('canvas')
+                    if (canvasHandle) {
+                        const chartPng = await canvasHandle.screenshot({ type: 'png' })
+                        c.chartImageBase64 = Buffer.from(chartPng).toString('base64')
+                    }
+                } catch (chartErr) {
+                    console.error(`[Discord] Chart capture failed for ${c.ticker}:`, chartErr.message)
+                }
                 await renderPage.setContent(buildSweepSenseCardHtml(c), { waitUntil: 'load' })
                 const cardHandle = await renderPage.$('#card')
                 if (!cardHandle) { console.error(`[Discord] Card render failed for ${c.ticker} — skipping.`); continue }

@@ -4512,9 +4512,15 @@ interface TradingViewChartProps {
 export function TradePopupChart({
   symbol,
   fallbackCandles,
+  initialTimeframe,
+  entryMarker,
+  containerWidth,
 }: {
   symbol: string
   fallbackCandles: any[]
+  initialTimeframe?: string
+  entryMarker?: { time: number; label?: string } | null
+  containerWidth?: string
 }) {
   const POPUP_TIMEFRAMES = [
     { label: '5M', value: '5m', days: 10, defaultBars: 78 }, // ~1 trading day visible
@@ -4522,7 +4528,7 @@ export function TradePopupChart({
     { label: '1D', value: '1d', days: 730, defaultBars: 252 }, // ~1 year visible
     { label: '1W', value: '1w', days: 2555, defaultBars: 104 }, // ~2 years visible
   ]
-  const [timeframe, setTimeframe] = React.useState('1D')
+  const [timeframe, setTimeframe] = React.useState(initialTimeframe || '1D')
   const [candles, setCandles] = React.useState<any[]>(fallbackCandles)
   const [fetching, setFetching] = React.useState(false)
   const [livePrice, setLivePrice] = React.useState(0)
@@ -4784,6 +4790,38 @@ export function TradePopupChart({
     ctx.lineTo(W - PAD_R, H - PAD_B)
     ctx.stroke()
 
+    // Entry marker — vertical line at the candle nearest the trade's actual fill time
+    if (entryMarker) {
+      let nearestIdx = -1, nearestDelta = Infinity
+      visible.forEach((c: any, i: number) => {
+        const ts = c.timestamp ?? c.t
+        if (!ts) return
+        const delta = Math.abs(ts - entryMarker.time)
+        if (delta < nearestDelta) { nearestDelta = delta; nearestIdx = i }
+      })
+      if (nearestIdx >= 0) {
+        const mx = PAD_L + nearestIdx * barW + barW * 0.5
+        ctx.strokeStyle = '#FFD700'
+        ctx.lineWidth = 2
+        ctx.setLineDash([6, 5])
+        ctx.beginPath()
+        ctx.moveTo(mx, PAD_T)
+        ctx.lineTo(mx, H - PAD_B)
+        ctx.stroke()
+        ctx.setLineDash([])
+        const label = entryMarker.label || 'TRADE TAKEN HERE'
+        ctx.font = 'bold 13px "Courier New", monospace'
+        const tw = ctx.measureText(label).width
+        const labelX = Math.min(Math.max(mx, PAD_L + tw / 2 + 6), W - PAD_R - tw / 2 - 6)
+        ctx.fillStyle = '#FFD700'
+        ctx.fillRect(labelX - tw / 2 - 6, PAD_T + 2, tw + 12, 20)
+        ctx.fillStyle = '#000000'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(label, labelX, PAD_T + 12)
+      }
+    }
+
     // Ticker watermark — centered, small
     ctx.save()
     ctx.font = `bold ${Math.floor(H * 0.084)}px "Courier New", monospace`
@@ -4850,7 +4888,7 @@ export function TradePopupChart({
         ctx.fillText(chDateStr, ch.x, H - PAD_B + 9)
       }
     }
-  }, [candles, fetching, timeframe, symbol]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [candles, fetching, timeframe, symbol, entryMarker]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Canvas DPR setup + ResizeObserver
   React.useEffect(() => {
@@ -5103,7 +5141,7 @@ export function TradePopupChart({
   }
 
   return (
-    <div style={{ position: 'relative', width: '50%', height: '476px' }}>
+    <div style={{ position: 'relative', width: containerWidth || '50%', height: '476px' }}>
       <canvas
         ref={canvasRef}
         style={{
