@@ -610,13 +610,12 @@ function computePlanEntry(params: {
       }).sort((a, b) => b.finalScore - a.finalScore)
 
       const winner = scored[0]
-      const label = winner.tools.join('+') + (winner.dealerAgrees ? '+dealer' : '')
       if (impliedBullish) {
         sigCode = `Reversal Long $${winner.price.toFixed(2)}`; sigColor = '#00e5ff'
-        planText = `Wait for price to pull back down to $${winner.price.toFixed(2)} (${label}) and buy there for entry.`
+        planText = `Wait for price to pull back down to $${winner.price.toFixed(2)} and buy there for entry.`
       } else {
         sigCode = `Reversal Short $${winner.price.toFixed(2)}`; sigColor = '#ff0000'
-        planText = `Wait for price to run up to $${winner.price.toFixed(2)} (${label}) and short there for entry.`
+        planText = `Wait for price to run up to $${winner.price.toFixed(2)} and short there for entry.`
       }
       return { sigCode, sigColor, planText }
     }
