@@ -19,15 +19,16 @@ function ChartEmbedInner() {
   const [candles, setCandles] = useState<any[]>([])
   const [ready, setReady] = useState(false)
 
-  // Fetch exactly today's regular-session 5m candles (9:30am ET open through now) - NOT a
-  // blended tail of the prior day, which is what the generic 5M timeframe fetch produces.
+  // Fetch exactly the TRADE'S session date's 5m candles (9:30am ET open through now) - NOT
+  // today's real-world date, which is wrong whenever the collector runs this after the
+  // trading day it's charting (e.g. an overnight/next-day alert scan for a prior session).
   useEffect(() => {
     if (!symbol) return
-    const today = new Date().toISOString().split('T')[0]
+    const sessionDate = entryTime ? new Date(entryTime).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
     fetch('/api/bulk-chart-data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbols: [symbol], timeframe: '5m', startDate: today, endDate: today }),
+      body: JSON.stringify({ symbols: [symbol], timeframe: '5m', startDate: sessionDate, endDate: sessionDate }),
     })
       .then((r) => r.json())
       .then((data) => {
@@ -36,7 +37,7 @@ function ChartEmbedInner() {
       })
       .catch(() => { })
       .finally(() => setReady(true))
-  }, [symbol])
+  }, [symbol, entryTime])
 
   if (!symbol || !ready) return null
 
