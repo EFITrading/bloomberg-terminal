@@ -300,11 +300,23 @@ async function main() {
         const chartUrl = `${APP_URL}/chart-embed?ticker=${encodeURIComponent(pick.ticker)}${entryTime ? `&entryTime=${entryTime}` : ''}`
         console.log('[Test] Loading chart embed:', chartUrl)
         await chartPage.goto(chartUrl, { waitUntil: 'networkidle0', timeout: 30_000 })
-        await chartPage.waitForSelector('canvas', { timeout: 15_000 })
+        // A stale/invalid cookie silently redirects to /login (which has its own decorative
+        // background canvas) - waitForSelector('canvas') would then screenshot THAT instead.
+        if (!chartPage.url().includes('/chart-embed')) {
+            console.log('[Test] Redirected away from chart-embed, re-authing and retrying...')
+            const freshCookies = await loginCookies()
+            if (freshCookies.length > 0) await chartPage.setCookie(...freshCookies)
+            await chartPage.goto(chartUrl, { waitUntil: 'networkidle0', timeout: 30_000 })
+        }
+        if (!chartPage.url().includes('/chart-embed')) {
+            throw new Error(`redirected away from chart-embed (landed on ${chartPage.url()})`)
+        }
+        await chartPage.waitForSelector('[data-chart-ready="true"] canvas', { timeout: 15_000 })
         await new Promise((r) => setTimeout(r, 2500))
-        const canvasHandle = await chartPage.$('canvas')
+        const canvasHandle = await chartPage.$('[data-chart-ready="true"] canvas')
         if (canvasHandle) {
-            const chartPng = await canvasHandle.screenshot({ type: 'png' })
+            const box = await canvasHandle.boundingBox()
+            const chartPng = await chartPage.screenshot({ type: 'png', clip: box ?? undefined })
             pick.chartImageBase64 = Buffer.from(chartPng).toString('base64')
             console.log('[Test] Chart captured OK.')
         }

@@ -11,6 +11,13 @@ export default function ConditionalNavigation() {
  return null;
  }
 
+ // /chart-embed is a bare headless-screenshot target (Discord card chart capture) - the
+ // fixed/sticky site nav bar sits on top of the chart canvas at those coordinates and gets
+ // included in the Puppeteer element screenshot otherwise.
+ if (pathname === '/chart-embed') {
+ return null;
+ }
+
  // Always show navigation
  return <Navigation />;
 }

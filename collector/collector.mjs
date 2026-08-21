@@ -762,12 +762,27 @@ async function runSweepSenseDiscordAlert() {
                     const entryTime = c.takenAt ? new Date(c.takenAt).getTime() : null
                     const chartUrl = `${APP_URL}/chart-embed?ticker=${encodeURIComponent(c.ticker)}${entryTime ? `&entryTime=${entryTime}` : ''}`
                     await chartPage.goto(chartUrl, { waitUntil: 'networkidle0', timeout: 30_000 })
-                    await chartPage.waitForSelector('canvas', { timeout: 15_000 })
+                    // A stale/invalid cookie silently redirects to /login (which has its own
+                    // decorative background canvas) instead of erroring - waitForSelector('canvas')
+                    // would then happily screenshot that login-page canvas instead of the chart.
+                    // Re-auth once and retry before trusting the page at all.
+                    if (!chartPage.url().includes('/chart-embed')) {
+                        const freshCookies = await loginCookies()
+                        if (freshCookies.length > 0) await chartPage.setCookie(...freshCookies)
+                        await chartPage.goto(chartUrl, { waitUntil: 'networkidle0', timeout: 30_000 })
+                    }
+                    if (!chartPage.url().includes('/chart-embed')) {
+                        throw new Error(`redirected away from chart-embed (landed on ${chartPage.url()})`)
+                    }
+                    await chartPage.waitForSelector('[data-chart-ready="true"] canvas', { timeout: 15_000 })
                     // Let the candle fetch + draw settle before capturing.
                     await new Promise((r) => setTimeout(r, 2500))
-                    const canvasHandle = await chartPage.$('canvas')
+                    const canvasHandle = await chartPage.$('[data-chart-ready="true"] canvas')
                     if (canvasHandle) {
-                        const chartPng = await canvasHandle.screenshot({ type: 'png' })
+                        // clip: true forces the capture to the element's own box, ignoring any
+                        // fixed/sticky element (e.g. the site nav bar) sitting on top of it.
+                        const box = await canvasHandle.boundingBox()
+                        const chartPng = await chartPage.screenshot({ type: 'png', clip: box ?? undefined })
                         c.chartImageBase64 = Buffer.from(chartPng).toString('base64')
                     }
                 } catch (chartErr) {
