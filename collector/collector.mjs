@@ -492,6 +492,13 @@ function buildSweepSenseCardHtml(c) {
         ? (c.currentStockPrice >= c.entrySpot ? '#22c55e' : '#ef4444') : '#e5e7eb'
     // Same glossy pill badges as the live table's getTradeTypeColor() (OptionsFlowTable.tsx).
     const tradeTypeColor = c.tradeType === 'BLOCK' ? '#00e5ff' : c.tradeType === 'MULTI-LEG' ? '#d8b4fe' : '#FFD700'
+    // The payload only ever carries raw epoch-ms takenAt/qualifiedAt (never a pre-formatted
+    // takenTime/qualifiedTime string) - format them here, in PST, so the header actually shows them.
+    const fmtPST = (ms) => (typeof ms === 'number' && ms > 0)
+        ? new Date(ms).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit' }) + ' PST'
+        : null
+    const takenTimeStr = fmtPST(c.takenAt)
+    const qualifiedTimeStr = fmtPST(c.qualifiedAt)
 
     // Activity flags now carry real trade detail (call/put split, strike(s), expiry, size, premium)
     // stamped by FlowTrackingPanel.tsx's activityDetail, instead of just a plain label string.
@@ -633,8 +640,8 @@ function buildSweepSenseCardHtml(c) {
                 </div>
                 <div style="display:flex;align-items:center;">
                     <div class="meta-strip">
-                        ${c.takenTime ? `<div class="meta-item"><div class="meta-label">TAKEN</div><div class="meta-val" style="color:#22d3ee">${esc(c.takenTime)}</div></div>` : ''}
-                        ${c.qualifiedTime ? `<div class="meta-item"><div class="meta-label">QUALIFIED</div><div class="meta-val" style="color:#34d399">${esc(c.qualifiedTime)}</div></div>` : ''}
+                        ${takenTimeStr ? `<div class="meta-item"><div class="meta-label">TAKEN</div><div class="meta-val" style="color:#22d3ee">${esc(takenTimeStr)}</div></div>` : ''}
+                        ${qualifiedTimeStr ? `<div class="meta-item"><div class="meta-label">QUALIFIED</div><div class="meta-val" style="color:#34d399">${esc(qualifiedTimeStr)}</div></div>` : ''}
                         ${c.earnings ? `<div class="meta-item"><div class="meta-label">EARNINGS</div><div class="meta-val" style="color:#f59e0b">${esc(c.earnings)}</div></div>` : ''}
                     </div>
                     <span class="term-badge">${esc(c.term || 'N/A')}</span>
@@ -642,11 +649,11 @@ function buildSweepSenseCardHtml(c) {
             </div>
             <div class="ticket">
                 <div class="ticket-seg">
-                    <div class="ticket-label">CONTRACT</div>
+                    <div class="ticket-label">STRIKE</div>
                     <div class="ticket-val" style="color:${cpColor}">${esc(fmtPrice(c.strike))} ${isCall ? 'CALL' : 'PUT'}</div>
                 </div>
                 <div class="ticket-seg">
-                    <div class="ticket-label">FILL</div>
+                    <div class="ticket-label">CONTRACT &amp; FILL</div>
                     <div class="ticket-val" style="color:#ffffff">${esc(c.tradeSize ?? 'N/A')} <span style="color:#cbd5e1;font-weight:700;">@</span> $${esc(typeof c.premiumPerContract === 'number' ? c.premiumPerContract.toFixed(2) : 'N/A')}${c.fillStyle ? `<span class="fill-badge" style="background:${fillColor}">${esc(c.fillStyle)}</span>` : ''}</div>
                 </div>
                 <div class="ticket-seg">
@@ -654,7 +661,7 @@ function buildSweepSenseCardHtml(c) {
                     <div class="ticket-sub">${esc(expiryShort)}</div>
                 </div>
                 <div class="ticket-seg">
-                    <div class="ticket-label">SPOT</div>
+                    <div class="ticket-label">SPOT &amp; CURRENT PRICE</div>
                     <div class="spot-line ticket-sub">
                         ${c.entrySpot !== null && c.entrySpot !== undefined ? `<span>${esc(fmtPrice(c.entrySpot))}</span>` : ''}
                         ${c.currentStockPrice !== null && c.currentStockPrice !== undefined ? `<span class="arrow">&rarr;</span><span style="color:${priceMoveColor};font-weight:800;">${esc(fmtPrice(c.currentStockPrice))}</span>` : ''}

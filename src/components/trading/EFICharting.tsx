@@ -4515,12 +4515,16 @@ export function TradePopupChart({
   initialTimeframe,
   entryMarker,
   containerWidth,
+  disableFetch,
 }: {
   symbol: string
   fallbackCandles: any[]
   initialTimeframe?: string
   entryMarker?: { time: number; label?: string } | null
   containerWidth?: string
+  // Screenshot-only mode (chart-embed): fallbackCandles is the exact, final candle set to
+  // render (e.g. today's session only) - never re-fetch a wider/blended window over it.
+  disableFetch?: boolean
 }) {
   const POPUP_TIMEFRAMES = [
     { label: '5M', value: '5m', days: 10, defaultBars: 78 }, // ~1 trading day visible
@@ -4566,6 +4570,11 @@ export function TradePopupChart({
 
   // Fetch on symbol or timeframe change
   React.useEffect(() => {
+    if (disableFetch) {
+      setCandles(fallbackCandles)
+      stateRef.current = { offset: 0, barsVisible: fallbackCandles.length }
+      return
+    }
     if (timeframe === '1D' && fallbackCandles.length > 0) {
       setCandles(fallbackCandles)
       stateRef.current = { offset: 0, barsVisible: Math.min(252, fallbackCandles.length) }
