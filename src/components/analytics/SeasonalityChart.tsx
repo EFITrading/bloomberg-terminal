@@ -134,6 +134,7 @@ interface SeasonalityChartProps {
   chartHeight?: number
   externalSelectedEvent?: string | null
   externalSelectedPatterns?: string[]
+  hideFullscreenToggle?: boolean
 }
 
 const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
@@ -154,6 +155,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   chartHeight = 650,
   externalSelectedEvent,
   externalSelectedPatterns = [],
+  hideFullscreenToggle = false,
 }) => {
   const [selectedSymbol, setSelectedSymbol] = useState<string>(initialSymbol || '')
   const [seasonalData, setSeasonalData] = useState<SeasonalAnalysis | null>(null)
@@ -625,6 +627,15 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
         )
         if (electionResult) {
           setElectionData(electionResult)
+
+          // ── Compute sweet spot / pain point for this election cycle's data ──
+          const { bestSweetSpot, worstPainPoint } = analyzeLongTermPatterns(electionResult.dailyData)
+          setSweetSpotPeriod({ startDay: bestSweetSpot.startDay, endDay: bestSweetSpot.endDay, period: bestSweetSpot.period })
+          setPainPointPeriod({ startDay: worstPainPoint.startDay, endDay: worstPainPoint.endDay, period: worstPainPoint.period })
+          setSweetSpotCard({ dates: bestSweetSpot.period, returnPct: bestSweetSpot.totalReturn })
+          setPainPointCard({ dates: worstPainPoint.period, returnPct: worstPainPoint.totalReturn })
+          setSweetSpotActive(false)
+          setPainPointActive(false)
         } else {
           setError('Failed to load election cycle data')
         }
@@ -1525,7 +1536,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   }
 
   const handleSweetSpotClick = () => {
-    if (!seasonalData?.dailyData) {
+    const activeData = isElectionMode ? electionData : seasonalData
+    if (!activeData?.dailyData) {
       // Toggle pre-selection if no data loaded yet
       setSweetSpotActive((prev) => !prev)
       if (painPointActive) setPainPointActive(false)
@@ -1539,7 +1551,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       return
     }
 
-    const { bestSweetSpot } = analyzeLongTermPatterns(seasonalData.dailyData)
+    const { bestSweetSpot } = analyzeLongTermPatterns(activeData.dailyData)
     setSweetSpotPeriod({
       startDay: bestSweetSpot.startDay,
       endDay: bestSweetSpot.endDay,
@@ -1549,7 +1561,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   }
 
   const handlePainPointClick = () => {
-    if (!seasonalData?.dailyData) {
+    const activeData = isElectionMode ? electionData : seasonalData
+    if (!activeData?.dailyData) {
       setPainPointActive((prev) => !prev)
       if (sweetSpotActive) setSweetSpotActive(false)
       return
@@ -1561,7 +1574,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
       return
     }
 
-    const { worstPainPoint } = analyzeLongTermPatterns(seasonalData.dailyData)
+    const { worstPainPoint } = analyzeLongTermPatterns(activeData.dailyData)
     setPainPointPeriod({
       startDay: worstPainPoint.startDay,
       endDay: worstPainPoint.endDay,
@@ -1571,7 +1584,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   }
 
   const handleBullish30DClick = () => {
-    const period = seasonalData?.spyComparison?.best30DayPeriod
+    const period = isElectionMode ? electionData?.spyComparison?.best30DayPeriod : seasonalData?.spyComparison?.best30DayPeriod
     if (!period) return
     if (bullish30DActive) {
       setSweetSpotPeriod(null)
@@ -1587,7 +1600,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   }
 
   const handleBearish30DClick = () => {
-    const period = seasonalData?.spyComparison?.worst30DayPeriod
+    const period = isElectionMode ? electionData?.spyComparison?.worst30DayPeriod : seasonalData?.spyComparison?.worst30DayPeriod
     if (!period) return
     if (bearish30DActive) {
       setPainPointPeriod(null)
@@ -2048,8 +2061,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                       ? electionData!.spyComparison!.monthlyData
                       : seasonalData!.spyComparison!.monthlyData
                   }
-                  best30DayPeriod={seasonalData?.spyComparison?.best30DayPeriod}
-                  worst30DayPeriod={seasonalData?.spyComparison?.worst30DayPeriod}
+                  best30DayPeriod={isElectionMode ? electionData?.spyComparison?.best30DayPeriod : seasonalData?.spyComparison?.best30DayPeriod}
+                  worst30DayPeriod={isElectionMode ? electionData?.spyComparison?.worst30DayPeriod : seasonalData?.spyComparison?.worst30DayPeriod}
                   onSweetSpotClick={handleSweetSpotClick}
                   onPainPointClick={handlePainPointClick}
                   onBullish30DClick={handleBullish30DClick}
@@ -2080,8 +2093,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                 ? electionData!.spyComparison!.monthlyData
                 : seasonalData!.spyComparison!.monthlyData
             }
-            best30DayPeriod={seasonalData?.spyComparison?.best30DayPeriod}
-            worst30DayPeriod={seasonalData?.spyComparison?.worst30DayPeriod}
+            best30DayPeriod={isElectionMode ? electionData?.spyComparison?.best30DayPeriod : seasonalData?.spyComparison?.best30DayPeriod}
+            worst30DayPeriod={isElectionMode ? electionData?.spyComparison?.worst30DayPeriod : seasonalData?.spyComparison?.worst30DayPeriod}
             yearsOfData={chartSettings.yearsOfData}
             onYearsChange={(years) => handleSettingsChange({ yearsOfData: years })}
             selectedElectionPeriod={displayElectionPeriod}
@@ -2216,7 +2229,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                       }}
                     >
                       {/* EXPAND button — normal mode, desktop only */}
-                      {!isMobileView && <button
+                      {!isMobileView && !hideFullscreenToggle && <button
                         onClick={() => setIsFullscreen((f) => !f)}
                         title="Fullscreen"
                         style={{

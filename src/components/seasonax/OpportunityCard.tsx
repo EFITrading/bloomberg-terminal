@@ -31,14 +31,6 @@ interface YearLineData {
   color: string
   totalReturn: number
 }
-interface TFAvgLineData {
-  tf: number
-  avgLine: Array<{ dayOffset: number; value: number }>
-  totalReturn: number
-  color: string
-}
-const TF_COLORS: Record<number, string> = { 5: '#00FF88', 10: '#FFD700', 15: '#00BFFF', 20: '#FF6600' }
-const TF_CLR_FALLBACK = ['#FF69B4', '#9370DB', '#00FA9A', '#FF8C00', '#1E90FF']
 
 // ── Canvas-based mini seasonal chart (almanac-style, crispy) ──────
 const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean; todayDayIdx?: number }> = ({
@@ -271,6 +263,7 @@ interface OpportunityCardProps {
   isLeaps?: boolean // Seasonal Leaps mode — fetch 3-month-out expiry
   isExpanded?: boolean // Card expanded to 2×2 inline chart view
   onExpand?: () => void // Toggle expanded state
+  onTrendSyncComputed?: (key: string, score: number | null) => void // Reports the CORRELATION score once computed, for parent-level filtering
 }
 
 const OpportunityCard: React.FC<OpportunityCardProps> = ({
@@ -286,11 +279,11 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
   isLeaps = false,
   isExpanded = false,
   onExpand,
+  onTrendSyncComputed,
 }) => {
   const isPositive = (pattern.averageReturn || pattern.avgReturn || 0) >= 0
   const expectedReturn = pattern.averageReturn || pattern.avgReturn || 0
   const daysUntilStart = (pattern as any).daysUntilStart
-  const hasMultiframe = multiframeYears && multiframeYears.length >= 2
 
   // ── Premium add-ons for 70%+ win rate ─────────────────────────────────────
   const isHighWinRate = pattern.winRate >= 70
@@ -307,19 +300,8 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
 
   // ── Expanded inline chart state ──────────────────────────────────────────
   const [lineData, setLineData] = useState<YearLineData[]>([])
-  const [tfAvgLines, setTfAvgLines] = useState<TFAvgLineData[]>([])
   const [chartLoading, setChartLoading] = useState(false)
-  const [enabledTFs, setEnabledTFs] = useState<Set<number>>(new Set(multiframeYears ?? []))
   const chartFetchedRef = useRef(false)
-
-  const toggleTF = (tf: number) => {
-    setEnabledTFs((prev) => {
-      const next = new Set(prev)
-      if (next.has(tf)) { if (next.size > 1) next.delete(tf) }
-      else next.add(tf)
-      return next
-    })
-  }
 
   // ── Trend sync: directional agreement between seasonal avg and most-recent year ──
   const trendSync = React.useMemo(() => {
@@ -350,6 +332,12 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
     if (score >= 45) return { score, label: 'MIXED', color: '#FFD700', yr }
     return { score, label: 'DRIFT', color: '#FF4444', yr }
   }, [miniChart])
+
+  // Report the computed correlation score up to the parent once the mini chart finishes loading
+  useEffect(() => {
+    if (!miniChart) return
+    onTrendSyncComputed?.(`${pattern.symbol}|${pattern.period}`, trendSync ? trendSync.score : null)
+  }, [miniChart, trendSync])
   const [optionsSetup, setOptionsSetup] = useState<{
     direction: string
     currentPrice: number
@@ -632,7 +620,6 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
   useEffect(() => {
     if (!isExpanded || chartFetchedRef.current) return
     chartFetchedRef.current = true
-    setEnabledTFs(new Set(multiframeYears ?? []))
     const parsePeriodDate = (s: string): { month: number; day: number } => {
       const months: Record<string, number> = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 }
       const [m, d] = s.trim().split(' ')
@@ -670,23 +657,6 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
         }
         const reversed = yearLines.reverse()
         setLineData(reversed)
-        if (multiframeYears && multiframeYears.length >= 2 && reversed.length > 0) {
-          const mrf = [...reversed].reverse()
-          const computed = multiframeYears.slice().sort((a, b) => a - b).map((tf, idx) => {
-            const slice = mrf.slice(0, Math.min(tf, mrf.length))
-            if (!slice.length) return null
-            const maxD = Math.max(...slice.map((l) => l.data.length))
-            const avgLine: Array<{ dayOffset: number; value: number }> = []
-            for (let d = 0; d < maxD; d++) {
-              const vals = slice.map((l) => l.data[d]?.value).filter((v): v is number => v !== undefined)
-              if (vals.length) avgLine.push({ dayOffset: d, value: vals.reduce((a, b) => a + b, 0) / vals.length })
-            }
-            const totalReturn = avgLine.length ? avgLine[avgLine.length - 1].value : 0
-            const color = TF_COLORS[tf] ?? TF_CLR_FALLBACK[idx % TF_CLR_FALLBACK.length]
-            return { tf, avgLine, totalReturn, color } as TFAvgLineData
-          }).filter((x): x is TFAvgLineData => x !== null)
-          setTfAvgLines(computed)
-        }
       } catch { /* silent */ }
       finally { setChartLoading(false) }
     }
@@ -836,10 +806,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
       </style>
       <div
         className={cardId}
-        onDoubleClick={() => onExpand?.()}
-        onClick={() => {
-          if (typeof window !== 'undefined' && window.innerWidth <= 768) onExpand?.()
-        }}
+        onClick={() => onExpand?.()}
         style={{
           background: isHighWinRate ? '#000000' : '#000000',
           border: isHighWinRate
@@ -849,7 +816,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
           outlineOffset: '2px',
           padding: isHighWinRate ? '0' : '12px',
           borderRadius: '10px',
-          overflow: isExpanded ? 'visible' : isHighWinRate ? 'hidden' : 'visible',
+          overflow: isHighWinRate ? 'hidden' : 'visible',
           position: 'relative',
           transition: 'all 0.35s cubic-bezier(0.23,1,0.32,1)',
           boxShadow: isHighWinRate
@@ -867,23 +834,10 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
           transform: 'translateZ(0)',
           willChange: 'transform',
           cursor: 'pointer',
-          gridColumn: isExpanded ? '1 / -1' : undefined,
-          gridRow: isExpanded ? 'span 2' : undefined,
-          ...(isExpanded ? {
-            background: 'transparent',
-            border: 'none',
-            boxShadow: 'none',
-            backdropFilter: 'none',
-            padding: '0',
-            maxWidth: 'none',
-            borderRadius: '0',
-          } : {}),
         }}
       >
-        {/* ── Grid wrapper: 2-col when expanded (card1 | card2 top, card3+4 bottom) ── */}
-        <div style={isExpanded ? { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' } : {}}>
-          {/* ── LEFT panel: existing card content (card 1 slot) ── */}
-          <div style={isExpanded ? { background: '#000', border: '1px solid rgba(0,255,136,0.35)', borderRadius: '10px', overflowY: 'auto', overflowX: 'hidden' } : {}}>
+        <div>
+          <div>
             {/* ── CARD CONTENT ─────────────────────────────────────── */}
             <div>
               {/* Top Bar */}
@@ -1691,157 +1645,95 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
           </div>
           {/* ── end LEFT panel ── */}
 
-          {/* ── RIGHT panel: multi-TF averages (top-right, card 2 slot) ── */}
+          {/* ── HISTORICAL LINES popup: simple modal overlay (no multi-TF averages) ── */}
           {isExpanded && (
-            <div style={{ background: '#000', border: '1px solid rgba(0,191,255,0.35)', borderRadius: '10px', padding: '16px 0 0 0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              {/* header row: title + TF toggles + X close */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', flexShrink: 0, padding: '0 16px' }}>
-                <span style={{ color: '#00BFFF', fontFamily: 'monospace', fontSize: '11px', fontWeight: 'bold', letterSpacing: '2px' }}>MULTI-TF AVERAGES</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  {tfAvgLines.slice().sort((a, b) => a.tf - b.tf).map(t => {
-                    const active = enabledTFs.has(t.tf)
-                    return (
-                      <button key={t.tf} onClick={(e) => { e.stopPropagation(); toggleTF(t.tf) }}
-                        style={{ padding: '2px 8px', border: `1px solid ${active ? t.color : 'rgba(255,255,255,0.2)'}`, borderRadius: '4px', background: active ? `${t.color}22` : 'transparent', color: active ? t.color : 'rgba(255,255,255,0.3)', fontFamily: 'monospace', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer' }}>
-                        {t.tf}Y
-                      </button>
-                    )
-                  })}
+            <div
+              onClick={(e) => { e.stopPropagation(); onExpand?.() }}
+              style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{ background: '#000', border: '1px solid rgba(255,102,0,0.35)', borderRadius: '10px', padding: '24px 32px', maxWidth: '1800px', width: '100%', maxHeight: '95vh', overflowY: 'auto' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                  <span style={{ color: '#FF6600', fontFamily: 'monospace', fontSize: '16px', fontWeight: 'bold', letterSpacing: '2px' }}>HISTORICAL LINES</span>
+                  <span style={{ color: '#fff', fontFamily: 'monospace', fontSize: '14px' }}>{lineData.length} years</span>
                   <button
-                    onClick={(e) => { e.stopPropagation(); onExpand?.() }}
-                    style={{ marginLeft: '4px', width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(255,255,255,0.25)', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', color: '#fff', fontFamily: 'monospace', fontSize: '13px', lineHeight: 1, cursor: 'pointer' }}>
+                    onClick={() => onExpand?.()}
+                    style={{ marginLeft: 'auto', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(255,255,255,0.25)', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', color: '#fff', fontFamily: 'monospace', fontSize: '18px', lineHeight: 1, cursor: 'pointer' }}>
                     ✕
                   </button>
                 </div>
-              </div>
-              {chartLoading ? (
-                <div style={{ color: '#999', fontFamily: 'monospace', textAlign: 'center', paddingTop: '60px', fontSize: '12px', letterSpacing: '2px' }}>LOADING CHART DATA...</div>
-              ) : hasMultiframe && tfAvgLines.length > 0 ? (() => {
-                const cW = 528, cH = 630
-                const pad = { top: 24, right: 85, bottom: 40, left: 72 }
-                const pW = cW - pad.left - pad.right
-                const pH = cH - pad.top - pad.bottom
-                const vis = tfAvgLines.filter(t => enabledTFs.has(t.tf))
-                const maxD = vis.length > 0 ? Math.max(...vis.map(t => t.avgLine.length), 1) : 1
-                const allV = vis.flatMap(t => t.avgLine.map(d => d.value))
-                const tfMax = allV.length > 0 ? Math.max(...allV, 5) : 5
-                const tfMin = allV.length > 0 ? Math.min(...allV, -5) : -5
-                const tfRng = tfMax - tfMin || 1
-                const xS = (d: number) => pad.left + (d / Math.max(maxD - 1, 1)) * pW
-                const yS = (v: number) => pad.top + pH - ((v - tfMin) / tfRng) * pH
-                const sorted = [...vis].sort((a, b) => b.totalReturn - a.totalReturn)
-                return (
-                  <div style={{ flex: 1 }}>
+                {chartLoading ? (
+                  <div style={{ color: '#999', fontFamily: 'monospace', textAlign: 'center', paddingTop: '20px', fontSize: '12px', letterSpacing: '2px' }}>LOADING CHART DATA...</div>
+                ) : lineData.length > 0 ? (() => {
+                  const cW = 1640, cH = 900
+                  const pad = { top: 40, right: 130, bottom: 60, left: 90 }
+                  const pW = cW - pad.left - pad.right
+                  const pH = cH - pad.top - pad.bottom
+                  const maxD = Math.max(...lineData.map(l => l.data.length), 1)
+                  const allV = lineData.flatMap(l => l.data.map(d => d.value))
+                  const hMax = Math.max(...allV, 5)
+                  const hMin = Math.min(...allV, -5)
+                  const hRng = hMax - hMin || 1
+                  const xS = (d: number) => pad.left + (d / Math.max(maxD - 1, 1)) * pW
+                  const yS = (v: number) => pad.top + pH - ((v - hMin) / hRng) * pH
+                  const fmtRet = (v: number) => {
+                    const abs = Math.abs(v)
+                    const n = abs >= 10 ? Math.round(v) : parseFloat(v.toFixed(1))
+                    return `${v >= 0 ? '+' : ''}${n}%`
+                  }
+                  // sort descending, place labels at end-of-line Y, then push apart to avoid overlap
+                  const sorted = [...lineData].sort((a, b) => b.totalReturn - a.totalReturn)
+                  const minGap = 20
+                  const rawPositions = sorted.map(yl => {
+                    const last = yl.data[yl.data.length - 1]
+                    return Math.min(Math.max(yS(last.value), pad.top + 6), pad.top + pH - 6)
+                  })
+                  // push-apart pass: iterate top-to-bottom
+                  const positions = [...rawPositions]
+                  for (let i = 1; i < positions.length; i++) {
+                    if (positions[i] - positions[i - 1] < minGap) positions[i] = positions[i - 1] + minGap
+                  }
+                  // clamp bottom
+                  for (let i = positions.length - 1; i >= 0; i--) {
+                    if (positions[i] > pad.top + pH) positions[i] = pad.top + pH
+                    if (i < positions.length - 1 && positions[i + 1] - positions[i] < minGap) positions[i] = positions[i + 1] - minGap
+                  }
+                  return (
                     <svg width="100%" viewBox={`0 0 ${cW} ${cH}`} style={{ display: 'block', overflow: 'visible' }}>
-                      {[0, 1, 2, 3, 4, 5, 6, 7, 8].map(i => {
-                        const v = tfMax - (tfRng / 8) * i; const y = yS(v)
-                        return (<g key={i}><line x1={pad.left} y1={y} x2={cW - pad.right} y2={y} stroke="rgba(255,255,255,0.08)" strokeWidth="3" /><text x={pad.left - 8} y={y + 12} fill="#fff" fontSize="22" fontFamily="monospace" textAnchor="end">{v.toFixed(1)}%</text></g>)
+                      {[0, 1, 2, 3, 4, 5, 6].map(i => {
+                        const v = hMax - (hRng / 6) * i; const y = yS(v)
+                        return (<g key={i}><line x1={pad.left} y1={y} x2={cW - pad.right} y2={y} stroke="rgba(255,255,255,0.08)" strokeWidth="1" /><text x={pad.left - 8} y={y + 4} fill="#fff" fontSize="16" fontFamily="monospace" textAnchor="end">{parseFloat(v.toFixed(1))}%</text></g>)
                       })}
                       {[0, 1, 2, 3, 4, 5, 6].map(i => {
                         const d = Math.floor((maxD / 6) * i); const x = xS(d)
-                        return (<text key={i} x={x} y={cH - pad.bottom + 32} fill="#fff" fontSize="22" fontFamily="monospace" textAnchor="middle">{d}</text>)
+                        return (<text key={i} x={x} y={cH - pad.bottom + 24} fill="#fff" fontSize="16" fontFamily="monospace" textAnchor="middle">{d}</text>)
                       })}
-                      {tfMin < 0 && tfMax > 0 && <line x1={pad.left} y1={yS(0)} x2={cW - pad.right} y2={yS(0)} stroke="rgba(255,255,255,0.25)" strokeWidth="2" strokeDasharray="8,5" />}
-                      {sorted.map((t) => {
-                        const last = t.avgLine[t.avgLine.length - 1]
-                        const rawY = yS(last.value)
-                        const labelY = Math.min(Math.max(rawY, pad.top + 12), pad.top + pH - 12)
-                        const pathD = t.avgLine.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xS(p.dayOffset)} ${yS(p.value)}`).join(' ')
-                        return (<g key={t.tf}>
-                          <path d={pathD} fill="none" stroke={t.color} strokeWidth="12" opacity="0.1" />
-                          <path d={pathD} fill="none" stroke={t.color} strokeWidth="4" opacity="0.95" />
-                          <line x1={xS(last.dayOffset)} y1={yS(last.value)} x2={cW - pad.right + 4} y2={labelY} stroke={t.color} strokeWidth="1.5" strokeDasharray="5,4" opacity="0.4" />
-                          <text x={cW - pad.right + 12} y={labelY - 4} fill={t.color} fontSize="22" fontFamily="monospace" fontWeight="bold">{t.tf}Y</text>
-                          <text x={cW - pad.right + 12} y={labelY + 20} fill={t.color} fontSize="22" fontFamily="monospace">{t.totalReturn >= 0 ? '+' : ''}{t.totalReturn.toFixed(1)}%</text>
+                      {hMin < 0 && hMax > 0 && <line x1={pad.left} y1={yS(0)} x2={cW - pad.right} y2={yS(0)} stroke="rgba(255,255,255,0.25)" strokeWidth="1" strokeDasharray="4,3" />}
+                      {sorted.map(yl => {
+                        const pathD = yl.data.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xS(p.dayOffset)} ${yS(p.value)}`).join(' ')
+                        return (<path key={yl.year} d={pathD} fill="none" stroke={yl.color} strokeWidth="2.5" opacity="0.75" />)
+                      })}
+                      {sorted.map((yl, i) => {
+                        const last = yl.data[yl.data.length - 1]
+                        const lY = positions[i]
+                        const shortYear = String(yl.year).slice(-2)
+                        return (<g key={yl.year}>
+                          <line x1={xS(last.dayOffset)} y1={yS(last.value)} x2={cW - pad.right + 5} y2={lY} stroke={yl.color} strokeWidth="1" strokeDasharray="3,3" opacity="0.35" />
+                          <text x={cW - pad.right + 10} y={lY + 5} fill={yl.color} fontSize="15" fontFamily="monospace">{shortYear}: {fmtRet(yl.totalReturn)}</text>
                         </g>)
                       })}
-                      <text x={pad.left + pW / 2} y={cH - 6} fill="#fff" fontSize="22" fontFamily="monospace" textAnchor="middle">Days</text>
+                      <text x={pad.left + pW / 2} y={cH - 4} fill="#fff" fontSize="16" fontFamily="monospace" textAnchor="middle">Days</text>
                     </svg>
-                  </div>
-                )
-              })() : (
-                <div style={{ color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace', textAlign: 'center', paddingTop: '40px', fontSize: '11px' }}>NO MULTI-FRAME DATA</div>
-              )}
-            </div>
-          )}
-          {/* ── HISTORICAL LINES panel (bottom row, cards 3+4 slots) ── */}
-          {isExpanded && (
-            <div style={{ gridColumn: '1 / -1', background: '#000', border: '1px solid rgba(255,102,0,0.35)', borderRadius: '10px', padding: '16px 20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-                <span style={{ color: '#FF6600', fontFamily: 'monospace', fontSize: '11px', fontWeight: 'bold', letterSpacing: '2px' }}>HISTORICAL LINES</span>
-                <span style={{ color: '#fff', fontFamily: 'monospace', fontSize: '10px' }}>{lineData.length} years</span>
+                  )
+                })() : (
+                  <div style={{ color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace', textAlign: 'center', paddingTop: '20px', fontSize: '11px' }}>NO HISTORICAL DATA</div>
+                )}
               </div>
-              {chartLoading ? (
-                <div style={{ color: '#999', fontFamily: 'monospace', textAlign: 'center', paddingTop: '20px', fontSize: '12px', letterSpacing: '2px' }}>LOADING CHART DATA...</div>
-              ) : lineData.length > 0 ? (() => {
-                const cW = 820, cH = 450
-                const pad = { top: 24, right: 70, bottom: 40, left: 58 }
-                const pW = cW - pad.left - pad.right
-                const pH = cH - pad.top - pad.bottom
-                const maxD = Math.max(...lineData.map(l => l.data.length), 1)
-                const allV = lineData.flatMap(l => l.data.map(d => d.value))
-                const hMax = Math.max(...allV, 5)
-                const hMin = Math.min(...allV, -5)
-                const hRng = hMax - hMin || 1
-                const xS = (d: number) => pad.left + (d / Math.max(maxD - 1, 1)) * pW
-                const yS = (v: number) => pad.top + pH - ((v - hMin) / hRng) * pH
-                const fmtRet = (v: number) => {
-                  const abs = Math.abs(v)
-                  const n = abs >= 10 ? Math.round(v) : parseFloat(v.toFixed(1))
-                  return `${v >= 0 ? '+' : ''}${n}%`
-                }
-                // sort descending, place labels at end-of-line Y, then push apart to avoid overlap
-                const sorted = [...lineData].sort((a, b) => b.totalReturn - a.totalReturn)
-                const minGap = 12
-                const rawPositions = sorted.map(yl => {
-                  const last = yl.data[yl.data.length - 1]
-                  return Math.min(Math.max(yS(last.value), pad.top + 6), pad.top + pH - 6)
-                })
-                // push-apart pass: iterate top-to-bottom
-                const positions = [...rawPositions]
-                for (let i = 1; i < positions.length; i++) {
-                  if (positions[i] - positions[i - 1] < minGap) positions[i] = positions[i - 1] + minGap
-                }
-                // clamp bottom
-                for (let i = positions.length - 1; i >= 0; i--) {
-                  if (positions[i] > pad.top + pH) positions[i] = pad.top + pH
-                  if (i < positions.length - 1 && positions[i + 1] - positions[i] < minGap) positions[i] = positions[i + 1] - minGap
-                }
-                return (
-                  <svg width="100%" viewBox={`0 0 ${cW} ${cH}`} style={{ display: 'block', overflow: 'visible' }}>
-                    {[0, 1, 2, 3, 4, 5, 6].map(i => {
-                      const v = hMax - (hRng / 6) * i; const y = yS(v)
-                      return (<g key={i}><line x1={pad.left} y1={y} x2={cW - pad.right} y2={y} stroke="rgba(255,255,255,0.08)" strokeWidth="1" /><text x={pad.left - 8} y={y + 4} fill="#fff" fontSize="10" fontFamily="monospace" textAnchor="end">{parseFloat(v.toFixed(1))}%</text></g>)
-                    })}
-                    {[0, 1, 2, 3, 4, 5, 6].map(i => {
-                      const d = Math.floor((maxD / 6) * i); const x = xS(d)
-                      return (<text key={i} x={x} y={cH - pad.bottom + 16} fill="#fff" fontSize="10" fontFamily="monospace" textAnchor="middle">{d}</text>)
-                    })}
-                    {hMin < 0 && hMax > 0 && <line x1={pad.left} y1={yS(0)} x2={cW - pad.right} y2={yS(0)} stroke="rgba(255,255,255,0.25)" strokeWidth="1" strokeDasharray="4,3" />}
-                    {sorted.map(yl => {
-                      const pathD = yl.data.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xS(p.dayOffset)} ${yS(p.value)}`).join(' ')
-                      return (<path key={yl.year} d={pathD} fill="none" stroke={yl.color} strokeWidth="1.5" opacity="0.75" />)
-                    })}
-                    {sorted.map((yl, i) => {
-                      const last = yl.data[yl.data.length - 1]
-                      const lY = positions[i]
-                      const shortYear = String(yl.year).slice(-2)
-                      return (<g key={yl.year}>
-                        <line x1={xS(last.dayOffset)} y1={yS(last.value)} x2={cW - pad.right + 3} y2={lY} stroke={yl.color} strokeWidth="0.7" strokeDasharray="3,3" opacity="0.35" />
-                        <text x={cW - pad.right + 6} y={lY + 4} fill={yl.color} fontSize="10" fontFamily="monospace">{shortYear}: {fmtRet(yl.totalReturn)}</text>
-                      </g>)
-                    })}
-                    <text x={pad.left + pW / 2} y={cH - 4} fill="#fff" fontSize="10" fontFamily="monospace" textAnchor="middle">Days</text>
-                  </svg>
-                )
-              })() : (
-                <div style={{ color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace', textAlign: 'center', paddingTop: '20px', fontSize: '11px' }}>NO HISTORICAL DATA</div>
-              )}
             </div>
           )}
-          {/* ── end grid panels ── */}
         </div>
-        {/* ── end grid wrapper ── */}
       </div>
       {/* ── end card ── */}
     </>

@@ -6,7 +6,6 @@ import '../../app/almanac.css'
 import { AlmanacService, IndexSeasonalData } from '../../lib/almanacService'
 import AlmanacCalendar from './AlmanacCalendar'
 import AlmanacMobileControls from './AlmanacMobileControls'
-import WeeklyScanTable from './WeeklyScanTable'
 import { getAlmanacDailyChartMobile, getAlmanacDailyChartPadding } from './AlmanacDailyChartMobile'
 
 interface AlmanacDailyChartProps {
@@ -42,6 +41,106 @@ const MONTH_NAMES = [
   'December',
 ]
 
+// Computes this event's month/day for a given year using the same rules as calculateEventPerformance's getEventDates
+function getEventDateForYear(event: string, year: number): Date | null {
+  switch (event) {
+    case 'thanksgiving': {
+      const nov1 = new Date(year, 10, 1)
+      const firstThursday = ((4 - nov1.getDay() + 7) % 7) + 1
+      return new Date(year, 10, firstThursday + 21)
+    }
+    case 'christmas':
+      return new Date(year, 11, 25)
+    case 'newyear':
+      return new Date(year, 0, 1)
+    case 'presidentsday': {
+      const feb1 = new Date(year, 1, 1)
+      const firstMonday = ((1 - feb1.getDay() + 7) % 7) + 1
+      return new Date(year, 1, firstMonday + 14)
+    }
+    case 'mlkday': {
+      const jan1 = new Date(year, 0, 1)
+      const firstMondayJan = ((1 - jan1.getDay() + 7) % 7) + 1
+      return new Date(year, 0, firstMondayJan + 14)
+    }
+    case 'memorialday': {
+      const may31 = new Date(year, 4, 31)
+      const lastMonday = 31 - ((may31.getDay() + 6) % 7)
+      return new Date(year, 4, lastMonday)
+    }
+    case 'july4th':
+      return new Date(year, 6, 4)
+    case 'laborday': {
+      const sep1 = new Date(year, 8, 1)
+      const firstMondaySep = ((1 - sep1.getDay() + 7) % 7) + 1
+      return new Date(year, 8, firstMondaySep)
+    }
+    case 'fomc-march':
+      return new Date(year, 2, 20)
+    case 'fomc-june':
+      return new Date(year, 5, 15)
+    case 'fomc-september':
+      return new Date(year, 8, 20)
+    case 'fomc-december':
+      return new Date(year, 11, 15)
+    case 'quad-witching-mar': {
+      const mar1 = new Date(year, 2, 1)
+      const firstFridayMar = ((5 - mar1.getDay() + 7) % 7) + 1
+      return new Date(year, 2, firstFridayMar + 14)
+    }
+    case 'quad-witching-jun': {
+      const jun1 = new Date(year, 5, 1)
+      const firstFridayJun = ((5 - jun1.getDay() + 7) % 7) + 1
+      return new Date(year, 5, firstFridayJun + 14)
+    }
+    case 'quad-witching-sep': {
+      const sep1qw = new Date(year, 8, 1)
+      const firstFridaySep = ((5 - sep1qw.getDay() + 7) % 7) + 1
+      return new Date(year, 8, firstFridaySep + 14)
+    }
+    case 'quad-witching-dec': {
+      const dec1 = new Date(year, 11, 1)
+      const firstFridayDec = ((5 - dec1.getDay() + 7) % 7) + 1
+      return new Date(year, 11, firstFridayDec + 14)
+    }
+    case 'monthlyopex': {
+      const today = new Date()
+      const month1 = new Date(year, today.getMonth(), 1)
+      const firstFridayMonth = ((5 - month1.getDay() + 7) % 7) + 1
+      return new Date(year, today.getMonth(), firstFridayMonth + 14)
+    }
+    case 'yearendrally':
+      return new Date(year, 11, 31)
+    case 'halloweenrally':
+      return new Date(year, 9, 31)
+    case 'santarally':
+      return new Date(year, 11, 20)
+    case 'q1-earnings':
+      return new Date(year, 3, 15)
+    case 'q2-earnings':
+      return new Date(year, 6, 15)
+    case 'q3-earnings':
+      return new Date(year, 9, 15)
+    case 'q4-earnings':
+      return new Date(year, 0, 15)
+    default:
+      return null
+  }
+}
+
+// Returns the absolute day distance from `now` to this event's nearest occurrence (prev or next year checked too)
+function daysToNearestEventOccurrence(event: string, now: Date): number {
+  const year = now.getFullYear()
+  const candidates = [year - 1, year, year + 1]
+    .map((y) => getEventDateForYear(event, y))
+    .filter((d): d is Date => d !== null)
+  if (candidates.length === 0) return Infinity
+  const msPerDay = 1000 * 60 * 60 * 24
+  return Math.min(...candidates.map((d) => Math.abs((d.getTime() - now.getTime()) / msPerDay)))
+}
+
+const ACTIVE_OPTION_STYLE: React.CSSProperties = { color: '#ff8c1a', fontWeight: 900, backgroundColor: '#1a0f00' }
+
 const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
   month = new Date().getMonth(),
   showPostElection = true,
@@ -62,7 +161,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
   const [show15Y, setShow15Y] = useState(true)
   const [show10Y, setShow10Y] = useState(true)
   const [showElection, setShowElection] = useState(true)
-  const [activeView, setActiveView] = useState<'chart' | 'calendar' | 'table'>('chart')
+  const [activeView, setActiveView] = useState<'chart' | 'calendar'>('chart')
   const [isMobileView, setIsMobileView] = useState(false)
   const isMobileViewRef = useRef(false)
   useEffect(() => {
@@ -109,6 +208,9 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
   >([])
   const [showPatternDetails, setShowPatternDetails] = useState(false)
 
+  // Loading state while fetching event/pattern performance data
+  const [eventPatternLoading, setEventPatternLoading] = useState(false)
+
   // Sweet Spot / Pain Point / Candlenality
   const [showSweetSpot, setShowSweetSpot] = useState(false)
   const [showPainPoint, setShowPainPoint] = useState(false)
@@ -117,6 +219,20 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
   const [painPointRange, setPainPointRange] = useState<{ start: number; end: number; label: string } | null>(null)
 
   const almanacService = new AlmanacService()
+
+  // Event nearest to today (within 20 days) — highlighted in the Market Events dropdown
+  const ACTIVE_EVENT_WINDOW_DAYS = 20
+  const allEventKeys = [
+    'thanksgiving', 'christmas', 'newyear', 'presidentsday', 'mlkday', 'memorialday', 'july4th', 'laborday',
+    'fomc-march', 'fomc-june', 'fomc-september', 'fomc-december',
+    'quad-witching-mar', 'quad-witching-jun', 'quad-witching-sep', 'quad-witching-dec',
+    'q1-earnings', 'q2-earnings', 'q3-earnings', 'q4-earnings', 'yearendrally', 'halloweenrally', 'santarally', 'monthlyopex',
+  ]
+  const activeEventKey = allEventKeys.reduce<{ key: string | null; days: number }>((closest, key) => {
+    const days = daysToNearestEventOccurrence(key, new Date())
+    return days <= ACTIVE_EVENT_WINDOW_DAYS && days < closest.days ? { key, days } : closest
+  }, { key: null, days: Infinity }).key
+
 
   useEffect(() => {
     setSelectedMonth(month)
@@ -420,6 +536,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
   }
 
   const calculateEventPerformance = async (eventType: string) => {
+    setEventPatternLoading(true)
     const currentYear = new Date().getFullYear()
 
     const getEventDates = (event: string): Date[] => {
@@ -736,6 +853,8 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
       setEventPerformanceData(widest ? widest.data : [])
     } catch (error) {
       console.error('Event performance calculation failed:', error)
+    } finally {
+      setEventPatternLoading(false)
     }
   }
 
@@ -746,6 +865,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     ticker: string
   ) => {
     console.log(`Calculating pattern performance for ${patternType} on ${ticker}`)
+    setEventPatternLoading(true)
 
     // Assign color based on pattern type
     const getPatternColor = (label: string) => {
@@ -777,6 +897,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
 
       if (!data.results || data.results.length < 252) {
         console.warn('Insufficient historical data')
+        setEventPatternLoading(false)
         return
       }
 
@@ -991,6 +1112,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
 
       if (occurrences.length === 0) {
         console.warn('No pattern occurrences found')
+        setEventPatternLoading(false)
         return
       }
 
@@ -1045,6 +1167,8 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
       })
     } catch (error) {
       console.error('Pattern performance calculation failed:', error)
+    } finally {
+      setEventPatternLoading(false)
     }
   }
 
@@ -1919,6 +2043,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
               setShowEventPerformance={setShowEventPerformance}
               setEventPerformanceData={setEventPerformanceData}
               calculateEventPerformance={calculateEventPerformance}
+              activeEventKey={activeEventKey}
               selectedPattern={selectedPattern}
               setSelectedPattern={setSelectedPattern}
               setShowPatternPerformance={setShowPatternPerformance}
@@ -2008,10 +2133,9 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
                       <circle cx="12" cy="12" r="3" /><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
                     </svg>
                   </span>
-                  <select value={activeView} onChange={(e) => setActiveView(e.target.value as 'chart' | 'calendar' | 'table')} className={`almanac-ctrl-select${activeView !== 'chart' ? ' has-value' : ''}`} style={{ maxWidth: '185px', border: '1px solid #ff6600', color: '#ff6600', WebkitTextFillColor: '#ff6600' }}>
+                  <select value={activeView} onChange={(e) => setActiveView(e.target.value as 'chart' | 'calendar')} className={`almanac-ctrl-select${activeView !== 'chart' ? ' has-value' : ''}`} style={{ maxWidth: '185px', border: '1px solid #ff6600', color: '#ff6600', WebkitTextFillColor: '#ff6600' }}>
                     <option value="chart">CHART VIEW</option>
                     <option value="calendar">SEASONAL CALENDAR</option>
-                    <option value="table">SEASONAL TABLE</option>
                   </select>
                 </div>
 
@@ -2020,7 +2144,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
 
                 {/* Chart-view-only controls */}
                 {activeView === 'chart' && (<>
-                  <select value={selectedMonth} onChange={(e) => { const m = parseInt(e.target.value); setSelectedMonth(m); onMonthChange?.(m) }} className="almanac-ctrl-select" style={{ maxWidth: '105px' }}>
+                  <select value={selectedMonth} onChange={(e) => { const m = parseInt(e.target.value); setSelectedMonth(m); onMonthChange?.(m) }} className="almanac-ctrl-select">
                     {MONTH_NAMES.map((name, i) => <option key={i} value={i}>{name}</option>)}
                   </select>
                   <div className="almanac-ctrl-divider" />
@@ -2046,36 +2170,36 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
                   <select value={selectedEvent || ''} onChange={(e) => { const v = e.target.value; if (v) { setSelectedEvent(v); setShowEventPerformance(true); calculateEventPerformance(v) } else { setSelectedEvent(null); setShowEventPerformance(false); setEventPerformanceData([]); setEventSeriesData([]) } }} className={`almanac-ctrl-select${selectedEvent ? ' has-value' : ''}`} style={{ maxWidth: '165px' }}>
                     <option value="">MARKET EVENTS</option>
                     <optgroup label="HOLIDAYS">
-                      <option value="thanksgiving">THANKSGIVING</option>
-                      <option value="christmas">CHRISTMAS</option>
-                      <option value="newyear">NEW YEAR</option>
-                      <option value="presidentsday">PRESIDENTS DAY</option>
-                      <option value="mlkday">MLK DAY</option>
-                      <option value="memorialday">MEMORIAL DAY</option>
-                      <option value="july4th">JULY 4TH</option>
-                      <option value="laborday">LABOR DAY</option>
+                      <option value="thanksgiving" style={activeEventKey === 'thanksgiving' ? ACTIVE_OPTION_STYLE : undefined}>THANKSGIVING{activeEventKey === 'thanksgiving' ? ' ● ACTIVE' : ''}</option>
+                      <option value="christmas" style={activeEventKey === 'christmas' ? ACTIVE_OPTION_STYLE : undefined}>CHRISTMAS{activeEventKey === 'christmas' ? ' ● ACTIVE' : ''}</option>
+                      <option value="newyear" style={activeEventKey === 'newyear' ? ACTIVE_OPTION_STYLE : undefined}>NEW YEAR{activeEventKey === 'newyear' ? ' ● ACTIVE' : ''}</option>
+                      <option value="presidentsday" style={activeEventKey === 'presidentsday' ? ACTIVE_OPTION_STYLE : undefined}>PRESIDENTS DAY{activeEventKey === 'presidentsday' ? ' ● ACTIVE' : ''}</option>
+                      <option value="mlkday" style={activeEventKey === 'mlkday' ? ACTIVE_OPTION_STYLE : undefined}>MLK DAY{activeEventKey === 'mlkday' ? ' ● ACTIVE' : ''}</option>
+                      <option value="memorialday" style={activeEventKey === 'memorialday' ? ACTIVE_OPTION_STYLE : undefined}>MEMORIAL DAY{activeEventKey === 'memorialday' ? ' ● ACTIVE' : ''}</option>
+                      <option value="july4th" style={activeEventKey === 'july4th' ? ACTIVE_OPTION_STYLE : undefined}>JULY 4TH{activeEventKey === 'july4th' ? ' ● ACTIVE' : ''}</option>
+                      <option value="laborday" style={activeEventKey === 'laborday' ? ACTIVE_OPTION_STYLE : undefined}>LABOR DAY{activeEventKey === 'laborday' ? ' ● ACTIVE' : ''}</option>
                     </optgroup>
                     <optgroup label="FOMC MEETINGS">
-                      <option value="fomc-march">FOMC MARCH</option>
-                      <option value="fomc-june">FOMC JUNE</option>
-                      <option value="fomc-september">FOMC SEPT</option>
-                      <option value="fomc-december">FOMC DEC</option>
+                      <option value="fomc-march" style={activeEventKey === 'fomc-march' ? ACTIVE_OPTION_STYLE : undefined}>FOMC MARCH{activeEventKey === 'fomc-march' ? ' ● ACTIVE' : ''}</option>
+                      <option value="fomc-june" style={activeEventKey === 'fomc-june' ? ACTIVE_OPTION_STYLE : undefined}>FOMC JUNE{activeEventKey === 'fomc-june' ? ' ● ACTIVE' : ''}</option>
+                      <option value="fomc-september" style={activeEventKey === 'fomc-september' ? ACTIVE_OPTION_STYLE : undefined}>FOMC SEPT{activeEventKey === 'fomc-september' ? ' ● ACTIVE' : ''}</option>
+                      <option value="fomc-december" style={activeEventKey === 'fomc-december' ? ACTIVE_OPTION_STYLE : undefined}>FOMC DEC{activeEventKey === 'fomc-december' ? ' ● ACTIVE' : ''}</option>
                     </optgroup>
                     <optgroup label="QUAD WITCHING">
-                      <option value="quad-witching-mar">QW MAR</option>
-                      <option value="quad-witching-jun">QW JUN</option>
-                      <option value="quad-witching-sep">QW SEP</option>
-                      <option value="quad-witching-dec">QW DEC</option>
+                      <option value="quad-witching-mar" style={activeEventKey === 'quad-witching-mar' ? ACTIVE_OPTION_STYLE : undefined}>QW MAR{activeEventKey === 'quad-witching-mar' ? ' ● ACTIVE' : ''}</option>
+                      <option value="quad-witching-jun" style={activeEventKey === 'quad-witching-jun' ? ACTIVE_OPTION_STYLE : undefined}>QW JUN{activeEventKey === 'quad-witching-jun' ? ' ● ACTIVE' : ''}</option>
+                      <option value="quad-witching-sep" style={activeEventKey === 'quad-witching-sep' ? ACTIVE_OPTION_STYLE : undefined}>QW SEP{activeEventKey === 'quad-witching-sep' ? ' ● ACTIVE' : ''}</option>
+                      <option value="quad-witching-dec" style={activeEventKey === 'quad-witching-dec' ? ACTIVE_OPTION_STYLE : undefined}>QW DEC{activeEventKey === 'quad-witching-dec' ? ' ● ACTIVE' : ''}</option>
                     </optgroup>
                     <optgroup label="EARNINGS & RALLIES">
-                      <option value="q1-earnings">Q1 EARNINGS</option>
-                      <option value="q2-earnings">Q2 EARNINGS</option>
-                      <option value="q3-earnings">Q3 EARNINGS</option>
-                      <option value="q4-earnings">Q4 EARNINGS</option>
-                      <option value="yearendrally">YEAR END RALLY</option>
-                      <option value="halloweenrally">HALLOWEEN RALLY</option>
-                      <option value="santarally">SANTA RALLY</option>
-                      <option value="monthlyopex">MONTHLY OPEX</option>
+                      <option value="q1-earnings" style={activeEventKey === 'q1-earnings' ? ACTIVE_OPTION_STYLE : undefined}>Q1 EARNINGS{activeEventKey === 'q1-earnings' ? ' ● ACTIVE' : ''}</option>
+                      <option value="q2-earnings" style={activeEventKey === 'q2-earnings' ? ACTIVE_OPTION_STYLE : undefined}>Q2 EARNINGS{activeEventKey === 'q2-earnings' ? ' ● ACTIVE' : ''}</option>
+                      <option value="q3-earnings" style={activeEventKey === 'q3-earnings' ? ACTIVE_OPTION_STYLE : undefined}>Q3 EARNINGS{activeEventKey === 'q3-earnings' ? ' ● ACTIVE' : ''}</option>
+                      <option value="q4-earnings" style={activeEventKey === 'q4-earnings' ? ACTIVE_OPTION_STYLE : undefined}>Q4 EARNINGS{activeEventKey === 'q4-earnings' ? ' ● ACTIVE' : ''}</option>
+                      <option value="yearendrally" style={activeEventKey === 'yearendrally' ? ACTIVE_OPTION_STYLE : undefined}>YEAR END RALLY{activeEventKey === 'yearendrally' ? ' ● ACTIVE' : ''}</option>
+                      <option value="halloweenrally" style={activeEventKey === 'halloweenrally' ? ACTIVE_OPTION_STYLE : undefined}>HALLOWEEN RALLY{activeEventKey === 'halloweenrally' ? ' ● ACTIVE' : ''}</option>
+                      <option value="santarally" style={activeEventKey === 'santarally' ? ACTIVE_OPTION_STYLE : undefined}>SANTA RALLY{activeEventKey === 'santarally' ? ' ● ACTIVE' : ''}</option>
+                      <option value="monthlyopex" style={activeEventKey === 'monthlyopex' ? ACTIVE_OPTION_STYLE : undefined}>MONTHLY OPEX{activeEventKey === 'monthlyopex' ? ' ● ACTIVE' : ''}</option>
                     </optgroup>
                   </select>
                   {/* Market Patterns */}
@@ -2194,6 +2318,13 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           </div>
         )}
 
+        {eventPatternLoading && (
+          <div className="chart-loading">
+            <div className="loading-spinner"></div>
+            <p>{showPatternPerformance ? 'Scanning historical pattern occurrences...' : 'Loading market event data...'}</p>
+          </div>
+        )}
+
         {error && (
           <div className="chart-error">
             <p>{error}</p>
@@ -2277,12 +2408,8 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
               year={new Date().getFullYear()}
               symbol={symbol}
               onBack={() => setActiveView('chart')}
+              onMonthChange={(m) => setSelectedMonth(m)}
             />
-          </div>
-        )}
-        {activeView === 'table' && (
-          <div style={{ padding: '0', margin: '0' }}>
-            <WeeklyScanTable onBack={() => setActiveView('chart')} />
           </div>
         )}
       </div>

@@ -17,11 +17,13 @@ interface SeasonaxLandingProps {
   autoStart?: boolean
   initialMarket?: string
   initialTimePeriod?: string
-  externalFilters?: { highWinRate: string; startingSoon: string; fiftyTwoWeek: boolean }
+  externalFilters?: { highWinRate: string; startingSoon: string; fiftyTwoWeek: boolean; correlation: string; mover: string }
   onFiltersChange?: (filters: {
     highWinRate: string
     startingSoon: string
     fiftyTwoWeek: boolean
+    correlation: string
+    mover: string
   }) => void
   sidebarMode?: boolean // Flag to enable larger fonts for sidebar
 }
@@ -43,12 +45,18 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   const [showWebsite, setShowWebsite] = useState(true) // Show UI immediately
   const [progressStats, setProgressStats] = useState({ processed: 0, total: 1000, found: 0 })
   const [hasScanned, setHasScanned] = useState(false) // Track if user has clicked scan
+  const [fiftyTwoWeekReady, setFiftyTwoWeekReady] = useState(false) // 52wk enrichment finished for current scan
   const [filters, setFilters] = useState(
-    externalFilters || { highWinRate: '', startingSoon: '', fiftyTwoWeek: false }
+    externalFilters || { highWinRate: '', startingSoon: '', fiftyTwoWeek: false, correlation: '', mover: '' }
   )
   const [seasonedMode, setSeasonedMode] = useState(false) // Track if showing seasoned multi-timeframe results
   const [leapsMode, setLeapsMode] = useState(false) // Track if showing Seasonal Leaps results
   const [expandedKey, setExpandedKey] = useState<string | null>(null) // Track which card is expanded
+  // CORRELATION scores reported by each card once its mini-chart finishes loading — keyed by `symbol|period`
+  const [correlationScores, setCorrelationScores] = useState<Record<string, number | null>>({})
+  const handleTrendSyncComputed = React.useCallback((key: string, score: number | null) => {
+    setCorrelationScores((prev) => (prev[key] === score ? prev : { ...prev, [key]: score }))
+  }, [])
   const autoStartTriggered = useRef(false)
   const [isMobileView, setIsMobileView] = useState(false)
   const [mobileSentiment, setMobileSentiment] = useState<'bullish' | 'bearish'>('bullish')
@@ -70,7 +78,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   useEffect(() => {
     if (autoStart && !autoStartTriggered.current && !hasScanned) {
       autoStartTriggered.current = true
-      console.log('🚀 Auto-starting seasonal scan from sidebar')
       loadMarketData(initialMarket)
     }
   }, [autoStart])
@@ -80,26 +87,43 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
     // Always filter 70%+ and sort by win rate descending
     filtered = filtered.filter((opp) => opp.winRate >= 70)
     filtered = filtered.sort((a, b) => b.winRate - a.winRate)
-    // Entry window filter
+    // Entry window filter — within N days of now, either upcoming or already started
     if (filters.startingSoon) {
+      const windowDays = parseInt(filters.startingSoon, 10)
       filtered = filtered.filter((opp) => {
         const d = (opp as any).daysUntilStart ?? 0
-        if (filters.startingSoon === 'upcoming') return d >= 1 && d <= 9
-        if (filters.startingSoon === 'recent') return d >= -10 && d <= -5
-        return true
+        return Math.abs(d) <= windowDays
       })
     }
     if (filters.fiftyTwoWeek) {
       // Filter only opportunities that have 52-week high/low status
       filtered = filtered.filter((opp) => (opp as any).fiftyTwoWeekStatus)
     }
+    // Correlation filter — uses the same CORRELATION score shown on each card (trend-sync vs. seasonal avg)
+    if (filters.correlation) {
+      const minCorr = parseInt(filters.correlation, 10)
+      filtered = filtered.filter((opp) => {
+        const key = `${(opp as any).symbol}|${(opp as any).period}`
+        const score = correlationScores[key]
+        if (score === undefined) return true // card hasn't reported its score yet — keep visible for now
+        if (score === null) return false // couldn't compute a correlation score for this pattern
+        return score >= minCorr
+      })
+    }
+    // Movers filter — only patterns with a meaningful historical average move
+    if (filters.mover) {
+      const minMove = parseInt(filters.mover, 10)
+      filtered = filtered.filter((opp) => Math.abs(opp.averageReturn || (opp as any).avgReturn || 0) >= minMove)
+    }
     return filtered
-  }, [opportunities, filters])
+  }, [opportunities, filters, correlationScores])
 
   const handleFilterChange = (newFilters: {
     highWinRate: string
     startingSoon: string
     fiftyTwoWeek: boolean
+    correlation: string
+    mover: string
   }) => {
     setFilters(newFilters)
     onFiltersChange?.(newFilters)
@@ -116,53 +140,60 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
     // Import PolygonService to use its configured API key
     const polygonService = new PolygonService()
 
-    const enrichedOpportunities = await Promise.all(
-      opportunities.map(async (opp) => {
-        try {
-          // Get 52-week data using PolygonService
-          const toDate = new Date().toISOString().split('T')[0]
-          const fromDate = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000)
-            .toISOString()
-            .split('T')[0]
+    const checkOne = async (opp: any) => {
+      try {
+        // Get 52-week data using PolygonService
+        const toDate = new Date().toISOString().split('T')[0]
+        const fromDate = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .split('T')[0]
 
-          const data = await polygonService.getHistoricalData(opp.symbol, fromDate, toDate)
+        const data = await polygonService.getHistoricalData(opp.symbol, fromDate, toDate)
 
-          if (data?.results && data.results.length > 0) {
-            const highs = data.results.map((bar: any) => bar.h)
-            const lows = data.results.map((bar: any) => bar.l)
-            const currentPrice = data.results[data.results.length - 1].c
+        if (data?.results && data.results.length > 0) {
+          const highs = data.results.map((bar: any) => bar.h)
+          const lows = data.results.map((bar: any) => bar.l)
+          const currentPrice = data.results[data.results.length - 1].c
 
-            const fiftyTwoWeekHigh = Math.max(...highs)
-            const fiftyTwoWeekLow = Math.min(...lows)
+          const fiftyTwoWeekHigh = Math.max(...highs)
+          const fiftyTwoWeekLow = Math.min(...lows)
 
-            // Check if within 5% of 52-week high or low
-            const distanceFromHigh = ((fiftyTwoWeekHigh - currentPrice) / fiftyTwoWeekHigh) * 100
-            const distanceFromLow = ((currentPrice - fiftyTwoWeekLow) / fiftyTwoWeekLow) * 100
+          // Check if within 5% of 52-week high or low
+          const distanceFromHigh = ((fiftyTwoWeekHigh - currentPrice) / fiftyTwoWeekHigh) * 100
+          const distanceFromLow = ((currentPrice - fiftyTwoWeekLow) / fiftyTwoWeekLow) * 100
 
-            let fiftyTwoWeekStatus = null
+          let fiftyTwoWeekStatus = null
 
-            if (distanceFromHigh <= 5) {
-              fiftyTwoWeekStatus = '52 High'
-            } else if (distanceFromLow <= 5) {
-              fiftyTwoWeekStatus = '52 Low'
-            }
-
-            return {
-              ...opp,
-              currentPrice,
-              fiftyTwoWeekHigh,
-              fiftyTwoWeekLow,
-              fiftyTwoWeekStatus,
-            }
+          if (distanceFromHigh <= 5) {
+            fiftyTwoWeekStatus = '52 High'
+          } else if (distanceFromLow <= 5) {
+            fiftyTwoWeekStatus = '52 Low'
           }
 
-          return opp
-        } catch (error) {
-          console.warn(`Error checking 52-week status for ${opp.symbol}:`, error)
-          return opp
+          return {
+            ...opp,
+            currentPrice,
+            fiftyTwoWeekHigh,
+            fiftyTwoWeekLow,
+            fiftyTwoWeekStatus,
+          }
         }
-      })
-    )
+
+        return opp
+      } catch (error) {
+        return opp
+      }
+    }
+
+    // Process in small concurrent batches instead of firing every request at once —
+    // hundreds of simultaneous fetches would rate-limit/hang and stall the scan indefinitely.
+    const BATCH_SIZE = 8
+    const enrichedOpportunities: any[] = []
+    for (let i = 0; i < opportunities.length; i += BATCH_SIZE) {
+      const batch = opportunities.slice(i, i + BATCH_SIZE)
+      const results = await Promise.all(batch.map(checkOne))
+      enrichedOpportunities.push(...results)
+    }
 
     return enrichedOpportunities
   }
@@ -195,6 +226,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       setOpportunities([])
       setSeasonedMode(false)
       setLeapsMode(false)
+      setFiftyTwoWeekReady(false)
       setStreamStatus(
       )
       setProgressStats({ processed: 0, total: marketStocks.length, found: 0 })
@@ -202,12 +234,29 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       const selectedPeriod = timePeriodOptions.find((p) => p.id === timePeriod)
       const years = selectedPeriod?.years || 15 // FULL years as requested - no limits
 
+      const cacheKey = `normal:${market}:${years}`
+      try {
+        const cacheRes = await fetch(`/api/seasonal-cache?key=${encodeURIComponent(cacheKey)}`)
+        const { data: cached } = await cacheRes.json()
+        if (cached && Array.isArray(cached) && cached.length > 0) {
+          setOpportunities(cached as unknown as SeasonalPattern[])
+          setFiftyTwoWeekReady(true)
+          setLoading(false)
+          setShowWebsite(true)
+          setProgressStats({ processed: 1000, total: 1000, found: cached.length })
+          return
+        }
+      } catch {
+        // Cache unavailable — fall through to a fresh scan
+      }
+
       try {
         // Load FULL data using batch processing with real-time results
         setStreamStatus('')
 
         // Real-time progress callback to show results as they're found
         let lastUpdate = 0
+        let loadingDismissed = false
 
         const realOpportunities = await seasonalService.screenSeasonalOpportunitiesWithWorkers(
           years,
@@ -229,15 +278,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                 found: foundOpportunities.length,
               })
 
-              // Update status with current processing info
-              if (currentSymbol) {
-                setStreamStatus(`📊 ${currentSymbol}`)
-              } else {
-                setStreamStatus(
-                  `📊 ${processed}/${total} processed - ${foundOpportunities.length} opportunities found`
-                )
-              }
-
               // Show opportunities as they're found - REAL-TIME UPDATES
               if (foundOpportunities.length > 0) {
                 const sortedOpportunities = foundOpportunities.sort(
@@ -246,23 +286,26 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
 
                 setOpportunities(sortedOpportunities as unknown as SeasonalPattern[])
 
-                // DISMISS LOADING SCREEN immediately when first opportunities are found
-                if (foundOpportunities.length === 1) {
-                  setLoading(false)
-                  setShowWebsite(true)
-                } else if (foundOpportunities.length > 1 && loading) {
+                // Only dismiss the loading screen once we have a result that will actually
+                // pass the winRate>=70 display filter — otherwise the results panel briefly
+                // renders its "No Opportunities Found" state before a qualifying stock streams in.
+                const qualifyingCount = sortedOpportunities.filter((o) => o.winRate >= 70).length
+                if (qualifyingCount > 0 && !loadingDismissed) {
+                  loadingDismissed = true
                   setLoading(false)
                   setShowWebsite(true)
                 }
               }
             }
-          }
+          },
+          marketStocks
         )
 
         if (realOpportunities && realOpportunities.length > 0) {
           // Check 52-week high/low status for all opportunities to display badges
           setStreamStatus('🔍 Checking 52-week high/low status...')
           const enrichedOpportunities = await check52WeekStatus(realOpportunities)
+          setFiftyTwoWeekReady(true)
 
           // Final sort and display
           const finalSorted = enrichedOpportunities.sort(
@@ -272,8 +315,16 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
           setLoading(false)
           setStreamStatus('✅ Processing completed!')
           setProgressStats({ processed: 1000, total: 1000, found: enrichedOpportunities.length })
+
+          fetch('/api/seasonal-cache', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: cacheKey, data: finalSorted }),
+          }).catch(() => { })
         } else {
-          throw new Error('No seasonal opportunities found')
+          setError('No seasonal opportunities found for this market.')
+          setLoading(false)
+          setShowWebsite(false)
         }
       } catch (error) {
         const errorMsg = `Failed to start seasonal screening: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -294,8 +345,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   // Load seasoned multi-timeframe data - scan 5Y, 10Y, 15Y, 20Y and find stocks with 60%+ win rate on 2+ timeframes
   const loadSeasonedData = async (selectedMarket?: string) => {
     try {
-      console.log('🌟 Starting SEASONED multi-timeframe scan...')
-
       const { default: SeasonalScreenerService } = await import('@/lib/seasonalScreenerService')
       const { getMarketStocks } = await import('@/lib/marketIndices')
       const seasonalService = new SeasonalScreenerService()
@@ -310,10 +359,27 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       setOpportunities([])
       setSeasonedMode(true)
       setLeapsMode(false)
+      setFiftyTwoWeekReady(false)
       setStreamStatus(
         `🌟 SEASONED SCAN: Analyzing ${marketStocks.length} stocks across 4 timeframes (5Y, 10Y, 15Y, 20Y)...`
       )
       setProgressStats({ processed: 0, total: marketStocks.length * 4, found: 0 })
+
+      const seasonedCacheKey = `seasoned:${market}`
+      try {
+        const cacheRes = await fetch(`/api/seasonal-cache?key=${encodeURIComponent(seasonedCacheKey)}`)
+        const { data: cached } = await cacheRes.json()
+        if (cached && Array.isArray(cached) && cached.length > 0) {
+          setOpportunities(cached as unknown as SeasonalPattern[])
+          setFiftyTwoWeekReady(true)
+          setLoading(false)
+          setShowWebsite(true)
+          setStreamStatus(`✅ Found ${cached.length} SEASONED opportunities!`)
+          return
+        }
+      } catch {
+        // Cache unavailable — fall through to a fresh scan
+      }
 
       const timeframes = [5, 10, 15, 20]
       const stockResults = new Map<
@@ -324,7 +390,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       // Scan each timeframe
       for (let i = 0; i < timeframes.length; i++) {
         const years = timeframes[i]
-        console.log(`📊 Scanning ${years}Y timeframe...`)
 
         setStreamStatus(`🌟 Scanning ${years}Y timeframe (${i + 1}/4)...`)
 
@@ -341,11 +406,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
               total: overallTotal,
               found: stockResults.size,
             })
-
-            setStreamStatus(
-              `🌟 ${years}Y: ${processed}/${total} | Total qualified stocks: ${stockResults.size}`
-            )
-          }
+          },
+          marketStocks
         )
 
         // Process results from this timeframe
@@ -392,14 +454,11 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
         }
       })
 
-      console.log(
-        `✅ SEASONED SCAN Complete! Found ${seasonedOpportunities.length} multi-timeframe qualified stocks`
-      )
-
       if (seasonedOpportunities.length > 0) {
         // Check 52-week status
         setStreamStatus('🔍 Checking 52-week high/low status...')
         const enrichedOpportunities = await check52WeekStatus(seasonedOpportunities)
+        setFiftyTwoWeekReady(true)
 
         // Sort by number of qualifying timeframes, then by win rate
         const sorted = enrichedOpportunities.sort((a: any, b: any) => {
@@ -413,6 +472,12 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
         setLoading(false)
         setShowWebsite(true)
         setStreamStatus(`✅ Found ${seasonedOpportunities.length} SEASONED opportunities!`)
+
+        fetch('/api/seasonal-cache', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: seasonedCacheKey, data: sorted }),
+        }).catch(() => { })
       } else {
         setError('No stocks found with 60%+ win rate on 2+ timeframes')
         setLoading(false)
@@ -449,15 +514,31 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       setOpportunities([])
       setSeasonedMode(false)
       setLeapsMode(true)
+      setFiftyTwoWeekReady(false)
       setStreamStatus(`🚀 SEASONAL LEAPS: Scanning ${marketStocks.length} stocks (8–15 year sweet-spot windows)...`)
       setProgressStats({ processed: 0, total: marketStocks.length, found: 0 })
+
+      const leapsCacheKey = `leaps:${market}`
+      try {
+        const cacheRes = await fetch(`/api/seasonal-cache?key=${encodeURIComponent(leapsCacheKey)}`)
+        const { data: cached } = await cacheRes.json()
+        if (cached && Array.isArray(cached) && cached.length > 0) {
+          setOpportunities(cached as unknown as SeasonalPattern[])
+          setFiftyTwoWeekReady(true)
+          setLoading(false)
+          setShowWebsite(true)
+          setStreamStatus(`✅ Found ${cached.length} Seasonal Leaps!`)
+          return
+        }
+      } catch {
+        // Cache unavailable — fall through to a fresh scan
+      }
 
       const results = await seasonalService.screenSeasonalLeaps(
         marketStocks.length,
         50,
         (processed, total, found) => {
           setProgressStats({ processed, total, found: found.length })
-          setStreamStatus(`🚀 ${processed}/${total} scanned | ${found.length} leaps found`)
         },
         marketStocks
       )
@@ -465,10 +546,17 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       if (results.length > 0) {
         setStreamStatus('🔍 Checking 52-week high/low status...')
         const enriched = await check52WeekStatus(results)
+        setFiftyTwoWeekReady(true)
         setOpportunities(enriched as unknown as SeasonalPattern[])
         setLoading(false)
         setShowWebsite(true)
         setStreamStatus(`✅ Found ${results.length} Seasonal Leaps!`)
+
+        fetch('/api/seasonal-cache', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: leapsCacheKey, data: enriched }),
+        }).catch(() => { })
       } else {
         setError('No active seasonal leaps found right now.')
         setLoading(false)
@@ -483,13 +571,11 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   }
 
   const handleSeasonedScan = (market: string) => {
-    console.log(`Starting SEASONED scan for ${market}`)
     setActiveMarket(market)
     loadSeasonedData(market)
   }
 
   const handleLeapsScan = (market: string) => {
-    console.log(`Starting SEASONAL LEAPS scan for ${market}`)
     setActiveMarket(market)
     loadLeapsData(market)
   }
@@ -509,19 +595,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
         total={progressStats.total}
         found={progressStats.found}
       />
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="seasonax-error">
-        <div className="error-icon"></div>
-        <h2>API Connection Error</h2>
-        <p>{error}</p>
-        <button onClick={() => loadMarketData()} className="retry-button">
-          Retry API Connection
-        </button>
-      </div>
     )
   }
 
@@ -574,7 +647,12 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       <div className="pro-results">
         {!hasScanned ? (
           <div className="pro-empty-state"></div>
-        ) : displayedOpportunities.length > 0 ? (
+        ) : loading ? (
+          <div className="pro-loading">
+            <div className="loading-indicator"></div>
+            <div className="loading-text">{streamStatus || 'Scanning Markets...'}</div>
+          </div>
+        ) : opportunities.length > 0 ? (
           <div
             className="split-results-container"
             style={{
@@ -632,11 +710,63 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                 }}
               >
                 <option value="" style={{ background: '#0d0d0d' }}>Entry Window</option>
-                <option value="upcoming" style={{ background: '#0d0d0d' }}>1–9 Days Ahead</option>
-                <option value="recent" style={{ background: '#0d0d0d' }}>5–10 Days Ago</option>
+                <option value="3" style={{ background: '#0d0d0d' }}>Within 3 Days</option>
+                <option value="5" style={{ background: '#0d0d0d' }}>Within 5 Days</option>
+                <option value="10" style={{ background: '#0d0d0d' }}>Within 10 Days</option>
+              </select>
+              <select
+                value={filters.correlation}
+                onChange={(e) => handleFilterChange({ ...filters, correlation: e.target.value })}
+                style={{
+                  background: 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 50%, #050505 100%)',
+                  color: filters.correlation ? '#FFFFFF' : 'rgba(255,255,255,0.55)',
+                  border: '1px solid #2e2e2e',
+                  borderRadius: isMobileView ? 6 : 0,
+                  padding: isMobileView ? '6px 6px' : '6px 12px',
+                  fontSize: isMobileView ? 9.5 : 12,
+                  fontWeight: 700,
+                  fontFamily: '"Roboto Mono", monospace',
+                  cursor: 'pointer',
+                  outline: 'none',
+                  minWidth: 0,
+                  flex: isMobileView ? 1 : undefined,
+                }}
+              >
+                <option value="" style={{ background: '#0d0d0d' }}>Correlation</option>
+                <option value="50" style={{ background: '#0d0d0d' }}>50%+</option>
+                <option value="70" style={{ background: '#0d0d0d' }}>70%+</option>
+                <option value="90" style={{ background: '#0d0d0d' }}>90%+</option>
+              </select>
+              <select
+                value={filters.mover}
+                onChange={(e) => handleFilterChange({ ...filters, mover: e.target.value })}
+                style={{
+                  background: 'linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 50%, #050505 100%)',
+                  color: filters.mover ? '#FFFFFF' : 'rgba(255,255,255,0.55)',
+                  border: '1px solid #2e2e2e',
+                  borderRadius: isMobileView ? 6 : 0,
+                  padding: isMobileView ? '6px 6px' : '6px 12px',
+                  fontSize: isMobileView ? 9.5 : 12,
+                  fontWeight: 700,
+                  fontFamily: '"Roboto Mono", monospace',
+                  cursor: 'pointer',
+                  outline: 'none',
+                  minWidth: 0,
+                  flex: isMobileView ? 1 : undefined,
+                }}
+              >
+                <option value="" style={{ background: '#0d0d0d' }}>Movers</option>
+                <option value="5" style={{ background: '#0d0d0d' }}>5%+</option>
+                <option value="10" style={{ background: '#0d0d0d' }}>10%+</option>
+                <option value="15" style={{ background: '#0d0d0d' }}>15%+</option>
               </select>
               <button
-                onClick={() => handleFilterChange({ ...filters, fiftyTwoWeek: !filters.fiftyTwoWeek })}
+                onClick={() => {
+                  if (!fiftyTwoWeekReady) return
+                  handleFilterChange({ ...filters, fiftyTwoWeek: !filters.fiftyTwoWeek })
+                }}
+                disabled={!fiftyTwoWeekReady}
+                title={fiftyTwoWeekReady ? undefined : 'Still calculating 52-week highs/lows for this scan...'}
                 style={{
                   background: filters.fiftyTwoWeek
                     ? 'linear-gradient(180deg, rgba(255,215,0,0.18) 0%, rgba(20,20,20,0.55) 55%, rgba(5,5,5,0.95) 100%)'
@@ -648,7 +778,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                   fontSize: isMobileView ? 9 : 12,
                   fontWeight: 700,
                   fontFamily: '"Roboto Mono", monospace',
-                  cursor: 'pointer',
+                  cursor: fiftyTwoWeekReady ? 'pointer' : 'not-allowed',
+                  opacity: fiftyTwoWeekReady ? 1 : 0.4,
                   outline: 'none',
                   textTransform: 'uppercase',
                   letterSpacing: isMobileView ? '0.2px' : '0.6px',
@@ -721,7 +852,13 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                 flexDirection: isMobileView ? 'column' : 'row',
               }}
             >
-              {(() => {
+              {displayedOpportunities.length === 0 ? (
+                <div className="pro-error" style={{ flex: 1 }}>
+                  <div className="error-icon"></div>
+                  <div className="error-text">No Opportunities Found</div>
+                  <div className="error-details">No stocks matched the current filters. Try a different market or clear the filters above.</div>
+                </div>
+              ) : (() => {
                 // SEASONED MODE - Split by bullish/bearish like regular mode
                 if (seasonedMode) {
                   const bullishOpps = displayedOpportunities.filter(
@@ -776,7 +913,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                           }}
                         >
                           {bullishOpps.map((opportunity, index) => {
-                            const cardKey = `bullish-${(opportunity as any).symbol}-${index}`
+                            const cardKey = `bullish-${(opportunity as any).symbol}-${(opportunity as any).period ?? ''}`
                             const qualifyingCount = (opportunity as any).qualifyingTimeframes || 0
                             const timeframeYears =
                               (opportunity as any).timeframe ||
@@ -796,6 +933,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                                 isLeaps={leapsMode}
                                 isExpanded={expandedKey === cardKey}
                                 onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
+                                onTrendSyncComputed={handleTrendSyncComputed}
                               />
                             )
                           })}
@@ -804,12 +942,12 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
 
                       {/* Golden Vertical Separator */}
                       {!isMobileView && (
-                      <div className="golden-separator">
-                        <div className="separator-line"></div>
-                        <div className="separator-orb">
-                          <div className="orb-inner"></div>
+                        <div className="golden-separator">
+                          <div className="separator-line"></div>
+                          <div className="separator-orb">
+                            <div className="orb-inner"></div>
+                          </div>
                         </div>
-                      </div>
                       )}
 
                       {/* Right Column - Bearish Seasoned */}
@@ -858,7 +996,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                           }}
                         >
                           {bearishOpps.map((opportunity, index) => {
-                            const cardKey = `bearish-${(opportunity as any).symbol}-${index}`
+                            const cardKey = `bearish-${(opportunity as any).symbol}-${(opportunity as any).period ?? ''}`
                             const qualifyingCount = (opportunity as any).qualifyingTimeframes || 0
                             const timeframeYears =
                               (opportunity as any).timeframe ||
@@ -878,6 +1016,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                                 isLeaps={leapsMode}
                                 isExpanded={expandedKey === cardKey}
                                 onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
+                                onTrendSyncComputed={handleTrendSyncComputed}
                               />
                             )
                           })}
@@ -969,7 +1108,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                             (opportunity as any).timeframe ||
                             (opportunity as any).years ||
                             selectedYears
-                          const cardKey = `bullish-${opportunity.symbol}-${index}`
+                          const cardKey = `bullish-${opportunity.symbol}-${(opportunity as any).period ?? ''}`
                           return (
                             <OpportunityCard
                               key={cardKey}
@@ -983,6 +1122,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                               years={timeframeYears}
                               isExpanded={expandedKey === cardKey}
                               onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
+                              onTrendSyncComputed={handleTrendSyncComputed}
                             />
                           )
                         })}
@@ -991,12 +1131,12 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
 
                     {/* Golden Vertical Separator */}
                     {!isMobileView && (
-                    <div className="golden-separator">
-                      <div className="separator-line"></div>
-                      <div className="separator-orb">
-                        <div className="orb-inner"></div>
+                      <div className="golden-separator">
+                        <div className="separator-line"></div>
+                        <div className="separator-orb">
+                          <div className="orb-inner"></div>
+                        </div>
                       </div>
-                    </div>
                     )}
 
                     {/* Bearish Section - Right Side */}
@@ -1052,7 +1192,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                             (opportunity as any).timeframe ||
                             (opportunity as any).years ||
                             selectedYears
-                          const cardKey = `bearish-${opportunity.symbol}-${index}`
+                          const cardKey = `bearish-${opportunity.symbol}-${(opportunity as any).period ?? ''}`
                           return (
                             <OpportunityCard
                               key={cardKey}
@@ -1066,6 +1206,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                               years={timeframeYears}
                               isExpanded={expandedKey === cardKey}
                               onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
+                              onTrendSyncComputed={handleTrendSyncComputed}
                             />
                           )
                         })}
@@ -1076,16 +1217,11 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
               })()}
             </div>
           </div>
-        ) : error ? (
+        ) : (
           <div className="pro-error">
             <div className="error-icon"></div>
-            <div className="error-text">Connection Error</div>
-            <div className="error-details">{error}</div>
-          </div>
-        ) : (
-          <div className="pro-loading">
-            <div className="loading-indicator"></div>
-            <div className="loading-text">Scanning Markets...</div>
+            <div className="error-text">No Opportunities Found</div>
+            <div className="error-details">No seasonal opportunities found for this market.</div>
           </div>
         )}
       </div>

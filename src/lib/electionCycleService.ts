@@ -47,12 +47,16 @@ interface ElectionCycleData {
       return: number;
       startDate: string;
       endDate: string;
+      startDay: number;
+      endDay: number;
     };
     worst30DayPeriod?: {
       period: string;
       return: number;
       startDate: string;
       endDate: string;
+      startDay: number;
+      endDay: number;
     };
   };
 }
@@ -346,8 +350,8 @@ class ElectionCycleService {
       if (ret === worstYear.return) worstYear.year = parseInt(year);
     });
 
-    // Calculate SPY comparison data (only if benchmarking against SPY)
-    const spyComparison = shouldBenchmarkSPY ? this.calculateSpyComparison(dailyData, spyData, validYears, symbolData) : undefined;
+    // Calculate SPY comparison data (falls back to absolute returns when symbol is SPY itself)
+    const spyComparison = this.calculateSpyComparison(dailyData, spyData, validYears, symbolData);
 
     const statistics = {
       totalReturn,
@@ -489,12 +493,34 @@ class ElectionCycleService {
     const bestQuarters = sortedQuarters.slice(0, 2);
     const worstQuarters = sortedQuarters.slice(-2).reverse();
 
+    // 30-day windows from the day-of-year aggregated dailyData
+    const windowSize = 30;
+    let best = { startDay: 1, endDay: windowSize, avgReturn: -Infinity, period: '', startDate: '', endDate: '' };
+    let worst = { startDay: 1, endDay: windowSize, avgReturn: Infinity, period: '', startDate: '', endDate: '' };
+    for (let startDay = 1; startDay <= 365 - windowSize; startDay++) {
+      const endDay = startDay + windowSize - 1;
+      const win = dailyData.filter((d) => d.dayOfYear >= startDay && d.dayOfYear <= endDay);
+      if (win.length >= 25) {
+        const avg = win.reduce((sum, d) => sum + d.avgReturn, 0) / win.length;
+        const sp = dailyData.find((d) => d.dayOfYear === startDay);
+        const ep = dailyData.find((d) => d.dayOfYear === endDay);
+        if (sp && ep) {
+          if (avg > best.avgReturn) best = { startDay, endDay, avgReturn: avg, period: `${sp.monthName} ${sp.day} - ${ep.monthName} ${ep.day}`, startDate: `${sp.monthName} ${sp.day}`, endDate: `${ep.monthName} ${ep.day}` };
+          if (avg < worst.avgReturn) worst = { startDay, endDay, avgReturn: avg, period: `${sp.monthName} ${sp.day} - ${ep.monthName} ${ep.day}`, startDate: `${sp.monthName} ${sp.day}`, endDate: `${ep.monthName} ${ep.day}` };
+        }
+      }
+    }
+    const best30DayPeriod = best.period ? { period: best.period, return: best.avgReturn * windowSize, startDate: best.startDate, endDate: best.endDate, startDay: best.startDay, endDay: best.endDay } : undefined;
+    const worst30DayPeriod = worst.period ? { period: worst.period, return: worst.avgReturn * windowSize, startDate: worst.startDate, endDate: worst.endDate, startDay: worst.startDay, endDay: worst.endDay } : undefined;
+
     return {
       bestMonths,
       worstMonths,
       bestQuarters,
       worstQuarters,
-      monthlyData
+      monthlyData,
+      best30DayPeriod,
+      worst30DayPeriod
     };
   }
 

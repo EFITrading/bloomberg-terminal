@@ -72,8 +72,93 @@ export const DOW_JONES = [
   'MRK', 'NKE', 'DIS', 'WMT', 'KO', 'CSCO', 'VZ', 'INTC', 'DOW', 'WBA'
 ];
 
+// Top 10 mega-caps by market weight
+export const TOP_10 = [
+  'NVDA', 'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'AVGO', 'META', 'TSLA', 'BRK.B', 'JPM'
+];
+
+// Liquid mid-cap names representative of MDY / ARKK-style holdings with healthy options volume
+export const MIDCAP_LIQUID = [
+  'RBLX', 'DKNG', 'ROKU', 'U', 'PATH', 'AFRM', 'UPST', 'RIVN', 'LCID', 'SOFI',
+  'DUOL', 'CFLT', 'HUBS', 'BILL', 'TWLO', 'PINS', 'SNAP', 'ETSY', 'RH', 'CROX',
+  'FIVE', 'WING', 'CAKE', 'CELH', 'BJ', 'OLLI', 'EXAS', 'INSP', 'NEOG', 'PCTY',
+  'AXON', 'MEDP', 'FIVN', 'SMAR', 'ZI', 'ASAN', 'S', 'GTLB', 'FRSH', 'PD'
+];
+
+// Liquid small-cap names with real options flow (not thinly traded microcaps)
+export const SMALLCAP_LIQUID = [
+  'SFIX', 'CVNA', 'CHPT', 'PLUG', 'FCEL', 'RUN', 'OPEN', 'BBAI', 'SOUN', 'IONQ',
+  'RGTI', 'QUBT', 'MARA', 'RIOT', 'CLSK', 'HUT', 'BITF', 'WULF', 'CIFR', 'IREN',
+  'JOBY', 'ACHR', 'LUNR', 'RKLB', 'ASTS', 'SPCE', 'DNA', 'BEAM', 'NTLA', 'CRSP',
+  'FUBO', 'DNUT', 'PLBY', 'GPRO', 'BYND', 'PTON', 'W', 'CVAC', 'VERV', 'TMDX'
+];
+
+// Sector SPDR ETF top holdings (approximate) — used for "scan by sector" mode
+export const SECTOR_HOLDINGS: Record<string, { etf: string; name: string; stocks: string[] }> = {
+  XLK: { etf: 'XLK', name: 'Technology', stocks: ['AAPL', 'MSFT', 'NVDA', 'AVGO', 'CRM', 'ADBE', 'AMD', 'ORCL', 'CSCO', 'ACN', 'IBM', 'QCOM', 'TXN', 'NOW', 'INTU', 'AMAT', 'MU', 'ADI', 'LRCX', 'PANW'] },
+  XLF: { etf: 'XLF', name: 'Financials', stocks: ['BRK.B', 'JPM', 'V', 'MA', 'BAC', 'WFC', 'GS', 'MS', 'SPGI', 'AXP', 'BLK', 'C', 'SCHW', 'CB', 'PGR', 'MMC', 'ICE', 'CME', 'PNC', 'USB'] },
+  XLE: { etf: 'XLE', name: 'Energy', stocks: ['XOM', 'CVX', 'COP', 'WMB', 'EOG', 'SLB', 'MPC', 'PSX', 'VLO', 'OKE', 'KMI', 'BKR', 'TRGP', 'FANG', 'HAL', 'EQT', 'DVN', 'CTRA', 'EXE', 'APA'] },
+  XLV: { etf: 'XLV', name: 'Healthcare', stocks: ['LLY', 'UNH', 'JNJ', 'ABBV', 'MRK', 'TMO', 'ABT', 'ISRG', 'DHR', 'PFE', 'BSX', 'AMGN', 'VRTX', 'SYK', 'MDT', 'GILD', 'CI', 'ELV', 'REGN', 'ZTS'] },
+  XLI: { etf: 'XLI', name: 'Industrials', stocks: ['GE', 'CAT', 'RTX', 'HON', 'UNP', 'BA', 'ETN', 'DE', 'LMT', 'ADP', 'TT', 'GD', 'PH', 'ITW', 'EMR', 'CSX', 'NSC', 'CTAS', 'JCI', 'PWR'] },
+  XLY: { etf: 'XLY', name: 'Consumer Discretionary', stocks: ['AMZN', 'TSLA', 'HD', 'MCD', 'BKNG', 'TJX', 'LOW', 'SBUX', 'NKE', 'ORLY', 'CMG', 'MAR', 'HLT', 'AZO', 'ROST', 'YUM', 'GM', 'F', 'DASH', 'ABNB'] },
+  XLP: { etf: 'XLP', name: 'Consumer Staples', stocks: ['WMT', 'COST', 'PG', 'KO', 'PM', 'PEP', 'MO', 'MDLZ', 'CL', 'KMB', 'GIS', 'SYY', 'KDP', 'KHC', 'STZ', 'HSY', 'KR', 'TGT', 'DG', 'ADM'] },
+  XLU: { etf: 'XLU', name: 'Utilities', stocks: ['NEE', 'SO', 'DUK', 'CEG', 'AEP', 'SRE', 'D', 'EXC', 'XEL', 'ED', 'PEG', 'WEC', 'ES', 'EIX', 'AWK', 'DTE', 'ATO', 'PPL', 'CNP', 'NI'] },
+  XLB: { etf: 'XLB', name: 'Materials', stocks: ['LIN', 'SHW', 'ECL', 'FCX', 'NEM', 'APD', 'NUE', 'CTVA', 'DOW', 'PPG', 'VMC', 'MLM', 'IFF', 'ALB', 'AMCR', 'PKG', 'IP', 'DD', 'CF', 'FMC'] },
+  XLRE: { etf: 'XLRE', name: 'Real Estate', stocks: ['PLD', 'AMT', 'EQIX', 'WELL', 'DLR', 'PSA', 'SPG', 'O', 'CCI', 'CBRE', 'EXR', 'AVB', 'AVB', 'VTR', 'AMH', 'AVB', 'INVH', 'IRM', 'ESS', 'MAA'] },
+  XLC: { etf: 'XLC', name: 'Communication Services', stocks: ['META', 'GOOGL', 'GOOG', 'NFLX', 'DIS', 'TMUS', 'CMCSA', 'VZ', 'T', 'CHTR', 'WBD', 'EA', 'TTWO', 'OMC', 'LYV', 'MTCH', 'FOXA', 'FOX', 'NWSA', 'NWS'] },
+};
+
+// Industry-specific ETF holdings used for narrower "industry scan" mode
+export const INDUSTRY_HOLDINGS: Record<string, { etf: string; name: string; stocks: string[] }> = {
+  SMH: { etf: 'SMH', name: 'Semiconductors', stocks: ['NVDA', 'TSM', 'AVGO', 'AMD', 'QCOM', 'TXN', 'AMAT', 'MU', 'ADI', 'LRCX', 'KLAC', 'MRVL', 'NXPI', 'ON', 'MCHP', 'MPWR', 'SWKS', 'QRVO', 'ASML', 'INTC'] },
+  IGV: { etf: 'IGV', name: 'Software', stocks: ['MSFT', 'CRM', 'ORCL', 'ADBE', 'INTU', 'NOW', 'PANW', 'SNPS', 'CDNS', 'WDAY', 'CRWD', 'FTNT', 'DDOG', 'TEAM', 'ADSK', 'MDB', 'GTLB', 'ZS', 'HUBS', 'BILL'] },
+  KRE: { etf: 'KRE', name: 'Regional Banks', stocks: ['FITB', 'HBAN', 'MTB', 'RF', 'CFG', 'KEY', 'ZION', 'CMA', 'SNV', 'PNFP', 'WAL', 'EWBC', 'FHN', 'PBB', 'ONB', 'GBCI', 'UMBF', 'CFR', 'BOKF', 'FFIN'] },
+  XBI: { etf: 'XBI', name: 'Biotech', stocks: ['VRTX', 'REGN', 'GILD', 'AMGN', 'MRNA', 'BIIB', 'INCY', 'RARE', 'ALNY', 'BMRN', 'EXAS', 'NBIX', 'SRPT', 'IONS', 'CRSP', 'NTLA', 'BEAM', 'RVTY', 'UTHR', 'ACAD'] },
+  ITB: { etf: 'ITB', name: 'Homebuilders', stocks: ['DHI', 'LEN', 'NVR', 'PHM', 'TOL', 'MTH', 'MDC', 'KBH', 'TPH', 'BLDR', 'LOW', 'HD', 'MAS', 'AOS', 'WSM', 'SHW', 'BLD', 'CSL', 'IBP', 'GRBK'] },
+  XOP: { etf: 'XOP', name: 'Oil & Gas Exploration', stocks: ['EOG', 'FANG', 'DVN', 'CTRA', 'MRO', 'APA', 'OVV', 'MTDR', 'CHRD', 'PR', 'SM', 'CRGY', 'AR', 'RRC', 'EQT', 'CNX', 'CIVI', 'CRK', 'VTLE', 'NOG'] },
+  JETS: { etf: 'JETS', name: 'Airlines', stocks: ['DAL', 'UAL', 'LUV', 'AAL', 'ALK', 'JBLU', 'SAVE', 'HA', 'RYAAY', 'CPA', 'ALGT', 'SKYW', 'MESA', 'ULCC', 'AZUL', 'VLRS', 'CEA', 'ZNH', 'GOL', 'SNCY'] },
+};
+
+// Long-established names with 20+ years of trading history — for "Legacy" scans that need deep seasonal history
+export const LEGACY_20Y = [
+  'AAPL', 'MSFT', 'AMZN', 'JPM', 'XOM', 'JNJ', 'WMT', 'PG', 'HD', 'BAC',
+  'CVX', 'IBM', 'CAT', 'GS', 'KO', 'MRK', 'MCD', 'MS', 'C', 'ABT',
+  'AXP', 'DIS', 'PEP', 'BA', 'VZ', 'NEE', 'INTC', 'TXN', 'LOW', 'MDT',
+  'DE', 'BMY', 'MO', 'SO', 'DUK', 'MMM', 'NKE', 'GE', 'F', 'GM',
+  'UPS', 'RCL', 'NSC', 'CL', 'FDX', 'MSI', 'AEP', 'SPG', 'WDC', 'SLB',
+  'AFL', 'D', 'CMG', 'KR', 'ED', 'SYY', 'WEC', 'CCL', 'KMB', 'HAL',
+  'PPG', 'EIX', 'WY', 'CSX', 'ADP', 'PFE', 'UNH', 'WFC', 'T', 'CSCO'
+];
+
+// Recent-era names with roughly 8–10 years of public trading history — thinner seasonal sample size
+export const NEW_ERA_8_10Y = [
+  'PLTR', 'ABNB', 'COIN', 'ARM', 'DASH', 'CRWD', 'DDOG', 'MRNA', 'GEHC', 'KVUE',
+  'GEV', 'SOLV', 'VLTO', 'CEG', 'HOOD', 'CVNA', 'APP', 'SMCI', 'GFS', 'ZS',
+  'RIVN', 'LCID', 'SOFI', 'AFRM', 'UPST', 'RBLX', 'U', 'PATH', 'SNOW', 'S',
+  'GTLB', 'BIRK', 'CART', 'KVYO', 'RDDT', 'IOT', 'CFLT', 'ASAN', 'FRSH', 'BROS'
+];
+
 export function getMarketStocks(market: string): string[] {
-  switch (market.toUpperCase()) {
+  const key = market.toUpperCase();
+
+  // Sector ETF holdings, e.g. "SECTOR-XLK", or "SECTOR-ALL" to scan every sector at once
+  if (key.startsWith('SECTOR-')) {
+    const etf = key.replace('SECTOR-', '');
+    if (etf === 'ALL') {
+      return Array.from(new Set(Object.values(SECTOR_HOLDINGS).flatMap((s) => s.stocks)));
+    }
+    return SECTOR_HOLDINGS[etf]?.stocks || SP_500;
+  }
+  // Industry ETF holdings, e.g. "INDUSTRY-SMH", or "INDUSTRY-ALL" to scan every industry at once
+  if (key.startsWith('INDUSTRY-')) {
+    const etf = key.replace('INDUSTRY-', '');
+    if (etf === 'ALL') {
+      return Array.from(new Set(Object.values(INDUSTRY_HOLDINGS).flatMap((s) => s.stocks)));
+    }
+    return INDUSTRY_HOLDINGS[etf]?.stocks || SP_500;
+  }
+
+  switch (key) {
     case 'NASDAQ 100':
     case 'NASDAQ100':
     case 'NASDAQ':
@@ -86,7 +171,23 @@ export function getMarketStocks(market: string): string[] {
     case 'DOWJONES':
     case 'DOW':
       return DOW_JONES;
+    case 'TOP 10':
+    case 'TOP10':
+      return TOP_10;
+    case 'MIDCAP':
+    case 'MID CAP':
+      return MIDCAP_LIQUID;
+    case 'SMALLCAP':
+    case 'SMALL CAP':
+      return SMALLCAP_LIQUID;
+    case 'LEGACY':
+    case 'LEGACY 20Y+':
+      return LEGACY_20Y;
+    case 'NEW ERA':
+    case 'NEW ERA 8-10Y':
+      return NEW_ERA_8_10Y;
     default:
       return SP_500; // Default to S&P 500
   }
 }
+

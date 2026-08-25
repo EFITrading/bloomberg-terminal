@@ -54,7 +54,62 @@ const HeroSection: React.FC<HeroSectionProps> = ({
     return () => window.removeEventListener('resize', check)
   }, [])
 
-  const markets = ['S&P 500', 'NASDAQ 100', 'DOW JONES']
+  // Grouped index/scan options shown in the dropdown (value used directly by getMarketStocks)
+  const marketOptionGroups: Array<{ label: string; options: Array<{ value: string; label: string }> }> = [
+    {
+      label: 'INDEXES',
+      options: [
+        { value: 'S&P 500', label: 'S&P 500' },
+        { value: 'NASDAQ 100', label: 'NASDAQ 100' },
+        { value: 'DOW JONES', label: 'DOW JONES' },
+        { value: 'TOP 10', label: 'Top 10 Stocks' },
+      ],
+    },
+    {
+      label: 'CAP SIZE',
+      options: [
+        { value: 'MIDCAP', label: 'Midcap (MDY / ARKK style)' },
+        { value: 'SMALLCAP', label: 'Small Cap (liquid)' },
+      ],
+    },
+    {
+      label: 'SECTORS',
+      options: [
+        { value: 'SECTOR-ALL', label: 'All 11 Sectors' },
+        { value: 'SECTOR-XLK', label: 'Technology (XLK)' },
+        { value: 'SECTOR-XLF', label: 'Financials (XLF)' },
+        { value: 'SECTOR-XLE', label: 'Energy (XLE)' },
+        { value: 'SECTOR-XLV', label: 'Healthcare (XLV)' },
+        { value: 'SECTOR-XLI', label: 'Industrials (XLI)' },
+        { value: 'SECTOR-XLY', label: 'Consumer Discretionary (XLY)' },
+        { value: 'SECTOR-XLP', label: 'Consumer Staples (XLP)' },
+        { value: 'SECTOR-XLU', label: 'Utilities (XLU)' },
+        { value: 'SECTOR-XLB', label: 'Materials (XLB)' },
+        { value: 'SECTOR-XLRE', label: 'Real Estate (XLRE)' },
+        { value: 'SECTOR-XLC', label: 'Communication Services (XLC)' },
+      ],
+    },
+    {
+      label: 'INDUSTRIES',
+      options: [
+        { value: 'INDUSTRY-ALL', label: 'All Industries' },
+        { value: 'INDUSTRY-SMH', label: 'Semiconductors (SMH)' },
+        { value: 'INDUSTRY-IGV', label: 'Software (IGV)' },
+        { value: 'INDUSTRY-KRE', label: 'Regional Banks (KRE)' },
+        { value: 'INDUSTRY-XBI', label: 'Biotech (XBI)' },
+        { value: 'INDUSTRY-ITB', label: 'Homebuilders (ITB)' },
+        { value: 'INDUSTRY-XOP', label: 'Oil & Gas Expl. (XOP)' },
+        { value: 'INDUSTRY-JETS', label: 'Airlines (JETS)' },
+      ],
+    },
+    {
+      label: 'DATA HISTORY',
+      options: [
+        { value: 'LEGACY', label: 'Legacy (20+ years data)' },
+        { value: 'NEW ERA', label: 'New Era (8-10 years data)' },
+      ],
+    },
+  ]
 
   const handleStartScreener = (mode: 'normal' | 'leaps' | 'multiframe' = scanMode) => {
     if (mode === 'leaps') {
@@ -191,6 +246,13 @@ const HeroSection: React.FC<HeroSectionProps> = ({
           pointer-events: none;
         }
         .hs-select-mobile:active { filter: brightness(1.2); }
+        .hs-select option, .hs-select-mobile option {
+          background: #0d0d0d; color: #ffffff;
+        }
+        .hs-select optgroup, .hs-select-mobile optgroup {
+          background: #000000; color: #FF6B00;
+          font-weight: 800; font-size: 10px; letter-spacing: 0.8px;
+        }
       `}</style>
 
       {isMobileView ? (
@@ -214,8 +276,12 @@ const HeroSection: React.FC<HeroSectionProps> = ({
               className="hs-select-mobile"
               style={{ ...selectMobile, flex: 1, padding: '0 16px 0 6px' }}
             >
-              {markets.map((market) => (
-                <option key={market} value={market} style={{ background: '#0d0d0d' }}>{market}</option>
+              {marketOptionGroups.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.options.map((opt) => (
+                    <option key={opt.value} value={opt.value} style={{ background: '#0d0d0d' }}>{opt.label}</option>
+                  ))}
+                </optgroup>
               ))}
             </select>
 
@@ -280,10 +346,14 @@ const HeroSection: React.FC<HeroSectionProps> = ({
             className="hs-select"
             style={{ ...selectBase, ...solidBlack, minWidth: 140 }}
           >
-            {markets.map((market) => (
-              <option key={market} value={market} style={{ background: '#0d0d0d' }}>
-                {market}
-              </option>
+            {marketOptionGroups.map((group) => (
+              <optgroup key={group.label} label={group.label}>
+                {group.options.map((opt) => (
+                  <option key={opt.value} value={opt.value} style={{ background: '#0d0d0d' }}>
+                    {opt.label}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
 
@@ -345,7 +415,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
 
           <button
             className="hs-btn hs-btn-orange-text"
-            onClick={handleStartScreener}
+            onClick={() => handleStartScreener()}
             style={{ ...btnBase, ...solidOrange, minWidth: 100, marginLeft: 'auto' }}
           >
             SCAN

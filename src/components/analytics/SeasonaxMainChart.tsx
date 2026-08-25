@@ -1036,6 +1036,74 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
         ctx.restore()
       }
 
+      // ── Precompute multi-scan right-edge label positions + hover detection ──
+      // (computed before the lines are drawn so hovering a ticker's Y-axis label can dim the others)
+      const multiScanLabelLines: { color: string; symbol: string; lastY: number; boxTop: number; boxBottom: number; boxLeft: number; boxRight: number }[] = []
+      let hoveredMultiScanSymbol: string | null = null
+      if (multiScanData && multiScanData.length > 0) {
+        const labelFontSize = isFullscreen ? 17 : 13
+        ctx.font = `700 ${labelFontSize}px "Roboto Mono", monospace`
+        const labelX = containerWidth - padding.right + 5
+
+        multiScanData.forEach((msAnalysis, idx) => {
+          if (!msAnalysis?.dailyData) return
+          if (hiddenLines.has(msAnalysis.symbol)) return
+          let msData = msAnalysis.dailyData
+          if (settings.smoothing) msData = smoothData(msData)
+          if (settings.detrend) msData = detrendData(msData)
+          const lastPt = msData[msData.length - 1]
+          if (!lastPt) return
+          const lastY =
+            containerHeight -
+            padding.bottom -
+            ((lastPt.cumulativeReturn - paddedMin) / paddedRange) * chartHeight
+          multiScanLabelLines.push({
+            color: MULTI_SCAN_COLORS[idx % MULTI_SCAN_COLORS.length],
+            symbol: msAnalysis.symbol,
+            lastY, boxTop: 0, boxBottom: 0, boxLeft: labelX, boxRight: labelX + ctx.measureText(msAnalysis.symbol).width + 4,
+          })
+        })
+        if (multiScanData.length > 1) {
+          const dm: Record<number, number[]> = {}
+          multiScanData.forEach((msAnalysis) => {
+            if (!msAnalysis?.dailyData) return
+            let msData = msAnalysis.dailyData
+            if (settings.smoothing) msData = smoothData(msData)
+            if (settings.detrend) msData = detrendData(msData)
+            msData.forEach((pt) => { if (!dm[pt.dayOfYear]) dm[pt.dayOfYear] = []; dm[pt.dayOfYear].push(pt.cumulativeReturn) })
+          })
+          const refData = multiScanData[0].dailyData
+          const avgData = refData.filter((pt) => dm[pt.dayOfYear]?.length > 0).map((pt) => ({ ...pt, cumulativeReturn: dm[pt.dayOfYear].reduce((s, v) => s + v, 0) / dm[pt.dayOfYear].length }))
+          const avgLastPt = avgData[avgData.length - 1]
+          if (avgLastPt) {
+            const lastY = containerHeight - padding.bottom - ((avgLastPt.cumulativeReturn - paddedMin) / paddedRange) * chartHeight
+            multiScanLabelLines.push({ color: '#FFFFFF', symbol: 'AVG', lastY, boxTop: 0, boxBottom: 0, boxLeft: labelX, boxRight: labelX + ctx.measureText('AVG').width + 4 })
+          }
+        }
+
+        // Resolve overlapping labels to their final stacked Y position, then build hit-boxes
+        multiScanLabelLines.sort((a, b) => a.lastY - b.lastY)
+        const minGap = 13
+        for (let i = 1; i < multiScanLabelLines.length; i++) {
+          if (multiScanLabelLines[i].lastY - multiScanLabelLines[i - 1].lastY < minGap) {
+            multiScanLabelLines[i].lastY = multiScanLabelLines[i - 1].lastY + minGap
+          }
+        }
+        multiScanLabelLines.forEach((l) => {
+          const clampedY = Math.max(padding.top + 6, Math.min(containerHeight - padding.bottom - 6, l.lastY))
+          l.lastY = clampedY
+          l.boxTop = clampedY - 7
+          l.boxBottom = clampedY + 7
+        })
+
+        if (mousePos) {
+          const hit = multiScanLabelLines.find(
+            (l) => mousePos.x >= l.boxLeft && mousePos.x <= l.boxRight && mousePos.y >= l.boxTop && mousePos.y <= l.boxBottom
+          )
+          hoveredMultiScanSymbol = hit ? hit.symbol : null
+        }
+      }
+
       // Draw multi-scan lines + average
       if (multiScanData && multiScanData.length > 0) {
         // Draw each ticker line
@@ -1046,10 +1114,14 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
           if (settings.smoothing) msData = smoothData(msData)
           if (settings.detrend) msData = detrendData(msData)
           const color = MULTI_SCAN_COLORS[idx % MULTI_SCAN_COLORS.length]
+          const isDimmed = hoveredMultiScanSymbol !== null && hoveredMultiScanSymbol !== msAnalysis.symbol
+          ctx.save()
+          ctx.globalAlpha = isDimmed ? 0.12 : 1
           drawSeasonalLine(
             ctx, msData, containerWidth, containerHeight, padding, chartWidth, chartHeight,
             paddedMin, paddedRange, color, 1.5, msAnalysis.symbol, false, msData, zoomLevel, panOffset
           )
+          ctx.restore()
         })
 
         // Compute and draw average line
@@ -1074,46 +1146,14 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
                 dayMap[pt.dayOfYear].reduce((s, v) => s + v, 0) / dayMap[pt.dayOfYear].length,
             }))
           if (avgData.length > 0) {
+            const isDimmed = hoveredMultiScanSymbol !== null && hoveredMultiScanSymbol !== 'AVG'
+            ctx.save()
+            ctx.globalAlpha = isDimmed ? 0.12 : 1
             drawSeasonalLine(
               ctx, avgData, containerWidth, containerHeight, padding, chartWidth, chartHeight,
               paddedMin, paddedRange, '#FFFFFF', 3, 'AVG', false, avgData, zoomLevel, panOffset
             )
-          }
-        }
-      }
-
-      // ── Collect multi-scan right-edge label data (drawn after clip is released) ──
-      const multiScanLabelLines: { color: string; symbol: string; lastY: number }[] = []
-      if (multiScanData && multiScanData.length > 0) {
-        multiScanData.forEach((msAnalysis, idx) => {
-          if (!msAnalysis?.dailyData) return
-          if (hiddenLines.has(msAnalysis.symbol)) return
-          let msData = msAnalysis.dailyData
-          if (settings.smoothing) msData = smoothData(msData)
-          if (settings.detrend) msData = detrendData(msData)
-          const lastPt = msData[msData.length - 1]
-          if (!lastPt) return
-          const lastY =
-            containerHeight -
-            padding.bottom -
-            ((lastPt.cumulativeReturn - paddedMin) / paddedRange) * chartHeight
-          multiScanLabelLines.push({ color: MULTI_SCAN_COLORS[idx % MULTI_SCAN_COLORS.length], symbol: msAnalysis.symbol, lastY })
-        })
-        if (multiScanData.length > 1) {
-          const dm: Record<number, number[]> = {}
-          multiScanData.forEach((msAnalysis) => {
-            if (!msAnalysis?.dailyData) return
-            let msData = msAnalysis.dailyData
-            if (settings.smoothing) msData = smoothData(msData)
-            if (settings.detrend) msData = detrendData(msData)
-            msData.forEach((pt) => { if (!dm[pt.dayOfYear]) dm[pt.dayOfYear] = []; dm[pt.dayOfYear].push(pt.cumulativeReturn) })
-          })
-          const refData = multiScanData[0].dailyData
-          const avgData = refData.filter((pt) => dm[pt.dayOfYear]?.length > 0).map((pt) => ({ ...pt, cumulativeReturn: dm[pt.dayOfYear].reduce((s, v) => s + v, 0) / dm[pt.dayOfYear].length }))
-          const avgLastPt = avgData[avgData.length - 1]
-          if (avgLastPt) {
-            const lastY = containerHeight - padding.bottom - ((avgLastPt.cumulativeReturn - paddedMin) / paddedRange) * chartHeight
-            multiScanLabelLines.push({ color: '#FFFFFF', symbol: 'AVG', lastY })
+            ctx.restore()
           }
         }
       }
@@ -1223,22 +1263,19 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
       // ─────────────────────────────────────────────────────────────────────
 
       // Draw right-edge multi-scan ticker labels (must be after restore to avoid clipping)
+      // Positions/spacing were already resolved in the precompute step above.
       if (multiScanLabelLines.length > 0) {
-        multiScanLabelLines.sort((a, b) => a.lastY - b.lastY)
-        const minGap = 13
-        for (let i = 1; i < multiScanLabelLines.length; i++) {
-          if (multiScanLabelLines[i].lastY - multiScanLabelLines[i - 1].lastY < minGap) {
-            multiScanLabelLines[i].lastY = multiScanLabelLines[i - 1].lastY + minGap
-          }
-        }
         ctx.font = `700 ${isFullscreen ? 17 : 13}px "Roboto Mono", monospace`
         ctx.textAlign = 'left'
         ctx.textBaseline = 'middle'
         const labelX = containerWidth - padding.right + 5
         multiScanLabelLines.forEach(({ color, symbol, lastY }) => {
-          const clampedY = Math.max(padding.top + 6, Math.min(containerHeight - padding.bottom - 6, lastY))
+          const isDimmed = hoveredMultiScanSymbol !== null && hoveredMultiScanSymbol !== symbol
+          ctx.save()
+          ctx.globalAlpha = isDimmed ? 0.25 : 1
           ctx.fillStyle = color
-          ctx.fillText(symbol, labelX, clampedY)
+          ctx.fillText(symbol, labelX, lastY)
+          ctx.restore()
         })
       }
 

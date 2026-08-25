@@ -315,12 +315,17 @@ class PolygonService {
     try {
       const endpoint = `/api/historical-data?symbol=${symbol}&startDate=${startDate}&endDate=${endDate}`
 
+      // Bound each request so a slow/hung symbol can't stall a batch (e.g. Promise.all over many symbols)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000)
+
       const response = await fetch(endpoint, {
         method: 'GET',
+        signal: controller.signal,
         headers: {
           Accept: 'application/json',
         },
-      })
+      }).finally(() => clearTimeout(timeoutId))
 
       if (!response.ok) {
         // Log the error but don't throw - return null instead

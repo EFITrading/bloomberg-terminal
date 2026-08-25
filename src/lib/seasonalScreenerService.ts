@@ -136,7 +136,6 @@ class SeasonalScreenerService {
         }
       }
 
-
       // Sort by average return (no filtering)
       const sortedOpportunities = opportunities
         .sort((a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn));

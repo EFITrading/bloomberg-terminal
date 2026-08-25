@@ -52,7 +52,7 @@ export default function DataDriven() {
         <div className="desktop-view">
           {isTabletOrLaptop ? (
             <div style={{ minWidth: 0, width: '100%', paddingTop: '20px', position: 'relative' }}>
-              <SeasonalityChart autoStart={true} hideScreener={true} initialSymbol="SPY" />
+              <SeasonalityChart autoStart={true} hideScreener={true} initialSymbol="SPY" hideFullscreenToggle={true} />
 
               {/* Tab button - fixed on the right edge */}
               <button
@@ -122,7 +122,7 @@ export default function DataDriven() {
                 }}
               >
                 <div className="data-driven-drawer-content" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-                  <HistoricalEventsResearch inDrawer onCloseDrawer={() => setDrawerOpen(false)} />
+                  <HistoricalEventsResearch inDrawer onCloseDrawer={() => setDrawerOpen(false)} hideFullscreenToggle={true} />
                 </div>
               </div>
             </div>
@@ -137,7 +137,7 @@ export default function DataDriven() {
               }}
             >
               <div style={{ minWidth: 0, width: '100%', paddingTop: '20px' }}>
-                <SeasonalityChart autoStart={true} hideScreener={true} initialSymbol="SPY" />
+                <SeasonalityChart autoStart={true} hideScreener={true} initialSymbol="SPY" hideFullscreenToggle={true} />
               </div>
               <div
                 style={{
@@ -147,7 +147,7 @@ export default function DataDriven() {
                   overflow: 'hidden',
                 }}
               >
-                <HistoricalEventsResearch />
+                <HistoricalEventsResearch hideFullscreenToggle={true} />
               </div>
             </div>
           )}

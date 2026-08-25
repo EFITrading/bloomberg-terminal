@@ -117,3 +117,34 @@ export async function invalidateSweepSense(tradingDate: string): Promise<void> {
         // Non-critical
     }
 }
+
+// ── Seasonal screener scan cache ──────────────────────────────────────────────
+// One user's scan (normal / seasoned / leaps, per market+timeframe) gets cached so
+// every other user hitting the same combo within the window reuses the result
+// instead of re-triggering hundreds of per-symbol Polygon calls.
+
+const SEASONAL_SCAN_TTL = 60 * 60 * 3 // 3 hours max — then it naturally expires and re-scans
+
+const seasonalScanKey = (key: string) => `seasonal-scan:${key}`
+
+/** Read a cached seasonal scan result. Returns null on miss, Redis unavailable, or any error. */
+export async function getCachedSeasonalScan(key: string): Promise<unknown | null> {
+    if (!redis) return null
+    try {
+        const raw = await redis.get<string>(seasonalScanKey(key))
+        if (!raw) return null
+        return JSON.parse(raw)
+    } catch {
+        return null
+    }
+}
+
+/** Store a seasonal scan result in Redis for a few hours. Silently ignores errors. */
+export async function setCachedSeasonalScan(key: string, data: unknown): Promise<void> {
+    if (!redis) return
+    try {
+        await redis.set(seasonalScanKey(key), JSON.stringify(data), { ex: SEASONAL_SCAN_TTL })
+    } catch {
+        // Non-critical — next request just re-scans
+    }
+}

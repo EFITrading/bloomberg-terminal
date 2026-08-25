@@ -81,7 +81,7 @@ export default function DataDrivenMobileLayout() {
       {/* Panel content */}
       {active === 'seasonal' && (
         <div className="mobile-seasonality-wrapper" style={PANEL_STYLE}>
-          <SeasonalityChart autoStart={true} hideScreener={true} initialSymbol="SPY" />
+          <SeasonalityChart autoStart={true} hideScreener={true} initialSymbol="SPY" hideFullscreenToggle={true} />
         </div>
       )}
 
@@ -97,7 +97,7 @@ export default function DataDrivenMobileLayout() {
 
       {active === 'events' && (
         <div style={{ ...PANEL_STYLE, paddingBottom: 70 }}>
-          <HistoricalEventsResearch />
+          <HistoricalEventsResearch hideFullscreenToggle={true} />
         </div>
       )}
 

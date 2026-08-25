@@ -7,6 +7,8 @@ const MONTH_NAMES = [
     'July', 'August', 'September', 'October', 'November', 'December',
 ]
 
+const ACTIVE_OPTION_STYLE: React.CSSProperties = { color: '#ff8c1a', fontWeight: 900, backgroundColor: '#1a0f00' }
+
 const PATTERN_VALUE_MAP: Record<string, { id: string; label: string }> = {
     '52week-high-cooldown': { id: '52week-high-cooldown', label: '52W High (90d Cooldown)' },
     '52week-high-annual': { id: '52week-high-annual', label: '52W High (Annual)' },
@@ -47,8 +49,8 @@ interface Props {
     selectedMonth: number
     setSelectedMonth: (v: number) => void
     onMonthChange?: (month: number) => void
-    activeView: 'chart' | 'calendar' | 'table'
-    setActiveView: (v: 'chart' | 'calendar' | 'table') => void
+    activeView: 'chart' | 'calendar'
+    setActiveView: (v: 'chart' | 'calendar') => void
     showMaxYears: boolean
     show15Y: boolean
     show10Y: boolean
@@ -62,6 +64,7 @@ interface Props {
     setShowEventPerformance: (v: boolean) => void
     setEventPerformanceData: (v: never[]) => void
     calculateEventPerformance: (eventType: string) => void
+    activeEventKey?: string | null
     selectedPattern: string | null
     setSelectedPattern: (v: string | null) => void
     setShowPatternPerformance: (v: boolean) => void
@@ -95,6 +98,7 @@ export default function AlmanacMobileControls({
     setShowEventPerformance,
     setEventPerformanceData,
     calculateEventPerformance,
+    activeEventKey,
     selectedPattern,
     setSelectedPattern,
     setShowPatternPerformance,
@@ -119,7 +123,6 @@ export default function AlmanacMobileControls({
     const views = [
         { id: 'chart' as const, label: 'CHART' },
         { id: 'calendar' as const, label: 'CALENDAR' },
-        { id: 'table' as const, label: 'TABLE' },
     ]
     return (
         <div className="almanac-mobile-ctrl" style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
@@ -143,7 +146,7 @@ export default function AlmanacMobileControls({
                     color-scheme: dark;
                 }
             `}</style>
-            {/* Row 1: Tabs — CHART / CAL / TABLE */}
+            {/* Row 1: Tabs — CHART / CAL */}
             <div style={{ display: 'flex', borderBottom: '1px solid #FF6B00', outline: '1px solid rgba(255,107,0,0.3)' }}>
                 {views.map((v, index) => {
                     const isActive = activeView === v.id
@@ -155,7 +158,7 @@ export default function AlmanacMobileControls({
                                 flex: 1, padding: '10px 8px', boxSizing: 'border-box', minHeight: 0, minWidth: 0,
                                 background: isActive ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)' : 'linear-gradient(180deg,#111 0%,#040404 100%)',
                                 border: isActive ? '2px solid #FF6B00' : '2px solid rgba(255,255,255,0.15)',
-                                borderRight: index < 2 ? (isActive ? '2px solid #FF6B00' : '1px solid rgba(255,255,255,0.08)') : undefined,
+                                borderRight: index < 1 ? (isActive ? '2px solid #FF6B00' : '1px solid rgba(255,255,255,0.08)') : undefined,
                                 color: isActive ? '#FF6B00' : '#fff',
                                 fontSize: 11, fontWeight: 900, letterSpacing: '0.05em',
                                 textTransform: 'uppercase', cursor: 'pointer',
@@ -178,7 +181,7 @@ export default function AlmanacMobileControls({
                             setSelectedMonth(newMonth)
                             onMonthChange?.(newMonth)
                         }}
-                        style={{ ...SEL, flex: '0 0 72px', width: '72px' }}
+                        style={{ ...SEL, flex: '0 0 100px', width: '100px' }}
                     >
                         {MONTH_NAMES.map((name, i) => (
                             <option key={i} value={i}>{name}</option>
@@ -203,26 +206,26 @@ export default function AlmanacMobileControls({
                     >
                         <option value="none">Market Events</option>
                         <optgroup label="HOLIDAYS">
-                            <option value="thanksgiving">Thanksgiving</option>
-                            <option value="christmas">Christmas</option>
-                            <option value="newyear">New Year</option>
-                            <option value="presidentsday">Presidents Day</option>
-                            <option value="mlkday">MLK Day</option>
-                            <option value="memorialday">Memorial Day</option>
-                            <option value="july4th">July 4th</option>
-                            <option value="laborday">Labor Day</option>
+                            <option value="thanksgiving" style={activeEventKey === 'thanksgiving' ? ACTIVE_OPTION_STYLE : undefined}>Thanksgiving{activeEventKey === 'thanksgiving' ? ' ● ACTIVE' : ''}</option>
+                            <option value="christmas" style={activeEventKey === 'christmas' ? ACTIVE_OPTION_STYLE : undefined}>Christmas{activeEventKey === 'christmas' ? ' ● ACTIVE' : ''}</option>
+                            <option value="newyear" style={activeEventKey === 'newyear' ? ACTIVE_OPTION_STYLE : undefined}>New Year{activeEventKey === 'newyear' ? ' ● ACTIVE' : ''}</option>
+                            <option value="presidentsday" style={activeEventKey === 'presidentsday' ? ACTIVE_OPTION_STYLE : undefined}>Presidents Day{activeEventKey === 'presidentsday' ? ' ● ACTIVE' : ''}</option>
+                            <option value="mlkday" style={activeEventKey === 'mlkday' ? ACTIVE_OPTION_STYLE : undefined}>MLK Day{activeEventKey === 'mlkday' ? ' ● ACTIVE' : ''}</option>
+                            <option value="memorialday" style={activeEventKey === 'memorialday' ? ACTIVE_OPTION_STYLE : undefined}>Memorial Day{activeEventKey === 'memorialday' ? ' ● ACTIVE' : ''}</option>
+                            <option value="july4th" style={activeEventKey === 'july4th' ? ACTIVE_OPTION_STYLE : undefined}>July 4th{activeEventKey === 'july4th' ? ' ● ACTIVE' : ''}</option>
+                            <option value="laborday" style={activeEventKey === 'laborday' ? ACTIVE_OPTION_STYLE : undefined}>Labor Day{activeEventKey === 'laborday' ? ' ● ACTIVE' : ''}</option>
                         </optgroup>
                         <optgroup label="FOMC MEETINGS">
-                            <option value="fomc-march">FOMC March</option>
-                            <option value="fomc-june">FOMC June</option>
-                            <option value="fomc-september">FOMC September</option>
-                            <option value="fomc-december">FOMC December</option>
+                            <option value="fomc-march" style={activeEventKey === 'fomc-march' ? ACTIVE_OPTION_STYLE : undefined}>FOMC March{activeEventKey === 'fomc-march' ? ' ● ACTIVE' : ''}</option>
+                            <option value="fomc-june" style={activeEventKey === 'fomc-june' ? ACTIVE_OPTION_STYLE : undefined}>FOMC June{activeEventKey === 'fomc-june' ? ' ● ACTIVE' : ''}</option>
+                            <option value="fomc-september" style={activeEventKey === 'fomc-september' ? ACTIVE_OPTION_STYLE : undefined}>FOMC September{activeEventKey === 'fomc-september' ? ' ● ACTIVE' : ''}</option>
+                            <option value="fomc-december" style={activeEventKey === 'fomc-december' ? ACTIVE_OPTION_STYLE : undefined}>FOMC December{activeEventKey === 'fomc-december' ? ' ● ACTIVE' : ''}</option>
                         </optgroup>
                         <optgroup label="QUAD WITCHING">
-                            <option value="quad-witching-mar">Quad Witching Mar</option>
-                            <option value="quad-witching-jun">Quad Witching Jun</option>
-                            <option value="quad-witching-sep">Quad Witching Sep</option>
-                            <option value="quad-witching-dec">Quad Witching Dec</option>
+                            <option value="quad-witching-mar" style={activeEventKey === 'quad-witching-mar' ? ACTIVE_OPTION_STYLE : undefined}>Quad Witching Mar{activeEventKey === 'quad-witching-mar' ? ' ● ACTIVE' : ''}</option>
+                            <option value="quad-witching-jun" style={activeEventKey === 'quad-witching-jun' ? ACTIVE_OPTION_STYLE : undefined}>Quad Witching Jun{activeEventKey === 'quad-witching-jun' ? ' ● ACTIVE' : ''}</option>
+                            <option value="quad-witching-sep" style={activeEventKey === 'quad-witching-sep' ? ACTIVE_OPTION_STYLE : undefined}>Quad Witching Sep{activeEventKey === 'quad-witching-sep' ? ' ● ACTIVE' : ''}</option>
+                            <option value="quad-witching-dec" style={activeEventKey === 'quad-witching-dec' ? ACTIVE_OPTION_STYLE : undefined}>Quad Witching Dec{activeEventKey === 'quad-witching-dec' ? ' ● ACTIVE' : ''}</option>
                         </optgroup>
                     </select>
 

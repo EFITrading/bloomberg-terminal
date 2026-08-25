@@ -254,12 +254,36 @@ function isMarketHoliday(date: Date): boolean {
 // Historical daily returns cache
 const dailyReturnsCache = new Map<string, number[][]>()
 
+// Shared few-hours Redis cache (same /api/seasonal-cache route used by the seasonality screener)
+// so repeated almanac chart requests for the same month/symbol don't re-hit Polygon for every user.
+async function readSeasonalCache<T>(key: string): Promise<T | null> {
+  try {
+    const res = await fetch(`/api/seasonal-cache?key=${encodeURIComponent(key)}`)
+    const { data } = await res.json()
+    return (data as T) ?? null
+  } catch {
+    return null
+  }
+}
+
+function writeSeasonalCache(key: string, data: unknown): void {
+  fetch('/api/seasonal-cache', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key, data }),
+  }).catch(() => { })
+}
+
 export class AlmanacService {
   // Fetch real historical data and calculate daily seasonal patterns for a specific month
   async getMonthlySeasonalData(
     month: number,
     yearsBack: number = 25
   ): Promise<IndexSeasonalData[]> {
+    const cacheKey = `almanac:monthly:${month}:${yearsBack}`
+    const cached = await readSeasonalCache<IndexSeasonalData[]>(cacheKey)
+    if (cached && cached.length > 0) return cached
+
     const results: IndexSeasonalData[] = []
     const currentYear = new Date().getFullYear()
     const startYear = currentYear - yearsBack
@@ -285,6 +309,7 @@ export class AlmanacService {
       }
     }
 
+    if (results.length > 0) writeSeasonalCache(cacheKey, results)
     return results
   }
 
@@ -293,6 +318,10 @@ export class AlmanacService {
     month: number,
     yearsBack: number = 25
   ): Promise<IndexSeasonalData[]> {
+    const cacheKey = `almanac:single:${symbol}:${month}:${yearsBack}`
+    const cached = await readSeasonalCache<IndexSeasonalData[]>(cacheKey)
+    if (cached && cached.length > 0) return cached
+
     const currentYear = new Date().getFullYear()
     const startYear = currentYear - yearsBack
 
@@ -304,7 +333,7 @@ export class AlmanacService {
         currentYear
       )
 
-      return [
+      const result = [
         {
           symbol: symbol,
           name: symbol,
@@ -313,6 +342,8 @@ export class AlmanacService {
           dailyData,
         },
       ]
+      writeSeasonalCache(cacheKey, result)
+      return result
     } catch (error) {
       console.error(`Error fetching data for ${symbol}:`, error)
       return []
