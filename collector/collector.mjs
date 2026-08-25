@@ -485,9 +485,9 @@ function buildSweepSenseCardHtml(c) {
     const cpColor = isCall ? '#22c55e' : '#ef4444'
     const termColor = c.term === 'LONG TERM' ? '#22d3ee' : '#f59e0b'
     const expiryShort = c.expiry ? (() => { const [y, m, d] = c.expiry.split('-'); return `${m}/${d}/${y.slice(2)}` })() : 'N/A'
-    // Same fill-style coloring convention as the live table (FlowTrackingPanel.tsx):
-    // A/AA (bought at ask) green, B/BB (sold at bid) red, anything else purple.
-    const fillColor = (c.fillStyle === 'A' || c.fillStyle === 'AA') ? '#22c55e' : (c.fillStyle === 'B' || c.fillStyle === 'BB') ? '#ef4444' : '#c084fc'
+    // Same fill-style coloring convention as the live table (OptionsFlowTable.tsx): colored
+    // text on a faint colored background with a colored border - never a solid filled box.
+    const fillColor = c.fillStyle === 'A' ? '#4ade80' : c.fillStyle === 'AA' ? '#86efac' : c.fillStyle === 'B' ? '#f87171' : c.fillStyle === 'BB' ? '#fca5a5' : '#c084fc'
     const priceMoveColor = (c.currentStockPrice !== null && c.currentStockPrice !== undefined && c.entrySpot !== null && c.entrySpot !== undefined)
         ? (c.currentStockPrice >= c.entrySpot ? '#22c55e' : '#ef4444') : '#e5e7eb'
     // Same glossy pill badges as the live table's getTradeTypeColor() (OptionsFlowTable.tsx).
@@ -548,7 +548,7 @@ function buildSweepSenseCardHtml(c) {
     const ptExpiryShort = pt?.expiryDate ? (() => { const [y, m, d] = pt.expiryDate.split('-'); return `${m}/${d}/${y.slice(2)}` })() : null
     const beDirection = c.direction === 'BEARISH' ? '-' : '+'
 
-    const dirColor = c.direction === 'BULLISH' ? '#34d399' : c.direction === 'BEARISH' ? '#f87171' : '#9ca3af'
+    const dirColor = c.direction === 'BULLISH' ? '#22c55e' : c.direction === 'BEARISH' ? '#ef4444' : '#9ca3af'
 
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -585,10 +585,10 @@ function buildSweepSenseCardHtml(c) {
         .ticket-label { font-size: 11px; font-weight: 800; color: #ffffff; letter-spacing: 1.4px; }
         .ticket-val { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .ticket-sub { font-size: 20px; font-weight: 700; color: #e5e7eb; white-space: nowrap; }
-        .fill-badge { font-size: 12px; font-weight: 800; color: #05070a; padding: 3px 9px; border-radius: 5px; letter-spacing: 0.4px; margin-left: 8px; }
+        .fill-badge { font-size: 12px; font-weight: 800; padding: 2px 8px; border-radius: 999px; letter-spacing: 0.4px; margin-left: 8px; }
         .spot-line { display: flex; align-items: center; gap: 8px; }
         .spot-line .arrow { color: #9ca3af; font-size: 15px; }
-        .tt-pill { font-size: 13px; font-weight: 800; letter-spacing: 0.08em; padding: 8px 18px; border-radius: 999px; border: 1px solid currentColor; background: rgba(255,255,255,0.03); align-self: center; }
+        .tt-pill { font-size: 13px; font-weight: 800; letter-spacing: 0.05em; padding: 8px 20px; border-radius: 999px; background-color: #000000; background-image: linear-gradient(180deg, #1e1e1e 0%, #000000 50%, #111111 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(0,0,0,0.8); border: 1px solid currentColor; align-self: center; }
 
         .section-label { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 800; letter-spacing: 2.2px; color: #d1d5db; margin: 24px 0 13px; }
         .section-label::before { content: ''; width: 4px; height: 14px; border-radius: 2px; background: currentColor; }
@@ -655,7 +655,7 @@ function buildSweepSenseCardHtml(c) {
                 </div>
                 <div class="ticket-seg">
                     <div class="ticket-label">CONTRACT &amp; FILL</div>
-                    <div class="ticket-val" style="color:#facc15">${esc(c.tradeSize ?? 'N/A')} <span style="color:#cbd5e1;font-weight:700;">@</span> $${esc(typeof c.premiumPerContract === 'number' ? c.premiumPerContract.toFixed(2) : 'N/A')}${c.fillStyle ? `<span class="fill-badge" style="background:${fillColor}">${esc(c.fillStyle)}</span>` : ''}</div>
+                    <div class="ticket-val"><span style="color:#22d3ee">${esc(c.tradeSize ?? 'N/A')}</span> <span style="color:#9ca3af;font-weight:700;">@</span> <span style="color:#facc15">$${esc(typeof c.premiumPerContract === 'number' ? c.premiumPerContract.toFixed(2) : 'N/A')}</span>${c.fillStyle ? `<span class="fill-badge" style="color:${fillColor};background:${fillColor}1a;border:1px solid ${fillColor}66;">${esc(c.fillStyle)}</span>` : ''}</div>
                 </div>
                 <div class="ticket-seg">
                     <div class="ticket-label">EXPIRY</div>
@@ -666,15 +666,15 @@ function buildSweepSenseCardHtml(c) {
                     <div class="ticket-sub" style="color:#22c55e;font-weight:800;">${esc(fmtMoney(c.totalPremium))}</div>
                 </div>
                 <div class="ticket-seg">
-                    <div class="ticket-label">CURRENT VALUE</div>
-                    <div class="ticket-sub" style="color:${typeof c.contractPctChange === 'number' ? (c.contractPctChange >= 0 ? '#22c55e' : '#ef4444') : '#e5e7eb'};font-weight:800;">${esc(fmtPct(c.contractPctChange))}</div>
-                </div>
-                <div class="ticket-seg">
                     <div class="ticket-label">SPOT &amp; CURRENT PRICE</div>
                     <div class="spot-line ticket-sub">
                         ${c.entrySpot !== null && c.entrySpot !== undefined ? `<span>${esc(fmtPrice(c.entrySpot))}</span>` : ''}
                         ${c.currentStockPrice !== null && c.currentStockPrice !== undefined ? `<span class="arrow">&rarr;</span><span style="color:${priceMoveColor};font-weight:800;">${esc(fmtPrice(c.currentStockPrice))}</span>` : ''}
                     </div>
+                </div>
+                <div class="ticket-seg">
+                    <div class="ticket-label">CURRENT VALUE</div>
+                    <div class="ticket-sub" style="color:${typeof c.contractPctChange === 'number' ? (c.contractPctChange >= 0 ? '#22c55e' : '#ef4444') : '#e5e7eb'};font-weight:800;">${esc(fmtPct(c.contractPctChange))}</div>
                 </div>
                 <div class="ticket-seg" style="justify-content:center;">
                     <span class="tt-pill" style="color:${tradeTypeColor}">${esc(c.tradeType || '')}</span>
