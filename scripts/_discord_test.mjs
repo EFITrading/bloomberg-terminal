@@ -38,26 +38,24 @@ function buildSweepSenseCardHtml(c) {
         ? (c.currentStockPrice >= c.entrySpot ? '#22c55e' : '#ef4444') : '#e5e7eb'
     // Same glossy pill badges as the live table's getTradeTypeColor() (OptionsFlowTable.tsx).
     const tradeTypeColor = c.tradeType === 'BLOCK' ? '#00e5ff' : c.tradeType === 'MULTI-LEG' ? '#d8b4fe' : '#FFD700'
-    // The payload only ever carries raw epoch-ms takenAt/qualifiedAt (never a pre-formatted
-    // takenTime/qualifiedTime string) - format them here, in PST, so the header actually shows them.
-    const fmtPST = (ms) => (typeof ms === 'number' && ms > 0)
-        ? new Date(ms).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit' }) + ' PST'
-        : null
+    // takenAt is trade_timestamp, an ISO date string; qualifiedAt is raw epoch ms - fmtPST
+    // needs to accept both so TIME (taken) and QUALIFIED both actually render instead of N/A.
+    const fmtPST = (val) => {
+        if (val === null || val === undefined || val === '') return null
+        const d = typeof val === 'number' ? new Date(val) : new Date(val)
+        if (isNaN(d.getTime())) return null
+        return d.toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit' })
+    }
     const takenTimeStr = fmtPST(c.takenAt)
     const qualifiedTimeStr = fmtPST(c.qualifiedAt)
 
-    // Activity flags now carry real trade detail (call/put split, strike(s), expiry, size, premium)
-    // stamped by FlowTrackingPanel.tsx's activityDetail, instead of just a plain label string.
+    // Activity flags now carry real trade detail stamped by FlowTrackingPanel.tsx's
+    // activityDetail. The title (r.title, below) already spells out call/put, strike(s) and
+    // expiry - repeating them here would just duplicate the title, so this line only adds
+    // what the title doesn't already say: fill count/size and total premium.
     const fmtActivityDetail = (d) => {
         if (!d || !d.count) return ''
-        const dominant = d.calls >= d.puts ? 'CALL' : 'PUT'
-        const mixed = d.calls > 0 && d.puts > 0
-        const typeText = mixed ? `${d.calls}x CALL / ${d.puts}x PUT` : `${d.count}x ${dominant}${d.count > 1 ? 'S' : ''}`
-        const strikeText = d.strikes.length === 1 ? fmtPrice(d.strikes[0]) : `${fmtPrice(d.strikes[0])}\u2013${fmtPrice(d.strikes[d.strikes.length - 1])}`
-        const expiryText = d.expiries.length === 1
-            ? (() => { const [y, m, day] = d.expiries[0].split('-'); return `${m}/${day}/${y.slice(2)}` })()
-            : `${d.expiries.length} expiries`
-        return `${typeText}  \u00b7  ${strikeText}  \u00b7  ${expiryText}  \u00b7  ${d.totalSize.toLocaleString()} ctrs  \u00b7  ${fmtMoney(d.totalPremium)}`
+        return `${d.count}x fill${d.count > 1 ? 's' : ''}  \u00b7  ${d.totalSize.toLocaleString()} contracts  \u00b7  ${fmtMoney(d.totalPremium)}`
     }
     const activityRows = [
         c.activityDetail?.spam ? { icon: ICON_SPAM, color: '#f59e0b', title: c.activityDetail.spam.label, detail: fmtActivityDetail(c.activityDetail.spam) } : null,
@@ -123,16 +121,16 @@ function buildSweepSenseCardHtml(c) {
         .meta-strip { display: flex; align-items: center; gap: 0; }
         .meta-item { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; padding: 0 20px; border-right: 1px solid rgba(255,255,255,0.09); }
         .meta-item:last-of-type { border-right: none; padding-right: 0; }
-        .meta-label { font-size: 11px; font-weight: 800; color: #cbd5e1; letter-spacing: 1.6px; }
+        .meta-label { font-size: 11px; font-weight: 800; color: #ffffff; letter-spacing: 1.6px; }
         .meta-val { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
         .term-badge { font-size: 14px; font-weight: 800; letter-spacing: 1.4px; padding: 10px 20px; border-radius: 999px; margin-left: 18px; color: ${termColor}; background: ${termColor}16; border: 1px solid ${termColor}4d; }
 
         .ticket { display: flex; align-items: stretch; margin-top: 26px; border-radius: 14px; background: linear-gradient(180deg, #12161e 0%, #0d1016 100%); border: 1px solid rgba(255,255,255,0.07); overflow: hidden; }
-        .ticket-seg { display: flex; flex-direction: column; justify-content: center; gap: 5px; padding: 18px 24px; border-right: 1px solid rgba(255,255,255,0.06); }
+        .ticket-seg { display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 16px 14px; border-right: 1px solid rgba(255,255,255,0.06); }
         .ticket-seg:last-child { border-right: none; margin-left: auto; align-items: flex-end; }
-        .ticket-label { font-size: 11px; font-weight: 800; color: #cbd5e1; letter-spacing: 1.4px; }
-        .ticket-val { font-size: 23px; font-weight: 800; font-variant-numeric: tabular-nums; }
-        .ticket-sub { font-size: 16px; font-weight: 700; color: #e5e7eb; }
+        .ticket-label { font-size: 11px; font-weight: 800; color: #ffffff; letter-spacing: 1.4px; }
+        .ticket-val { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .ticket-sub { font-size: 20px; font-weight: 700; color: #e5e7eb; white-space: nowrap; }
         .fill-badge { font-size: 12px; font-weight: 800; color: #05070a; padding: 3px 9px; border-radius: 5px; letter-spacing: 0.4px; margin-left: 8px; }
         .spot-line { display: flex; align-items: center; gap: 8px; }
         .spot-line .arrow { color: #9ca3af; font-size: 15px; }
@@ -156,8 +154,8 @@ function buildSweepSenseCardHtml(c) {
         .body-grid { display: flex; align-items: stretch; gap: 24px; margin-top: 4px; }
         .body-left { flex: 0 0 560px; display: flex; flex-direction: column; }
         .body-right { flex: 1; display: flex; flex-direction: column; }
-        .chart-wrap { margin-top: 24px; border-radius: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); background: #000; flex: 1; min-height: 260px; }
-        .chart-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .chart-wrap { margin-top: 24px; border-radius: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); background: #000; flex: 1; min-height: 400px; }
+        .chart-wrap img { width: 100%; height: 100%; object-fit: fill; display: block; }
 
         .rows { display: flex; flex-direction: column; gap: 10px; }
         .row { display: grid; grid-template-columns: 44px 190px 1fr auto; align-items: center; gap: 16px; padding: 16px 20px; border-radius: 14px; background: linear-gradient(180deg, #12161e 0%, #0d1016 100%); border: 1px solid rgba(255,255,255,0.06); }
@@ -186,7 +184,6 @@ function buildSweepSenseCardHtml(c) {
                 </div>
                 <div style="display:flex;align-items:center;">
                     <div class="meta-strip">
-                        ${takenTimeStr ? `<div class="meta-item"><div class="meta-label">TAKEN</div><div class="meta-val" style="color:#22d3ee">${esc(takenTimeStr)}</div></div>` : ''}
                         ${qualifiedTimeStr ? `<div class="meta-item"><div class="meta-label">QUALIFIED</div><div class="meta-val" style="color:#34d399">${esc(qualifiedTimeStr)}</div></div>` : ''}
                         ${c.earnings ? `<div class="meta-item"><div class="meta-label">EARNINGS</div><div class="meta-val" style="color:#f59e0b">${esc(c.earnings)}</div></div>` : ''}
                     </div>
@@ -195,16 +192,28 @@ function buildSweepSenseCardHtml(c) {
             </div>
             <div class="ticket">
                 <div class="ticket-seg">
+                    <div class="ticket-label">TIME</div>
+                    <div class="ticket-sub">${esc(takenTimeStr || 'N/A')}</div>
+                </div>
+                <div class="ticket-seg">
                     <div class="ticket-label">STRIKE</div>
                     <div class="ticket-val" style="color:${cpColor}">${esc(fmtPrice(c.strike))} ${isCall ? 'CALL' : 'PUT'}</div>
                 </div>
                 <div class="ticket-seg">
                     <div class="ticket-label">CONTRACT &amp; FILL</div>
-                    <div class="ticket-val" style="color:#ffffff">${esc(c.tradeSize ?? 'N/A')} <span style="color:#cbd5e1;font-weight:700;">@</span> $${esc(typeof c.premiumPerContract === 'number' ? c.premiumPerContract.toFixed(2) : 'N/A')}${c.fillStyle ? `<span class="fill-badge" style="background:${fillColor}">${esc(c.fillStyle)}</span>` : ''}</div>
+                    <div class="ticket-val" style="color:#facc15">${esc(c.tradeSize ?? 'N/A')} <span style="color:#cbd5e1;font-weight:700;">@</span> $${esc(typeof c.premiumPerContract === 'number' ? c.premiumPerContract.toFixed(2) : 'N/A')}${c.fillStyle ? `<span class="fill-badge" style="background:${fillColor}">${esc(c.fillStyle)}</span>` : ''}</div>
                 </div>
                 <div class="ticket-seg">
                     <div class="ticket-label">EXPIRY</div>
                     <div class="ticket-sub">${esc(expiryShort)}</div>
+                </div>
+                <div class="ticket-seg">
+                    <div class="ticket-label">PREMIUM</div>
+                    <div class="ticket-sub" style="color:#22c55e;font-weight:800;">${esc(fmtMoney(c.totalPremium))}</div>
+                </div>
+                <div class="ticket-seg">
+                    <div class="ticket-label">CURRENT VALUE</div>
+                    <div class="ticket-sub" style="color:${typeof c.contractPctChange === 'number' ? (c.contractPctChange >= 0 ? '#22c55e' : '#ef4444') : '#e5e7eb'};font-weight:800;">${esc(fmtPct(c.contractPctChange))}</div>
                 </div>
                 <div class="ticket-seg">
                     <div class="ticket-label">SPOT &amp; CURRENT PRICE</div>
@@ -224,9 +233,9 @@ function buildSweepSenseCardHtml(c) {
                         <div class="plan-icon">${ICON_CROSSHAIR}</div>
                         <div class="plan-text">${esc(c.planText)}</div>
                     </div>` : ''}
-                    ${pt ? `<div class="section-label" style="color:#c084fc;">CONTRACT USED FOR TARGETS</div>
-                    <div class="prob-trade">
-                        <div class="prob-trade-icon">$</div>
+                    ${pt ? `<div class="section-label" style="color:${cpColor};">TRADE PICK</div>
+                    <div class="prob-trade" style="background:linear-gradient(135deg, ${cpColor}14, ${cpColor}05);border-color:${cpColor}33;">
+                        <div class="prob-trade-icon" style="background:${cpColor}24;color:${cpColor};">$</div>
                         <div class="prob-trade-text">Picking up ${esc(fmtClean(pt.strike))} ${isCall ? 'Calls' : 'Puts'} ${esc(ptExpiryShort || 'N/A')} expiry for around ${esc(fmtClean(pt.premium * 100))}</div>
                         <div class="prob-trade-chips">
                             ${typeof pt.ivPct === 'number' ? `<span class="chip chip-iv">IV ${pt.ivPct.toFixed(0)}%</span>` : ''}
@@ -301,7 +310,7 @@ async function main() {
 
     try {
         const chartPage = await browser.newPage()
-        await chartPage.setViewport({ width: 900, height: 480, deviceScaleFactor: 2 })
+        await chartPage.setViewport({ width: 900, height: 620, deviceScaleFactor: 2 })
         if (cookies.length > 0) await chartPage.setCookie(...cookies)
         const entryTime = pick.takenAt ? new Date(pick.takenAt).getTime() : null
         const chartUrl = `${APP_URL}/chart-embed?ticker=${encodeURIComponent(pick.ticker)}${entryTime ? `&entryTime=${entryTime}` : ''}`

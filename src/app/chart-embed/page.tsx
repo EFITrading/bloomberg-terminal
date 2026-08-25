@@ -42,7 +42,7 @@ function ChartEmbedInner() {
   if (!symbol || !ready) return null
 
   return (
-    <div style={{ width: '900px', height: '480px', background: '#000' }} data-chart-ready="true">
+    <div style={{ width: '900px', height: '620px', background: '#000' }} data-chart-ready="true">
       <TradePopupChart
         symbol={symbol}
         fallbackCandles={candles}

@@ -4777,16 +4777,27 @@ export function TradePopupChart({
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     const step = Math.max(1, Math.floor(visible.length / 5))
+    let lastAxisDateKey = ''
     for (let i = 0; i < visible.length; i++) {
       if (i % step !== 0) continue
       const c = visible[i]
       const x = PAD_L + i * barW + barW * 0.5
       const ts = c.timestamp ?? c.t
       const d = ts ? new Date(ts) : new Date((c.date || '') + 'T00:00:00')
-      const label =
-        timeframe === '5M' || timeframe === '1H'
-          ? `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
-          : `${d.getMonth() + 1}/${d.getDate()}`
+      let label: string
+      if (timeframe === '5M' || timeframe === '1H') {
+        const dateKey = `${d.getMonth() + 1}/${d.getDate()}`
+        const h24 = d.getHours()
+        const h12 = h24 % 12 === 0 ? 12 : h24 % 12
+        const ampm = h24 < 12 ? 'AM' : 'PM'
+        const timeStr = `${h12}:${String(d.getMinutes()).padStart(2, '0')} ${ampm}`
+        // Only stamp the date once, at the first tick of that date - every tick after just
+        // shows the time so the axis isn't wasting space repeating "8/24" over and over.
+        label = dateKey !== lastAxisDateKey ? `${dateKey} ${timeStr}` : timeStr
+        lastAxisDateKey = dateKey
+      } else {
+        label = `${d.getMonth() + 1}/${d.getDate()}`
+      }
       ctx.fillText(label, x, H - PAD_B + 20)
     }
 
