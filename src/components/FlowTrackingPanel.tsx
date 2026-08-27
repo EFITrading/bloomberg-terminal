@@ -136,7 +136,11 @@ function bsStrikeForProbFTP(
     for (let i = 0; i < 50; i++) {
       const mid = (lo + hi) / 2
       const p = copCall(mid)
-      if (Math.abs(p - prob) < 0.1) return mid
+      if (Math.abs(p - prob) < 0.1) {
+        return mid
+      }
+      // copCall = (1-N(d2))*100 is INCREASING in K (unlike copPut below) - higher strike =
+      // higher probability price ends below it - so bigger K is needed when p is too low.
       p < prob ? (lo = mid) : (hi = mid)
     }
     return (lo + hi) / 2
@@ -146,7 +150,9 @@ function bsStrikeForProbFTP(
     for (let i = 0; i < 50; i++) {
       const mid = (lo + hi) / 2
       const p = copPut(mid)
-      if (Math.abs(p - prob) < 0.1) return mid
+      if (Math.abs(p - prob) < 0.1) {
+        return mid
+      }
       p < prob ? (hi = mid) : (lo = mid)
     }
     return (lo + hi) / 2
@@ -953,6 +959,12 @@ function calcTradeManagement(trade: OptionsFlowData, sigmaOverride?: number, dte
   const isSoldToOpen = fs === 'B' || fs === 'BB'
   const isCall = trade.type === 'call'
   const targetUp = (isCall && !isSoldToOpen) || (!isCall && isSoldToOpen)
+  // A B/BB (sold-to-open) print flips the DIRECTIONAL read (see targetUp above), but the
+  // built trade is always meant to be read as a contract someone BUYS to ride that direction -
+  // pricing it with the original (opposite-direction) type would make the premium shrink
+  // toward zero as price moves toward the target instead of growing. Price with whichever
+  // type actually gains value in the targetUp direction (call when bullish, put when bearish).
+  const pricingIsCall = targetUp
 
   const sigma = sigmaOverride && sigmaOverride > 0
     ? sigmaOverride
@@ -973,8 +985,6 @@ function calcTradeManagement(trade: OptionsFlowData, sigmaOverride?: number, dte
   else if (dte < 14) baseStopPercent = Math.max(0.15, baseStopPercent - 0.05)
   const ivAdjustment = sigma ? Math.max(0, (sigma - 0.3) * 0.5) : 0
   const adjustedStopPercent = Math.min(0.5, baseStopPercent + ivAdjustment)
-  const entryPremium = trade.premium_per_contract
-  const stopLoss = entryPremium > 0 ? entryPremium * (1 - adjustedStopPercent) : null
   const thetaDecay = Math.abs(trade.theta || 0)
 
   // ── Option premium at each stock target/stop - same Black-Scholes heatmap-grid reprice
@@ -988,16 +998,22 @@ function calcTradeManagement(trade: OptionsFlowData, sigmaOverride?: number, dte
   const K = trade.strike
   const decayedDte = Math.max(1, dte <= 10 ? Math.round(dte / 2) : Math.round(dte / 3))
   const Tdecayed = decayedDte / 365
+  // When the direction flips the pricing type away from the actual traded contract, the real
+  // fill premium belongs to the OTHER type - reprice a fresh baseline for the type actually
+  // being quoted so entry/target/stop all compare apples to apples.
+  const entryPremium = pricingIsCall === isCall
+    ? trade.premium_per_contract
+    : (sigma > 0 ? bsOptionPriceFTP(spot, K, T, r, sigma, pricingIsCall) : trade.premium_per_contract)
+  const stopLoss = entryPremium > 0 ? entryPremium * (1 - adjustedStopPercent) : null
   const pctVsEntry = (price: number | null) => {
     if (price === null || entryPremium <= 0) return null
-    const raw = ((price - entryPremium) / entryPremium) * 100
-    return isSoldToOpen ? -raw : raw
+    return ((price - entryPremium) / entryPremium) * 100
   }
-  const target1OptionPrice = sigma > 0 && target1 !== null ? bsOptionPriceFTP(target1, K, Tdecayed, r, sigma, isCall) : null
-  const target2OptionPrice = sigma > 0 && target2 !== null ? bsOptionPriceFTP(target2, K, Tdecayed, r, sigma, isCall) : null
+  const target1OptionPrice = sigma > 0 && target1 !== null ? bsOptionPriceFTP(target1, K, Tdecayed, r, sigma, pricingIsCall) : null
+  const target2OptionPrice = sigma > 0 && target2 !== null ? bsOptionPriceFTP(target2, K, Tdecayed, r, sigma, pricingIsCall) : null
   const stopStockPrice =
     sigma > 0 && stopLoss !== null
-      ? bsStockForPremiumFTP(stopLoss, spot, K, Tdecayed, r, sigma, isCall, targetUp)
+      ? bsStockForPremiumFTP(stopLoss, spot, K, Tdecayed, r, sigma, pricingIsCall, targetUp)
       : null
   const target1Pct = pctVsEntry(target1OptionPrice)
   const target2Pct = pctVsEntry(target2OptionPrice)
@@ -1444,7 +1460,6 @@ function SweepSenseTab({
     gammaMeta?: { ticker: string; strike: number; spot?: number; sigma?: number; expiry?: string }
     structuralMeta?: { callLevel: number | null; putLevel: number | null }
   } | null>(null)
-  const [riskLevel, setRiskLevel] = useState<Record<string, 'PROB' | 'ONAROLE' | 'LUCKY'>>({})
   // Top control row quick filters - "Ready 4 Pickup" (has an active entry plan), "He Missed"
   // (stock moved the most % against the implied trade direction), "Hedge"/"Directional"
   // (based on where the strike sits relative to the 90%/80% probability-of-profit level),
@@ -2404,15 +2419,20 @@ function SweepSenseTab({
             gamma: (gammaLabel === 'Gamma Squeeze in Formation') ? { label: gammaLabel, ...summarizeActivityTrades(gammaResult.trades) } : null,
           }
 
-          // Targets/stop-loss are based on the probability-of-profit build, not the raw flow
-          // trade - defaults to PROBABILITY until the user picks ON A ROLE / LUCKY instead.
-          const risk = riskLevel[flowId] ?? 'PROB'
+          // Targets/stop-loss are based on a single, fixed probability-of-profit build:
+          // ON A ROLE's expiry (same DTE as the flow), LUCKY's strike + target probabilities,
+          // and the original PROBABILITY stop-loss.
           const baseDte = Math.max(1, Math.round(dte ?? trade.days_to_expiry))
           const baseSigma = sigma && sigma > 0 ? sigma : (trade.implied_volatility || 0)
           const baseSpot = spot && spot > 0 ? spot : trade.spot_price
-          const isSoldToOpen = fs === 'B' || fs === 'BB'
           const tickerChain = chainData[trade.underlying_ticker]
-          const chainStillLoading = !!risk && !tickerChain
+          const chainStillLoading = !tickerChain
+          // A B/BB (sold-to-open) print flips the direction read (targetUp), but the built
+          // trade must always be priced as a contract someone BUYS to ride that direction -
+          // reusing the original (opposite-direction) type would make premium shrink toward
+          // zero approaching the target instead of growing. Price whichever type actually
+          // gains value in the targetUp direction.
+          const pricingIsCall = targetUp
           let builtTrade: {
             strike: number; dte: number; premium: number; expiryDate: string
             t1Strike: number | null; t2Strike: number | null
@@ -2425,7 +2445,7 @@ function SweepSenseTab({
           // Find the real listed contract (from the fetched chain) whose strike is closest to
           // a theoretical target strike, within a specific real expiration date.
           const findRealContract = (expiry: string, targetStrike: number): { strike: number; premium: number } | null => {
-            const side = tickerChain?.[expiry]?.[isCall ? 'calls' : 'puts']
+            const side = tickerChain?.[expiry]?.[pricingIsCall ? 'calls' : 'puts']
             if (!side) return null
             let best: { strike: number; premium: number } | null = null
             let bestDiff = Infinity
@@ -2441,24 +2461,10 @@ function SweepSenseTab({
             return best
           }
 
-          if (risk && baseSigma > 0 && tickerChain) {
-            let builtDte = baseDte
-            let strikeProb = 75
-            let t1Prob = 80, t2Prob = 90
-            let noStop = false
-            if (risk === 'PROB') {
-              builtDte = Math.round(isLongTerm ? baseDte * 1.5 : baseDte * 2)
-              strikeProb = 72.5
-            } else if (risk === 'ONAROLE') {
-              builtDte = baseDte
-              strikeProb = 78
-              t1Prob = 75; t2Prob = 85
-            } else if (risk === 'LUCKY') {
-              builtDte = isLongTerm ? Math.round(baseDte * 0.625) : baseDte
-              strikeProb = 82.5
-              t1Prob = 85; t2Prob = 95
-              noStop = true
-            }
+          if (baseSigma > 0 && tickerChain) {
+            const builtDte = baseDte
+            const strikeProb = 82.5
+            const t1Prob = 85, t2Prob = 95
 
             // Pick the real listed expiration date closest to the target DTE.
             const targetExpiryMs = Date.now() + builtDte * 86400000
@@ -2479,14 +2485,10 @@ function SweepSenseTab({
               // time has burned off, longer-dated assumes 2/3 burned off (1/3 DTE left).
               const decayedDte = Math.max(1, realDte <= 10 ? Math.round(realDte / 2) : Math.round(realDte / 3))
               const Tdecayed = decayedDte / 365
-              // strikeProb is expressed as desired PoP (probability of profit / finishing ITM),
-              // but bsStrikeForProbFTP solves for P(price ends BELOW strike) = prob - so the
-              // main-contract strike needs the COMPLEMENT passed in (100 - PoP) to actually land
-              // on a strike with that PoP. T1/T2 keep the raw prob - those are percentile
-              // stretch-targets (80th/90th pctl move), not PoP picks, so no complement there.
-              const rawBuiltStrike = bsStrikeForProbFTP(baseSpot, baseSigma, realDte, 100 - strikeProb, targetUp)
               const rawT1Strike = bsStrikeForProbFTP(baseSpot, baseSigma, realDte, t1Prob, targetUp)
               const rawT2Strike = bsStrikeForProbFTP(baseSpot, baseSigma, realDte, t2Prob, targetUp)
+              // Main contract is just the real listed strike closest to the Target 2 strike.
+              const rawBuiltStrike = rawT2Strike
 
               const mainContract = rawBuiltStrike !== null ? findRealContract(expiryDate, rawBuiltStrike) : null
               if (mainContract) {
@@ -2495,16 +2497,16 @@ function SweepSenseTab({
                 // never a different real strike's current live quote. That's the same
                 // one-contract-repriced-at-a-future-price-and-time logic as the calculator.
                 const t1Opt = rawT1Strike !== null
-                  ? bsOptionPriceFTP(rawT1Strike, mainContract.strike, Tdecayed, r, baseSigma, isCall)
+                  ? bsOptionPriceFTP(rawT1Strike, mainContract.strike, Tdecayed, r, baseSigma, pricingIsCall)
                   : null
                 const t2Opt = rawT2Strike !== null
-                  ? bsOptionPriceFTP(rawT2Strike, mainContract.strike, Tdecayed, r, baseSigma, isCall)
+                  ? bsOptionPriceFTP(rawT2Strike, mainContract.strike, Tdecayed, r, baseSigma, pricingIsCall)
                   : null
 
                 // Stop-loss: same delta-tiered premium-decline convention as calcTradeManagement,
                 // using this contract's own delta from the chain (falls back to a mid delta if
                 // the chain didn't return greeks).
-                const mainDelta = Math.abs(tickerChain?.[expiryDate]?.[isCall ? 'calls' : 'puts']?.[String(mainContract.strike)]?.greeks?.delta ?? 0.5)
+                const mainDelta = Math.abs(tickerChain?.[expiryDate]?.[pricingIsCall ? 'calls' : 'puts']?.[String(mainContract.strike)]?.greeks?.delta ?? 0.5)
                 let baseStopPercent = 0.3
                 if (mainDelta > 0.7) baseStopPercent = 0.15
                 else if (mainDelta >= 0.6) baseStopPercent = 0.2
@@ -2515,19 +2517,18 @@ function SweepSenseTab({
                 else if (realDte < 14) baseStopPercent = Math.max(0.15, baseStopPercent - 0.05)
                 const ivAdjustment = baseSigma ? Math.max(0, (baseSigma - 0.3) * 0.5) : 0
                 const adjustedStopPercent = Math.min(0.5, baseStopPercent + ivAdjustment)
-                const stopOpt = noStop ? null : mainContract.premium * (1 - adjustedStopPercent)
+                const stopOpt = mainContract.premium * (1 - adjustedStopPercent)
 
                 const pctVsBuilt = (p: number | null) => {
                   if (p === null || mainContract.premium <= 0) return null
-                  const raw = ((p - mainContract.premium) / mainContract.premium) * 100
-                  return isSoldToOpen ? -raw : raw
+                  return ((p - mainContract.premium) / mainContract.premium) * 100
                 }
 
                 // IV of the actual purchased contract + breakeven distance (% move from
                 // current spot needed for the stock to reach the contract's breakeven price).
-                const mainContractData = tickerChain?.[expiryDate]?.[isCall ? 'calls' : 'puts']?.[String(mainContract.strike)]
+                const mainContractData = tickerChain?.[expiryDate]?.[pricingIsCall ? 'calls' : 'puts']?.[String(mainContract.strike)]
                 const ivPct = mainContractData?.implied_volatility ? mainContractData.implied_volatility * 100 : null
-                const breakevenPrice = isCall ? mainContract.strike + mainContract.premium : mainContract.strike - mainContract.premium
+                const breakevenPrice = pricingIsCall ? mainContract.strike + mainContract.premium : mainContract.strike - mainContract.premium
                 const bePct = baseSpot > 0 ? Math.abs((breakevenPrice - baseSpot) / baseSpot) * 100 : null
 
                 builtTrade = {
@@ -3017,7 +3018,7 @@ function SweepSenseTab({
 
                 {!summaryMode && (
                   <>
-                    {/* Build A Trade - risk-profile driven strike/expiry rebuilder */}
+                    {/* Build A Trade - fixed probability-based strike/expiry rebuilder */}
                     <div style={{ padding: isMobileCard ? '6px 12px 0' : '6px 16px 0' }}>
                       {isMobileCard ? (
                         <div style={{
@@ -3028,32 +3029,6 @@ function SweepSenseTab({
                           padding: '5px 8px',
                           boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -2px 4px rgba(0,0,0,0.8), 0 2px 6px rgba(0,0,0,0.5)',
                         }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: '1 1 0', minWidth: 0 }}>
-                            <span style={{ color: '#ffffff', fontSize: '9px', fontWeight: 800, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Risk Tolerance</span>
-                            <select
-                              value={riskLevel[flowId] ?? ''}
-                              onChange={(e) => setRiskLevel((prev) => {
-                                const next = { ...prev }
-                                const v = e.target.value
-                                if (!v) delete next[flowId]
-                                else next[flowId] = v as 'PROB' | 'ONAROLE' | 'LUCKY'
-                                return next
-                              })}
-                              style={{
-                                flex: '1 1 0', minWidth: 0, cursor: 'pointer', padding: '5px 6px', borderRadius: '999px', fontWeight: 900,
-                                fontSize: '10px', letterSpacing: '0.04em',
-                                color: '#ffffff', colorScheme: 'dark',
-                                background: 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
-                                border: '1px solid rgba(255,255,255,0.18)',
-                              }}
-                            >
-                              <option value="" style={{ background: '#0a0a0a', color: '#ffffff' }}>NONE</option>
-                              <option value="PROB" style={{ background: '#0a0a0a', color: '#ffffff' }}>PROBABILITY</option>
-                              <option value="ONAROLE" style={{ background: '#0a0a0a', color: '#ffffff' }}>ON A ROLE</option>
-                              <option value="LUCKY" style={{ background: '#0a0a0a', color: '#ffffff' }}>LUCKY</option>
-                            </select>
-                          </div>
-
                           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: '1 1 0', minWidth: 0 }}>
                             <span style={{ color: '#ffffff', fontSize: '9px', fontWeight: 800, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>FlowBias</span>
                             <select
@@ -3088,37 +3063,7 @@ function SweepSenseTab({
                           padding: '6px 10px',
                           boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -2px 4px rgba(0,0,0,0.8), 0 2px 6px rgba(0,0,0,0.5)',
                         }}>
-                          {([
-                            { key: 'PROB', label: 'PROBABILITY', desc: 'Favor the win, more time, 70–75% PoP strike', color: '#22c55e' },
-                            { key: 'ONAROLE', label: 'ON A ROLE', desc: 'Balanced risk/reward, ~78% PoP strike', color: '#eab308' },
-                            { key: 'LUCKY', label: 'LUCKY', desc: 'Degen mode: tighter DTE, 80-85% PoP, no stop', color: '#ec4899' },
-                          ] as const).map((opt) => (
-                            <button
-                              key={opt.key}
-                              data-risk-option={opt.key}
-                              title={opt.desc}
-                              onClick={() => setRiskLevel((prev) => {
-                                const next = { ...prev }
-                                if (next[flowId] === opt.key) delete next[flowId]
-                                else next[flowId] = opt.key
-                                return next
-                              })}
-                              style={{
-                                cursor: 'pointer', padding: '8px 16px', borderRadius: '999px', fontWeight: 900,
-                                fontSize: '12px', letterSpacing: '0.06em', whiteSpace: 'nowrap', flexShrink: 0,
-                                color: opt.color,
-                                background: riskLevel[flowId] === opt.key
-                                  ? `linear-gradient(180deg, #2b2b2b 0%, #050505 55%, #000000 100%)`
-                                  : 'linear-gradient(180deg, #1c1c1c 0%, #0a0a0a 55%, #000000 100%)',
-                                border: riskLevel[flowId] === opt.key ? `1px solid ${opt.color}` : '1px solid rgba(255,255,255,0.12)',
-                                boxShadow: riskLevel[flowId] === opt.key ? `0 0 10px ${opt.color}66, inset 0 0 8px ${opt.color}33` : 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -2px 4px rgba(0,0,0,0.7)',
-                              }}
-                            >
-                              {opt.label}
-                            </button>
-                          ))}
-
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto', flexShrink: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
                             <span style={{ color: '#ffffff', fontSize: '11px', fontWeight: 800, letterSpacing: '0.06em', marginRight: '2px', whiteSpace: 'nowrap' }}>
                               FlowBias :
                             </span>
@@ -3221,8 +3166,8 @@ function SweepSenseTab({
                             background: '#050505',
                             border: '1px solid rgba(255,255,255,0.1)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 4px 14px rgba(0,0,0,0.6)',
                           }}>
-                            <span style={{ color: isCall ? '#22c55e' : '#ff1a1a', fontSize: isMobileCard ? '14px' : '16px', fontWeight: 900, textShadow: 'none', opacity: 1, whiteSpace: 'nowrap' }}>
-                              ${builtTrade.strike.toFixed(2)} {trade.type.toUpperCase()}
+                            <span style={{ color: pricingIsCall ? '#22c55e' : '#ff1a1a', fontSize: isMobileCard ? '14px' : '16px', fontWeight: 900, textShadow: 'none', opacity: 1, whiteSpace: 'nowrap' }}>
+                              ${builtTrade.strike.toFixed(2)} {pricingIsCall ? 'CALL' : 'PUT'}
                             </span>
                             <span style={{ color: '#ffffff', fontSize: isMobileCard ? '13px' : '15px', fontWeight: 700, whiteSpace: 'nowrap' }}>{formatDate(builtTrade.expiryDate)}</span>
                             <span style={{ color: '#ffffff', fontSize: isMobileCard ? '15px' : '17px', fontWeight: 900, whiteSpace: 'nowrap' }}>

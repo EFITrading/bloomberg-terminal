@@ -27,6 +27,22 @@ const COLLECTOR_LOGIN_PASSWORD = process.env.COLLECTOR_LOGIN_PASSWORD
 // Discord webhook for "Ready 4 Pickup" SweepSense alerts — see runSweepSenseDiscordAlert() below.
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL
 
+// Railway's container has a low process/thread (nproc) ulimit — Chrome's default zygote
+// fork-per-process model was hitting "pthread_create: Resource temporarily unavailable" and
+// "Zygote could not fork", killing the browser before it ever loaded a page (silent 0 posts).
+// --single-process + --no-zygote keep everything in one OS process instead of forking.
+const CHROME_LAUNCH_ARGS = [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--single-process',
+    '--no-zygote',
+    '--disable-gpu',
+    '--disable-dev-shm-usage',
+    '--disable-software-rasterizer',
+    '--disable-extensions',
+    '--disable-background-networking',
+]
+
 // Use direct Postgres connection — bypass Prisma Accelerate proxy which has frequent 502s
 // Railway is a persistent process and doesn't need connection pooling
 const directUrl = process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_DATABASE_URL
@@ -432,7 +448,7 @@ async function runSweepSenseAutoSave() {
     let browser
     try {
         const puppeteer = (await import('puppeteer')).default
-        browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] })
+        browser = await puppeteer.launch({ headless: true, args: CHROME_LAUNCH_ARGS })
         const page = await browser.newPage()
         const cookies = await loginCookies()
         if (cookies.length > 0) await page.setCookie(...cookies)
@@ -737,7 +753,7 @@ async function runSweepSenseDiscordAlert() {
         // Default protocolTimeout (30s) is too short once the chart-embed capture (its own
         // navigation + fetch + canvas render) is chained after the card render per ticker -
         // real prod run timed out with "Runtime.callFunctionOn timed out" and silently posted 0.
-        browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'], protocolTimeout: 180_000 })
+        browser = await puppeteer.launch({ headless: true, args: CHROME_LAUNCH_ARGS, protocolTimeout: 180_000 })
         const page = await browser.newPage()
         await page.setViewport({ width: 1600, height: 1200, deviceScaleFactor: 2 })
         const cookies = await loginCookies()
