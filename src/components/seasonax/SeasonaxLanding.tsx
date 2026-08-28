@@ -6,11 +6,16 @@ import { BearIcon } from '@/components/icons/BearIcon'
 import { BullIcon } from '@/components/icons/BullIcon'
 import GlobalDataCache from '@/lib/GlobalDataCache'
 import PolygonService, { SeasonalPattern } from '@/lib/polygonService'
+import { acquireScanLock, releaseScanLock, waitForScanCache } from '@/lib/scanLock'
 
 import HeroSection from './HeroSection'
 import MarketTabs from './MarketTabs'
 import OpportunityCard from './OpportunityCard'
 import SeasonalScanScene from '@/components/loading/SeasonalScanScene'
+
+// Trading-day date (America/New_York) - scopes scan cache keys to "today" so results
+// naturally refresh the next day instead of relying solely on the Redis TTL.
+const todayET = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 
 interface SeasonaxLandingProps {
   // Optional props for external control from sidebar
@@ -234,7 +239,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       const selectedPeriod = timePeriodOptions.find((p) => p.id === timePeriod)
       const years = selectedPeriod?.years || 15 // FULL years as requested - no limits
 
-      const cacheKey = `normal:${market}:${years}`
+      const cacheKey = `normal:${market}:${years}:${todayET()}`
       try {
         const cacheRes = await fetch(`/api/seasonal-cache?key=${encodeURIComponent(cacheKey)}`)
         const { data: cached } = await cacheRes.json()
@@ -248,6 +253,22 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
         }
       } catch {
         // Cache unavailable — fall through to a fresh scan
+      }
+
+      // Only the first concurrent scanner for this market+years+day actually scans -
+      // everyone else waits on the cache that scan writes when it finishes.
+      const wonLock = await acquireScanLock(cacheKey)
+      if (!wonLock) {
+        const waited = await waitForScanCache<SeasonalPattern[]>(cacheKey)
+        if (waited && waited.length > 0) {
+          setOpportunities(waited)
+          setFiftyTwoWeekReady(true)
+          setLoading(false)
+          setShowWebsite(true)
+          setProgressStats({ processed: 1000, total: 1000, found: waited.length })
+          return
+        }
+        // Timed out waiting - fall through and scan ourselves as a safety net.
       }
 
       try {
@@ -321,10 +342,12 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ key: cacheKey, data: finalSorted }),
           }).catch(() => { })
+          releaseScanLock(cacheKey)
         } else {
           setError('No seasonal opportunities found for this market.')
           setLoading(false)
           setShowWebsite(false)
+          releaseScanLock(cacheKey)
         }
       } catch (error) {
         const errorMsg = `Failed to start seasonal screening: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -332,6 +355,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
         setError(errorMsg)
         setLoading(false)
         setShowWebsite(false)
+        releaseScanLock(cacheKey)
       }
     } catch (outerError) {
       console.error('Failed to load seasonalScreenerService:', outerError)
@@ -365,7 +389,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       )
       setProgressStats({ processed: 0, total: marketStocks.length * 4, found: 0 })
 
-      const seasonedCacheKey = `seasoned:${market}`
+      const seasonedCacheKey = `seasoned:${market}:${todayET()}`
       try {
         const cacheRes = await fetch(`/api/seasonal-cache?key=${encodeURIComponent(seasonedCacheKey)}`)
         const { data: cached } = await cacheRes.json()
@@ -379,6 +403,20 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
         }
       } catch {
         // Cache unavailable — fall through to a fresh scan
+      }
+
+      const wonSeasonedLock = await acquireScanLock(seasonedCacheKey)
+      if (!wonSeasonedLock) {
+        const waited = await waitForScanCache<SeasonalPattern[]>(seasonedCacheKey)
+        if (waited && waited.length > 0) {
+          setOpportunities(waited)
+          setFiftyTwoWeekReady(true)
+          setLoading(false)
+          setShowWebsite(true)
+          setStreamStatus(`✅ Found ${waited.length} SEASONED opportunities!`)
+          return
+        }
+        // Timed out waiting - fall through and scan ourselves as a safety net.
       }
 
       const timeframes = [5, 10, 15, 20]
@@ -478,16 +516,19 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ key: seasonedCacheKey, data: sorted }),
         }).catch(() => { })
+        releaseScanLock(seasonedCacheKey)
       } else {
         setError('No stocks found with 60%+ win rate on 2+ timeframes')
         setLoading(false)
         setShowWebsite(false)
+        releaseScanLock(seasonedCacheKey)
       }
     } catch (error) {
       console.error('SEASONED scan failed:', error)
       setError(`SEASONED scan failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
       setLoading(false)
       setSeasonedMode(false)
+      releaseScanLock(seasonedCacheKey)
     }
   }
 
@@ -518,7 +559,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       setStreamStatus(`🚀 SEASONAL LEAPS: Scanning ${marketStocks.length} stocks (8–15 year sweet-spot windows)...`)
       setProgressStats({ processed: 0, total: marketStocks.length, found: 0 })
 
-      const leapsCacheKey = `leaps:${market}`
+      const leapsCacheKey = `leaps:${market}:${todayET()}`
       try {
         const cacheRes = await fetch(`/api/seasonal-cache?key=${encodeURIComponent(leapsCacheKey)}`)
         const { data: cached } = await cacheRes.json()
@@ -532,6 +573,20 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
         }
       } catch {
         // Cache unavailable — fall through to a fresh scan
+      }
+
+      const wonLeapsLock = await acquireScanLock(leapsCacheKey)
+      if (!wonLeapsLock) {
+        const waited = await waitForScanCache<SeasonalPattern[]>(leapsCacheKey)
+        if (waited && waited.length > 0) {
+          setOpportunities(waited)
+          setFiftyTwoWeekReady(true)
+          setLoading(false)
+          setShowWebsite(true)
+          setStreamStatus(`✅ Found ${waited.length} Seasonal Leaps!`)
+          return
+        }
+        // Timed out waiting - fall through and scan ourselves as a safety net.
       }
 
       const results = await seasonalService.screenSeasonalLeaps(
@@ -557,16 +612,19 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ key: leapsCacheKey, data: enriched }),
         }).catch(() => { })
+        releaseScanLock(leapsCacheKey)
       } else {
         setError('No active seasonal leaps found right now.')
         setLoading(false)
         setShowWebsite(false)
+        releaseScanLock(leapsCacheKey)
       }
     } catch (error) {
       console.error('Seasonal Leaps scan failed:', error)
       setError(`Leaps scan failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
       setLoading(false)
       setLeapsMode(false)
+      releaseScanLock(leapsCacheKey)
     }
   }
 

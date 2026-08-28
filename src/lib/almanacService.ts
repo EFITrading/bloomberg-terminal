@@ -3,6 +3,7 @@
 // Uses Polygon.io API for real market data and FRED API for economic releases
 import { EconomicRelease, getMonthlyEconomicReleases } from './fredService'
 import PolygonService from './polygonService'
+import { acquireScanLock, releaseScanLock, waitForScanCache } from './scanLock'
 
 const polygonService = new PolygonService()
 const POLYGON_API_KEY = '' || ''
@@ -284,6 +285,15 @@ export class AlmanacService {
     const cached = await readSeasonalCache<IndexSeasonalData[]>(cacheKey)
     if (cached && cached.length > 0) return cached
 
+    // Only the first concurrent caller for this month/years combo does the real work -
+    // everyone else waits for that scan's result instead of re-hitting Polygon in parallel.
+    const wonLock = await acquireScanLock(cacheKey)
+    if (!wonLock) {
+      const waited = await waitForScanCache<IndexSeasonalData[]>(cacheKey)
+      if (waited && waited.length > 0) return waited
+      // Timed out waiting - fall through and compute it ourselves as a safety net.
+    }
+
     const results: IndexSeasonalData[] = []
     const currentYear = new Date().getFullYear()
     const startYear = currentYear - yearsBack
@@ -310,6 +320,7 @@ export class AlmanacService {
     }
 
     if (results.length > 0) writeSeasonalCache(cacheKey, results)
+    releaseScanLock(cacheKey)
     return results
   }
 
@@ -321,6 +332,13 @@ export class AlmanacService {
     const cacheKey = `almanac:single:${symbol}:${month}:${yearsBack}`
     const cached = await readSeasonalCache<IndexSeasonalData[]>(cacheKey)
     if (cached && cached.length > 0) return cached
+
+    const wonLock = await acquireScanLock(cacheKey)
+    if (!wonLock) {
+      const waited = await waitForScanCache<IndexSeasonalData[]>(cacheKey)
+      if (waited && waited.length > 0) return waited
+      // Timed out waiting - fall through and compute it ourselves as a safety net.
+    }
 
     const currentYear = new Date().getFullYear()
     const startYear = currentYear - yearsBack
@@ -343,9 +361,11 @@ export class AlmanacService {
         },
       ]
       writeSeasonalCache(cacheKey, result)
+      releaseScanLock(cacheKey)
       return result
     } catch (error) {
       console.error(`Error fetching data for ${symbol}:`, error)
+      releaseScanLock(cacheKey)
       return []
     }
   }

@@ -121,9 +121,22 @@ export async function invalidateSweepSense(tradingDate: string): Promise<void> {
 // ── Seasonal screener scan cache ──────────────────────────────────────────────
 // One user's scan (normal / seasoned / leaps, per market+timeframe) gets cached so
 // every other user hitting the same combo within the window reuses the result
-// instead of re-triggering hundreds of per-symbol Polygon calls.
+// instead of re-triggering hundreds of per-symbol Polygon calls. Cached for the rest
+// of the current trading day (America/New_York) — first scan of the day "pays" for
+// everyone else, and it naturally re-scans fresh the next day.
 
-const SEASONAL_SCAN_TTL = 60 * 60 * 3 // 3 hours max — then it naturally expires and re-scans
+/** Seconds remaining until midnight America/New_York (min 60s floor as a safety net). */
+function secondsUntilMidnightET(): number {
+    const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
+    const midnight = new Date(nowET)
+    midnight.setHours(24, 0, 0, 0)
+    return Math.max(60, Math.round((midnight.getTime() - nowET.getTime()) / 1000))
+}
+
+/** Today's trading-day date string (America/New_York), used to scope cache keys per-day. */
+export function tradingDayKeyET(): string {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }) // YYYY-MM-DD
+}
 
 const seasonalScanKey = (key: string) => `seasonal-scan:${key}`
 
@@ -139,12 +152,44 @@ export async function getCachedSeasonalScan(key: string): Promise<unknown | null
     }
 }
 
-/** Store a seasonal scan result in Redis for a few hours. Silently ignores errors. */
+/** Store a seasonal scan result in Redis until the trading day rolls over. Silently ignores errors. */
 export async function setCachedSeasonalScan(key: string, data: unknown): Promise<void> {
     if (!redis) return
     try {
-        await redis.set(seasonalScanKey(key), JSON.stringify(data), { ex: SEASONAL_SCAN_TTL })
+        await redis.set(seasonalScanKey(key), JSON.stringify(data), { ex: secondsUntilMidnightET() })
     } catch {
         // Non-critical — next request just re-scans
     }
 }
+
+// ── Scan dedupe lock ───────────────────────────────────────────────────────────
+// Prevents a "thundering herd" of concurrent users all triggering the same expensive
+// scan simultaneously — the first requester acquires the lock and scans; everyone
+// else sees the lock held and polls the cache instead until the first scan finishes.
+
+const scanLockKey = (key: string) => `seasonal-scan-lock:${key}`
+
+/** Attempts to become the one requester allowed to run this scan. Returns true if this
+ * caller won the race (must scan, then call releaseScanLock when done); false if someone
+ * else already holds the lock (caller should wait/poll the cache instead). */
+export async function tryAcquireScanLock(key: string, ttlSeconds = 120): Promise<boolean> {
+    if (!redis) return true // no Redis available - just let every caller scan independently
+    try {
+        const ok = await redis.set(scanLockKey(key), '1', { nx: true, ex: ttlSeconds })
+        return ok !== null
+    } catch {
+        return true
+    }
+}
+
+/** Releases a scan lock early (call this right after the scan finishes and the cache is written,
+ * instead of waiting out the full TTL). */
+export async function releaseScanLock(key: string): Promise<void> {
+    if (!redis) return
+    try {
+        await redis.del(scanLockKey(key))
+    } catch {
+        // Non-critical — lock just expires on its own
+    }
+}
+
