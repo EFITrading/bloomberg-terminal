@@ -1,0 +1,509 @@
+﻿node.exe : 
+At C:\Users\zakho\AppData\Roaming\npm\railway.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/@railway/cli/bin/railway.js" ...
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+A newer Railway CLI is available: v5.45.5 (current: v5.30.4).
+Run `railway upgrade --yes` to update.
+[FLUSH] +4 enriched | 3 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +5 enriched | 2 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +6 enriched | 6 dropped (MINI/<$10k) | pending: 4
+[SAVE] Γ£ô +4 trades for 2026-08-27 | 0.6KB
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +5 enriched | 2 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +6 enriched | 5 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +3 enriched | 2 dropped (MINI/<$10k) | pending: 5
+[SAVE] Γ£ô +4 trades for 2026-08-27 | 0.6KB
+[FLUSH] +7 enriched | 2 dropped (MINI/<$10k) | pending: 6
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 6
+[SAVE] Γ£ô +6 trades for 2026-08-27 | 0.7KB
+[FLUSH] +13 enriched | 11 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +4 enriched | 3 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +6 enriched | 6 dropped (MINI/<$10k) | pending: 3
+[SAVE] Γ£ô +3 trades for 2026-08-27 | 0.5KB
+[FLUSH] +2 enriched | 0 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +4 enriched | 2 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 4
+[SAVE] Γ£ô +4 trades for 2026-08-27 | 0.5KB
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +7 enriched | 7 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +2 enriched | 1 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +14 enriched | 10 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +4 enriched | 3 dropped (MINI/<$10k) | pending: 5
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 5
+[FLUSH] +8 enriched | 7 dropped (MINI/<$10k) | pending: 6
+[SAVE] Γ£ô +6 trades for 2026-08-27 | 0.8KB
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +2 enriched | 1 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +7 enriched | 7 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +37 enriched | 33 dropped (MINI/<$10k) | pending: 4
+[SAVE] Γ£ô +4 trades for 2026-08-27 | 0.5KB
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +3 enriched | 1 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 2
+[SAVE] Γ£ô +2 trades for 2026-08-27 | 0.4KB
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +6 enriched | 1 dropped (MINI/<$10k) | pending: 5
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 5
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 5
+[FLUSH] +3 enriched | 0 dropped (MINI/<$10k) | pending: 8
+[SAVE] Γ£ô +8 trades for 2026-08-27 | 0.7KB
+[FLUSH] +6 enriched | 5 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +2 enriched | 0 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +15 enriched | 11 dropped (MINI/<$10k) | pending: 6
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 6
+[SAVE] Γ£ô +6 trades for 2026-08-27 | 0.7KB
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +2 enriched | 1 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +6 enriched | 6 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +6 enriched | 6 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +6 enriched | 5 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 0 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +6 enriched | 6 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +4 enriched | 2 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 2
+[SAVE] Γ£ô +2 trades for 2026-08-27 | 0.4KB
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +3 enriched | 2 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +10 enriched | 8 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +1 enriched | 0 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +1 enriched | 0 dropped (MINI/<$10k) | pending: 4
+[SAVE] Γ£ô +4 trades for 2026-08-27 | 0.6KB
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +8 enriched | 8 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +10 enriched | 10 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +10 enriched | 10 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +2 enriched | 1 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +3 enriched | 0 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +7 enriched | 7 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 4
+[SAVE] Γ£ô +4 trades for 2026-08-27 | 0.5KB
+[FLUSH] +4 enriched | 3 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +7 enriched | 6 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +14 enriched | 12 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +17 enriched | 15 dropped (MINI/<$10k) | pending: 6
+[SAVE] Γ£ô +6 trades for 2026-08-27 | 0.8KB
+[FLUSH] +24 enriched | 22 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +9 enriched | 7 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 4
+[SAVE] Γ£ô +4 trades for 2026-08-27 | 0.6KB
+[FLUSH] +2 enriched | 1 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +9 enriched | 9 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +16 enriched | 11 dropped (MINI/<$10k) | pending: 6
+[FLUSH] +6 enriched | 6 dropped (MINI/<$10k) | pending: 6
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 6
+[SAVE] Γ£ô +6 trades for 2026-08-27 | 0.6KB
+[FLUSH] +18 enriched | 18 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 0 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +3 enriched | 1 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +3 enriched | 1 dropped (MINI/<$10k) | pending: 5
+[SAVE] Γ£ô +5 trades for 2026-08-27 | 0.7KB
+[FLUSH] +6 enriched | 6 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +4 enriched | 3 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +5 enriched | 4 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +9 enriched | 3 dropped (MINI/<$10k) | pending: 8
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 8
+[SAVE] Γ£ô +8 trades for 2026-08-27 | 0.9KB
+[FLUSH] +38 enriched | 35 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +12 enriched | 9 dropped (MINI/<$10k) | pending: 6
+[FLUSH] +12 enriched | 11 dropped (MINI/<$10k) | pending: 7
+[FLUSH] +2 enriched | 1 dropped (MINI/<$10k) | pending: 8
+[SAVE] Γ£ô +8 trades for 2026-08-27 | 0.8KB
+[FLUSH] +14 enriched | 14 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +6 enriched | 5 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +5 enriched | 1 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +6 enriched | 4 dropped (MINI/<$10k) | pending: 6
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 6
+[SAVE] Γ£ô +6 trades for 2026-08-27 | 0.5KB
+[FLUSH] +1 enriched | 0 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +6 enriched | 5 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +4 enriched | 2 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 4
+[SAVE] Γ£ô +4 trades for 2026-08-27 | 0.5KB
+[FLUSH] +7 enriched | 5 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +4 enriched | 3 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +7 enriched | 7 dropped (MINI/<$10k) | pending: 3
+[SAVE] Γ£ô +3 trades for 2026-08-27 | 0.5KB
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +11 enriched | 11 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +7 enriched | 6 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +7 enriched | 7 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +6 enriched | 5 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +8 enriched | 8 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +8 enriched | 5 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 4
+[SAVE] Γ£ô +4 trades for 2026-08-27 | 0.5KB
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +8 enriched | 8 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +7 enriched | 6 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +7 enriched | 5 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +1 enriched | 0 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 3
+[SAVE] Γ£ô +3 trades for 2026-08-27 | 0.5KB
+[FLUSH] +2 enriched | 1 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +3 enriched | 2 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +3 enriched | 2 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +7 enriched | 7 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +6 enriched | 4 dropped (MINI/<$10k) | pending: 4
+[SAVE] Γ£ô +4 trades for 2026-08-27 | 0.5KB
+[FLUSH] +6 enriched | 6 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +2 enriched | 0 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 2
+[Discord] Loaded page: https://www.efitrading.com/options-flow
+[Discord] Scraped 13 total SweepSense card(s).
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 2
+[SAVE] Γ£ô +2 trades for 2026-08-27 | 0.4KB
+[FLUSH] +7 enriched | 5 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +6 enriched | 5 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +7 enriched | 7 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +5 enriched | 4 dropped (MINI/<$10k) | pending: 4
+[SAVE] Γ£ô +4 trades for 2026-08-27 | 0.5KB
+[FLUSH] +4 enriched | 2 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +7 enriched | 6 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 3
+[SAVE] Γ£ô +3 trades for 2026-08-27 | 0.5KB
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +4 enriched | 1 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +7 enriched | 3 dropped (MINI/<$10k) | pending: 7
+[FLUSH] +6 enriched | 6 dropped (MINI/<$10k) | pending: 7
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 7
+[SAVE] Γ£ô +7 trades for 2026-08-27 | 0.8KB
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +7 enriched | 5 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +6 enriched | 6 dropped (MINI/<$10k) | pending: 2
+[SAVE] Γ£ô +2 trades for 2026-08-27 | 0.4KB
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +2 enriched | 0 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +8 enriched | 5 dropped (MINI/<$10k) | pending: 5
+[SAVE] Γ£ô +5 trades for 2026-08-27 | 0.5KB
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +4 enriched | 3 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 0 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 0 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 0 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 0 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +6 enriched | 2 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +13 enriched | 7 dropped (MINI/<$10k) | pending: 10
+[FLUSH] +10 enriched | 10 dropped (MINI/<$10k) | pending: 10
+[FLUSH] +7 enriched | 7 dropped (MINI/<$10k) | pending: 10
+[SAVE] Γ£ô +10 trades for 2026-08-27 | 0.8KB
+[FLUSH] +15 enriched | 13 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +7 enriched | 2 dropped (MINI/<$10k) | pending: 7
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 7
+[SAVE] Γ£ô +7 trades for 2026-08-27 | 0.7KB
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +5 enriched | 4 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +4 enriched | 2 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +7 enriched | 6 dropped (MINI/<$10k) | pending: 4
+[SAVE] Γ£ô +4 trades for 2026-08-27 | 0.6KB
+[FLUSH] +4 enriched | 2 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +3 enriched | 1 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +7 enriched | 5 dropped (MINI/<$10k) | pending: 6
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 6
+[FLUSH] +14 enriched | 14 dropped (MINI/<$10k) | pending: 6
+[SAVE] Γ£ô +6 trades for 2026-08-27 | 0.7KB
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +5 enriched | 2 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 3
+[SAVE] Γ£ô +3 trades for 2026-08-27 | 0.4KB
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +6 enriched | 5 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +6 enriched | 6 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +6 enriched | 5 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +3 enriched | 1 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 3
+[SAVE] Γ£ô +3 trades for 2026-08-27 | 0.5KB
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +10 enriched | 10 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 0 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +10 enriched | 8 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 3
+[SAVE] Γ£ô +3 trades for 2026-08-27 | 0.5KB
+[FLUSH] +3 enriched | 2 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +6 enriched | 6 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +7 enriched | 6 dropped (MINI/<$10k) | pending: 2
+[SAVE] Γ£ô +2 trades for 2026-08-27 | 0.4KB
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +5 enriched | 4 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +6 enriched | 2 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +6 enriched | 4 dropped (MINI/<$10k) | pending: 6
+[FLUSH] +3 enriched | 2 dropped (MINI/<$10k) | pending: 7
+[FLUSH] +6 enriched | 6 dropped (MINI/<$10k) | pending: 7
+[SAVE] Γ£ô +7 trades for 2026-08-27 | 0.7KB
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +3 enriched | 1 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 2
+[SAVE] Γ£ô +2 trades for 2026-08-27 | 0.4KB
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +10 enriched | 6 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 4
+[SAVE] Γ£ô +4 trades for 2026-08-27 | 0.5KB
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +10 enriched | 9 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +10 enriched | 3 dropped (MINI/<$10k) | pending: 8
+[FLUSH] +6 enriched | 6 dropped (MINI/<$10k) | pending: 8
+[FLUSH] +6 enriched | 6 dropped (MINI/<$10k) | pending: 8
+[SAVE] Γ£ô +8 trades for 2026-08-27 | 0.6KB
+[FLUSH] +6 enriched | 5 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +4 enriched | 2 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +3 enriched | 1 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +5 enriched | 1 dropped (MINI/<$10k) | pending: 8
+[SAVE] Γ£ô +8 trades for 2026-08-27 | 0.8KB
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +11 enriched | 9 dropped (MINI/<$10k) | pending: 2
+[SAVE] Γ£ô +2 trades for 2026-08-27 | 0.4KB
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +9 enriched | 6 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 3
+[SAVE] Γ£ô +3 trades for 2026-08-27 | 0.5KB
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +6 enriched | 5 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +5 enriched | 4 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 1
+[SAVE] Γ£ô +1 trades for 2026-08-27 | 0.3KB
+[FLUSH] +4 enriched | 2 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +9 enriched | 7 dropped (MINI/<$10k) | pending: 4
+[SAVE] Γ£ô +4 trades for 2026-08-27 | 0.5KB
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +7 enriched | 5 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +8 enriched | 7 dropped (MINI/<$10k) | pending: 3
+[Discord] Post failed for ORCL (ORCL-155-2026-08-28-call-2026-08-27T13:31:18.352Z-1000): Runtime.callFunctionOn timed out. Increase the 'protocolTimeout' setting in launch/connect calls for a higher timeout if needed.
+[FLUSH] +6 enriched | 5 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +6 enriched | 3 dropped (MINI/<$10k) | pending: 7
+[SAVE] Γ£ô +4 trades for 2026-08-27 | 0.5KB
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +6 enriched | 6 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +14 enriched | 12 dropped (MINI/<$10k) | pending: 5
+[SAVE] Γ£ô +5 trades for 2026-08-27 | 0.7KB
+[FLUSH] +13 enriched | 11 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +7 enriched | 7 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +6 enriched | 4 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +8 enriched | 4 dropped (MINI/<$10k) | pending: 8
+[SAVE] Γ£ô +8 trades for 2026-08-27 | 0.9KB
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +6 enriched | 1 dropped (MINI/<$10k) | pending: 5
+[SAVE] Γ£ô +5 trades for 2026-08-27 | 0.6KB
+[FLUSH] +6 enriched | 5 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +4 enriched | 2 dropped (MINI/<$10k) | pending: 3
+[SAVE] Γ£ô +3 trades for 2026-08-27 | 0.4KB
+[FLUSH] +10 enriched | 8 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +2 enriched | 1 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +6 enriched | 2 dropped (MINI/<$10k) | pending: 7
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 7
+[SAVE] Γ£ô +7 trades for 2026-08-27 | 0.8KB
+[FLUSH] +6 enriched | 4 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +7 enriched | 2 dropped (MINI/<$10k) | pending: 7
+[FLUSH] +8 enriched | 7 dropped (MINI/<$10k) | pending: 8
+[FLUSH] +15 enriched | 15 dropped (MINI/<$10k) | pending: 8
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 8
+[SAVE] Γ£ô +8 trades for 2026-08-27 | 0.7KB
+[FLUSH] +12 enriched | 11 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +3 enriched | 1 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +33 enriched | 32 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +2 enriched | 1 dropped (MINI/<$10k) | pending: 5
+[FLUSH] +5 enriched | 3 dropped (MINI/<$10k) | pending: 7
+[SAVE] Γ£ô +7 trades for 2026-08-27 | 0.8KB
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +6 enriched | 5 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +1 enriched | 1 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 1
+[FLUSH] +8 enriched | 4 dropped (MINI/<$10k) | pending: 5
+[SAVE] Γ£ô +5 trades for 2026-08-27 | 0.6KB
+[FLUSH] +5 enriched | 2 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +5 enriched | 5 dropped (MINI/<$10k) | pending: 3
+[FLUSH] +7 enriched | 6 dropped (MINI/<$10k) | pending: 4
+[FLUSH] +9 enriched | 8 dropped (MINI/<$10k) | pending: 5
+[FLUSH] +5 enriched | 2 dropped (MINI/<$10k) | pending: 8
+[SAVE] Γ£ô +8 trades for 2026-08-27 | 0.8KB
+[FLUSH] +9 enriched | 7 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +8 enriched | 8 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +3 enriched | 3 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +6 enriched | 6 dropped (MINI/<$10k) | pending: 2
+[SAVE] Γ£ô +2 trades for 2026-08-27 | 0.4KB
+[FLUSH] +7 enriched | 7 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +6 enriched | 6 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +2 enriched | 2 dropped (MINI/<$10k) | pending: 0
+[FLUSH] +3 enriched | 1 dropped (MINI/<$10k) | pending: 2
+[FLUSH] +4 enriched | 4 dropped (MINI/<$10k) | pending: 2
+[STREAM] Market closed ΓÇö stopping
+[SAVE] Γ£ô +2 trades for 2026-08-27 | 0.4KB
+[STREAM] Final save complete. Waiting for next market open ...
+[SCHEDULER] Market already closed ΓÇö checking again in 1 hour
+[SweepSense] Launching headless browser to trigger end-of-day save...
+[SweepSense] Save request observed: 200
+[Discord] Post failed for PLTR (PLTR-190-2026-09-04-call-2026-08-27T13:44:52.740Z-1000): Runtime.callFunctionOn timed out. Increase the 'protocolTimeout' setting in launch/connect calls for a higher timeout if needed.
+[Discord] Post failed for BABA (BABA-113-2026-09-04-put-2026-08-27T14:25:49.988Z-2574): Runtime.callFunctionOn timed out. Increase the 'protocolTimeout' setting in launch/connect calls for a higher timeout if needed.
+[Discord] Post failed for BMNR (BMNR-26.5-2026-08-28-call-2026-08-27T15:14:13.135Z-3094): Runtime.callFunctionOn timed out. Increase the 'protocolTimeout' setting in launch/connect calls for a higher timeout if needed.
+[Discord] Posted 0/4 Ready-4-Pickup alert(s).
+[SCHEDULER] Market already closed ΓÇö checking again in 1 hour
+[SCHEDULER] Market already closed ΓÇö checking again in 1 hour
+[SCHEDULER] Market already closed ΓÇö checking again in 1 hour
+[SCHEDULER] Market already closed ΓÇö checking again in 1 hour
+[SCHEDULER] Market already closed ΓÇö checking again in 1 hour
+[SCHEDULER] Market already closed ΓÇö checking again in 1 hour
+[SCHEDULER] Market already closed ΓÇö checking again in 1 hour
+[SCHEDULER] Market opens in 570.0 minutes

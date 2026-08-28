@@ -2487,8 +2487,8 @@ function SweepSenseTab({
               const Tdecayed = decayedDte / 365
               const rawT1Strike = bsStrikeForProbFTP(baseSpot, baseSigma, realDte, t1Prob, targetUp)
               const rawT2Strike = bsStrikeForProbFTP(baseSpot, baseSigma, realDte, t2Prob, targetUp)
-              // Main contract is just the real listed strike closest to the Target 2 strike.
-              const rawBuiltStrike = rawT2Strike
+              // Main contract is just the real listed strike closest to the Target 1 strike.
+              const rawBuiltStrike = rawT1Strike
 
               const mainContract = rawBuiltStrike !== null ? findRealContract(expiryDate, rawBuiltStrike) : null
               if (mainContract) {
@@ -2503,21 +2503,16 @@ function SweepSenseTab({
                   ? bsOptionPriceFTP(rawT2Strike, mainContract.strike, Tdecayed, r, baseSigma, pricingIsCall)
                   : null
 
-                // Stop-loss: same delta-tiered premium-decline convention as calcTradeManagement,
-                // using this contract's own delta from the chain (falls back to a mid delta if
-                // the chain didn't return greeks).
-                const mainDelta = Math.abs(tickerChain?.[expiryDate]?.[pricingIsCall ? 'calls' : 'puts']?.[String(mainContract.strike)]?.greeks?.delta ?? 0.5)
-                let baseStopPercent = 0.3
-                if (mainDelta > 0.7) baseStopPercent = 0.15
-                else if (mainDelta >= 0.6) baseStopPercent = 0.2
-                else if (mainDelta >= 0.4) baseStopPercent = 0.25
-                else if (mainDelta >= 0.25) baseStopPercent = 0.35
-                else baseStopPercent = 0.4
-                if (realDte < 7) baseStopPercent = Math.max(0.1, baseStopPercent - 0.1)
-                else if (realDte < 14) baseStopPercent = Math.max(0.15, baseStopPercent - 0.05)
-                const ivAdjustment = baseSigma ? Math.max(0, (baseSigma - 0.3) * 0.5) : 0
-                const adjustedStopPercent = Math.min(0.5, baseStopPercent + ivAdjustment)
-                const stopOpt = mainContract.premium * (1 - adjustedStopPercent)
+                // Stop-loss: the chance-of-profit stock level on the OPPOSITE side (put level
+                // for a bullish/call-priced trade, call level for a bearish/put-priced trade) -
+                // i.e. the point where the market has moved far enough the other way that the
+                // opposite side would itself be a strong bet. 75% for short-term trades (tighter
+                // stop), 60% for long-term (>=30 DTE) trades (more room to breathe).
+                const stopProb = isLongTerm ? 60 : 75
+                const stopStockPriceBuilt = bsStrikeForProbFTP(baseSpot, baseSigma, realDte, stopProb, !pricingIsCall)
+                const stopOpt = stopStockPriceBuilt !== null
+                  ? bsOptionPriceFTP(stopStockPriceBuilt, mainContract.strike, Tdecayed, r, baseSigma, pricingIsCall)
+                  : null
 
                 const pctVsBuilt = (p: number | null) => {
                   if (p === null || mainContract.premium <= 0) return null
@@ -2536,7 +2531,7 @@ function SweepSenseTab({
                   t1Strike: rawT1Strike, t2Strike: rawT2Strike,
                   t1Opt, t2Opt,
                   t1Pct: pctVsBuilt(t1Opt), t2Pct: pctVsBuilt(t2Opt),
-                  stopStrike: null, stopOpt, stopPct: stopOpt !== null ? pctVsBuilt(stopOpt) : null,
+                  stopStrike: stopStockPriceBuilt, stopOpt, stopPct: stopOpt !== null ? pctVsBuilt(stopOpt) : null,
                   ivPct, bePct,
                 }
               }
@@ -2549,7 +2544,7 @@ function SweepSenseTab({
           const ladderT2Opt = builtTrade ? builtTrade.t2Opt : target2OptionPrice
           const ladderT1Pct = builtTrade ? builtTrade.t1Pct : target1Pct
           const ladderT2Pct = builtTrade ? builtTrade.t2Pct : target2Pct
-          const ladderStopStock = builtTrade ? null : stopStockPrice
+          const ladderStopStock = builtTrade ? builtTrade.stopStrike : stopStockPrice
           const ladderStopOpt = builtTrade ? builtTrade.stopOpt : stopLoss
           const ladderStopPct = builtTrade ? builtTrade.stopPct : stopPct
 
