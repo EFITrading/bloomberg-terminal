@@ -6553,6 +6553,7 @@ export default function TradingViewChart({
                 hour: '2-digit',
                 minute: '2-digit',
                 hour12: false,
+                timeZone: 'America/Los_Angeles',
               }),
             }
             return [...prev, newBar]
@@ -8793,8 +8794,8 @@ export default function TradingViewChart({
         const date = new Date(point.timestamp)
         const xText =
           pdTimeframe === '1D'
-            ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-            : date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
+            ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Los_Angeles' })
+            : date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' })
         ctx.fillStyle = '#ff6600'
         ctx.textAlign = 'center'
         const xWidth = ctx.measureText(xText).width
@@ -15871,6 +15872,7 @@ export default function TradingViewChart({
                   hour: '2-digit',
                   minute: '2-digit',
                   hour12: false,
+                  timeZone: 'America/Los_Angeles',
                 }),
               }
             })
@@ -16033,6 +16035,7 @@ export default function TradingViewChart({
                   hour: '2-digit',
                   minute: '2-digit',
                   hour12: false,
+                  timeZone: 'America/Los_Angeles',
                 }),
               })
             }
@@ -16125,6 +16128,7 @@ export default function TradingViewChart({
                 hour: '2-digit',
                 minute: '2-digit',
                 hour12: false,
+                timeZone: 'America/Los_Angeles',
               }),
             }
           }
@@ -16236,6 +16240,7 @@ export default function TradingViewChart({
           hour: '2-digit',
           minute: '2-digit',
           hour12: false,
+          timeZone: 'America/Los_Angeles',
         }),
       }
 
@@ -21429,15 +21434,20 @@ export default function TradingViewChart({
 
     const candleSpacing = chartWidth / visibleCandleCount
 
-    // Draw labels for actual data with overlap prevention
-    const startAbsIndex = Math.floor(scrollOffset)
+    // Draw labels for actual data with overlap prevention.
+    // NOTE: intraday 5m/etc data has real gaps (illiquid periods with no printed bar), so
+    // picking every Nth candle BY INDEX (absIndex % spacing) lands on wildly uneven real time
+    // gaps between labels (e.g. 8:00, 11:20, 12:45, 2:00...). Space labels by actual elapsed
+    // TIME instead, so every label is a consistent interval apart regardless of missing bars.
+    const desiredLabelCount = Math.max(1, Math.floor(visibleCandleCount / labelConfig.spacing))
+    const targetIntervalMs = timeSpan > 0 ? timeSpan / desiredLabelCount : 5 * 60 * 1000
+    let nextLabelTs = visibleData.length > 0 ? visibleData[0].timestamp : 0
     visibleData.forEach((candle, visIndex) => {
-      const absIndex = startAbsIndex + visIndex
-      if (absIndex % labelConfig.spacing === 0) {
-        const x = CHART_LEFT_MARGIN + visIndex * candleSpacing + candleSpacing / 2
-        const timeLabel = formatDateLabel(candle.timestamp, labelConfig.format)
-        addLabel(x, timeLabel, false)
-      }
+      if (candle.timestamp < nextLabelTs) return
+      const x = CHART_LEFT_MARGIN + visIndex * candleSpacing + candleSpacing / 2
+      const timeLabel = formatDateLabel(candle.timestamp, labelConfig.format)
+      addLabel(x, timeLabel, false)
+      nextLabelTs += targetIntervalMs
     })
 
     // Always try to add the last visible data point if not already added
@@ -42766,7 +42776,7 @@ export default function TradingViewChart({
                   {config.symbol}
                 </span>
                 <span className="font-mono font-semibold" style={{ color: '#10b981' }}>
-                  {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: 'America/Los_Angeles' })}
                 </span>
               </div>
             </div>

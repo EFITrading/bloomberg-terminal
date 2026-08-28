@@ -2440,6 +2440,7 @@ function SweepSenseTab({
             t1Pct: number | null; t2Pct: number | null
             stopStrike: number | null; stopOpt: number | null; stopPct: number | null
             ivPct: number | null; bePct: number | null
+            optionType: 'call' | 'put'
           } | null = null
 
           // Find the real listed contract (from the fetched chain) whose strike is closest to
@@ -2533,6 +2534,7 @@ function SweepSenseTab({
                   t1Pct: pctVsBuilt(t1Opt), t2Pct: pctVsBuilt(t2Opt),
                   stopStrike: stopStockPriceBuilt, stopOpt, stopPct: stopOpt !== null ? pctVsBuilt(stopOpt) : null,
                   ivPct, bePct,
+                  optionType: pricingIsCall ? 'call' : 'put',
                 }
               }
             }

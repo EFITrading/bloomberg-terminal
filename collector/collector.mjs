@@ -563,6 +563,10 @@ function buildSweepSenseCardHtml(c) {
     const pt = c.probabilityTrade
     const ptExpiryShort = pt?.expiryDate ? (() => { const [y, m, d] = pt.expiryDate.split('-'); return `${m}/${d}/${y.slice(2)}` })() : null
     const beDirection = c.direction === 'BEARISH' ? '-' : '+'
+    // The probability/built contract can be the OPPOSITE type of the raw traded flow (a B/BB
+    // sold-to-open print flips the directional read) - never reuse the header's raw `isCall`
+    // here, always read the built contract's own type.
+    const ptIsCall = pt?.optionType ? pt.optionType === 'call' : isCall
 
     const dirColor = c.direction === 'BULLISH' ? '#22c55e' : c.direction === 'BEARISH' ? '#ef4444' : '#9ca3af'
 
@@ -706,7 +710,7 @@ function buildSweepSenseCardHtml(c) {
                     ${pt ? `<div class="section-label" style="color:${cpColor};">TRADE PICK</div>
                     <div class="prob-trade" style="background:linear-gradient(135deg, ${cpColor}14, ${cpColor}05);border-color:${cpColor}33;">
                         <div class="prob-trade-icon" style="background:${cpColor}24;color:${cpColor};">$</div>
-                        <div class="prob-trade-text">Picking up ${esc(fmtClean(pt.strike))} ${isCall ? 'Calls' : 'Puts'} ${esc(ptExpiryShort || 'N/A')} expiry for around ${esc(fmtClean(pt.premium * 100))}</div>
+                        <div class="prob-trade-text">Picking up ${esc(fmtClean(pt.strike))} ${ptIsCall ? 'Calls' : 'Puts'} ${esc(ptExpiryShort || 'N/A')} expiry for around ${esc(fmtClean(pt.premium * 100))}</div>
                         <div class="prob-trade-chips">
                             ${typeof pt.ivPct === 'number' ? `<span class="chip chip-iv">IV ${pt.ivPct.toFixed(0)}%</span>` : ''}
                             ${typeof pt.bePct === 'number' ? `<span class="chip chip-be">BE ${beDirection}${pt.bePct.toFixed(1)}%</span>` : ''}
