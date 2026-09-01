@@ -4778,6 +4778,14 @@ export function TradePopupChart({
     ctx.textBaseline = 'middle'
     const step = Math.max(1, Math.floor(visible.length / 5))
     let lastAxisDateKey = ''
+    // Date.getHours()/getMonth()/etc. read the EXECUTING MACHINE's local timezone, not PST.
+    // On a real browser sitting in Pacific time this happened to look right, but the headless
+    // Chromium that renders this same chart for the Discord card (collector.mjs, on Railway)
+    // has no TZ set (defaults to UTC), so the whole axis silently shifted by 7-8 hours. Always
+    // resolve the PST wall-clock parts explicitly via Intl so this is correct on any server.
+    const axisPstFmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+    })
     for (let i = 0; i < visible.length; i++) {
       if (i % step !== 0) continue
       const c = visible[i]
@@ -4786,11 +4794,10 @@ export function TradePopupChart({
       const d = ts ? new Date(ts) : new Date((c.date || '') + 'T00:00:00')
       let label: string
       if (timeframe === '5M' || timeframe === '1H') {
-        const dateKey = `${d.getMonth() + 1}/${d.getDate()}`
-        const h24 = d.getHours()
-        const h12 = h24 % 12 === 0 ? 12 : h24 % 12
-        const ampm = h24 < 12 ? 'AM' : 'PM'
-        const timeStr = `${h12}:${String(d.getMinutes()).padStart(2, '0')} ${ampm}`
+        const parts = axisPstFmt.formatToParts(d)
+        const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
+        const dateKey = `${get('month')}/${get('day')}`
+        const timeStr = `${get('hour')}:${get('minute')} ${get('dayPeriod')}`
         // Only stamp the date once, at the first tick of that date - every tick after just
         // shows the time so the axis isn't wasting space repeating "8/24" over and over.
         label = dateKey !== lastAxisDateKey ? `${dateKey} ${timeStr}` : timeStr
@@ -4894,9 +4901,13 @@ export function TradePopupChart({
         const closeExpectedY = PAD_T + CANDLE_H - ((chClose - lo) / range) * CANDLE_H
         const chTs = chC.timestamp ?? chC.t
         const chD = chTs ? new Date(chTs) : new Date((chC.date || '') + 'T00:00:00')
+        // Same server-local-timezone bug as the main axis labels above (see comment there) -
+        // must resolve PST explicitly instead of getHours()/getDate() reading the machine's TZ.
         const chDateStr =
           timeframe === '5M' || timeframe === '1H'
-            ? `${chD.getMonth() + 1}/${chD.getDate()} ${chD.getHours()}:${String(chD.getMinutes()).padStart(2, '0')}`
+            ? new Intl.DateTimeFormat('en-US', {
+              timeZone: 'America/Los_Angeles', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: false,
+            }).format(chD)
             : `${chD.getMonth() + 1}/${chD.getDate()}/${chD.getFullYear().toString().slice(2)}`
         ctx.font = 'bold 11px "Courier New", monospace'
         const chTw = ctx.measureText(chDateStr).width

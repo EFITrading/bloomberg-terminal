@@ -21,7 +21,7 @@ export async function acquireScanLock(key: string): Promise<boolean> {
 
 /** Releases a scan lock early (right after the scan finishes and the cache is written). */
 export function releaseScanLock(key: string): void {
-  fetch(`/api/seasonal-cache/lock?key=${encodeURIComponent(key)}`, { method: 'DELETE' }).catch(() => {})
+  fetch(`/api/seasonal-cache/lock?key=${encodeURIComponent(key)}`, { method: 'DELETE' }).catch(() => { })
 }
 
 /** Polls /api/seasonal-cache for `key` until data appears or `maxWaitMs` elapses (another

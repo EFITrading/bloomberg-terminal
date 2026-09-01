@@ -2027,8 +2027,11 @@ function SweepSenseTab({
     const dollarMatch = planText.match(/\$([0-9]+(?:\.[0-9]+)?)/)
     const level = dollarMatch ? parseFloat(dollarMatch[1]) : null
     if (level === null || !livePrice || livePrice <= 0) return true
-    if (planText.includes('approach down to')) return livePrice <= level
-    if (planText.includes('run up to approach')) return livePrice >= level
+    // Must match the literal phrasing OptionsFlowTable.tsx actually generates - 'pull back
+    // down to'/'run up to' (no "approach"), else these never match and every reversal plan
+    // silently falls through to the `return true` default regardless of live price.
+    if (planText.includes('pull back down to')) return livePrice <= level
+    if (planText.includes('run up to')) return livePrice >= level
     if (planText.includes('break above')) return livePrice > level
     if (planText.includes('break below')) return livePrice < level
     return true
@@ -2567,8 +2570,9 @@ function SweepSenseTab({
             const dollarMatch = planText.match(/\$([0-9]+(?:\.[0-9]+)?)/)
             const level = dollarMatch ? parseFloat(dollarMatch[1]) : null
             if (level === null || !livePrice || livePrice <= 0) return true
-            if (planText.includes('approach down to')) return livePrice <= level
-            if (planText.includes('run up to approach')) return livePrice >= level
+            // Same phrasing fix as isReadyForPickup above - keep these two in sync.
+            if (planText.includes('pull back down to')) return livePrice <= level
+            if (planText.includes('run up to')) return livePrice >= level
             if (planText.includes('break above')) return livePrice > level
             if (planText.includes('break below')) return livePrice < level
             return true
