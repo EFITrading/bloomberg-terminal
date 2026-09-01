@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 import { SeasonalPattern } from '@/lib/polygonService'
 
@@ -25,11 +26,182 @@ interface MiniChartState {
 }
 
 // ── Chart line data types (for expanded inline view) ─────────────────────────
-interface YearLineData {
+interface YearCandleData {
   year: number
-  data: Array<{ date: Date; value: number; dayOffset: number }>
+  candles: Array<{ t: number; o: number; h: number; l: number; c: number }>
   color: string
   totalReturn: number
+}
+
+// ── Cross-year weekly bias summary (open→close % move per segment, majority vote) ──
+type WeekBias = 'bullish' | 'bearish' | 'choppy'
+const classifyWeekMove = (pct: number): WeekBias => (pct > 0.5 ? 'bullish' : pct < -0.5 ? 'bearish' : 'choppy')
+
+const majorityWeekLabel = (counts: Record<string, number>, total: number): { label: string; pct: number } => {
+  if (total === 0) return { label: 'no data', pct: 0 }
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1])
+  const [topKey, topCount] = entries[0]
+  const pct = Math.round((topCount / total) * 100)
+  const second = entries[1]?.[1] ?? 0
+  if (pct >= 60) return { label: topKey, pct }
+  if (topCount - second <= Math.ceil(total * 0.15)) return { label: 'diverge', pct }
+  return { label: 'no-pattern', pct }
+}
+
+// Splits each year's ~30-day period into weeks (or halves/thirds for shorter periods) and
+// votes across years on whether each segment tends to be bullish/bearish/choppy.
+const buildWeeklySummary = (lineData: YearCandleData[]): string[] => {
+  const withData = lineData.filter((y) => y.candles.length >= 5)
+  if (!withData.length) return ['Not enough daily data across these years to build a summary.']
+
+  const maxLen = Math.max(...withData.map((y) => y.candles.length))
+  let segCount: number
+  let segLabels: string[]
+  if (maxLen >= 26) { segCount = 4; segLabels = ['Week 1', 'Week 2', 'Week 3', 'Week 4'] }
+  else if (maxLen >= 12) { segCount = 2; segLabels = ['First Half', 'Second Half'] }
+  else { segCount = 3; segLabels = ['Beginning', 'Middle', 'End'] }
+
+  const segSize = Math.ceil(maxLen / segCount)
+  const total = withData.length
+  const lines: string[] = []
+
+  for (let s = 0; s < segCount; s++) {
+    const counts: Record<string, number> = {}
+    let counted = 0
+    for (const y of withData) {
+      const segStart = s * segSize
+      const seg = y.candles.slice(segStart, Math.min(segStart + segSize, y.candles.length))
+      if (seg.length < 2) continue
+      const pct = ((seg[seg.length - 1].c - seg[0].o) / seg[0].o) * 100
+      const bias = classifyWeekMove(pct)
+      counts[bias] = (counts[bias] || 0) + 1
+      counted++
+    }
+    if (!counted) { lines.push(`• ${segLabels[s]}: no data`); continue }
+    const { label, pct } = majorityWeekLabel(counts, counted)
+    if (label === 'diverge') lines.push(`• ${segLabels[s]}: years diverge aggressively — no consistent edge`)
+    else if (label === 'no-pattern') lines.push(`• ${segLabels[s]}: no clear pattern detected`)
+    else lines.push(`• ${segLabels[s]}: ${counted} of ${total} years agree, ${pct}% ${label.toUpperCase()}`)
+  }
+  return lines
+}
+
+// ── Per-year daily candlestick chart (almanac-calendar style grid card) ──────
+const PeriodCandleChart: React.FC<{ yearData: YearCandleData }> = ({ yearData }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const { year, candles, totalReturn } = yearData
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || candles.length === 0) return
+    const dpr = window.devicePixelRatio || 1
+    const width = canvas.clientWidth
+    const height = canvas.clientHeight
+    canvas.width = width * dpr
+    canvas.height = height * dpr
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.scale(dpr, dpr)
+    ctx.clearRect(0, 0, width, height)
+
+    const padLeft = 40
+    const padRight = 4
+    const padTop = 8
+    const padBottom = 18
+    const chartW = width - padLeft - padRight
+    const chartH = height - padTop - padBottom
+
+    let min = Infinity
+    let max = -Infinity
+    for (const c of candles) {
+      if (c.l < min) min = c.l
+      if (c.h > max) max = c.h
+    }
+    if (min === max) { min -= 1; max += 1 }
+    const pricePad = (max - min) * 0.06
+    min -= pricePad
+    max += pricePad
+
+    const yFor = (price: number) => padTop + chartH - ((price - min) / (max - min)) * chartH
+    const n = candles.length
+    const slot = chartW / n
+    const candleW = Math.max(1, Math.min(8, slot * 0.7))
+
+    // Grid + Y axis labels
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)'
+    ctx.fillStyle = '#ffffff'
+    ctx.font = '11px "JetBrains Mono", monospace'
+    ctx.textAlign = 'right'
+    ctx.textBaseline = 'middle'
+    const gridLines = 4
+    const formatAxisPrice = (price: number): string => {
+      const abs = Math.abs(price)
+      const decimals = abs >= 1000 ? 0 : abs >= 100 ? 1 : abs >= 10 ? 2 : 3
+      return price.toFixed(decimals)
+    }
+    for (let i = 0; i <= gridLines; i++) {
+      const price = min + ((max - min) * i) / gridLines
+      const y = yFor(price)
+      ctx.beginPath()
+      ctx.moveTo(padLeft, y)
+      ctx.lineTo(width - padRight, y)
+      ctx.stroke()
+      ctx.fillText(formatAxisPrice(price), padLeft - 4, y)
+    }
+
+    // X axis labels (start / mid / end dates)
+    ctx.font = '11px "JetBrains Mono", monospace'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'top'
+    const xLabelIdxs = [0, Math.floor(n / 2), n - 1]
+    xLabelIdxs.forEach((idx) => {
+      const c = candles[idx]
+      const x = padLeft + idx * slot + slot / 2
+      const d = new Date(c.t)
+      const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      ctx.fillText(label, x, height - padBottom + 4)
+    })
+
+    // Candles
+    for (let i = 0; i < n; i++) {
+      const c = candles[i]
+      const x = padLeft + i * slot + slot / 2
+      const up = c.c >= c.o
+      ctx.strokeStyle = up ? '#00ff00' : '#ff3333'
+      ctx.fillStyle = up ? '#00ff00' : '#ff3333'
+      ctx.beginPath()
+      ctx.moveTo(x, yFor(c.h))
+      ctx.lineTo(x, yFor(c.l))
+      ctx.stroke()
+      const yOpen = yFor(c.o)
+      const yClose = yFor(c.c)
+      const bodyTop = Math.min(yOpen, yClose)
+      const bodyH = Math.max(1, Math.abs(yClose - yOpen))
+      ctx.fillRect(x - candleW / 2, bodyTop, candleW, bodyH)
+    }
+
+    // Border
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)'
+    ctx.strokeRect(padLeft, padTop, chartW, chartH)
+  }, [candles])
+
+  return (
+    <div className="opp-candle-card">
+      <div className="opp-candle-header">
+        <span className="opp-candle-year">{year}</span>
+        <span className={`opp-candle-return ${totalReturn >= 0 ? 'up' : 'down'}`}>
+          {totalReturn >= 0 ? '+' : ''}{totalReturn.toFixed(2)}%
+        </span>
+      </div>
+      <div className="opp-candle-canvas-wrap">
+        {candles.length === 0 ? (
+          <div className="opp-candle-status">No data</div>
+        ) : (
+          <canvas ref={canvasRef} />
+        )}
+      </div>
+    </div>
+  )
 }
 
 // ── Canvas-based mini seasonal chart (almanac-style, crispy) ──────
@@ -299,9 +471,14 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
   } | null>(null)
 
   // ── Expanded inline chart state ──────────────────────────────────────────
-  const [lineData, setLineData] = useState<YearLineData[]>([])
+  const [lineData, setLineData] = useState<YearCandleData[]>([])
   const [chartLoading, setChartLoading] = useState(false)
   const chartFetchedRef = useRef(false)
+  const [showSummary, setShowSummary] = useState(false)
+  const weeklySummaryLines = useMemo(
+    () => (showSummary && lineData.length > 0 ? buildWeeklySummary(lineData) : []),
+    [showSummary, lineData]
+  )
 
   // ── Trend sync: directional agreement between seasonal avg and most-recent year ──
   const trendSync = React.useMemo(() => {
@@ -636,7 +813,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
         const currentYear = new Date().getFullYear()
         const colors = ['#FF6600', '#00FF88', '#FF4444', '#FFD700', '#00BFFF', '#FF69B4', '#9370DB', '#00FA9A', '#FF8C00', '#1E90FF', '#FF1493', '#7FFF00', '#DC143C', '#00CED1', '#FF4500']
         const yearsToFetch = (multiframeYears && multiframeYears.length > 0) ? Math.max(years, ...multiframeYears) : years
-        const yearLines: YearLineData[] = []
+        const yearLines: YearCandleData[] = []
         for (let i = 0; i < yearsToFetch; i++) {
           const year = currentYear - 1 - i
           const pStart = new Date(year, startDate.month, startDate.day)
@@ -646,12 +823,13 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
           try {
             const hist = await polygonService.getHistoricalData(pattern.symbol, fStart.toISOString().split('T')[0], fEnd.toISOString().split('T')[0])
             if (hist?.results?.length) {
-              const startPrice = hist.results.find((d: any) => new Date(d.t) >= pStart)?.c || hist.results[0].c
-              const periodData = hist.results
+              const periodCandles = hist.results
                 .filter((d: any) => { const dt = new Date(d.t); return dt >= pStart && dt <= pEnd })
-                .map((d: any, idx: number) => ({ date: new Date(d.t), value: ((d.c - startPrice) / startPrice) * 100, dayOffset: idx }))
-              if (periodData.length > 0)
-                yearLines.push({ year, data: periodData, color: colors[i % colors.length], totalReturn: periodData[periodData.length - 1].value })
+                .map((d: any) => ({ t: d.t, o: d.o, h: d.h, l: d.l, c: d.c }))
+              if (periodCandles.length > 0) {
+                const totalReturn = ((periodCandles[periodCandles.length - 1].c - periodCandles[0].o) / periodCandles[0].o) * 100
+                yearLines.push({ year, candles: periodCandles, color: colors[i % colors.length], totalReturn })
+              }
             }
           } catch { /* skip year */ }
         }
@@ -1645,93 +1823,74 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
           </div>
           {/* ── end LEFT panel ── */}
 
-          {/* ── HISTORICAL LINES popup: simple modal overlay (no multi-TF averages) ── */}
-          {isExpanded && (
+          {/* ── HISTORICAL CANDLES popup: portaled to <body> so it escapes the card's transformed containing block ── */}
+          {isExpanded && createPortal(
             <div
               onClick={(e) => { e.stopPropagation(); onExpand?.() }}
               style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
             >
+              <style>{`
+                .opp-candle-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+                .opp-candle-card {
+                  background: linear-gradient(160deg, #0f0f0f 0%, #050505 55%, #0a0a0a 100%);
+                  border: 1px solid #333333; border-radius: 5px; padding: 8px; position: relative;
+                  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 6px rgba(0,0,0,0.4);
+                  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, z-index 0s;
+                }
+                .opp-candle-card:hover { transform: scale(1.5); z-index: 50; border-color: #ff6600; box-shadow: 0 0 0 1px #ff6600, 0 12px 40px rgba(0,0,0,0.85), inset 0 1px 0 rgba(255,255,255,0.08); }
+                .opp-candle-header { display: flex; align-items: center; justify-content: space-between; padding: 0 2px 6px 2px; font-family: "JetBrains Mono", monospace; }
+                .opp-candle-year { font-size: 15px; font-weight: 800; color: #ffffff; }
+                .opp-candle-return { font-size: 14px; font-weight: 700; }
+                .opp-candle-return.up { color: #00ff00 !important; }
+                .opp-candle-return.down { color: #ff0000 !important; }
+                .opp-candle-canvas-wrap { position: relative; height: 180px; width: 100%; }
+                .opp-candle-canvas-wrap canvas { width: 100%; height: 100%; display: block; }
+                .opp-candle-status { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-family: "JetBrains Mono", monospace; font-size: 12px; font-weight: 700; color: #ffffff; }
+                @media (max-width: 1100px) { .opp-candle-grid { grid-template-columns: repeat(3, 1fr); } }
+                @media (max-width: 700px) { .opp-candle-grid { grid-template-columns: repeat(2, 1fr); } }
+              `}</style>
               <div
                 onClick={(e) => e.stopPropagation()}
                 style={{ background: '#000', border: '1px solid rgba(255,102,0,0.35)', borderRadius: '10px', padding: '24px 32px', maxWidth: '1800px', width: '100%', maxHeight: '95vh', overflowY: 'auto' }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-                  <span style={{ color: '#FF6600', fontFamily: 'monospace', fontSize: '16px', fontWeight: 'bold', letterSpacing: '2px' }}>HISTORICAL LINES</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                  <span style={{ color: '#FF6600', fontFamily: 'monospace', fontSize: '16px', fontWeight: 'bold', letterSpacing: '2px' }}>HISTORICAL CANDLES</span>
                   <span style={{ color: '#fff', fontFamily: 'monospace', fontSize: '14px' }}>{lineData.length} years</span>
+                  <button
+                    onClick={() => setShowSummary((s) => !s)}
+                    disabled={chartLoading || lineData.length === 0}
+                    style={{ padding: '6px 12px', border: `1px solid ${showSummary ? '#FF6600' : 'rgba(255,255,255,0.25)'}`, borderRadius: '4px', background: showSummary ? 'rgba(255,102,0,0.15)' : 'rgba(255,255,255,0.05)', color: showSummary ? '#FF6600' : '#fff', fontFamily: 'monospace', fontSize: '12px', fontWeight: 'bold', letterSpacing: '1px', cursor: chartLoading || lineData.length === 0 ? 'default' : 'pointer', opacity: chartLoading || lineData.length === 0 ? 0.4 : 1 }}>
+                    {chartLoading ? 'LOADING…' : 'SUMMARY'}
+                  </button>
                   <button
                     onClick={() => onExpand?.()}
                     style={{ marginLeft: 'auto', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(255,255,255,0.25)', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', color: '#fff', fontFamily: 'monospace', fontSize: '18px', lineHeight: 1, cursor: 'pointer' }}>
                     ✕
                   </button>
                 </div>
+                {showSummary && (
+                  <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,102,0,0.25)', borderRadius: '6px', padding: '12px 16px', marginBottom: '14px', fontFamily: 'monospace', fontSize: '12.5px', color: '#fff', lineHeight: 1.7 }}>
+                    {weeklySummaryLines.length === 0 ? (
+                      <div>No data to summarize.</div>
+                    ) : (
+                      weeklySummaryLines.map((line, i) => <div key={i}>{line}</div>)
+                    )}
+                  </div>
+                )}
                 {chartLoading ? (
                   <div style={{ color: '#999', fontFamily: 'monospace', textAlign: 'center', paddingTop: '20px', fontSize: '12px', letterSpacing: '2px' }}>LOADING CHART DATA...</div>
-                ) : lineData.length > 0 ? (() => {
-                  const cW = 1640, cH = 900
-                  const pad = { top: 40, right: 130, bottom: 60, left: 90 }
-                  const pW = cW - pad.left - pad.right
-                  const pH = cH - pad.top - pad.bottom
-                  const maxD = Math.max(...lineData.map(l => l.data.length), 1)
-                  const allV = lineData.flatMap(l => l.data.map(d => d.value))
-                  const hMax = Math.max(...allV, 5)
-                  const hMin = Math.min(...allV, -5)
-                  const hRng = hMax - hMin || 1
-                  const xS = (d: number) => pad.left + (d / Math.max(maxD - 1, 1)) * pW
-                  const yS = (v: number) => pad.top + pH - ((v - hMin) / hRng) * pH
-                  const fmtRet = (v: number) => {
-                    const abs = Math.abs(v)
-                    const n = abs >= 10 ? Math.round(v) : parseFloat(v.toFixed(1))
-                    return `${v >= 0 ? '+' : ''}${n}%`
-                  }
-                  // sort descending, place labels at end-of-line Y, then push apart to avoid overlap
-                  const sorted = [...lineData].sort((a, b) => b.totalReturn - a.totalReturn)
-                  const minGap = 20
-                  const rawPositions = sorted.map(yl => {
-                    const last = yl.data[yl.data.length - 1]
-                    return Math.min(Math.max(yS(last.value), pad.top + 6), pad.top + pH - 6)
-                  })
-                  // push-apart pass: iterate top-to-bottom
-                  const positions = [...rawPositions]
-                  for (let i = 1; i < positions.length; i++) {
-                    if (positions[i] - positions[i - 1] < minGap) positions[i] = positions[i - 1] + minGap
-                  }
-                  // clamp bottom
-                  for (let i = positions.length - 1; i >= 0; i--) {
-                    if (positions[i] > pad.top + pH) positions[i] = pad.top + pH
-                    if (i < positions.length - 1 && positions[i + 1] - positions[i] < minGap) positions[i] = positions[i + 1] - minGap
-                  }
-                  return (
-                    <svg width="100%" viewBox={`0 0 ${cW} ${cH}`} style={{ display: 'block', overflow: 'visible' }}>
-                      {[0, 1, 2, 3, 4, 5, 6].map(i => {
-                        const v = hMax - (hRng / 6) * i; const y = yS(v)
-                        return (<g key={i}><line x1={pad.left} y1={y} x2={cW - pad.right} y2={y} stroke="rgba(255,255,255,0.08)" strokeWidth="1" /><text x={pad.left - 8} y={y + 4} fill="#fff" fontSize="16" fontFamily="monospace" textAnchor="end">{parseFloat(v.toFixed(1))}%</text></g>)
-                      })}
-                      {[0, 1, 2, 3, 4, 5, 6].map(i => {
-                        const d = Math.floor((maxD / 6) * i); const x = xS(d)
-                        return (<text key={i} x={x} y={cH - pad.bottom + 24} fill="#fff" fontSize="16" fontFamily="monospace" textAnchor="middle">{d}</text>)
-                      })}
-                      {hMin < 0 && hMax > 0 && <line x1={pad.left} y1={yS(0)} x2={cW - pad.right} y2={yS(0)} stroke="rgba(255,255,255,0.25)" strokeWidth="1" strokeDasharray="4,3" />}
-                      {sorted.map(yl => {
-                        const pathD = yl.data.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xS(p.dayOffset)} ${yS(p.value)}`).join(' ')
-                        return (<path key={yl.year} d={pathD} fill="none" stroke={yl.color} strokeWidth="2.5" opacity="0.75" />)
-                      })}
-                      {sorted.map((yl, i) => {
-                        const last = yl.data[yl.data.length - 1]
-                        const lY = positions[i]
-                        const shortYear = String(yl.year).slice(-2)
-                        return (<g key={yl.year}>
-                          <line x1={xS(last.dayOffset)} y1={yS(last.value)} x2={cW - pad.right + 5} y2={lY} stroke={yl.color} strokeWidth="1" strokeDasharray="3,3" opacity="0.35" />
-                          <text x={cW - pad.right + 10} y={lY + 5} fill={yl.color} fontSize="15" fontFamily="monospace">{shortYear}: {fmtRet(yl.totalReturn)}</text>
-                        </g>)
-                      })}
-                      <text x={pad.left + pW / 2} y={cH - 4} fill="#fff" fontSize="16" fontFamily="monospace" textAnchor="middle">Days</text>
-                    </svg>
-                  )
-                })() : (
+                ) : lineData.length > 0 ? (
+                  <div className="opp-candle-grid">
+                    {[...lineData].sort((a, b) => b.year - a.year).map((yl) => (
+                      <PeriodCandleChart key={yl.year} yearData={yl} />
+                    ))}
+                  </div>
+                ) : (
                   <div style={{ color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace', textAlign: 'center', paddingTop: '20px', fontSize: '11px' }}>NO HISTORICAL DATA</div>
                 )}
               </div>
-            </div>
+            </div>,
+            document.body
           )}
         </div>
       </div>
