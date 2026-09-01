@@ -13,7 +13,7 @@ import '../seasonax.css'
 // Below this width the side-by-side grid gets too cramped (chart collides with the
 // research/almanac column), so we switch to a slide-in drawer instead — same pattern
 // used by OptionsFlowTable's tablet/laptop Flow Tracking drawer.
-const SIDEBAR_MIN_WIDTH = 1500
+const SIDEBAR_MIN_WIDTH = 2800
 const MOBILE_BREAKPOINT = 768
 // Below this viewport height (common on 13"/14" laptops, e.g. 1300x800) the fixed-height
 // internal panels no longer fit — allow native page scroll instead of locking it.
@@ -64,7 +64,7 @@ export default function DataDriven() {
                 onClick={() => setDrawerOpen((v) => !v)}
                 style={{
                   position: 'fixed',
-                  top: '50%',
+                  top: '68%',
                   right: drawerOpen ? '100vw' : '0px',
                   transform: 'translateY(-50%)',
                   zIndex: 10010,
@@ -111,7 +111,7 @@ export default function DataDriven() {
               <div
                 style={{
                   position: 'fixed',
-                  top: 0,
+                  top: '120px',
                   right: 0,
                   bottom: 0,
                   width: '100vw',

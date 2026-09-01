@@ -61,8 +61,14 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
   isFullscreen = false,
 }) => {
   const [isMobileView, setIsMobileView] = useState(false)
+  const [isCompactView, setIsCompactView] = useState(false)
   useEffect(() => {
-    const check = () => setIsMobileView(window.innerWidth <= 768)
+    const check = () => {
+      setIsMobileView(window.innerWidth <= 768)
+      // Laptop/trackpad-sized viewports (e.g. 1300px wide) need tighter spacing so the
+      // monthly grid doesn't force extra page scroll/crop.
+      setIsCompactView(window.innerWidth > 768 && window.innerWidth <= 1400)
+    }
     check()
     window.addEventListener('resize', check)
     return () => window.removeEventListener('resize', check)
@@ -228,7 +234,7 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
         display: 'flex',
         flexDirection: 'row',
         width: 'fit-content',
-        gap: '15px',
+        gap: isCompactView ? '8px' : '15px',
         alignItems: 'center',
         justifyContent: 'center'
       }}>
@@ -262,14 +268,14 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
         <div className="monthly-returns-container" style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: '10px',
+          gap: isCompactView ? '6px' : '10px',
           flex: 1
         }}>
           {/* First row - 6 months (Jan-Jun), or all 12 in fullscreen */}
           <div className="monthly-returns-row" style={{
             display: 'flex',
             flexDirection: 'row',
-            gap: isFullscreen ? '12px' : '12px',
+            gap: isFullscreen ? '12px' : isCompactView ? '6px' : '12px',
             justifyContent: 'center',
             flexWrap: 'nowrap'
           }}>
@@ -279,9 +285,9 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
                 className="monthly-return-item"
                 onClick={() => onMonthClick?.(index, month.month)}
                 style={{
-                  minWidth: isFullscreen ? '170px' : '80px',
-                  maxWidth: isFullscreen ? '170px' : '80px',
-                  padding: isFullscreen ? '17px 23px' : '10px 14px',
+                  minWidth: isFullscreen ? '170px' : isCompactView ? '58px' : '80px',
+                  maxWidth: isFullscreen ? '170px' : isCompactView ? '58px' : '80px',
+                  padding: isFullscreen ? '17px 23px' : isCompactView ? '6px 8px' : '10px 14px',
                   borderRadius: '10px',
                   border: '1px solid rgba(255, 255, 255, 0.2)',
                   background: '#0a0a0a',
@@ -294,16 +300,16 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
                 onMouseEnter={(e) => onMonthClick && (e.currentTarget.style.transform = 'scale(1.05)')}
                 onMouseLeave={(e) => onMonthClick && (e.currentTarget.style.transform = 'scale(1)')}>
                 <div className={getMonthClass(month.month)} style={{
-                  fontSize: isFullscreen ? '42px' : '15px',
+                  fontSize: isFullscreen ? '42px' : isCompactView ? '11px' : '15px',
                   fontWeight: '800',
-                  marginBottom: isFullscreen ? '23px' : '8px',
+                  marginBottom: isFullscreen ? '23px' : isCompactView ? '4px' : '8px',
                   letterSpacing: '0.5px',
                   color: bestMonths.includes(month.month) ? '#00FF00' : worstMonths.includes(month.month) ? '#FF0000' : '#FFFFFF'
                 }}>{month.month.toUpperCase()}</div>
                 <div className={`return-value ${month.outperformance > 0 ? 'positive' : 'negative'}`} style={{
-                  fontSize: isFullscreen ? '47px' : '17px',
+                  fontSize: isFullscreen ? '47px' : isCompactView ? '12px' : '17px',
                   fontWeight: '800',
-                  padding: isFullscreen ? '17px 29px' : '6px 10px',
+                  padding: isFullscreen ? '17px 29px' : isCompactView ? '4px 6px' : '6px 10px',
                   borderRadius: '5px',
                   color: month.outperformance > 0 ? '#00FF00' : '#FF0000',
                   background: month.outperformance > 0 ? 'rgba(0, 255, 0, 0.1)' : 'rgba(255, 0, 0, 0.1)'
@@ -319,7 +325,7 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
             <div className="monthly-returns-row" style={{
               display: 'flex',
               flexDirection: 'row',
-              gap: '12px',
+              gap: isCompactView ? '6px' : '12px',
               justifyContent: 'center',
               flexWrap: 'nowrap'
             }}>
@@ -329,9 +335,9 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
                   className="monthly-return-item"
                   onClick={() => onMonthClick?.(index + 6, month.month)}
                   style={{
-                    minWidth: '80px',
-                    maxWidth: '80px',
-                    padding: '10px 14px',
+                    minWidth: isCompactView ? '58px' : '80px',
+                    maxWidth: isCompactView ? '58px' : '80px',
+                    padding: isCompactView ? '6px 8px' : '10px 14px',
                     borderRadius: '10px',
                     border: '1px solid rgba(255, 255, 255, 0.2)',
                     background: '#0a0a0a',
@@ -344,16 +350,16 @@ const HorizontalMonthlyReturns: React.FC<HorizontalMonthlyReturnsProps> = ({
                   onMouseEnter={(e) => onMonthClick && (e.currentTarget.style.transform = 'scale(1.05)')}
                   onMouseLeave={(e) => onMonthClick && (e.currentTarget.style.transform = 'scale(1)')}>
                   <div className={getMonthClass(month.month)} style={{
-                    fontSize: '15px',
+                    fontSize: isCompactView ? '11px' : '15px',
                     fontWeight: '800',
-                    marginBottom: '8px',
+                    marginBottom: isCompactView ? '4px' : '8px',
                     letterSpacing: '0.5px',
                     color: bestMonths.includes(month.month) ? '#00FF00' : worstMonths.includes(month.month) ? '#FF0000' : '#FFFFFF'
                   }}>{month.month.toUpperCase()}</div>
                   <div className={`return-value ${month.outperformance > 0 ? 'positive' : 'negative'}`} style={{
-                    fontSize: '17px',
+                    fontSize: isCompactView ? '12px' : '17px',
                     fontWeight: '800',
-                    padding: '6px 10px',
+                    padding: isCompactView ? '4px 6px' : '6px 10px',
                     borderRadius: '5px',
                     color: month.outperformance > 0 ? '#00FF00' : '#FF0000',
                     background: month.outperformance > 0 ? 'rgba(0, 255, 0, 0.1)' : 'rgba(255, 0, 0, 0.1)'
