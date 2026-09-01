@@ -5642,7 +5642,7 @@ Stock Reaction: ${scores.stockReaction}/15`
           {/* Invisible backdrop for click-to-close */}
 
           <div
-            className="fixed top-16 md:inset-0 bottom-0 left-0 right-0 z-[9998]"
+            className="fixed inset-0 bottom-0 left-0 right-0 z-[9998]"
             onClick={() => {
               setIsFilterDialogOpen(false)
             }}
@@ -5653,7 +5653,7 @@ Stock Reaction: ${scores.stockReaction}/15`
           <div
             className="filter-dialog fixed left-0 md:left-1/2 transform md:-translate-x-1/2 w-full md:w-auto md:max-w-[985px] max-h-[85vh] md:h-auto md:max-h-[55vh] overflow-y-auto z-[9999]"
             style={{
-              top: isMobileView ? '130px' : isTabletView ? '110px' : '224px',
+              top: isMobileView ? 0 : isTabletView ? '110px' : '224px',
               maxWidth: isTabletView ? 'min(94vw, 820px)' : undefined,
               maxHeight: isTabletView ? '82vh' : undefined,
               width: isTabletView ? 'min(94vw, 820px)' : undefined,
@@ -5669,7 +5669,12 @@ Stock Reaction: ${scores.stockReaction}/15`
             }}
           >
             <div className="filter-dialog-content">
-              <div className="flex justify-center items-center mb-6 relative">
+              {/* Sticky (not static) so the close button stays reachable while the filter list
+                  below scrolls - previously scrolled away with the rest of the content on mobile. */}
+              <div
+                className="flex justify-center items-center mb-6 relative"
+                style={{ position: 'sticky', top: 0, zIndex: 2, background: isMobileView ? '#000000' : '#000', paddingTop: isMobileView ? '4px' : 0 }}
+              >
                 <h2 className="text-2xl md:text-2xl font-bold italic text-orange-400 md:text-orange-400">
                   <span
                     className="hidden md:inline"
@@ -6470,9 +6475,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                 </div>
               )}
 
+              {/* Sticky (not static) so Apply Filters/Clear All stay reachable at the bottom
+                  of the scroll region instead of requiring scrolling past all content to see them. */}
               <div
                 className="flex justify-between items-center mt-6 pt-4"
-                style={{ borderTop: '1px solid rgba(255,255,255,0.06)', gap: '10px' }}
+                style={{ borderTop: '1px solid rgba(255,255,255,0.06)', gap: '10px', position: 'sticky', bottom: 0, zIndex: 2, background: isMobileView ? '#000000' : '#000', paddingBottom: isMobileView ? '4px' : 0 }}
               >
                 <button
                   onClick={() => {

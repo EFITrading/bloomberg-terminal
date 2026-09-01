@@ -80,7 +80,7 @@ export default function Navigation() {
     // Check auth status when pathname changes
   }, [pathname, isClient])
 
-  const LOCKED_PATHS = new Set(['/analysis-suite', '/ai-suite', '/market-overview', '/data-driven', '/analytics', '/dealers-workbench', '/rrg-screener', '/ai-trades'])
+  const LOCKED_PATHS = new Set(['/analysis-suite', '/ai-suite', '/market-overview', '/analytics', '/dealers-workbench', '/rrg-screener', '/ai-trades'])
 
   const ALL_NAV_LINKS = [
     { name: 'Market Overview', path: '/market-overview', color: '#f97316' },

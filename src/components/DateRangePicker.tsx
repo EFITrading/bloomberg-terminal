@@ -107,10 +107,13 @@ export default function DateRangePicker({ startDate, endDate, onStartChange, onE
                 )}
             </button>
 
-            {/* Calendar popup */}
+            {/* Calendar popup - opens ABOVE the trigger, not below. This picker sits near the
+                bottom of the mobile filter panel (last section before Apply Filters), so
+                opening downward pushed the calendar off-screen under the bottom nav bar,
+                forcing an extra scroll just to see it. */}
             {open && (
                 <div style={{
-                    position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
+                    position: 'absolute', bottom: 'calc(100% + 6px)', top: 'auto', left: 0, right: 0,
                     background: '#000', border: `1px solid ${accentColor}44`,
                     borderRadius: '12px', padding: '14px', zIndex: 999,
                     boxShadow: `0 8px 32px rgba(0,0,0,0.95), 0 0 0 1px rgba(255,255,255,0.05)`,

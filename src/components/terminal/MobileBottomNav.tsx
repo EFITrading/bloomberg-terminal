@@ -210,7 +210,7 @@ export default function MobileBottomNav({ navLinks, pathname, isAdmin = false }:
           const isActive = pathname === link.path
           const Icon = ICONS[link.path]
           const label = SHORT_LABELS[link.path] ?? link.name
-          const LOCKED_MOBILE_PATHS = new Set(['/analysis-suite', '/ai-suite', '/market-overview', '/data-driven', '/analytics', '/dealers-workbench', '/rrg-screener', '/ai-trades'])
+          const LOCKED_MOBILE_PATHS = new Set(['/analysis-suite', '/ai-suite', '/market-overview', '/analytics', '/dealers-workbench', '/rrg-screener', '/ai-trades'])
           const isLocked = !isAdmin && LOCKED_MOBILE_PATHS.has(link.path)
           return isLocked ? (
             <div

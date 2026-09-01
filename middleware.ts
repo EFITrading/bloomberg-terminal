@@ -37,7 +37,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  const LOCKED_PAGES = ['/analysis-suite', '/ai-suite', '/analytics', '/data-driven', '/market-overview', '/dealers-workbench', '/rrg-screener', '/ai-trades']
+  const LOCKED_PAGES = ['/analysis-suite', '/ai-suite', '/analytics', '/market-overview', '/dealers-workbench', '/rrg-screener', '/ai-trades']
   if (!isAdmin(request) && LOCKED_PAGES.some(p => pathname.startsWith(p))) {
     const url = request.nextUrl.clone()
     url.pathname = '/options-flow'

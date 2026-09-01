@@ -57,6 +57,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 
 import { enrichTradeDataCombined } from '@/lib/enrichTradeData'
 
+import AdminOnlyGate from '../AdminOnlyGate'
 import { useMarketRegime } from '../../contexts/MarketRegimeContext'
 import { createApiUrl } from '../../lib/apiConfig'
 import ChartDataCache from '../../lib/chartDataCache'
@@ -38249,7 +38250,9 @@ export default function TradingViewChart({
                   {activeSidebarPanel ? (mountedPanelsRef.current.add(activeSidebarPanel), null) : null}
                   {mountedPanelsRef.current.has('gex') && (
                     <div style={{ display: activeSidebarPanel === 'gex' ? 'flex' : 'none', height: '100%', flexDirection: 'column' }}>
-                      <GexPanel onClose={() => setActiveSidebarPanel(null)} />
+                      <AdminOnlyGate message="This tool is not available on your plan.">
+                        <GexPanel onClose={() => setActiveSidebarPanel(null)} />
+                      </AdminOnlyGate>
                     </div>
                   )}
                   {mountedPanelsRef.current.has('watch') && (
@@ -38270,22 +38273,24 @@ export default function TradingViewChart({
                     }}
                   >
                     {activeSidebarPanel === 'markets' && (
-                      <RegimesPanelComponent
-                        activeTab={regimesTab}
-                        setActiveTab={setRegimesTab}
-                        marketRegimeData={marketRegimeData}
-                        isLoadingRegimes={isLoadingRegimes}
-                        regimeUpdateProgress={regimeUpdateProgress}
-                        regimeLoadingStage={regimeLoadingStage}
-                        scanGroupMode={scanGroupMode}
-                        setScanGroupMode={setScanGroupMode}
-                        highlightedTradesCache={highlightedTradesCache}
-                        tradeDetailPopup={tradeDetailPopup}
-                        setTradeDetailPopup={setTradeDetailPopup}
-                        setActiveSidebarPanel={setActiveSidebarPanel}
-                        scanPricesCacheRef={scanPricesCacheRef}
-                        scanAllScoredRef={scanAllScoredRef}
-                      />
+                      <AdminOnlyGate message="This tool is not available on your plan.">
+                        <RegimesPanelComponent
+                          activeTab={regimesTab}
+                          setActiveTab={setRegimesTab}
+                          marketRegimeData={marketRegimeData}
+                          isLoadingRegimes={isLoadingRegimes}
+                          regimeUpdateProgress={regimeUpdateProgress}
+                          regimeLoadingStage={regimeLoadingStage}
+                          scanGroupMode={scanGroupMode}
+                          setScanGroupMode={setScanGroupMode}
+                          highlightedTradesCache={highlightedTradesCache}
+                          tradeDetailPopup={tradeDetailPopup}
+                          setTradeDetailPopup={setTradeDetailPopup}
+                          setActiveSidebarPanel={setActiveSidebarPanel}
+                          scanPricesCacheRef={scanPricesCacheRef}
+                          scanAllScoredRef={scanAllScoredRef}
+                        />
+                      </AdminOnlyGate>
                     )}
                   </div>
                   {/* Always mounted so StraddleTownScreener auto-scans in background.
@@ -38338,7 +38343,9 @@ export default function TradingViewChart({
                             &#x2715;
                           </button>
                         </div>
+                        <AdminOnlyGate message="This tool is not available on your plan.">
                         <StraddleTownScreener autoRun={false} />
+                      </AdminOnlyGate>
                       </React.Fragment>
                     )}
                   </div>
@@ -39091,15 +39098,17 @@ export default function TradingViewChart({
 
                       {/* RRG Content */}
                       <div className="flex-1 overflow-hidden">
-                        {rrgTab === 'Price' && <RRGAnalytics />}
-                        {rrgTab === 'IV' && <IVRRGAnalytics />}
-                        {rrgTab === 'Screener' && (
-                          <RRGScreener
-                            hideTitle={true}
-                            sectorUnderTicker={true}
-                            compactLayout={true}
-                          />
-                        )}
+                        <AdminOnlyGate message="This tool is not available on your plan.">
+                          {rrgTab === 'Price' && <RRGAnalytics />}
+                          {rrgTab === 'IV' && <IVRRGAnalytics />}
+                          {rrgTab === 'Screener' && (
+                            <RRGScreener
+                              hideTitle={true}
+                              sectorUnderTicker={true}
+                              compactLayout={true}
+                            />
+                          )}
+                        </AdminOnlyGate>
                       </div>
                     </div>
                   )}
@@ -39121,7 +39130,9 @@ export default function TradingViewChart({
                       </div>
                       <button onClick={() => setActiveSidebarPanel(null)} className="flex items-center justify-center font-bold transition-all" style={{ width: '44px', flexShrink: 0, alignSelf: 'stretch', fontSize: '16px', color: '#FF6600', border: '2px solid rgba(255,102,0,0.5)', background: 'linear-gradient(180deg,#111111 0%,#040404 100%)', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.background = '#FF6600'; e.currentTarget.style.color = '#000' }} onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'; e.currentTarget.style.color = '#FF6600' }}>&#x2715;</button>
                     </div>
-                    <DealerClusterScreener />
+                    <AdminOnlyGate message="This tool is not available on your plan.">
+                      <DealerClusterScreener />
+                    </AdminOnlyGate>
                   </div>
 
                   {/* Historical Volatility panel */}
@@ -39134,7 +39145,9 @@ export default function TradingViewChart({
                         </div>
                         <button onClick={() => setActiveSidebarPanel(null)} className="flex items-center justify-center font-bold transition-all" style={{ width: '44px', flexShrink: 0, alignSelf: 'stretch', fontSize: '16px', color: '#FF6600', border: '2px solid rgba(255,102,0,0.5)', background: 'linear-gradient(180deg,#111111 0%,#040404 100%)', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.background = '#FF6600'; e.currentTarget.style.color = '#000' }} onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'; e.currentTarget.style.color = '#FF6600' }}>&#x2715;</button>
                       </div>
+                      <AdminOnlyGate message="This tool is not available on your plan.">
                       <HVScreener />
+                    </AdminOnlyGate>
                     </div>
                   )}
 
@@ -39148,7 +39161,9 @@ export default function TradingViewChart({
                         </div>
                         <button onClick={() => setActiveSidebarPanel(null)} className="flex items-center justify-center font-bold transition-all" style={{ width: '44px', flexShrink: 0, alignSelf: 'stretch', fontSize: '16px', color: '#FF6600', border: '2px solid rgba(255,102,0,0.5)', background: 'linear-gradient(180deg,#111111 0%,#040404 100%)', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.background = '#FF6600'; e.currentTarget.style.color = '#000' }} onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'; e.currentTarget.style.color = '#FF6600' }}>&#x2715;</button>
                       </div>
+                      <AdminOnlyGate message="This tool is not available on your plan.">
                       <LeadershipScan />
+                    </AdminOnlyGate>
                     </div>
                   )}
 
@@ -39162,7 +39177,9 @@ export default function TradingViewChart({
                         </div>
                         <button onClick={() => setActiveSidebarPanel(null)} className="flex items-center justify-center font-bold transition-all" style={{ width: '44px', flexShrink: 0, alignSelf: 'stretch', fontSize: '16px', color: '#FF6600', border: '2px solid rgba(255,102,0,0.5)', background: 'linear-gradient(180deg,#111111 0%,#040404 100%)', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.background = '#FF6600'; e.currentTarget.style.color = '#000' }} onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'; e.currentTarget.style.color = '#FF6600' }}>&#x2715;</button>
                       </div>
+                      <AdminOnlyGate message="This tool is not available on your plan.">
                       <RSScreener />
+                    </AdminOnlyGate>
                     </div>
                   )}
 
@@ -41329,12 +41346,14 @@ export default function TradingViewChart({
                             }
                           `}</style>
                             {seasonalScanStarted && (
-                              <SeasonalScreenerWrapper
-                                market={seasonalScreenerMarket}
-                                timePeriod={seasonalScreenerYears}
-                                filters={seasonalScreenerFilters}
-                                trigger={seasonalScanStarted}
-                              />
+                              <AdminOnlyGate message="Members will gain access to these tools very soon, currently beta testing Seasonal Annual and Monthly charts only.">
+                                <SeasonalScreenerWrapper
+                                  market={seasonalScreenerMarket}
+                                  timePeriod={seasonalScreenerYears}
+                                  filters={seasonalScreenerFilters}
+                                  trigger={seasonalScanStarted}
+                                />
+                              </AdminOnlyGate>
                             )}
                             {!seasonalScanStarted && (
                               <div

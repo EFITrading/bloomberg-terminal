@@ -21,6 +21,7 @@ import {
   type MarketEvent,
   SEVERITY_COLORS,
 } from '../../data/marketEvents'
+import AdminOnlyGate from '../AdminOnlyGate'
 import SeasonaxLanding from '../seasonax/SeasonaxLanding'
 import ResearchPanelV2 from './ResearchPanelV2'
 
@@ -552,6 +553,7 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
         flexDirection: 'column',
         height: isMobileView && !isFullscreen ? 'auto' : '100%',
         overflow: isMobileView && !isFullscreen ? 'visible' : 'hidden',
+        position: 'relative',
         ...(isFullscreen
           ? {
             position: 'fixed',
@@ -744,6 +746,7 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
       </div>
 
       {/* TAB CONTENT */}
+      <AdminOnlyGate message="Members will gain access to these tools very soon, currently beta testing Seasonal Annual and Monthly charts only.">
       {activeTab === 'research' ? (
         <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <ResearchPanelV2 />
@@ -2045,6 +2048,7 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
           </div>
         </div>
       )}
+      </AdminOnlyGate>
     </div>
   )
 }

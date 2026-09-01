@@ -7,7 +7,6 @@ const ADMIN_ONLY_PATHS = [
   '/analysis-suite',
   '/ai-suite',
   '/analytics',
-  '/data-driven',
   '/market-overview',
   '/dealers-workbench',
   '/rrg-screener',

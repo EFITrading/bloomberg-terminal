@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import AdminOnlyGate from '@/components/AdminOnlyGate'
 import AlmanacDailyChart from '@/components/analytics/AlmanacDailyChart'
 import HistoricalEventsResearch from '@/components/analytics/HistoricalEventsResearch'
 import SeasonalityChart from '@/components/analytics/SeasonalityChart'
@@ -103,7 +104,9 @@ export default function DataDrivenMobileLayout() {
 
       {active === 'screener' && (
         <div style={PANEL_STYLE}>
-          <SeasonaxLanding />
+          <AdminOnlyGate message="Members will gain access to these tools very soon, currently beta testing Seasonal Annual and Monthly charts only.">
+            <SeasonaxLanding />
+          </AdminOnlyGate>
         </div>
       )}
     </div>

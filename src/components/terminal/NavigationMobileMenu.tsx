@@ -158,7 +158,7 @@ export default function NavigationMobileMenu({
                         style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}
                     >
                         {navLinks.map((link) => {
-                            const LOCKED_MOBILE_PATHS = new Set(['/analysis-suite', '/ai-suite', '/market-overview', '/data-driven', '/analytics', '/dealers-workbench', '/rrg-screener', '/ai-trades'])
+                            const LOCKED_MOBILE_PATHS = new Set(['/analysis-suite', '/ai-suite', '/market-overview', '/analytics', '/dealers-workbench', '/rrg-screener', '/ai-trades'])
                             const isLocked = !isAdmin && LOCKED_MOBILE_PATHS.has(link.path)
                             return isLocked ? (
                                 <div
