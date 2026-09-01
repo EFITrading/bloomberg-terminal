@@ -15,15 +15,19 @@ import '../seasonax.css'
 // used by OptionsFlowTable's tablet/laptop Flow Tracking drawer.
 const SIDEBAR_MIN_WIDTH = 1500
 const MOBILE_BREAKPOINT = 768
+// Below this viewport height (common on 13"/14" laptops, e.g. 1300x800) the fixed-height
+// internal panels no longer fit — allow native page scroll instead of locking it.
+const SHORT_VIEWPORT_HEIGHT = 850
 
 export default function DataDriven() {
   // Always start at the server-rendered width (1920) to avoid a hydration mismatch;
   // the real width is applied after mount via the resize effect below.
   const [windowWidth, setWindowWidth] = useState<number>(1920)
+  const [windowHeight, setWindowHeight] = useState<number>(1080)
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false)
 
   useEffect(() => {
-    const onResize = () => setWindowWidth(window.innerWidth)
+    const onResize = () => { setWindowWidth(window.innerWidth); setWindowHeight(window.innerHeight) }
     onResize()
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
@@ -31,8 +35,8 @@ export default function DataDriven() {
 
   useEffect(() => {
     // Desktop/tablet layouts rely on fixed-height internal panels, so the page itself
-    // must not scroll there — but mobile relies on native page scroll, so leave it alone.
-    if (windowWidth <= MOBILE_BREAKPOINT) return
+    // must not scroll there — but mobile and short/laptop viewports need native scroll.
+    if (windowWidth <= MOBILE_BREAKPOINT || windowHeight < SHORT_VIEWPORT_HEIGHT) return
     const prevBody = document.body.style.overflow
     const prevHtml = document.documentElement.style.overflow
     document.body.style.overflow = 'hidden'
@@ -41,13 +45,14 @@ export default function DataDriven() {
       document.body.style.overflow = prevBody
       document.documentElement.style.overflow = prevHtml
     }
-  }, [windowWidth])
+  }, [windowWidth, windowHeight])
 
   const isTabletOrLaptop = windowWidth > MOBILE_BREAKPOINT && windowWidth < SIDEBAR_MIN_WIDTH
+  const isShortViewport = windowHeight < SHORT_VIEWPORT_HEIGHT
 
   return (
     <>
-      <div className="data-driven-container" style={{ minHeight: 'auto' }}>
+      <div className="data-driven-container" style={{ minHeight: 'auto', overflowY: isShortViewport ? 'auto' : undefined, maxHeight: isShortViewport ? '100vh' : undefined }}>
         {/* Desktop view - shows all components side by side */}
         <div className="desktop-view">
           {isTabletOrLaptop ? (
@@ -143,8 +148,8 @@ export default function DataDriven() {
                 style={{
                   minWidth: 0,
                   marginTop: '0',
-                  height: 'calc(94vh - 40px)',
-                  overflow: 'hidden',
+                  height: isShortViewport ? 'auto' : 'calc(94vh - 40px)',
+                  overflow: isShortViewport ? 'visible' : 'hidden',
                 }}
               >
                 <HistoricalEventsResearch hideFullscreenToggle={true} />

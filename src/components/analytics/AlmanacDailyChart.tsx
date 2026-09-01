@@ -179,6 +179,9 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
   const containerRef = useRef<HTMLDivElement>(null)
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null)
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 1 })
+  // Mouse-wheel zoom is disabled by default so the page scrolls normally over the chart;
+  // double-clicking the chart "arms" it, letting the wheel zoom until the mouse leaves.
+  const [wheelZoomArmed, setWheelZoomArmed] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
   const [panStart, setPanStart] = useState({ x: 0, rangeStart: 0, rangeEnd: 1 })
   const [showEventPerformance, setShowEventPerformance] = useState(false)
@@ -389,6 +392,8 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
     }
 
     const handleWheel = (e: WheelEvent) => {
+      if (!wheelZoomArmed) return // let the page scroll normally until armed via double-click
+
       e.preventDefault()
       e.stopPropagation()
 
@@ -417,6 +422,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
 
     const handleMouseLeave = () => {
       setMousePos(null)
+      setWheelZoomArmed(false)
       if (isPanning) {
         setIsPanning(false)
         canvas.style.cursor = 'grab'
@@ -434,7 +440,8 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
           return
         }
       }
-      // Double-click resets zoom
+      // Double-click arms wheel-zoom (until mouse leaves) and resets zoom to full view
+      setWheelZoomArmed(true)
       setZoomRange({ start: 0, end: 1 })
     }
 
@@ -454,7 +461,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
       canvas.removeEventListener('wheel', handleWheel)
       canvas.removeEventListener('dblclick', handleDoubleClick)
     }
-  }, [isPanning, zoomRange, panStart])
+  }, [isPanning, zoomRange, panStart, wheelZoomArmed])
 
   useEffect(() => {
     if (seasonalData.length > 0 && activeView === 'chart') {

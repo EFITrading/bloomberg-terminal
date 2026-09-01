@@ -265,6 +265,9 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null)
   const [zoomLevel, setZoomLevel] = useState(1)
   const [panOffset, setPanOffset] = useState(0)
+  // Mouse-wheel zoom is disabled by default so the page scrolls normally over the chart;
+  // double-clicking the chart "arms" it, letting the wheel zoom until the mouse leaves.
+  const [wheelZoomArmed, setWheelZoomArmed] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState<{ x: number; offset: number } | null>(null)
   const [hiddenLines, setHiddenLines] = useState<Set<string>>(new Set())
@@ -372,6 +375,8 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
     const canvas = canvasRef.current
     if (!canvas) return
 
+    let dragMoved = false
+
     const handleMouseMove = (e: MouseEvent) => {
       const rect = canvas.getBoundingClientRect()
       const x = e.clientX - rect.left
@@ -379,6 +384,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
 
       if (isDragging && dragStart) {
         const deltaX = x - dragStart.x
+        if (Math.abs(deltaX) > 3) dragMoved = true
         const maxPan = (zoomLevel - 1) * 0.5
         const newOffset = Math.max(
           -maxPan,
@@ -393,6 +399,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
     const handleMouseDown = (e: MouseEvent) => {
       const rect = canvas.getBoundingClientRect()
       const x = e.clientX - rect.left
+      dragMoved = false
       setIsDragging(true)
       setDragStart({ x, offset: panOffset })
       canvas.style.cursor = 'grabbing'
@@ -405,6 +412,8 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
     }
 
     const handleWheel = (e: WheelEvent) => {
+      if (!wheelZoomArmed) return // let the page scroll normally until armed via double-click
+
       e.preventDefault()
       const zoomSpeed = 0.001
       const delta = -e.deltaY * zoomSpeed
@@ -434,6 +443,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
 
     const handleMouseLeave = () => {
       setMousePos(null)
+      setWheelZoomArmed(false)
       if (isDragging) {
         setIsDragging(false)
         setDragStart(null)
@@ -441,11 +451,25 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
       }
     }
 
+    const handleDoubleClick = () => {
+      // Double-click arms zoom + resets to full view; a plain single click while armed exits it
+      setWheelZoomArmed(true)
+      setZoomLevel(1)
+      setPanOffset(0)
+    }
+
+    const handleClick = () => {
+      // Ignore the two clicks that make up the double-click itself, only a later plain click exits
+      if (wheelZoomArmed && !dragMoved) setWheelZoomArmed(false)
+    }
+
     canvas.addEventListener('mousemove', handleMouseMove)
     canvas.addEventListener('mousedown', handleMouseDown)
     canvas.addEventListener('mouseup', handleMouseUp)
     canvas.addEventListener('mouseleave', handleMouseLeave)
     canvas.addEventListener('wheel', handleWheel, { passive: false })
+    canvas.addEventListener('dblclick', handleDoubleClick)
+    canvas.addEventListener('click', handleClick)
     canvas.style.cursor = 'grab'
 
     // ── Touch support (pan + pinch-to-zoom) ──────────────────────────────
@@ -513,11 +537,13 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
       canvas.removeEventListener('mouseup', handleMouseUp)
       canvas.removeEventListener('mouseleave', handleMouseLeave)
       canvas.removeEventListener('wheel', handleWheel)
+      canvas.removeEventListener('dblclick', handleDoubleClick)
+      canvas.removeEventListener('click', handleClick)
       canvas.removeEventListener('touchstart', handleTouchStart)
       canvas.removeEventListener('touchmove', handleTouchMove)
       canvas.removeEventListener('touchend', handleTouchEnd)
     }
-  }, [isDragging, zoomLevel, panOffset, dragStart])
+  }, [isDragging, zoomLevel, panOffset, dragStart, wheelZoomArmed])
 
   useEffect(() => {
     if (data) {
