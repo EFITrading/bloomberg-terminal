@@ -791,8 +791,11 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
 
         setAvailableYears(yearOptions)
 
-        // Set default to maximum available years
-        if (chartSettings.yearsOfData !== maxYears) {
+        // Set default to maximum available years - ONLY when the caller didn't request a
+        // specific yearsOverride. Root cause of the "resets to max years" bug: this used to
+        // run unconditionally on every load, clobbering the user's own dropdown selection
+        // (e.g. picking 15Y) the moment any reload fired afterward.
+        if (yearsOverride === undefined && chartSettings.yearsOfData !== maxYears) {
           setChartSettings((prev) => ({ ...prev, yearsOfData: maxYears }))
         }
       }

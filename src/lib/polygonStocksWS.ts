@@ -113,15 +113,9 @@ class PolygonStocksWSService {
   private schedule() {
     if (this.stopped) return
     if (isMarketHours()) {
-      console.log('[PolygonWS] Market hours — connecting')
       this.connect()
     } else {
       const wait = msUntilNextOpen()
-      const pst = nowPST()
-      console.log(
-        `[PolygonWS] Outside market hours (PST ${pst.getHours()}:${String(pst.getMinutes()).padStart(2, '0')} dow=${pst.getDay()}) ` +
-        `— next open in ${Math.round(wait / 60000)}min`
-      )
       // Clamp to minimum 5 minutes — prevents infinite tight-loop if calculation is off
       const safeWait = Math.max(5 * 60 * 1000, wait)
       this.scheduleTimer = setTimeout(() => this.schedule(), safeWait)
@@ -137,7 +131,6 @@ class PolygonStocksWSService {
     const closeIn = msUntilClose()
     if (closeIn > 0) {
       this.closeTimer = setTimeout(() => {
-        console.log('[PolygonWS] Market closed — disconnecting')
         ws.close()
         this.schedule()
       }, closeIn)
@@ -157,7 +150,6 @@ class PolygonStocksWSService {
             this.authenticated = true
             this.flushAll()
           } else if (msg.status === 'max_connections') {
-            console.warn('[PolygonWS] max_connections: close other tabs or browser windows and reload.')
             this.stopped = true
             ws.close()
           }
@@ -185,7 +177,6 @@ class PolygonStocksWSService {
       if (this.stopped) return
       // Only reconnect during market hours — otherwise sleep until next open
       if (isMarketHours()) {
-        console.warn('[PolygonWS] Dropped during market hours — reconnecting in 5s')
         this.scheduleTimer = setTimeout(() => this.connect(), 5000)
       } else {
         this.schedule()

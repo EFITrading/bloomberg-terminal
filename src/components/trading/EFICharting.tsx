@@ -38344,8 +38344,8 @@ export default function TradingViewChart({
                           </button>
                         </div>
                         <AdminOnlyGate message="This tool is not available on your plan.">
-                        <StraddleTownScreener autoRun={false} />
-                      </AdminOnlyGate>
+                          <StraddleTownScreener autoRun={false} />
+                        </AdminOnlyGate>
                       </React.Fragment>
                     )}
                   </div>
@@ -39146,8 +39146,8 @@ export default function TradingViewChart({
                         <button onClick={() => setActiveSidebarPanel(null)} className="flex items-center justify-center font-bold transition-all" style={{ width: '44px', flexShrink: 0, alignSelf: 'stretch', fontSize: '16px', color: '#FF6600', border: '2px solid rgba(255,102,0,0.5)', background: 'linear-gradient(180deg,#111111 0%,#040404 100%)', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.background = '#FF6600'; e.currentTarget.style.color = '#000' }} onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'; e.currentTarget.style.color = '#FF6600' }}>&#x2715;</button>
                       </div>
                       <AdminOnlyGate message="This tool is not available on your plan.">
-                      <HVScreener />
-                    </AdminOnlyGate>
+                        <HVScreener />
+                      </AdminOnlyGate>
                     </div>
                   )}
 
@@ -39162,8 +39162,8 @@ export default function TradingViewChart({
                         <button onClick={() => setActiveSidebarPanel(null)} className="flex items-center justify-center font-bold transition-all" style={{ width: '44px', flexShrink: 0, alignSelf: 'stretch', fontSize: '16px', color: '#FF6600', border: '2px solid rgba(255,102,0,0.5)', background: 'linear-gradient(180deg,#111111 0%,#040404 100%)', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.background = '#FF6600'; e.currentTarget.style.color = '#000' }} onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'; e.currentTarget.style.color = '#FF6600' }}>&#x2715;</button>
                       </div>
                       <AdminOnlyGate message="This tool is not available on your plan.">
-                      <LeadershipScan />
-                    </AdminOnlyGate>
+                        <LeadershipScan />
+                      </AdminOnlyGate>
                     </div>
                   )}
 
@@ -39178,8 +39178,8 @@ export default function TradingViewChart({
                         <button onClick={() => setActiveSidebarPanel(null)} className="flex items-center justify-center font-bold transition-all" style={{ width: '44px', flexShrink: 0, alignSelf: 'stretch', fontSize: '16px', color: '#FF6600', border: '2px solid rgba(255,102,0,0.5)', background: 'linear-gradient(180deg,#111111 0%,#040404 100%)', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.background = '#FF6600'; e.currentTarget.style.color = '#000' }} onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'; e.currentTarget.style.color = '#FF6600' }}>&#x2715;</button>
                       </div>
                       <AdminOnlyGate message="This tool is not available on your plan.">
-                      <RSScreener />
-                    </AdminOnlyGate>
+                        <RSScreener />
+                      </AdminOnlyGate>
                     </div>
                   )}
 
@@ -39334,7 +39334,9 @@ export default function TradingViewChart({
                               display: flex !important;
                               flex-direction: row !important;
                               gap: 16px !important;
-                              margin-left: auto !important;
+                              /* was margin-left: auto - that pushed this block flush to the far
+                                 right, leaving a huge empty gap after the control buttons. */
+                              margin-left: 20px !important;
                               flex-wrap: nowrap !important;
                             }
                             
