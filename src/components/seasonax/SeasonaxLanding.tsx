@@ -657,7 +657,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   }
 
   return (
-    <div className="seasonax-container" style={{ marginTop: '0' }}>
+    <div className="seasonax-container" style={{ marginTop: '0', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Hide scrollbars CSS + mobile 2-col grid */}
       <style>
         {`
@@ -701,8 +701,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
         onBestScan={handleLeapsScan}
       />
 
-      {/* Results Grid */}
-      <div className="pro-results">
+      {/* Results Grid - flex:1 so it fills whatever's left under the (non-scrolling) hero controls */}
+      <div className="pro-results" style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {!hasScanned ? (
           <div className="pro-empty-state"></div>
         ) : loading ? (
@@ -716,7 +716,9 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
             style={{
               border: isMobileView ? 'none' : '3px solid #FFD700',
               borderRadius: isMobileView ? '0' : '12px',
-              height: isMobileView ? 'auto' : '82vh',
+              height: isMobileView ? 'auto' : '100%',
+              flex: isMobileView ? undefined : 1,
+              minHeight: 0,
               overflow: isMobileView ? 'visible' : 'hidden',
               display: 'flex',
               flexDirection: 'column',

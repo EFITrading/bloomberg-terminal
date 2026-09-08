@@ -752,7 +752,9 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
             <ResearchPanelV2 />
           </div>
         ) : activeTab === 'screener' ? (
-          <div style={{ flex: 1, minHeight: 0, overflow: 'auto', paddingTop: '0px' }}>
+          // Fixed-height flex column, not a scrolling wrapper - keeps the index/timeframe/scan-mode
+          // row and filters bar pinned in place; only the bullish/bearish result lists scroll.
+          <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', paddingTop: '0px' }}>
             <SeasonaxLanding />
           </div>
         ) : (

@@ -13,9 +13,17 @@ const RocketIcon = () => (
 
 const LayersIcon = () => (
   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-    <path d="M12 3 2 8l10 5 10-5-10-5Z" fill="#818cf8" opacity="0.9" />
-    <path d="M2 12l10 5 10-5" stroke="#6366f1" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M2 16l10 5 10-5" stroke="#4c4fb8" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M12 3 2 8l10 5 10-5-10-5Z" fill="#2dd4bf" opacity="0.9" />
+    <path d="M2 12l10 5 10-5" stroke="#14b8a6" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M2 16l10 5 10-5" stroke="#0d9488" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+
+// Explicit chevron rendered as a real sibling element (not a select background-image) - those
+// render inconsistently/invisibly once appearance:none is paired with a custom gradient fill.
+const Chevron = ({ color = '#FF6B00', size = 9 }: { color?: string; size?: number }) => (
+  <svg width={size} height={size * 0.6} viewBox="0 0 10 6" fill="none" style={{ position: 'absolute', pointerEvents: 'none' }}>
+    <path d="M0 0l5 6 5-6z" fill={color} />
   </svg>
 )
 
@@ -143,10 +151,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
     ...btnBase,
     appearance: 'none',
     WebkitAppearance: 'none',
-    paddingRight: 32,
-    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23ffffff'/%3E%3C/svg%3E")`,
-    backgroundRepeat: 'no-repeat',
-    backgroundPosition: 'right 12px center',
+    paddingRight: 30,
     cursor: 'pointer',
   }
 
@@ -168,31 +173,40 @@ const HeroSection: React.FC<HeroSectionProps> = ({
     border: '1px solid #FF6B00',
   }
 
-  // Scan-mode buttons (Seasonal Leaps / MultiFrame Picks) — pill-shaped badge design, distinct shape from every other flat rectangular button
-  const scanModeBtn: React.CSSProperties = {
+  // Scan-mode buttons (Seasonal Leaps / MultiFrame Picks) — professional segmented-card design,
+  // each mode gets its own accent color (indigo / teal) and lights up fully when it's the last
+  // mode the user triggered, instead of looking like two identical inert badges.
+  const scanModeBtn = (accent: string, active: boolean): React.CSSProperties => ({
     display: 'inline-flex',
     alignItems: 'center',
-    gap: 8,
-    padding: '5px 16px 5px 6px',
-    borderRadius: 999,
-    border: '1px solid rgba(129,140,248,0.5)',
-    background: 'radial-gradient(120% 150% at 0% 0%, rgba(129,140,248,0.22) 0%, rgba(10,10,14,0.92) 60%)',
+    gap: 10,
+    padding: '7px 18px 7px 8px',
+    borderRadius: 10,
+    border: `1px solid ${active ? accent : 'rgba(255,255,255,0.12)'}`,
+    background: active
+      ? `linear-gradient(135deg, ${accent}26 0%, rgba(10,10,14,0.95) 65%)`
+      : 'linear-gradient(180deg, #121215 0%, #0a0a0c 100%)',
+    boxShadow: active
+      ? `inset 0 1px 0 rgba(255,255,255,0.14), 0 0 0 1px ${accent}33, 0 4px 10px -2px ${accent}40`
+      : 'inset 0 1px 0 rgba(255,255,255,0.05)',
     cursor: 'pointer',
     outline: 'none',
+    position: 'relative',
+    overflow: 'hidden',
     fontFamily: '"Roboto Mono", monospace',
-    transition: 'filter 0.15s',
-  }
-  const scanModeIconBadge: React.CSSProperties = {
+    transition: 'all 0.15s ease',
+  })
+  const scanModeIconBadge = (accent: string, active: boolean): React.CSSProperties => ({
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    width: 22,
-    height: 22,
-    borderRadius: '50%',
-    background: 'rgba(129,140,248,0.18)',
-    border: '1px solid rgba(129,140,248,0.5)',
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+    background: active ? `${accent}2e` : 'rgba(255,255,255,0.05)',
+    border: `1px solid ${active ? accent : 'rgba(255,255,255,0.12)'}`,
     flexShrink: 0,
-  }
+  })
 
   // Mobile Row 1 controls — rounded select/scan buttons, replacing the old cramped 24px-tall sharp-cornered bar
   const selectMobile: React.CSSProperties = {
@@ -340,22 +354,25 @@ const HeroSection: React.FC<HeroSectionProps> = ({
           >
             Index :
           </span>
-          <select
-            value={selectedMarket}
-            onChange={(e) => setSelectedMarket(e.target.value)}
-            className="hs-select"
-            style={{ ...selectBase, ...solidBlack, minWidth: 140 }}
-          >
-            {marketOptionGroups.map((group) => (
-              <optgroup key={group.label} label={group.label}>
-                {group.options.map((opt) => (
-                  <option key={opt.value} value={opt.value} style={{ background: '#0d0d0d' }}>
-                    {opt.label}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
+          <div style={{ position: 'relative', display: 'inline-flex', flexShrink: 0 }}>
+            <select
+              value={selectedMarket}
+              onChange={(e) => setSelectedMarket(e.target.value)}
+              className="hs-select"
+              style={{ ...selectBase, ...solidBlack, width: 210 }}
+            >
+              {marketOptionGroups.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.options.map((opt) => (
+                    <option key={opt.value} value={opt.value} style={{ background: '#0d0d0d' }}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            <span style={{ position: 'absolute', right: 13, top: '50%', transform: 'translateY(-50%)', display: 'flex' }}><Chevron /></span>
+          </div>
 
           {/* ── Timeframe label + period select ── */}
           <span
@@ -370,52 +387,56 @@ const HeroSection: React.FC<HeroSectionProps> = ({
           >
             Timeframe :
           </span>
-          <select
-            value={timePeriod}
-            onChange={(e) => onTimePeriodChange?.(e.target.value)}
-            className="hs-select"
-            disabled={loading}
-            style={{ ...selectBase, ...solidBlack, minWidth: 130, opacity: loading ? 0.5 : 1 }}
-          >
-            {timePeriodOptions.map((option) => (
-              <option key={option.id} value={option.id} style={{ background: '#0d0d0d' }}>
-                {option.name}
-              </option>
-            ))}
-          </select>
+          <div style={{ position: 'relative', display: 'inline-flex', flexShrink: 0, opacity: loading ? 0.5 : 1 }}>
+            <select
+              value={timePeriod}
+              onChange={(e) => onTimePeriodChange?.(e.target.value)}
+              className="hs-select"
+              disabled={loading}
+              style={{ ...selectBase, ...solidBlack, width: 150 }}
+            >
+              {timePeriodOptions.map((option) => (
+                <option key={option.id} value={option.id} style={{ background: '#0d0d0d' }}>
+                  {option.name}
+                </option>
+              ))}
+            </select>
+            <span style={{ position: 'absolute', right: 13, top: '50%', transform: 'translateY(-50%)', display: 'flex' }}><Chevron /></span>
+          </div>
 
           <div style={{ width: 1, height: 28, background: '#2a2a2a', margin: '0 4px' }} />
 
-          {/* ── Scan modes: Seasonal Leaps + MultiFrame Picks — pill badge design, distinct from every rectangular button ── */}
+          {/* ── Scan modes: Seasonal Leaps (indigo) + MultiFrame Picks (teal) — each lights up with
+              its own accent once it's the last-triggered mode ── */}
           <button
             className="hs-mode-btn"
-            onClick={() => onBestScan?.(selectedMarket)}
+            onClick={() => { setScanMode('leaps'); onBestScan?.(selectedMarket) }}
             disabled={loading}
-            style={{ ...scanModeBtn, opacity: loading ? 0.5 : 1 }}
+            style={{ ...scanModeBtn('#818cf8', scanMode === 'leaps'), opacity: loading ? 0.5 : 1 }}
           >
-            <span style={scanModeIconBadge}><RocketIcon /></span>
+            <span style={scanModeIconBadge('#818cf8', scanMode === 'leaps')}><RocketIcon /></span>
             <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15, alignItems: 'flex-start' }}>
-              <span className="hs-mode-eyebrow" style={{ fontSize: 8, fontWeight: 700, letterSpacing: '1px' }}>SCAN MODE</span>
-              <span className="hs-mode-title" style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.4px' }}>Seasonal Leaps</span>
+              <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '1px', color: 'rgba(199,201,255,0.65)' }}>SCAN MODE</span>
+              <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.4px', color: '#c7c9ff' }}>Seasonal Leaps</span>
             </span>
           </button>
 
           <button
             className="hs-mode-btn"
-            onClick={() => onSeasonedScan?.(selectedMarket)}
+            onClick={() => { setScanMode('multiframe'); onSeasonedScan?.(selectedMarket) }}
             disabled={loading}
-            style={{ ...scanModeBtn, opacity: loading ? 0.5 : 1 }}
+            style={{ ...scanModeBtn('#2dd4bf', scanMode === 'multiframe'), opacity: loading ? 0.5 : 1 }}
           >
-            <span style={scanModeIconBadge}><LayersIcon /></span>
+            <span style={scanModeIconBadge('#2dd4bf', scanMode === 'multiframe')}><LayersIcon /></span>
             <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15, alignItems: 'flex-start' }}>
-              <span className="hs-mode-eyebrow" style={{ fontSize: 8, fontWeight: 700, letterSpacing: '1px' }}>SCAN MODE</span>
-              <span className="hs-mode-title" style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.4px' }}>MultiFrame Picks</span>
+              <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '1px', color: 'rgba(153,246,228,0.65)' }}>SCAN MODE</span>
+              <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.4px', color: '#99f6e4' }}>MultiFrame Picks</span>
             </span>
           </button>
 
           <button
             className="hs-btn hs-btn-orange-text"
-            onClick={() => handleStartScreener()}
+            onClick={() => { setScanMode('normal'); handleStartScreener('normal') }}
             style={{ ...btnBase, ...solidOrange, minWidth: 100, marginLeft: 'auto' }}
           >
             SCAN

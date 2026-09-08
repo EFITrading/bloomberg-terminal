@@ -74,6 +74,37 @@ function bsPrice(
   return K * Math.exp(-r * T) * normalCDF(-d2) - S * normalCDF(-d1)
 }
 
+// ── Same probability-of-profit strike solve as SweepSense (bsStrikeForProbFTP in
+// FlowTrackingPanel.tsx) - binary-searches for the strike where the risk-neutral chance of
+// finishing beyond it equals `prob`, so targets/stop are built the same way, not off an
+// arbitrary expected-move multiple.
+function bsStrikeForProb(S: number, sigma: number, dte: number, prob: number, isCall: boolean): number | null {
+  if (!sigma || sigma <= 0 || dte <= 0) return null
+  const r = 0.0387
+  const T = dte / 365
+  const d2 = (K: number) => (Math.log(S / K) + (r - 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T))
+  const copCall = (K: number) => (1 - normalCDF(d2(K))) * 100
+  const copPut = (K: number) => normalCDF(d2(K)) * 100
+  if (isCall) {
+    let lo = S + 0.01, hi = S * 1.5
+    for (let i = 0; i < 50; i++) {
+      const mid = (lo + hi) / 2
+      const p = copCall(mid)
+      if (Math.abs(p - prob) < 0.1) return mid
+      p < prob ? (lo = mid) : (hi = mid)
+    }
+    return (lo + hi) / 2
+  }
+  let lo = S * 0.5, hi = S - 0.01
+  for (let i = 0; i < 50; i++) {
+    const mid = (lo + hi) / 2
+    const p = copPut(mid)
+    if (Math.abs(p - prob) < 0.1) return mid
+    p < prob ? (hi = mid) : (lo = mid)
+  }
+  return (lo + hi) / 2
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const symbol = searchParams.get('symbol')?.toUpperCase()
@@ -131,46 +162,57 @@ export async function GET(req: NextRequest) {
     if (!contractsData.results?.length)
       throw new Error(`No ${direction} contracts found for ${expiryDate}`)
 
-    // 3. ATM = closest strike to current price
+    const isCall = direction === 'call'
+    const r = 0.0387
+
+    // 3. ATM contract first - just to read a live IV to solve the probability strikes with
+    // (SweepSense uses the flow's own IV; there's no pre-existing trade here, so borrow the
+    // ATM contract's IV as the sigma input).
     const atmContract = contractsData.results.reduce((prev: any, curr: any) =>
       Math.abs(curr.strike_price - currentPrice) < Math.abs(prev.strike_price - currentPrice)
         ? curr
         : prev
     )
-    const strike: number = atmContract.strike_price
-    const ticker: string = atmContract.ticker
+    const atmSnapUrl = `https://api.polygon.io/v3/snapshot/options/${symbol}/${atmContract.ticker}?apikey=${POLYGON_API_KEY}`
+    const atmSnapResp = await fetch(atmSnapUrl, { signal: AbortSignal.timeout(6000) })
+    const atmSnapData = await atmSnapResp.json()
+    const iv: number = atmSnapData.results?.implied_volatility ?? 0.35
 
-    // 4. Option snapshot → bid / ask / IV
+    // 4. Same probability-of-profit ladder as SweepSense's TRADE PICK: 85%/95% POP targets,
+    // 75% (short-term) or 60% (long-term, >=30 DTE) POP stop on the opposite side. Main
+    // contract picked is the real listed strike closest to the Target 1 theoretical strike.
+    const isLongTerm = dte >= 30
+    const stopProb = isLongTerm ? 60 : 75
+    const target1Stock = bsStrikeForProb(currentPrice, iv, dte, 85, isCall) ?? currentPrice
+    const target2Stock = bsStrikeForProb(currentPrice, iv, dte, 95, isCall) ?? currentPrice
+    const stopLossStock = bsStrikeForProb(currentPrice, iv, dte, stopProb, !isCall) ?? currentPrice
+
+    // 5. Real listed strike closest to the Target 1 strike is the contract actually picked.
+    const mainContract = contractsData.results.reduce((prev: any, curr: any) =>
+      Math.abs(curr.strike_price - target1Stock) < Math.abs(prev.strike_price - target1Stock)
+        ? curr
+        : prev
+    )
+    const strike: number = mainContract.strike_price
+    const ticker: string = mainContract.ticker
+
+    // 6. Option snapshot for the picked contract → bid / ask / mid
     const snapUrl = `https://api.polygon.io/v3/snapshot/options/${symbol}/${ticker}?apikey=${POLYGON_API_KEY}`
     const snapResp = await fetch(snapUrl, { signal: AbortSignal.timeout(6000) })
     const snapData = await snapResp.json()
     const snap = snapData.results
-
-    const iv: number = snap?.implied_volatility ?? 0.35
     const bid: number = snap?.last_quote?.bid ?? 0
     const ask: number = snap?.last_quote?.ask ?? 0
     const mid: number = bid > 0 && ask > 0 ? (bid + ask) / 2 : (snap?.day?.close ?? 0)
 
-    // 5. Targets & Stop Loss (same logic as Industry Analysis)
-    const T = dte / 365
-    const r = 0.05
-    const isCall = direction === 'call'
-    const expectedMove = currentPrice * iv * Math.sqrt(T)
-
-    const target1Stock = isCall
-      ? currentPrice + expectedMove * 0.84
-      : currentPrice - expectedMove * 0.84
-    const target2Stock = isCall
-      ? currentPrice + expectedMove * 1.5
-      : currentPrice - expectedMove * 1.5
-    const stopLossStock = isCall
-      ? currentPrice - expectedMove * 0.5
-      : currentPrice + expectedMove * 0.5
-
-    // Option prices at target levels (time decay applied proportionally)
-    const target1Premium = bsPrice(target1Stock, strike, T * 0.7, r, iv, isCall)
-    const target2Premium = bsPrice(target2Stock, strike, T * 0.5, r, iv, isCall)
-    const stopLossPremium = bsPrice(stopLossStock, strike, T * 0.8, r, iv, isCall)
+    // 7. Targets/stop all reprice the SAME picked contract at the target/stop stock price,
+    // using a decayed DTE (half burned off if <=10 DTE, two-thirds burned off otherwise) -
+    // same convention as SweepSense, not a flat proportional-decay guess.
+    const decayedDte = Math.max(1, dte <= 10 ? Math.round(dte / 2) : Math.round(dte / 3))
+    const Tdecayed = decayedDte / 365
+    const target1Premium = bsPrice(target1Stock, strike, Tdecayed, r, iv, isCall)
+    const target2Premium = bsPrice(target2Stock, strike, Tdecayed, r, iv, isCall)
+    const stopLossPremium = bsPrice(stopLossStock, strike, Tdecayed, r, iv, isCall)
 
     const fmt2 = (n: number) => Math.round(n * 100) / 100
     const fmt1 = (n: number) => Math.round(n * 10) / 10

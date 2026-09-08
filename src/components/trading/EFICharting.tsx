@@ -160,6 +160,8 @@ const SeasonalScreenerWrapper: React.FC<{
     highWinRate: filters.highWinRate ? 'true' : '',
     startingSoon: filters.startingSoon ? 'true' : '',
     fiftyTwoWeek: filters.fiftyTwoWeek,
+    correlation: '',
+    mover: '',
   }
   return (
     <div className="seasonality-screener-wrapper">
