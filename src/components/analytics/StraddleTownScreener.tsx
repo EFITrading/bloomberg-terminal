@@ -6,7 +6,7 @@ import { getRiskFreeRate } from '@/lib/riskFreeRate'
 import StraddlePortfolio, { spAddPosition } from './StraddlePortfolio'
 import type { StraddlePosition } from './StraddlePortfolio'
 
-import { TOP_1800_SYMBOLS } from '@/lib/Top1000Symbols'
+import { QUALITY_SYMBOLS } from '@/lib/QualitySymbols'
 // ── Constants ──────────────────────────────────────────────────────────────────
 const MIN_AVG_HV = 1.5            // lowered from 3.0 — allow lower-vol names
 const SCAN_TRADING_DAYS = 2       // only contractions within the past 2 trading days
@@ -412,7 +412,7 @@ function detectContraction(bars: Bar[]): { qualifies: boolean; compressionPct: n
   const curBar = lb[lb.length - 1]
   const avgBarRange = lb.reduce((s, b) => s + (b.high - b.low), 0) / lb.length
   const curBarTight = avgBarRange > 0 && curBar.high - curBar.low <= avgBarRange * 2.0
-  const qualifies = compressionPct > 40 && compressionPct < 67 && notTrending && curBarTight
+  const qualifies = compressionPct > 39 && compressionPct < 75 && notTrending && curBarTight
   return { qualifies, compressionPct }
 }
 
@@ -699,13 +699,13 @@ async function runWithConcurrency<T>(
   return results
 }
 
-// ── Symbol universe from Top1000Symbols.ts ───────────────────────────────────
+// ── Symbol universe — market cap >= $25B AND price >= $30 (QualitySymbols.ts) ─
 async function fetchTopSymbols(
   _apiKey: string,
   limit: number,
   _signal: AbortSignal
 ): Promise<string[]> {
-  return TOP_1800_SYMBOLS.slice(0, limit).filter(s => !LOW_VOL_EXCLUSIONS.has(s))
+  return QUALITY_SYMBOLS.slice(0, limit).filter(s => !LOW_VOL_EXCLUSIONS.has(s))
 }
 
 // ── Fetch OHLCV for a single symbol ───────────────────────────────────────────
@@ -2993,7 +2993,7 @@ export default function StraddleTownScreener({ autoRun = false }: { autoRun?: bo
       if (dow !== 0 && dow !== 6) tradingDays.unshift(cursor.toISOString().split('T')[0])
     }
 
-    const symbols = TOP_1800_SYMBOLS.slice(0, MAX_SYMBOLS).filter((s: string) => !LOW_VOL_EXCLUSIONS.has(s))
+    const symbols = QUALITY_SYMBOLS.slice(0, MAX_SYMBOLS).filter((s: string) => !LOW_VOL_EXCLUSIONS.has(s))
     const BATCH_SIZE = 8
     let done = 0
     const total = symbols.length

@@ -3,7 +3,8 @@
 // and posts hits back to the main thread. No shared state with other workers.
 
 const MIN_AVG_HV = 1.5
-const CONTRACTION_THRESHOLD = 40
+const CONTRACTION_THRESHOLD = 39
+const CONTRACTION_CEILING = 75
 const SCAN_TRADING_DAYS = 2
 
 function calcEMA(vals, p) {
@@ -62,7 +63,7 @@ function detectContraction(bars) {
     const curBar = lb[lb.length - 1]
     const avgBarRange = lb.reduce((s, b) => s + (b.high - b.low), 0) / lb.length
     const curBarTight = avgBarRange > 0 && curBar.high - curBar.low <= avgBarRange * 2.0
-    const qualifies = compressionPct > CONTRACTION_THRESHOLD && notTrending && curBarTight
+    const qualifies = compressionPct > CONTRACTION_THRESHOLD && compressionPct < CONTRACTION_CEILING && notTrending && curBarTight
     return { qualifies, compressionPct }
 }
 

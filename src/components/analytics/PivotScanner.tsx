@@ -382,7 +382,7 @@ export default function PivotScanner({ compactMode = false }: PivotScannerProps)
       const isSingleTickerSearch = results.length <= 2 // 2 because we scan both 5D and 13D
       if (!isSingleTickerSearch && r.qualifies === false) return false
 
-      if (filterType === 'all') return true
+      if (filterType === 'all') return r.contractionPercent >= 39 && r.contractionPercent <= 75
       if (filterType === 'straddles') return r.contractionPercent >= 45
       if (filterType === 'squeeze-on') return r.squeezeStatus === 'ON'
       if (filterType === 'squeeze-off') return r.squeezeStatus === 'OFF'
@@ -1437,8 +1437,8 @@ export default function PivotScanner({ compactMode = false }: PivotScannerProps)
 
                                 const prevDayY = chartData.previousDayClose
                                   ? padding +
-                                    ((maxPrice - chartData.previousDayClose) / priceRange) *
-                                      chartHeight
+                                  ((maxPrice - chartData.previousDayClose) / priceRange) *
+                                  chartHeight
                                   : null
 
                                 // Pre-calculate shading zones
