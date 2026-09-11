@@ -751,14 +751,12 @@ async function runSweepSenseDiscordAlert() {
     if (!DISCORD_WEBHOOK_URL) { console.warn('[Discord] DISCORD_WEBHOOK_URL not set — skipping alert scan'); return }
     discordAlertRunning = true
     const tradingDate = getTradingDate()
-    let browser
+    let scrapeBrowser
+    let cardBrowser
     try {
         const puppeteer = (await import('puppeteer')).default
-        // Default protocolTimeout (30s) is too short once the chart-embed capture (its own
-        // navigation + fetch + canvas render) is chained after the card render per ticker -
-        // real prod run timed out with "Runtime.callFunctionOn timed out" and silently posted 0.
-        browser = await puppeteer.launch({ headless: true, args: CHROME_LAUNCH_ARGS, protocolTimeout: 300_000 })
-        const page = await browser.newPage()
+        scrapeBrowser = await puppeteer.launch({ headless: true, args: CHROME_LAUNCH_ARGS, protocolTimeout: 300_000 })
+        const page = await scrapeBrowser.newPage()
         await page.setViewport({ width: 1600, height: 1200, deviceScaleFactor: 2 })
         const cookies = await loginCookies()
         if (cookies.length > 0) await page.setCookie(...cookies)
@@ -774,8 +772,11 @@ async function runSweepSenseDiscordAlert() {
         )
         console.log(`[Discord] Scraped ${cards.length} total SweepSense card(s).`)
         const ready = cards.filter((c) => c.ready)
+        // Done with the scrape page/browser — close it now instead of holding it open through
+        // every ticker's chart+card capture below (see wedging note further down).
+        await scrapeBrowser.close().catch(() => { })
+        scrapeBrowser = null
         if (ready.length === 0) { console.log('[Discord] No Ready-4-Pickup trades this scan.'); return }
-
 
         const already = await prisma.discordAlertedFlow.findMany({
             where: { tradingDate, flowId: { in: ready.map((c) => c.flowId) } },
@@ -785,50 +786,70 @@ async function runSweepSenseDiscordAlert() {
         const newOnes = ready.filter((c) => !alreadySet.has(c.flowId))
         if (newOnes.length === 0) { console.log('[Discord] All Ready-4-Pickup trades already alerted.'); return }
 
-        // --single-process Chrome (required to dodge the Railway container's cgroup pids limit,
-        // which `ulimit -u` in the start command cannot override) runs the browser + every
-        // renderer as threads inside ONE OS process. Two pages open at once (renderPage +
-        // chartPage) was enough concurrent CDP/render work to permanently wedge that shared
-        // thread, so every capture died with "Runtime.callFunctionOn timed out" at the
-        // protocolTimeout ceiling. Reuse a SINGLE page for everything, strictly sequentially -
-        // never more than one page alive at a time.
+        // A long-lived page reused across BOTH chart-embed (real candle chart, canvas-heavy)
+        // and the static card HTML permanently wedges --single-process Chrome's one shared
+        // renderer thread the moment it renders the first chart — every following CDP call
+        // (even unrelated ones like setContent/screenshot for the card) then hangs until
+        // protocolTimeout and every single post fails with "Runtime.callFunctionOn timed out",
+        // which is exactly what prod logs showed (100% failure rate, first ticker included).
+        // Fix: give the chart capture its own disposable browser per ticker (launched + closed
+        // immediately), and keep a SEPARATE long-lived browser only for the plain-HTML card
+        // render, which never touches canvas and is safe to reuse.
+        cardBrowser = await puppeteer.launch({ headless: true, args: CHROME_LAUNCH_ARGS, protocolTimeout: 300_000 })
+        const cardPage = await cardBrowser.newPage()
+        await cardPage.setViewport({ width: 1460, height: 1000, deviceScaleFactor: 2 })
+
         let postedCount = 0
         for (const c of newOnes) {
             try {
-                try {
-                    const entryTime = c.takenAt ? new Date(c.takenAt).getTime() : null
-                    const chartUrl = `${APP_URL}/chart-embed?ticker=${encodeURIComponent(c.ticker)}${entryTime ? `&entryTime=${entryTime}` : ''}`
-                    await page.setViewport({ width: 900, height: 620, deviceScaleFactor: 2 })
-                    await page.goto(chartUrl, { waitUntil: 'networkidle0', timeout: 30_000 })
-                    // A stale/invalid cookie silently redirects to /login (which has its own
-                    // decorative background canvas) instead of erroring - waitForSelector('canvas')
-                    // would then happily screenshot that login-page canvas instead of the chart.
-                    // Re-auth once and retry before trusting the page at all.
-                    if (!page.url().includes('/chart-embed')) {
-                        const freshCookies = await loginCookies()
-                        if (freshCookies.length > 0) await page.setCookie(...freshCookies)
-                        await page.goto(chartUrl, { waitUntil: 'networkidle0', timeout: 30_000 })
-                    }
-                    if (!page.url().includes('/chart-embed')) {
-                        throw new Error(`redirected away from chart-embed (landed on ${page.url()})`)
-                    }
-                    await page.waitForSelector('[data-chart-ready="true"] canvas', { timeout: 15_000 })
-                    // Let the candle fetch + draw settle before capturing.
-                    await new Promise((r) => setTimeout(r, 2500))
-                    const canvasHandle = await page.$('[data-chart-ready="true"] canvas')
-                    if (canvasHandle) {
+                const entryTime = c.takenAt ? new Date(c.takenAt).getTime() : null
+                const chartUrl = `${APP_URL}/chart-embed?ticker=${encodeURIComponent(c.ticker)}${entryTime ? `&entryTime=${entryTime}` : ''}`
+                const MAX_CHART_ATTEMPTS = 4
+                for (let attempt = 1; attempt <= MAX_CHART_ATTEMPTS; attempt++) {
+                    let chartBrowser
+                    try {
+                        chartBrowser = await puppeteer.launch({ headless: true, args: CHROME_LAUNCH_ARGS, protocolTimeout: 60_000 })
+                        const chartPage = await chartBrowser.newPage()
+                        await chartPage.setViewport({ width: 900, height: 620, deviceScaleFactor: 2 })
+                        const chartCookies = await loginCookies()
+                        if (chartCookies.length > 0) await chartPage.setCookie(...chartCookies)
+                        // TradePopupChart opens a live Polygon WebSocket for streaming quotes that
+                        // never closes, so 'networkidle0' (0 connections for 500ms) NEVER resolves —
+                        // it just hangs the full 30s until it throws, which is why every chart
+                        // capture was silently dying. The chart is fully drawn from the REST candle
+                        // fetch well before that; wait for DOM only, then the canvas element itself.
+                        await chartPage.goto(chartUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+                        // A stale/invalid cookie silently redirects to /login instead of erroring —
+                        // re-auth once and retry before trusting the page at all.
+                        if (!chartPage.url().includes('/chart-embed')) {
+                            const freshCookies = await loginCookies()
+                            if (freshCookies.length > 0) await chartPage.setCookie(...freshCookies)
+                            await chartPage.goto(chartUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+                        }
+                        if (!chartPage.url().includes('/chart-embed')) {
+                            throw new Error(`redirected away from chart-embed (landed on ${chartPage.url()})`)
+                        }
+                        await chartPage.waitForSelector('[data-chart-ready="true"] canvas', { timeout: 20_000 })
+                        // Let the candle fetch + draw settle before capturing.
+                        await new Promise((r) => setTimeout(r, 3000))
+                        const canvasHandle = await chartPage.$('[data-chart-ready="true"] canvas')
+                        if (!canvasHandle) throw new Error('canvas element not found after ready flag')
                         // clip: true forces the capture to the element's own box, ignoring any
                         // fixed/sticky element (e.g. the site nav bar) sitting on top of it.
                         const box = await canvasHandle.boundingBox()
-                        const chartPng = await page.screenshot({ type: 'png', clip: box ?? undefined })
+                        const chartPng = await chartPage.screenshot({ type: 'png', clip: box ?? undefined })
                         c.chartImageBase64 = Buffer.from(chartPng).toString('base64')
+                        break
+                    } catch (chartErr) {
+                        console.error(`[Discord] Chart capture attempt ${attempt}/${MAX_CHART_ATTEMPTS} failed for ${c.ticker}:`, chartErr.message)
+                        if (attempt === MAX_CHART_ATTEMPTS) throw new Error(`chart capture failed after ${MAX_CHART_ATTEMPTS} attempts: ${chartErr.message}`)
+                    } finally {
+                        if (chartBrowser) await chartBrowser.close().catch(() => { })
                     }
-                } catch (chartErr) {
-                    console.error(`[Discord] Chart capture failed for ${c.ticker}:`, chartErr.message)
                 }
-                await page.setViewport({ width: 1460, height: 1000, deviceScaleFactor: 2 })
-                await page.setContent(buildSweepSenseCardHtml(c), { waitUntil: 'load' })
-                const cardHandle = await page.$('#card')
+
+                await cardPage.setContent(buildSweepSenseCardHtml(c), { waitUntil: 'load' })
+                const cardHandle = await cardPage.$('#card')
                 if (!cardHandle) { console.error(`[Discord] Card render failed for ${c.ticker} — skipping.`); continue }
                 const png = await cardHandle.screenshot({ type: 'png' })
 
@@ -856,7 +877,8 @@ async function runSweepSenseDiscordAlert() {
     } catch (err) {
         console.error('[Discord] Alert scan failed:', err.message)
     } finally {
-        if (browser) await browser.close().catch(() => { })
+        if (scrapeBrowser) await scrapeBrowser.close().catch(() => { })
+        if (cardBrowser) await cardBrowser.close().catch(() => { })
         discordAlertRunning = false
     }
 }
