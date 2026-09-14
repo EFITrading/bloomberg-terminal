@@ -2030,10 +2030,12 @@ function SweepSenseTab({
     // Must match the literal phrasing OptionsFlowTable.tsx actually generates - 'pull back
     // down to'/'run up to' (no "approach"), else these never match and every reversal plan
     // silently falls through to the `return true` default regardless of live price.
-    if (planText.includes('pull back down to')) return livePrice <= level
-    if (planText.includes('run up to')) return livePrice >= level
-    if (planText.includes('break above')) return livePrice > level
-    if (planText.includes('break below')) return livePrice < level
+    // 1% tolerance so "basically there" counts as ready instead of requiring an exact touch.
+    const tol = level * 0.01
+    if (planText.includes('pull back down to')) return livePrice <= level + tol
+    if (planText.includes('run up to')) return livePrice >= level - tol
+    if (planText.includes('break above')) return livePrice > level - tol
+    if (planText.includes('break below')) return livePrice < level + tol
     return true
   }
 
@@ -2571,10 +2573,12 @@ function SweepSenseTab({
             const level = dollarMatch ? parseFloat(dollarMatch[1]) : null
             if (level === null || !livePrice || livePrice <= 0) return true
             // Same phrasing fix as isReadyForPickup above - keep these two in sync.
-            if (planText.includes('pull back down to')) return livePrice <= level
-            if (planText.includes('run up to')) return livePrice >= level
-            if (planText.includes('break above')) return livePrice > level
-            if (planText.includes('break below')) return livePrice < level
+            // 1% tolerance so "basically there" counts as ready instead of requiring an exact touch.
+            const tol = level * 0.01
+            if (planText.includes('pull back down to')) return livePrice <= level + tol
+            if (planText.includes('run up to')) return livePrice >= level - tol
+            if (planText.includes('break above')) return livePrice > level - tol
+            if (planText.includes('break below')) return livePrice < level + tol
             return true
           })()
           const flowAlertPayload = JSON.stringify({
