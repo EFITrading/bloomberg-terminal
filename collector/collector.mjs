@@ -320,14 +320,36 @@ let reconnectTimer = null
 let flushTimer = null
 let saveTimer = null
 let discordAlertTimer = null
+let watchdogTimer = null
+let lastMessageAt = 0
 let rawBuffer = []          // incoming WS messages, flushed every 1s
 let pendingTrades = []      // enriched trades since last DB save — cleared after each successful save
 let intentionalStop = false // set before ws.terminate() so close handler doesn't reconnect
 let collecting = false      // true while a trading session is active — prevents duplicate startCollecting calls
 
+// 2026-09-16: real prod outage — the Polygon WS went silently dead mid-session (13:53:41 UTC)
+// with NO 'close' or 'error' event ever firing (a half-open/zombie TCP connection), so the
+// existing reconnect-on-close logic never triggered and the collector sat idle the rest of the
+// day. Nothing short of an active liveness check catches this — watch for how long it's been
+// since the last message and force a reconnect if the feed goes quiet during market hours.
+const WATCHDOG_STALE_MS = 60_000
+function startWatchdog() {
+    if (watchdogTimer) clearInterval(watchdogTimer)
+    watchdogTimer = setInterval(() => {
+        if (!collecting || !isMarketOpen()) return
+        const idleMs = Date.now() - lastMessageAt
+        if (idleMs > WATCHDOG_STALE_MS) {
+            console.error(`[WS] Watchdog: no messages in ${Math.round(idleMs / 1000)}s — forcing reconnect`)
+            if (ws) { ws.terminate(); ws = null } else { startStream() }
+        }
+    }, 15_000)
+}
+
 function startStream() {
     if (ws) { ws.terminate(); ws = null }
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
+    lastMessageAt = Date.now()
+    startWatchdog()
 
     console.log('[WS] Connecting to wss://socket.polygon.io/options ...')
     ws = new WebSocket('wss://socket.polygon.io/options')
@@ -338,6 +360,7 @@ function startStream() {
     })
 
     ws.on('message', (data) => {
+        lastMessageAt = Date.now()
         try {
             const msgs = JSON.parse(data.toString())
             for (const msg of msgs) {
@@ -397,6 +420,7 @@ function stopStream() {
     if (saveTimer) { clearInterval(saveTimer); saveTimer = null }
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
     if (discordAlertTimer) { clearInterval(discordAlertTimer); discordAlertTimer = null }
+    if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null }
 
     // Final save
     const tradingDate = getTradingDate()
