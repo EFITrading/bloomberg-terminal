@@ -2112,8 +2112,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
         <div style={{ display: 'grid', gridTemplateColumns: hideScreener ? '100%' : '51% 48%', gap: '1%', width: '100%' }}>
           <div className="seasonax-error">
             <div className="error-content">
-              <h3>Error Loading Data</h3>
-              <p>{error}</p>
+              <h3>{/no (data|response)|not found|404/i.test(error) ? `"${selectedSymbol}" not found` : 'Error Loading Data'}</h3>
+              <p>{/no (data|response)|not found|404/i.test(error) ? 'Check the symbol and search again above.' : error}</p>
               <button
                 onClick={() => {
                   if (isElectionMode) {
@@ -2132,6 +2132,13 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                 className="retry-button"
               >
                 Retry
+              </button>
+              <button
+                onClick={() => setError(null)}
+                className="retry-button"
+                style={{ marginLeft: '8px', background: 'transparent' }}
+              >
+                Dismiss
               </button>
             </div>
           </div>

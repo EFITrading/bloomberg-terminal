@@ -29,6 +29,15 @@ interface SavedScript {
   savedAt: number;
   tags?: string[];
   description?: string;
+  visibility?: 'private' | 'shared';
+  synced?: boolean;
+}
+interface SharedScript {
+  id: string;
+  name: string;
+  code: string;
+  description?: string | null;
+  updatedAt: string;
 }
 interface LogEntry {
   id: number;
@@ -50,6 +59,32 @@ interface Toast {
   id: number;
   text: string;
   type: 'success' | 'error' | 'info';
+}
+
+// Renders html(...) output and actually executes any embedded <script> tags —
+// innerHTML alone won't run scripts, but users need real interactivity (canvas drawing, click handlers, etc).
+function HtmlBlock({ markup, style }: { markup: string; style?: React.CSSProperties }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.innerHTML = markup;
+    const scripts = Array.from(el.querySelectorAll('script'));
+    for (const old of scripts) {
+      const fresh = document.createElement('script');
+      for (const attr of Array.from(old.attributes)) fresh.setAttribute(attr.name, attr.value);
+      fresh.textContent = old.textContent;
+      old.replaceWith(fresh);
+    }
+    // DEBUG: iframes blocked by CSP fail silently (no JS error) - log load/error explicitly.
+    const iframes = Array.from(el.querySelectorAll('iframe'));
+    for (const f of iframes) {
+      console.log('[debug] iframe src=', f.src);
+      f.addEventListener('load', () => console.log('[debug] iframe load fired for', f.src));
+      f.addEventListener('error', (ev) => console.error('[debug] iframe error for', f.src, ev));
+    }
+  }, [markup]);
+  return <div ref={ref} style={style} />;
 }
 
 // -- Icons ---------------------------------------------------------------------
@@ -152,6 +187,18 @@ const Icon = {
     <svg width="16" height="12" viewBox="0 0 16 12" fill="none" stroke="currentColor" strokeWidth="1.3">
       <rect x="1" y="1" width="14" height="10" rx="2" />
       <path d="M4 4h1M7 4h1M10 4h1M4 7h1M7 7h1M10 7h1M5.5 9.5h5" strokeLinecap="round" strokeWidth="1.5" />
+    </svg>
+  ),
+  lock: (
+    <svg width="12" height="14" viewBox="0 0 12 14" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <rect x="1" y="6" width="10" height="7" rx="1.5" />
+      <path d="M3 6V4a3 3 0 016 0v2" strokeLinecap="round" />
+    </svg>
+  ),
+  globe: (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3">
+      <circle cx="6.5" cy="6.5" r="5.5" />
+      <path d="M1 6.5h11M6.5 1a9 9 0 012.5 5.5A9 9 0 016.5 12 9 9 0 014 6.5 9 9 0 016.5 1z" strokeLinecap="round" />
     </svg>
   ),
   format: (
@@ -1022,16 +1069,45 @@ async function run() {
 
 return run();`;
 
+// Real base code: embeds the ACTUAL live Options Flow page (same component, same data,
+// same filters/buttons/grading - not a reimplementation).
+const TPL_MY_FLOW_BASE = `// --- My Options Flow (Base) ----------------------------------------------------
+// This loads the REAL Options Flow page - exact design, filters, buttons, grading.
+async function run() {
+  html('<iframe src="/options-flow" style="width:100%;height:900px;border:0;background:#000;" title="Options Flow"></iframe>');
+  log('Loaded real Options Flow.');
+}
+
+return run();`;
+
+// Iframe-embed "base" templates for the rest of the site's tools, same pattern as the
+// Options Flow one above: the real live page, not a reimplementation. Each is a real,
+// same-origin route so it renders identically to what you see when you visit it directly.
+function iframeTpl(label: string, path: string, height = 900): string {
+  return `// --- ${label} (Base) ----------------------------------------------------------\n` +
+    `async function run() {\n` +
+    `  html('<iframe src="${path}" style="width:100%;height:${height}px;border:0;background:#000;" title="${label}"></iframe>');\n` +
+    `  log('Loaded real ${label}.');\n` +
+    `}\n\n` +
+    `return run();`;
+}
+
+const TPL_FLOW_ADDON_BASE = iframeTpl('Options Flow Add-On (SweepSense / A+ Tracker)', '/options-flow?onlyAddon=1');
+const TPL_SEASONALITY_BASE = iframeTpl('Data Driven Seasonality', '/data-driven');
+const TPL_EFI_CHART_BASE = iframeTpl('EFI Chart', '/market-overview');
+const TPL_RRG_BASE = iframeTpl('RRG Screener', '/rrg-screener');
+const TPL_ANALYSIS_SUITE_BASE = iframeTpl('Analysis Suite (Seasonal Screener / Straddle Town / RS)', '/analysis-suite');
+
 const TEMPLATES = [
-  { id: 'tpl-g1', name: 'Guide 1 - Price & OHLCV', desc: 'Live prices, daily bars, intraday timeframes, and bulk multi-symbol historical data in one call.', apis: ['price', 'spxPrice', 'prices', 'historical', 'bars', 'bulkHistorical'], code: TPL_G1 },
-  { id: 'tpl-g2', name: 'Guide 2 - Options Chain', desc: 'Full options chain with greeks, max pain calculation, and call/put OI skew analysis.', apis: ['optionsChain', 'greeks', 'max pain', 'OI skew'], code: TPL_G2 },
-  { id: 'tpl-g3', name: 'Guide 3 - Options Flow & Sweeps', desc: 'Live unusual options activity, institutional sweep detection, and market-wide C/P flow bias.', apis: ['optionsFlow', 'sweepFlow', 'C/P ratio'], code: TPL_G3 },
-  { id: 'tpl-g4', name: 'Guide 4 - Market Intelligence', desc: 'Market snapshot, news feed, FRED economic calendar, cycle history, and ticker search.', apis: ['marketSnapshot', 'news', 'fredCalendar', 'marketCycle', 'search'], code: TPL_G4 },
-  { id: 'tpl-g5', name: 'Guide 5 - Volatility & Risk', desc: 'Rolling historical vol, Black-Scholes IV history, IV vs HV spread signal, and manual HV.', apis: ['historicalVolatility', 'ivHistory', 'IV vs HV'], code: TPL_G5 },
   { id: 'tpl-dark', name: 'Theme - Dark Mode', desc: 'EFI terminal dark scaffold with cards, tables, and live data. Copy this palette for any script.', code: TPL_DARK },
   { id: 'tpl-light', name: 'Theme - Light Mode', desc: 'Clean white dashboard with striped tables, horizontal bar charts, and a news feed. Copy for light tools.', code: TPL_LIGHT },
-  { id: 'tpl-52w', name: '52-Week High Screener', desc: 'Scans a watchlist for stocks trading within a threshold % of their 52-week high with volume confirmation.', apis: ['historical', 'bulkHistorical'], code: TPL_52W },
   { id: 'tpl-regime', name: 'Regime Industry Picker', desc: 'Ranks sector ETFs by momentum and aligns them with the current market regime for rotation signals.', apis: ['historical', 'marketSnapshot'], code: TPL_REGIME },
+  { id: 'tpl-my-flow-base', name: 'My Options Flow (Base)', desc: 'The REAL live Options Flow page embedded exactly as-is - same design, filters, buttons, grading.', apis: ['optionsFlow'], code: TPL_MY_FLOW_BASE },
+  { id: 'tpl-flow-addon-base', name: 'My Options Flow Add-On (Base)', desc: 'Just the SweepSense summary, A+ Tracker and Sweepview panel - no main table.', apis: ['optionsFlow'], code: TPL_FLOW_ADDON_BASE },
+  { id: 'tpl-seasonality-base', name: 'My Data Driven Seasonality (Base)', desc: 'The REAL live Data Driven seasonality chart, embedded exactly as-is.', code: TPL_SEASONALITY_BASE },
+  { id: 'tpl-efichart-base', name: 'My EFI Chart (Base)', desc: 'The REAL live EFI Chart / Market Overview page, embedded exactly as-is.', code: TPL_EFI_CHART_BASE },
+  { id: 'tpl-rrg-base', name: 'My RRG Screener (Base)', desc: 'The REAL live RRG Screener page, embedded exactly as-is.', code: TPL_RRG_BASE },
+  { id: 'tpl-analysis-suite-base', name: 'My Analysis Suite (Base)', desc: 'The REAL live Analysis Suite - Seasonal Screener, Straddle Town and RS panels together (these tools don\'t have separate standalone pages, only inside this dashboard).', code: TPL_ANALYSIS_SUITE_BASE },
 ];
 
 // -- Community Scripts ---------------------------------------------------------
@@ -1181,6 +1257,18 @@ let _logSeq = 0;
 async function runScript(code: string, onEntry: (e: LogEntry) => void): Promise<void> {
   const push = (type: LogEntry['type'], message: string, tableData?: Record<string, unknown>[]) =>
     onEntry({ id: ++_logSeq, type, message, tableData, timestamp: Date.now() });
+
+  // DEBUG: prove exactly which code is executing (first line + IV_MODE value + a stable
+  // hash) so "why does it show X when I didn't change anything" can be verified in-app
+  // instead of guessed at - this is the actual code string being run, not a cached copy.
+  {
+    let hash = 0;
+    for (let i = 0; i < code.length; i++) hash = (hash * 31 + code.charCodeAt(i)) | 0;
+    const ivLine = code.match(/const\s+IV_MODE\s*=\s*(\w+)/);
+    push('log', '[debug] running code hash=' + hash + ' len=' + code.length +
+      (ivLine ? ' IV_MODE=' + ivLine[1] : '') +
+      ' firstLine="' + code.split('\n')[0].slice(0, 80) + '"');
+  }
 
   const api = {
     // --- Price data ---
@@ -1397,14 +1485,24 @@ async function runScript(code: string, onEntry: (e: LogEntry) => void): Promise<
   const warn = (m: unknown) => push('warn', String(m));
   const table = (d: unknown[]) => push('table', d.length + ' rows', d as Record<string, unknown>[]);
   const html = (markup: string) => push('html', markup);
+  // User's own alert condition fires this — surfaces as a desktop notification + console line.
+  const notify = (title: string, body?: string) => {
+    push('success', 'ALERT: ' + title + (body ? ' - ' + body : ''));
+    try {
+      if (typeof Notification !== 'undefined') {
+        if (Notification.permission === 'granted') new Notification(title, { body });
+        else if (Notification.permission !== 'denied') Notification.requestPermission().then(p => { if (p === 'granted') new Notification(title, { body }); });
+      }
+    } catch { /* notifications unsupported/blocked - console line above still fired */ }
+  };
 
   try {
     push('log', '--- Script started -----------------------------------------');
     // eslint-disable-next-line no-new-func
-    const fn = new Function('api', 'log', 'warn', 'table', 'html',
+    const fn = new Function('api', 'log', 'warn', 'table', 'html', 'notify',
       '"use strict"; return (async () => {\n' + code + '\n})();'
     );
-    await fn(api, log, warn, table, html);
+    await fn(api, log, warn, table, html, notify);
     push('success', '--- Completed -----------------------------------------------');
   } catch (err: unknown) {
     push('error', 'Runtime error: ' + (err instanceof Error ? err.message : String(err)));
@@ -1418,6 +1516,34 @@ function lsLoad(): SavedScript[] {
 }
 function lsPersist(s: SavedScript[]) {
   try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch { /* noop */ }
+}
+
+// -- Cloud script sync (private/shared per-browser scripts) --------------------
+async function cloudList(): Promise<{ mine: SavedScript[]; shared: SharedScript[] }> {
+  try {
+    const res = await fetch('/api/ai-suite/scripts');
+    if (!res.ok) return { mine: [], shared: [] };
+    const j = await res.json();
+    const mine: SavedScript[] = (j.mine ?? []).map((s: any) => ({
+      id: s.id, name: s.name, code: s.code, savedAt: new Date(s.updatedAt).getTime(),
+      description: s.description ?? undefined, visibility: s.visibility, synced: true,
+    }));
+    return { mine, shared: j.shared ?? [] };
+  } catch { return { mine: [], shared: [] }; }
+}
+async function cloudSave(payload: { id?: string; name: string; code: string; visibility: 'private' | 'shared' }): Promise<SavedScript | null> {
+  try {
+    const res = await fetch('/api/ai-suite/scripts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    if (!res.ok) return null;
+    const j = await res.json();
+    const s = j.script;
+    return { id: s.id, name: s.name, code: s.code, savedAt: new Date(s.updatedAt).getTime(), visibility: s.visibility, synced: true };
+  } catch { return null; }
+}
+async function cloudDelete(id: string): Promise<boolean> {
+  try { const res = await fetch('/api/ai-suite/scripts/' + id, { method: 'DELETE' }); return res.ok; } catch { return false; }
 }
 
 // -- Shortcut helper ------------------------------------------------------------
@@ -1440,8 +1566,23 @@ export default function AiSuitePage() {
   const [code, setCode] = useState(TPL_52W);
   const [scriptName, setScriptName] = useState('52-Week High Screener');
   const [saved, setSaved] = useState<SavedScript[]>([]);
+  const [sharedScripts, setSharedScripts] = useState<SharedScript[]>([]);
+  const [saveVisibility, setSaveVisibility] = useState<'private' | 'shared'>('private');
   const [tab, setTab] = useState<'mine' | 'tpl' | 'community'>('tpl');
+  const [showPreview, setShowPreview] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  // DEBUG: surface the actual browser-blocked CSP directive/URL directly in the console
+  // panel (not just devtools) whenever something like the options-flow iframe gets blocked.
+  useEffect(() => {
+    const onViolation = (e: SecurityPolicyViolationEvent) => {
+      setLogs(p => [...p, {
+        id: ++_logSeq, type: 'error', timestamp: Date.now(),
+        message: '[debug] CSP BLOCKED: directive="' + e.violatedDirective + '" blockedURI="' + e.blockedURI + '" sourceFile="' + e.sourceFile + '"',
+      }]);
+    };
+    document.addEventListener('securitypolicyviolation', onViolation);
+    return () => document.removeEventListener('securitypolicyviolation', onViolation);
+  }, []);
   const [running, setRunning] = useState(false);
   const [execTime, setExecTime] = useState<number | null>(null);
   const [aiMsgs, setAiMsgs] = useState<{ role: 'user' | 'ai'; text: string }[]>([
@@ -1457,6 +1598,9 @@ export default function AiSuitePage() {
   const [showLeft, setShowLeft] = useState(true);
   const [showAi, setShowAi] = useState(true);
   const [showConsole, setShowConsole] = useState(true);
+  const [previewPos, setPreviewPos] = useState({ x: 120, y: 90 });
+  const [previewSize, setPreviewSize] = useState({ w: 520, h: 420 });
+  const [autoRunSec, setAutoRunSec] = useState<number | null>(null); // null = off
   // Editor controls
   const [wordWrap, setWordWrap] = useState<'off' | 'on'>('off');
   const [minimapOn, setMinimapOn] = useState(true);
@@ -1489,7 +1633,13 @@ export default function AiSuitePage() {
   let _toastId = useRef(0);
 
   // -- Init --
-  useEffect(() => { setSaved(lsLoad()); }, []);
+  useEffect(() => {
+    setSaved(lsLoad()); // instant local cache first
+    cloudList().then(({ mine, shared }) => {
+      setSharedScripts(shared);
+      if (mine.length > 0) setSaved(mine); // cloud is source of truth once loaded
+    });
+  }, []);
   useEffect(() => { consoleEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [logs]);
   useEffect(() => { aiEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [aiMsgs]);
 
@@ -1606,6 +1756,13 @@ export default function AiSuitePage() {
   }, [code, running]);
   handleRunRef.current = handleRun;
 
+  // Auto-run scheduler — lets a user's own alert/monitor script keep re-checking live flow data while this tab is open.
+  useEffect(() => {
+    if (!autoRunSec) return;
+    const id = setInterval(() => { handleRunRef.current?.(); }, autoRunSec * 1000);
+    return () => clearInterval(id);
+  }, [autoRunSec]);
+
   const handleRunCode = useCallback(async (c: string) => {
     setCode(c);
     setLogs([]);
@@ -1616,23 +1773,36 @@ export default function AiSuitePage() {
     setRunning(false);
   }, []);
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     const now = Date.now();
     const name = scriptName.trim() || 'Untitled';
     const has = saved.find(s => s.name === name);
-    const next = has
-      ? saved.map(s => s.name === name ? { ...s, code, savedAt: now } : s)
-      : [...saved, { id: 's' + now, name, code, savedAt: now }];
-    setSaved(next);
-    lsPersist(next);
-    showToast('Script saved: ' + name);
-  }, [code, scriptName, saved, showToast]);
+    const optimistic = has
+      ? saved.map(s => s.name === name ? { ...s, code, savedAt: now, visibility: saveVisibility } : s)
+      : [...saved, { id: 's' + now, name, code, savedAt: now, visibility: saveVisibility }];
+    setSaved(optimistic);
+    lsPersist(optimistic);
+    const cloudResult = await cloudSave({ id: has?.synced ? has.id : undefined, name, code, visibility: saveVisibility });
+    if (cloudResult) {
+      setSaved(prev => {
+        const merged = prev.filter(s => s.name !== name).concat(cloudResult);
+        lsPersist(merged);
+        return merged;
+      });
+      if (saveVisibility === 'shared') {
+        cloudList().then(({ shared }) => setSharedScripts(shared));
+      }
+    }
+    showToast('Script saved' + (saveVisibility === 'shared' ? ' (shared)' : '') + ': ' + name);
+  }, [code, scriptName, saved, saveVisibility, showToast]);
   handleSaveRef.current = handleSave;
 
   const handleDelete = useCallback((id: string) => {
+    const target = saved.find(s => s.id === id);
     const next = saved.filter(s => s.id !== id);
     setSaved(next);
     lsPersist(next);
+    if (target?.synced) cloudDelete(id);
     showToast('Script deleted', 'info');
   }, [saved, showToast]);
 
@@ -1793,6 +1963,23 @@ export default function AiSuitePage() {
     warns: logs.filter(l => l.type === 'warn').length,
     tables: logs.filter(l => l.type === 'table').length,
   }), [logs]);
+  const htmlOutputs = useMemo(() => logs.filter(l => l.type === 'html'), [logs]);
+  const previewDrag = useRef<null | { mode: 'move' | 'resize'; sx: number; sy: number; ox: number; oy: number; ow: number; oh: number }>(null);
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const d = previewDrag.current;
+      if (!d) return;
+      if (d.mode === 'move') {
+        setPreviewPos({ x: Math.max(0, d.ox + (e.clientX - d.sx)), y: Math.max(0, d.oy + (e.clientY - d.sy)) });
+      } else {
+        setPreviewSize({ w: Math.max(280, d.ow + (e.clientX - d.sx)), h: Math.max(200, d.oh + (e.clientY - d.sy)) });
+      }
+    };
+    const onUp = () => { previewDrag.current = null; };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, []);
 
   // -- Style helpers --
   const btnBase: React.CSSProperties = {
@@ -1914,7 +2101,7 @@ export default function AiSuitePage() {
     );
 
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#000', color: '#fff', fontFamily: '"Inter", system-ui, sans-serif', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, background: '#000', color: '#fff', fontFamily: '"Inter", system-ui, sans-serif', overflow: 'hidden' }}>
         <style>{`
           ::-webkit-scrollbar { width: 3px; height: 3px; }
           ::-webkit-scrollbar-track { background: transparent; }
@@ -2027,7 +2214,7 @@ export default function AiSuitePage() {
                   : filteredLogs.map(entry => (
                     <div key={entry.id} style={{ padding: '1px 12px', fontFamily: '"JetBrains Mono", monospace', fontSize: 12 }}>
                       {entry.type === 'html' ? (
-                        <div style={{ margin: '6px 0' }} dangerouslySetInnerHTML={{ __html: entry.message }} />
+                        <HtmlBlock markup={entry.message} style={{ margin: '6px 0' }} />
                       ) : entry.type === 'table' && entry.tableData && entry.tableData.length > 0 ? (
                         <div style={{ overflowX: 'auto', margin: '5px 0' }}>
                           <table style={{ borderCollapse: 'collapse', fontSize: 11 }}>
@@ -2127,7 +2314,7 @@ export default function AiSuitePage() {
 
   return (
     <div style={{
-      display: 'flex', flexDirection: 'column', height: '100%',
+      display: 'flex', flexDirection: 'column', position: 'fixed', top: 119, left: 0, right: 0, bottom: 0,
       background: '#000', color: '#fff',
       fontFamily: '"Inter", system-ui, sans-serif', overflow: 'hidden',
     }}>
@@ -2243,6 +2430,42 @@ export default function AiSuitePage() {
         </div>
       )}
 
+      {/* PREVIEW WINDOW - in-app "second window" showing your script's rendered design/UI output */}
+      {showPreview && (
+        <div style={{
+          position: 'fixed', left: previewPos.x, top: previewPos.y,
+          width: previewSize.w, height: previewSize.h, zIndex: 9997,
+          background: '#050505', border: '1px solid #2a2a2a', borderRadius: 6,
+          boxShadow: '0 12px 48px rgba(0,0,0,0.9)', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        }}>
+          <div
+            onMouseDown={e => { previewDrag.current = { mode: 'move', sx: e.clientX, sy: e.clientY, ox: previewPos.x, oy: previewPos.y, ow: previewSize.w, oh: previewSize.h }; }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#0e0800', borderBottom: '1px solid #2a1a00', cursor: 'move', flexShrink: 0 }}
+          >
+            <span style={{ color: '#ff6600', display: 'flex' }}>{Icon.panel}</span>
+            <span style={{ fontSize: 11, fontWeight: 800, color: '#ff9940', letterSpacing: '0.08em', textTransform: 'uppercase', flex: 1 }}>Preview Window</span>
+            <button onClick={() => setShowPreview(false)} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', display: 'flex' }}>{Icon.close}</button>
+          </div>
+          <div style={{ flex: 1, overflow: 'auto', background: '#050505', padding: 12 }}>
+            {htmlOutputs.length === 0 ? (
+              <div style={{ color: '#555', fontSize: 12, textAlign: 'center', padding: '40px 16px' }}>
+                Run a script that calls <code style={{ color: '#ff9940' }}>html(...)</code> to see its design rendered here, live, separate from the log console.
+              </div>
+            ) : htmlOutputs.map(entry => (
+              <HtmlBlock key={entry.id} markup={entry.message} style={{ marginBottom: 10 }} />
+            ))}
+          </div>
+          <div
+            onMouseDown={e => { previewDrag.current = { mode: 'resize', sx: e.clientX, sy: e.clientY, ox: previewPos.x, oy: previewPos.y, ow: previewSize.w, oh: previewSize.h }; }}
+            style={{ position: 'absolute', right: 0, bottom: 0, width: 16, height: 16, cursor: 'nwse-resize' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" style={{ position: 'absolute', right: 1, bottom: 1 }}>
+              <path d="M12 2L2 12M12 7L7 12M12 12L12 12" stroke="#444" strokeWidth="1.4" />
+            </svg>
+          </div>
+        </div>
+      )}
+
       {/* HEADER */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8,
@@ -2334,6 +2557,14 @@ export default function AiSuitePage() {
           >
             {Icon.bot}
           </button>
+          <button
+            className={`efi-tool-btn ${showPreview ? 'efi-tool-btn-active' : ''}`}
+            onClick={() => setShowPreview(s => !s)}
+            title="Toggle preview window (your script's design/UI output)"
+            style={{ ...toolbarBtnBase, padding: '5px 9px', color: showPreview ? '#ff6600' : '#bbb', border: `1px solid ${showPreview ? '#ff660033' : '#222'}`, borderRadius: 3, background: showPreview ? '#0e0800' : 'transparent' }}
+          >
+            {Icon.panel}
+          </button>
         </div>
 
         <div style={{ width: 1, height: 22, background: '#1a1a1a', flexShrink: 0, marginRight: 2 }} />
@@ -2345,12 +2576,32 @@ export default function AiSuitePage() {
         <button className="efi-btn" onClick={handleNew} title="New (Ctrl+N)" style={btnBase}>
           {Icon.plus}<span>New</span>
         </button>
+        <button
+          className="efi-btn"
+          onClick={() => setSaveVisibility(v => v === 'private' ? 'shared' : 'private')}
+          title="Toggle whether saved scripts are private to you or shared with the community"
+          style={{ ...btnBase, padding: '5px 10px', color: saveVisibility === 'shared' ? '#ff6600' : '#888', border: `1px solid ${saveVisibility === 'shared' ? '#ff660055' : '#2e2e2e'}` }}
+        >
+          {saveVisibility === 'shared' ? Icon.globe : Icon.lock}<span>{saveVisibility === 'shared' ? 'Shared' : 'Private'}</span>
+        </button>
         <button className="efi-btn" onClick={handleSave} title="Save (Ctrl+S)" style={btnBase}>
           {Icon.save}<span>Save</span>
         </button>
         <button className="efi-btn" onClick={handleDownloadScript} title="Download .js" style={{ ...btnBase, padding: '5px 9px' }}>
           {Icon.download}
         </button>
+        <select
+          value={autoRunSec ?? ''}
+          onChange={e => setAutoRunSec(e.target.value ? Number(e.target.value) : null)}
+          title="Auto-run - keeps re-running this script on a timer, e.g. for your own alert/monitor logic"
+          style={{ ...btnBase, padding: '5px 8px', color: autoRunSec ? '#ff6600' : '#888', border: `1px solid ${autoRunSec ? '#ff660055' : '#2e2e2e'}`, cursor: 'pointer' }}
+        >
+          <option value="">Auto-run: Off</option>
+          <option value="15">Every 15s</option>
+          <option value="30">Every 30s</option>
+          <option value="60">Every 1m</option>
+          <option value="300">Every 5m</option>
+        </select>
         <button
           onClick={handleRun}
           disabled={running}
@@ -2476,6 +2727,31 @@ export default function AiSuitePage() {
               })()}
 
               {/* COMMUNITY */}
+              {tab === 'community' && sharedScripts.map(s => (
+                <div key={'shared-' + s.id} className="efi-com-card" style={{
+                  padding: '12px', marginBottom: 8, borderRadius: 4,
+                  border: '1px solid #ff660033', background: '#0a0600',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <div style={{ fontSize: 12, color: '#fff', fontWeight: 800, lineHeight: 1.3, flex: 1 }}>{s.name}</div>
+                    <span style={{ fontSize: 9, color: '#ff6600', background: '#1a0e00', border: '1px solid #ff660044', borderRadius: 3, padding: '1px 6px', fontWeight: 800, letterSpacing: '0.06em', flexShrink: 0, marginLeft: 6 }}>SHARED</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#ddd', lineHeight: 1.55, marginBottom: 10 }}>{s.description || 'Shared by another user.'}</div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="efi-load-btn" onClick={() => handleLoad(s.name, s.code)} style={{
+                      flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                      padding: '7px 0', background: 'linear-gradient(180deg, #1a1a1a 0%, #060606 100%)', border: '1px solid #2a2a2a', borderRadius: 3,
+                      color: '#ccc', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', letterSpacing: '0.06em',
+                    }}>{Icon.download}&nbsp;LOAD</button>
+                    <button className="efi-run-btn" onClick={() => handleRunCode(s.code)} disabled={running} style={{
+                      flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                      padding: '7px 0', background: 'linear-gradient(180deg, #1a1a1a 0%, #060606 100%)', border: '1px solid #ff660055', borderRadius: 3,
+                      color: '#ff6600', fontSize: 11, fontWeight: 800, cursor: running ? 'default' : 'pointer',
+                      fontFamily: 'inherit', letterSpacing: '0.06em', opacity: running ? 0.4 : 1,
+                    }}>{Icon.play}&nbsp;RUN</button>
+                  </div>
+                </div>
+              ))}
               {tab === 'community' && COMMUNITY_SCRIPTS.map(s => (
                 <div key={s.id} className="efi-com-card" style={{
                   padding: '12px', marginBottom: 8, borderRadius: 4,
@@ -2687,7 +2963,7 @@ export default function AiSuitePage() {
                   filteredLogs.map(entry => (
                     <div key={entry.id} style={{ padding: '1px 14px', fontFamily: '"JetBrains Mono", monospace', fontSize: 12 }}>
                       {entry.type === 'html' ? (
-                        <div style={{ margin: '6px 0' }} dangerouslySetInnerHTML={{ __html: entry.message }} />
+                        <HtmlBlock markup={entry.message} style={{ margin: '6px 0' }} />
                       ) : entry.type === 'table' && entry.tableData && entry.tableData.length > 0 ? (
                         <div style={{ overflowX: 'auto', margin: '5px 0' }}>
                           <table style={{ borderCollapse: 'collapse', fontSize: 11 }}>

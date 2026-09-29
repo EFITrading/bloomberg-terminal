@@ -827,6 +827,13 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
 
   const [selectedTickerFilter, setSelectedTickerFilter] = useState<string>('')
 
+  // Off-by-default opt-in flag (?ivMode=1) letting per-user AI Suite scripts embed this
+  // exact live table with the VOL/OI column swapped for real implied_volatility, without
+  // forking or affecting the default view for anyone else.
+  const [ivMode] = useState<boolean>(() =>
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('ivMode') === '1'
+  )
+
   const [inputTicker, setInputTicker] = useState<string>('')
 
   const [isInputFocused, setIsInputFocused] = useState<boolean>(false)
@@ -951,8 +958,18 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   // (never the slide-in drawer/button). Below that, use the drawer + toggle button.
   const rootRef = useRef<HTMLDivElement>(null)
   const MIN_WINDOW_WIDTH_FOR_SIDEBAR = 1800
-  const showFlowSidebar = !isMobileView && !isTabletView && windowWidth >= MIN_WINDOW_WIDTH_FOR_SIDEBAR
-  const showFlowDrawer = !isMobileView && !showFlowSidebar
+  // Off-by-default opt-in flag (?hideAddon=1) - lets AI Suite embed just the flow table +
+  // AlgoFlow + buttons (the "Base") without the SweepSense/A+ Tracker sidebar (the "Add-On").
+  const [hideAddon] = useState<boolean>(() =>
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('hideAddon') === '1'
+  )
+  // Off-by-default opt-in flag (?onlyAddon=1) - the inverse: shows just the SweepSense/A+
+  // Tracker sidebar full-width, hiding the main flow table (the "Add-On" base).
+  const [onlyAddon] = useState<boolean>(() =>
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('onlyAddon') === '1'
+  )
+  const showFlowSidebar = onlyAddon || (!hideAddon && !isMobileView && !isTabletView && windowWidth >= MIN_WINDOW_WIDTH_FOR_SIDEBAR)
+  const showFlowDrawer = !hideAddon && !onlyAddon && !isMobileView && !showFlowSidebar
 
 
 
@@ -6826,7 +6843,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
           marginTop: '0',
 
-          display: showFlowTrackingInline ? 'none' : undefined,
+          display: onlyAddon ? 'none' : showFlowTrackingInline ? 'none' : undefined,
         }}
       >
         {/* Premium Control Bar */}
@@ -8697,11 +8714,11 @@ Stock Reaction: ${scores.stockReaction}/15`
                       </div>
                     </th>
 
-                    {/* VOL/OI - not sortable */}
+                    {/* VOL/OI - not sortable (or IV% when ?ivMode=1) */}
                     <th className="col-hdr col-vol-oi hidden md:table-cell text-left">
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="6" y1="20" x2="6" y2="14" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="18" y1="20" x2="18" y2="10" /></svg>
-                        VOL/OI
+                        {ivMode ? 'IV%' : 'VOL/OI'}
                       </div>
                     </th>
 
@@ -9201,7 +9218,15 @@ Stock Reaction: ${scores.stockReaction}/15`
                           </td>
 
                           <td className="col-vol-oi hidden md:table-cell p-2 md:p-6 text-xs md:text-xl text-white border-r border-gray-700/30 vol-oi-display">
-                            {(() => {
+                            {ivMode ? (
+                              typeof trade.implied_volatility === 'number' ? (
+                                <span className="text-cyan-400 font-bold" style={{ fontSize: '19.2px' }}>
+                                  {(trade.implied_volatility * 100).toFixed(1)}%
+                                </span>
+                              ) : (
+                                <span className="text-gray-500" style={{ fontSize: '19.2px' }}>--</span>
+                              )
+                            ) : (() => {
                               const expiry = trade.expiry.replace(/-/g, '').slice(2)
                               const strikeFormatted = String(Math.round(trade.strike * 1000)).padStart(8, '0')
                               const optionType = trade.type.toLowerCase() === 'call' ? 'C' : 'P'
@@ -10878,7 +10903,7 @@ Stock Reaction: ${scores.stockReaction}/15`
       {!isSidebarPanel && showFlowSidebar && (
         <div
           style={{
-            width: '38%',
+            width: onlyAddon ? '100%' : '38%',
             height: 'calc(100vh - 125px)',
             position: 'fixed',
             top: 125,

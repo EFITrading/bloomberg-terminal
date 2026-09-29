@@ -1989,3 +1989,71 @@ export const SEVERITY_COLORS: Record<string, string> = {
   high: '#f97316',
   extreme: '#ef4444',
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Recurring event groups — lets the UI aggregate/average repeated event types
+// (e.g. every US presidential election) instead of studying them one at a time.
+// ────────────────────────────────────────────────────────────────────────────
+export interface EventGroup {
+  id: string
+  label: string
+  eventIds: string[]
+}
+
+export const EVENT_GROUPS: EventGroup[] = [
+  {
+    id: 'us-presidential-elections',
+    label: 'US Presidential Elections',
+    eventIds: ['election-2004', 'election-2008', 'election-2016', 'election-2020', 'election-2024'],
+  },
+  {
+    id: 'us-midterm-elections',
+    label: 'US Midterm Elections',
+    eventIds: ['midterms-2006', 'midterms-2010', 'midterms-2014', 'midterms-2018', 'midterms-2022', 'midterms-pre-2026'],
+  },
+  {
+    id: 'us-recessions',
+    label: 'US Recessions',
+    eventIds: ['recession-2007', 'recession-2020'],
+  },
+  {
+    id: 'fed-hike-cycles',
+    label: 'Fed Rate Hike Cycles',
+    eventIds: ['rate-hike-2004-2006', 'fed-hike-cycle-2015', 'rate-hike-cycle-2015-2018', 'fed-tightening-2022'],
+  },
+  {
+    id: 'fed-cut-cycles',
+    label: 'Fed Rate Cut Cycles',
+    eventIds: ['fed-cut-2019', 'fed-pivot-2024'],
+  },
+  {
+    id: 'oil-price-shocks',
+    label: 'Oil Price Shocks',
+    eventIds: ['oil-price-spike-2008', 'oil-collapse-2014', 'oil-negative-2020', 'energy-crisis-europe-2021', 'opec-cut-2023'],
+  },
+  {
+    id: 'debt-ceiling-crises',
+    label: 'US Debt Ceiling Crises',
+    eventIds: ['us-debt-ceiling-2011', 'us-debt-ceiling-2023'],
+  },
+  {
+    id: 'sector-200wma-tests',
+    label: 'Sector 200-Week MA Tests',
+    eventIds: ['spy-200wma-support', 'xlk-200wma', 'xlf-200wma', 'xle-200wma', 'xlv-200wma', 'xlp-200wma', 'xlre-200wma', 'xlu-200wma', 'xlc-200wma'],
+  },
+  {
+    id: 'banking-crises',
+    label: 'Banking Crises',
+    eventIds: ['gfc-2008', 'svb-collapse-2023'],
+  },
+  {
+    id: 'middle-east-conflicts',
+    label: 'Middle East Conflicts',
+    eventIds: ['israel-hamas-2023', 'lebanon-war-2006', 'libya-nato-2011', 'iran-us-soleimani', 'saudi-aramco-attack'],
+  },
+]
+
+export function getEventGroup(eventId: string): EventGroup | undefined {
+  return EVENT_GROUPS.find((g) => g.eventIds.includes(eventId))
+}
+

@@ -5,8 +5,33 @@ import React, { useEffect, useRef, useState } from 'react'
 import { BearIcon } from '@/components/icons/BearIcon'
 import { BullIcon } from '@/components/icons/BullIcon'
 import GlobalDataCache from '@/lib/GlobalDataCache'
+import { SECTOR_HOLDINGS } from '@/lib/marketIndices'
 import PolygonService, { SeasonalPattern } from '@/lib/polygonService'
 import { acquireScanLock, releaseScanLock, waitForScanCache } from '@/lib/scanLock'
+
+// Reverse lookup: stock symbol -> sector ETF (e.g. 'AAPL' -> 'XLK'), built once from SECTOR_HOLDINGS
+const SYMBOL_TO_SECTOR: Record<string, string> = Object.values(SECTOR_HOLDINGS).reduce(
+  (acc, { etf, stocks }) => {
+    stocks.forEach((s) => { acc[s] = etf })
+    return acc
+  },
+  {} as Record<string, string>
+)
+
+// Distinct unselected-state color per sector ETF button — active/selected state is always solid orange
+const SECTOR_COLORS: Record<string, string> = {
+  XLK: '#3B82F6', // tech - blue
+  XLF: '#22C55E', // financials - green
+  XLE: '#EF4444', // energy - red
+  XLV: '#EC4899', // healthcare - pink
+  XLI: '#A78BFA', // industrials - violet
+  XLY: '#F472B6', // consumer discretionary - rose
+  XLP: '#38BDF8', // consumer staples - sky
+  XLU: '#FACC15', // utilities - gold
+  XLB: '#F97316', // materials - amber
+  XLRE: '#2DD4BF', // real estate - teal
+  XLC: '#818CF8', // communication - indigo
+}
 
 import HeroSection from './HeroSection'
 import MarketTabs from './MarketTabs'
@@ -57,6 +82,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   const [seasonedMode, setSeasonedMode] = useState(false) // Track if showing seasoned multi-timeframe results
   const [leapsMode, setLeapsMode] = useState(false) // Track if showing Seasonal Leaps results
   const [expandedKey, setExpandedKey] = useState<string | null>(null) // Track which card is expanded
+  const [sectorFilter, setSectorFilter] = useState<string | null>(null) // Active sector-ETF toggle (e.g. 'XLK'), null = all sectors
   // CORRELATION scores reported by each card once its mini-chart finishes loading — keyed by `symbol|period`
   const [correlationScores, setCorrelationScores] = useState<Record<string, number | null>>({})
   const handleTrendSyncComputed = React.useCallback((key: string, score: number | null) => {
@@ -87,41 +113,66 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
     }
   }, [autoStart])
 
-  const displayedOpportunities = React.useMemo(() => {
-    let filtered = [...opportunities]
-    // Always filter 70%+ and sort by win rate descending
-    filtered = filtered.filter((opp) => opp.winRate >= 70)
-    filtered = filtered.sort((a, b) => b.winRate - a.winRate)
-    // Entry window filter — within N days of now, either upcoming or already started
+  // Base set — winRate>=70 + sorted. This is what actually gets mapped/rendered so cards stay
+  // mounted; filters below only decide visibility (CSS display) and never remove cards from the
+  // array, so clicking a filter/sector button can't unmount+refetch a card's chart data.
+  const baseOpportunities = React.useMemo(() => {
+    return [...opportunities].filter((opp) => opp.winRate >= 70).sort((a, b) => b.winRate - a.winRate)
+  }, [opportunities])
+
+  // Whether a single opportunity passes the Entry Window / 52-Week / Correlation / Movers filters
+  // (sector is checked separately since it has its own toggle bar).
+  const passesNonSectorFilters = React.useCallback((opp: any) => {
     if (filters.startingSoon) {
       const windowDays = parseInt(filters.startingSoon, 10)
-      filtered = filtered.filter((opp) => {
-        const d = (opp as any).daysUntilStart ?? 0
-        return Math.abs(d) <= windowDays
-      })
+      const d = opp.daysUntilStart ?? 0
+      if (Math.abs(d) > windowDays) return false
     }
-    if (filters.fiftyTwoWeek) {
-      // Filter only opportunities that have 52-week high/low status
-      filtered = filtered.filter((opp) => (opp as any).fiftyTwoWeekStatus)
-    }
-    // Correlation filter — uses the same CORRELATION score shown on each card (trend-sync vs. seasonal avg)
+    if (filters.fiftyTwoWeek && !opp.fiftyTwoWeekStatus) return false
     if (filters.correlation) {
       const minCorr = parseInt(filters.correlation, 10)
-      filtered = filtered.filter((opp) => {
-        const key = `${(opp as any).symbol}|${(opp as any).period}`
-        const score = correlationScores[key]
-        if (score === undefined) return true // card hasn't reported its score yet — keep visible for now
-        if (score === null) return false // couldn't compute a correlation score for this pattern
-        return score >= minCorr
-      })
+      const key = `${opp.symbol}|${opp.period}`
+      const score = correlationScores[key]
+      if (score === null) return false // couldn't compute a correlation score for this pattern
+      if (score !== undefined && score < minCorr) return false
+      // score === undefined → card hasn't reported its score yet, keep visible for now
     }
-    // Movers filter — only patterns with a meaningful historical average move
     if (filters.mover) {
       const minMove = parseInt(filters.mover, 10)
-      filtered = filtered.filter((opp) => Math.abs(opp.averageReturn || (opp as any).avgReturn || 0) >= minMove)
+      if (Math.abs(opp.averageReturn || opp.avgReturn || 0) < minMove) return false
     }
-    return filtered
-  }, [opportunities, filters, correlationScores])
+    return true
+  }, [filters, correlationScores])
+
+  const displayedOpportunities = React.useMemo(() => {
+    return baseOpportunities.filter(passesNonSectorFilters)
+  }, [baseOpportunities, passesNonSectorFilters])
+
+  // Sector ETFs actually present among the current (pre-sector-filter) results — drives the sector toggle bar
+  const availableSectors = React.useMemo(() => {
+    const counts: Record<string, number> = {}
+    displayedOpportunities.forEach((opp) => {
+      const etf = SYMBOL_TO_SECTOR[(opp as any).symbol]
+      if (etf) counts[etf] = (counts[etf] || 0) + 1
+    })
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([etf, count]) => ({ etf, name: SECTOR_HOLDINGS[etf]?.name || etf, count }))
+  }, [displayedOpportunities])
+
+  // Final results after applying the sector toggle (if one is active)
+  const sectorFilteredOpportunities = React.useMemo(() => {
+    if (!sectorFilter) return displayedOpportunities
+    return displayedOpportunities.filter((opp) => SYMBOL_TO_SECTOR[(opp as any).symbol] === sectorFilter)
+  }, [displayedOpportunities, sectorFilter])
+
+  // Combined visibility test used to hide (not unmount) a card when it fails any active filter
+  const isOppHiddenByFilters = React.useCallback((opp: any) => {
+    if (!passesNonSectorFilters(opp)) return true
+    if (sectorFilter && SYMBOL_TO_SECTOR[opp.symbol] !== sectorFilter) return true
+    return false
+  }, [passesNonSectorFilters, sectorFilter])
+
 
   const handleFilterChange = (newFilters: {
     highWinRate: string
@@ -232,6 +283,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       setSeasonedMode(false)
       setLeapsMode(false)
       setFiftyTwoWeekReady(false)
+      setSectorFilter(null)
       setStreamStatus(
       )
       setProgressStats({ processed: 0, total: marketStocks.length, found: 0 })
@@ -252,7 +304,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
           return
         }
       } catch {
-        // Cache unavailable — fall through to a fresh scan
       }
 
       // Only the first concurrent scanner for this market+years+day actually scans -
@@ -305,16 +356,21 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                   (a, b) => Math.abs(b.averageReturn) - Math.abs(a.averageReturn)
                 )
 
-                setOpportunities(sortedOpportunities as unknown as SeasonalPattern[])
-
                 // Only dismiss the loading screen once we have a result that will actually
                 // pass the winRate>=70 display filter — otherwise the results panel briefly
                 // renders its "No Opportunities Found" state before a qualifying stock streams in.
                 const qualifyingCount = sortedOpportunities.filter((o) => o.winRate >= 70).length
-                if (qualifyingCount > 0 && !loadingDismissed) {
-                  loadingDismissed = true
-                  setLoading(false)
-                  setShowWebsite(true)
+
+                // Don't publish partial results to the visible `opportunities` state until at
+                // least one qualifies — otherwise the results grid can flash "no stocks matched"
+                // with a batch of sub-70% win-rate hits that all get filtered out on render.
+                if (qualifyingCount > 0) {
+                  setOpportunities(sortedOpportunities as unknown as SeasonalPattern[])
+                  if (!loadingDismissed) {
+                    loadingDismissed = true
+                    setLoading(false)
+                    setShowWebsite(true)
+                  }
                 }
               }
             }
@@ -322,7 +378,10 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
           marketStocks
         )
 
-        if (realOpportunities && realOpportunities.length > 0) {
+        const rawFoundCount = realOpportunities?.length || 0
+        const qualifyingFinalCount = (realOpportunities || []).filter((o: any) => o.winRate >= 70).length
+
+        if (realOpportunities && qualifyingFinalCount > 0) {
           // Check 52-week high/low status for all opportunities to display badges
           setStreamStatus('🔍 Checking 52-week high/low status...')
           const enrichedOpportunities = await check52WeekStatus(realOpportunities)
@@ -334,6 +393,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
           )
           setOpportunities(finalSorted as unknown as SeasonalPattern[])
           setLoading(false)
+          setShowWebsite(true)
           setStreamStatus('✅ Processing completed!')
           setProgressStats({ processed: 1000, total: 1000, found: enrichedOpportunities.length })
 
@@ -384,6 +444,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       setSeasonedMode(true)
       setLeapsMode(false)
       setFiftyTwoWeekReady(false)
+      setSectorFilter(null)
       setStreamStatus(
         `🌟 SEASONED SCAN: Analyzing ${marketStocks.length} stocks across 4 timeframes (5Y, 10Y, 15Y, 20Y)...`
       )
@@ -556,6 +617,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       setSeasonedMode(false)
       setLeapsMode(true)
       setFiftyTwoWeekReady(false)
+      setSectorFilter(null)
       setStreamStatus(`🚀 SEASONAL LEAPS: Scanning ${marketStocks.length} stocks (8–15 year sweet-spot windows)...`)
       setProgressStats({ processed: 0, total: marketStocks.length, found: 0 })
 
@@ -685,6 +747,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
    .section-title .count { font-size: 9px !important; }
    .pro-results { padding: 0 !important; }
  }
+ /* seasonality.css has a "body * { color: #fff !important }" nuclear rule — beat it with a class selector */
+ .sector-toggle-btn { color: var(--sector-toggle-color) !important; }
  `}
       </style>
 
@@ -694,7 +758,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
         timePeriod={timePeriod}
         onTimePeriodChange={setTimePeriod}
         progressStats={progressStats}
-        opportunitiesCount={displayedOpportunities.length}
+        opportunitiesCount={sectorFilteredOpportunities.length}
         loading={loading}
         timePeriodOptions={timePeriodOptions}
         onSeasonedScan={handleSeasonedScan}
@@ -725,6 +789,80 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
               marginTop: sidebarMode ? '20px' : '0',
             }}
           >
+            {/* Sector toggle bar — one button per sector ETF actually present among the found trades */}
+            {availableSectors.length > 1 && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: isMobileView ? 5 : 8,
+                  padding: isMobileView ? '7px 10px' : '7px 14px',
+                  borderBottom: '1px solid rgba(255,215,0,0.35)',
+                  background: 'rgba(255,215,0,0.03)',
+                  flexShrink: 0,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <span
+                  style={{
+                    color: '#FF6B00',
+                    fontSize: isMobileView ? 8.5 : 10,
+                    fontWeight: 800,
+                    letterSpacing: isMobileView ? '0.6px' : '1.4px',
+                    textTransform: 'uppercase',
+                    fontFamily: '"Roboto Mono", monospace',
+                    flexShrink: 0,
+                  }}
+                >
+                  Sectors
+                </span>
+                <button
+                  onClick={() => setSectorFilter(null)}
+                  className="sector-toggle-btn"
+                  style={{
+                    background: sectorFilter === null ? 'rgba(255,107,0,0.16)' : 'transparent',
+                    ['--sector-toggle-color' as any]: sectorFilter === null ? '#FF6B00' : 'rgba(255,255,255,0.55)',
+                    border: sectorFilter === null ? '1px solid #FF6B00' : '1px solid #2e2e2e',
+                    padding: isMobileView ? '4px 8px' : '5px 10px',
+                    fontSize: isMobileView ? 9.5 : 11,
+                    fontWeight: 700,
+                    fontFamily: '"Roboto Mono", monospace',
+                    cursor: 'pointer',
+                    outline: 'none',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  ALL ({displayedOpportunities.length})
+                </button>
+                {availableSectors.map(({ etf, name, count }) => {
+                  const isActive = sectorFilter === etf
+                  const sectorColor = SECTOR_COLORS[etf] || '#FF6B00'
+                  return (
+                    <button
+                      key={etf}
+                      onClick={() => setSectorFilter(isActive ? null : etf)}
+                      title={name}
+                      className="sector-toggle-btn"
+                      style={{
+                        background: isActive ? 'rgba(255,107,0,0.16)' : 'transparent',
+                        ['--sector-toggle-color' as any]: isActive ? '#FF6B00' : sectorColor,
+                        border: isActive ? '1px solid #FF6B00' : `1px solid ${sectorColor}55`,
+                        padding: isMobileView ? '4px 8px' : '5px 10px',
+                        fontSize: isMobileView ? 9.5 : 11,
+                        fontWeight: 700,
+                        fontFamily: '"Roboto Mono", monospace',
+                        cursor: 'pointer',
+                        outline: 'none',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {etf} ({count})
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
             {/* Filter bar - inside the yellow results box, between the two columns above */}
             <div
               style={{
@@ -912,7 +1050,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                 flexDirection: isMobileView ? 'column' : 'row',
               }}
             >
-              {displayedOpportunities.length === 0 ? (
+              {sectorFilteredOpportunities.length === 0 ? (
                 <div className="pro-error" style={{ flex: 1 }}>
                   <div className="error-icon"></div>
                   <div className="error-text">No Opportunities Found</div>
@@ -921,10 +1059,16 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
               ) : (() => {
                 // SEASONED MODE - Split by bullish/bearish like regular mode
                 if (seasonedMode) {
-                  const bullishOpps = displayedOpportunities.filter(
+                  const bullishOpps = sectorFilteredOpportunities.filter(
                     (opp) => (opp.averageReturn || opp.avgReturn || 0) >= 0
                   )
-                  const bearishOpps = displayedOpportunities.filter(
+                  const bearishOpps = sectorFilteredOpportunities.filter(
+                    (opp) => (opp.averageReturn || opp.avgReturn || 0) < 0
+                  )
+                  const bullishOppsAll = baseOpportunities.filter(
+                    (opp) => (opp.averageReturn || opp.avgReturn || 0) >= 0
+                  )
+                  const bearishOppsAll = baseOpportunities.filter(
                     (opp) => (opp.averageReturn || opp.avgReturn || 0) < 0
                   )
 
@@ -972,29 +1116,31 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                             height: isMobileView ? 'auto' : 'calc(82vh - 70px)',
                           }}
                         >
-                          {bullishOpps.map((opportunity, index) => {
+                          {bullishOppsAll.map((opportunity, index) => {
                             const cardKey = `bullish-${(opportunity as any).symbol}-${(opportunity as any).period ?? ''}`
+                            const sectorHidden = isOppHiddenByFilters(opportunity)
                             const qualifyingCount = (opportunity as any).qualifyingTimeframes || 0
                             const timeframeYears =
                               (opportunity as any).timeframe ||
                               (opportunity as any).years ||
                               selectedYears
                             return (
-                              <OpportunityCard
-                                key={cardKey}
-                                pattern={opportunity}
-                                rank={index + 1}
-                                isTopBullish={false}
-                                isTopBearish={false}
-                                sidebarMode={sidebarMode}
-                                seasonedQualifying={qualifyingCount}
-                                years={timeframeYears}
-                                hideBestBadge={leapsMode}
-                                isLeaps={leapsMode}
-                                isExpanded={expandedKey === cardKey}
-                                onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
-                                onTrendSyncComputed={handleTrendSyncComputed}
-                              />
+                              <div key={cardKey} style={{ display: sectorHidden ? 'none' : 'contents' }}>
+                                <OpportunityCard
+                                  pattern={opportunity}
+                                  rank={index + 1}
+                                  isTopBullish={false}
+                                  isTopBearish={false}
+                                  sidebarMode={sidebarMode}
+                                  seasonedQualifying={qualifyingCount}
+                                  years={timeframeYears}
+                                  hideBestBadge={leapsMode}
+                                  isLeaps={leapsMode}
+                                  isExpanded={expandedKey === cardKey}
+                                  onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
+                                  onTrendSyncComputed={handleTrendSyncComputed}
+                                />
+                              </div>
                             )
                           })}
                         </div>
@@ -1055,29 +1201,31 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                             height: isMobileView ? 'auto' : 'calc(82vh - 70px)',
                           }}
                         >
-                          {bearishOpps.map((opportunity, index) => {
+                          {bearishOppsAll.map((opportunity, index) => {
                             const cardKey = `bearish-${(opportunity as any).symbol}-${(opportunity as any).period ?? ''}`
+                            const sectorHidden = isOppHiddenByFilters(opportunity)
                             const qualifyingCount = (opportunity as any).qualifyingTimeframes || 0
                             const timeframeYears =
                               (opportunity as any).timeframe ||
                               (opportunity as any).years ||
                               selectedYears
                             return (
-                              <OpportunityCard
-                                key={cardKey}
-                                pattern={opportunity}
-                                rank={index + 1}
-                                isTopBullish={false}
-                                isTopBearish={false}
-                                sidebarMode={sidebarMode}
-                                seasonedQualifying={qualifyingCount}
-                                years={timeframeYears}
-                                hideBestBadge={leapsMode}
-                                isLeaps={leapsMode}
-                                isExpanded={expandedKey === cardKey}
-                                onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
-                                onTrendSyncComputed={handleTrendSyncComputed}
-                              />
+                              <div key={cardKey} style={{ display: sectorHidden ? 'none' : 'contents' }}>
+                                <OpportunityCard
+                                  pattern={opportunity}
+                                  rank={index + 1}
+                                  isTopBullish={false}
+                                  isTopBearish={false}
+                                  sidebarMode={sidebarMode}
+                                  seasonedQualifying={qualifyingCount}
+                                  years={timeframeYears}
+                                  hideBestBadge={leapsMode}
+                                  isLeaps={leapsMode}
+                                  isExpanded={expandedKey === cardKey}
+                                  onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
+                                  onTrendSyncComputed={handleTrendSyncComputed}
+                                />
+                              </div>
                             )
                           })}
                         </div>
@@ -1087,10 +1235,16 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                 }
 
                 // REGULAR MODE - Bullish/Bearish split
-                const bullishOpps = displayedOpportunities.filter(
+                const bullishOpps = sectorFilteredOpportunities.filter(
                   (opp) => (opp.averageReturn || opp.avgReturn || 0) >= 0
                 )
-                const bearishOpps = displayedOpportunities.filter(
+                const bearishOpps = sectorFilteredOpportunities.filter(
+                  (opp) => (opp.averageReturn || opp.avgReturn || 0) < 0
+                )
+                const bullishOppsAll = baseOpportunities.filter(
+                  (opp) => (opp.averageReturn || opp.avgReturn || 0) >= 0
+                )
+                const bearishOppsAll = baseOpportunities.filter(
                   (opp) => (opp.averageReturn || opp.avgReturn || 0) < 0
                 )
 
@@ -1160,30 +1314,32 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                           height: isMobileView ? 'auto' : 'calc(82vh - 70px)',
                         }}
                       >
-                        {bullishOpps.map((opportunity, index) => {
+                        {bullishOppsAll.map((opportunity, index) => {
                           const isTopBullish = topBullish
                             ? opportunity.symbol === topBullish.symbol
                             : false
+                          const sectorHidden = isOppHiddenByFilters(opportunity)
                           const timeframeYears =
                             (opportunity as any).timeframe ||
                             (opportunity as any).years ||
                             selectedYears
                           const cardKey = `bullish-${opportunity.symbol}-${(opportunity as any).period ?? ''}`
                           return (
-                            <OpportunityCard
-                              key={cardKey}
-                              pattern={opportunity}
-                              rank={index + 1}
-                              isTopBullish={isTopBullish}
-                              isTopBearish={false}
-                              sidebarMode={sidebarMode}
-                              hideBestBadge={leapsMode}
-                              isLeaps={leapsMode}
-                              years={timeframeYears}
-                              isExpanded={expandedKey === cardKey}
-                              onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
-                              onTrendSyncComputed={handleTrendSyncComputed}
-                            />
+                            <div key={cardKey} style={{ display: sectorHidden ? 'none' : 'contents' }}>
+                              <OpportunityCard
+                                pattern={opportunity}
+                                rank={index + 1}
+                                isTopBullish={isTopBullish}
+                                isTopBearish={false}
+                                sidebarMode={sidebarMode}
+                                hideBestBadge={leapsMode}
+                                isLeaps={leapsMode}
+                                years={timeframeYears}
+                                isExpanded={expandedKey === cardKey}
+                                onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
+                                onTrendSyncComputed={handleTrendSyncComputed}
+                              />
+                            </div>
                           )
                         })}
                       </div>
@@ -1244,30 +1400,32 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                           height: isMobileView ? 'auto' : 'calc(82vh - 70px)',
                         }}
                       >
-                        {bearishOpps.map((opportunity, index) => {
+                        {bearishOppsAll.map((opportunity, index) => {
                           const isTopBearish = topBearish
                             ? opportunity.symbol === topBearish.symbol
                             : false
+                          const sectorHidden = isOppHiddenByFilters(opportunity)
                           const timeframeYears =
                             (opportunity as any).timeframe ||
                             (opportunity as any).years ||
                             selectedYears
                           const cardKey = `bearish-${opportunity.symbol}-${(opportunity as any).period ?? ''}`
                           return (
-                            <OpportunityCard
-                              key={cardKey}
-                              pattern={opportunity}
-                              rank={index + 1}
-                              isTopBullish={false}
-                              isTopBearish={isTopBearish}
-                              hideBestBadge={leapsMode}
-                              isLeaps={leapsMode}
-                              sidebarMode={sidebarMode}
-                              years={timeframeYears}
-                              isExpanded={expandedKey === cardKey}
-                              onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
-                              onTrendSyncComputed={handleTrendSyncComputed}
-                            />
+                            <div key={cardKey} style={{ display: sectorHidden ? 'none' : 'contents' }}>
+                              <OpportunityCard
+                                pattern={opportunity}
+                                rank={index + 1}
+                                isTopBullish={false}
+                                isTopBearish={isTopBearish}
+                                hideBestBadge={leapsMode}
+                                isLeaps={leapsMode}
+                                sidebarMode={sidebarMode}
+                                years={timeframeYears}
+                                isExpanded={expandedKey === cardKey}
+                                onExpand={() => setExpandedKey(expandedKey === cardKey ? null : cardKey)}
+                                onTrendSyncComputed={handleTrendSyncComputed}
+                              />
+                            </div>
                           )
                         })}
                       </div>

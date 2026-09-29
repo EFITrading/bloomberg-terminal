@@ -5276,6 +5276,9 @@ const GexPanel: React.FC<GexPanelProps> = ({
   }
 
   if (error) {
+    // Most failures here are just "ticker doesn't exist / no options data" — instead of a dead-end
+    // error screen with only a retry button, let the user immediately search a different symbol.
+    const isLikelyBadTicker = /no (data|options|response)|not found|404|invalid/i.test(error)
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-950 via-black to-gray-950 text-white p-8">
         <div className="max-w-7xl mx-auto">
@@ -5283,16 +5286,37 @@ const GexPanel: React.FC<GexPanelProps> = ({
             <div className="flex items-center gap-3 text-red-400">
               <AlertCircle size={24} />
               <div>
-                <div className="font-semibold text-lg">Error Loading Data</div>
-                <div className="text-sm text-red-300 mt-1">{error}</div>
+                <div className="font-semibold text-lg">
+                  {isLikelyBadTicker ? `"${selectedTicker}" not found` : 'Error Loading Data'}
+                </div>
+                <div className="text-sm text-red-300 mt-1">
+                  {isLikelyBadTicker ? 'Check the symbol and try again.' : error}
+                </div>
               </div>
             </div>
-            <button
-              onClick={() => fetchOptionsData()}
-              className="mt-4 px-6 py-3 bg-red-600 hover:bg-red-700 transition-all rounded-lg font-medium"
-            >
-              Retry Connection
-            </button>
+            <div className="flex items-center gap-3 mt-4 flex-wrap">
+              <input
+                value={tickerInput}
+                onChange={(e) => setTickerInput(e.target.value.toUpperCase())}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleTickerSubmit() }}
+                placeholder="Enter ticker..."
+                autoFocus
+                className="px-4 py-3 bg-black/40 border border-red-800/50 rounded-lg font-mono font-semibold tracking-wide focus:outline-none focus:border-red-500"
+                style={{ fontSize: '16px' }}
+              />
+              <button
+                onClick={handleTickerSubmit}
+                className="px-6 py-3 bg-red-600 hover:bg-red-700 transition-all rounded-lg font-medium"
+              >
+                Search
+              </button>
+              <button
+                onClick={() => fetchOptionsData()}
+                className="px-6 py-3 bg-gray-700 hover:bg-gray-600 transition-all rounded-lg font-medium"
+              >
+                Retry
+              </button>
+            </div>
           </div>
         </div>
       </div>

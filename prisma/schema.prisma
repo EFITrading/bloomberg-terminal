@@ -38,6 +38,21 @@ model PortfolioData {
   @@index([userId])
 }
 
+model AiSuiteScript {
+  id          String   @id @default(cuid())
+  userId      String   // owner (anonymous per-browser id, see lib/anonUser.ts)
+  name        String
+  code        String   @db.Text
+  description String?  @db.Text
+  tags        String?  // comma-separated
+  visibility  String   @default("private") // "private" | "shared"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([visibility])
+}
+
 model LiveOICache {
   id          String   @id @default(cuid())
   ticker      String
@@ -100,3 +115,20 @@ model DiscordAlertedFlow {
   @@unique([flowId, tradingDate])
   @@index([tradingDate])
 }
+
+model UserScript {
+  id         String   @id @default(cuid())
+  authorId   String   // anonymous per-browser id (efi-author cookie) — no real accounts yet
+  authorName String   // display name the user picked
+  name       String
+  code       String
+  description String?
+  sourceTool String?  // which built-in scanner this was forked from, e.g. 'sweepsense', 'optionsflow'
+  isShared   Boolean  @default(false) // false = only visible to authorId, true = visible to everyone
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([authorId])
+  @@index([isShared])
+}
+

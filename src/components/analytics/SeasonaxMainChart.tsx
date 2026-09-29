@@ -594,7 +594,9 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
 
     try {
       // Setup high-DPI rendering with full container dimensions
-      const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2) // Cap at 2x for performance
+      // Capping at 2x made the chart blurry on 3x-DPR phones and many "Retina" laptop
+      // displays (e.g. MacBook, high-res Windows scaled screens) - use the real ratio.
+      const devicePixelRatio = window.devicePixelRatio || 1
 
       // Set actual canvas size (scaled for high-DPI)
       canvas.width = Math.floor(containerWidth * devicePixelRatio)
@@ -610,8 +612,9 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
       // Scale the drawing context for crisp rendering
       ctx.scale(devicePixelRatio, devicePixelRatio)
 
-      // Enable crisp rendering
-      ctx.imageSmoothingEnabled = false
+      // Smoothing must stay on for anti-aliased lines/text at high DPR - disabling it
+      // was what made curves and labels look jagged/blurry.
+      ctx.imageSmoothingEnabled = true
 
       // Clear canvas
       ctx.clearRect(0, 0, containerWidth, containerHeight)

@@ -475,6 +475,11 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
   const [chartLoading, setChartLoading] = useState(false)
   const chartFetchedRef = useRef(false)
   const [showSummary, setShowSummary] = useState(false)
+  const [showTradeSetup, setShowTradeSetup] = useState(false)
+  // Hover-zoom on a historical-candles tile is rendered as a fixed-position clone (see below)
+  // instead of an in-place CSS scale, so it can never get clipped by the popup's scrolling container.
+  const [hoverZoomYear, setHoverZoomYear] = useState<number | null>(null)
+  const [hoverZoomRect, setHoverZoomRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null)
   const weeklySummaryLines = useMemo(
     () => (showSummary && lineData.length > 0 ? buildWeeklySummary(lineData) : []),
     [showSummary, lineData]
@@ -1656,8 +1661,33 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                   )
                 })()}
 
-                {/* ── Options Contract ── */}
-                {optionsSetup &&
+                {/* ── Options Contract (collapsed by default — click to reveal the trade pick) ── */}
+                {optionsSetup && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowTradeSetup((v) => !v) }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      width: '100%',
+                      padding: '9px 14px',
+                      background: '#000000',
+                      border: 'none',
+                      borderTop: `1px solid ${optionsSetup.direction === 'call' ? '#00FF8844' : '#FF444444'}`,
+                      color: optionsSetup.direction === 'call' ? '#00FF88' : '#FF4444',
+                      fontSize: '10px',
+                      fontWeight: 'bold',
+                      letterSpacing: '1.5px',
+                      fontFamily: "'Courier New',monospace",
+                      textTransform: 'uppercase',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {showTradeSetup ? '▲ HIDE TRADE SETUP' : '▼ SHOW TRADE SETUP'}
+                  </button>
+                )}
+                {optionsSetup && showTradeSetup &&
                   (() => {
                     const o = optionsSetup
                     const isCall = o.direction === 'call'
@@ -1835,9 +1865,9 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                   background: linear-gradient(160deg, #0f0f0f 0%, #050505 55%, #0a0a0a 100%);
                   border: 1px solid #333333; border-radius: 5px; padding: 8px; position: relative;
                   box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 6px rgba(0,0,0,0.4);
-                  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, z-index 0s;
+                  transition: border-color 0.18s ease, box-shadow 0.18s ease;
                 }
-                .opp-candle-card:hover { transform: scale(1.5); z-index: 50; border-color: #ff6600; box-shadow: 0 0 0 1px #ff6600, 0 12px 40px rgba(0,0,0,0.85), inset 0 1px 0 rgba(255,255,255,0.08); }
+                .opp-candle-card.opp-candle-hovering { border-color: #ff6600; box-shadow: 0 0 0 1px #ff6600; }
                 .opp-candle-header { display: flex; align-items: center; justify-content: space-between; padding: 0 2px 6px 2px; font-family: "JetBrains Mono", monospace; }
                 .opp-candle-year { font-size: 15px; font-weight: 800; color: #ffffff; }
                 .opp-candle-return { font-size: 14px; font-weight: 700; }
@@ -1882,13 +1912,50 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                 ) : lineData.length > 0 ? (
                   <div className="opp-candle-grid">
                     {[...lineData].sort((a, b) => b.year - a.year).map((yl) => (
-                      <PeriodCandleChart key={yl.year} yearData={yl} />
+                      <div
+                        key={yl.year}
+                        className={`opp-candle-card${hoverZoomYear === yl.year ? ' opp-candle-hovering' : ''}`}
+                        onMouseEnter={(e) => {
+                          const r = e.currentTarget.getBoundingClientRect()
+                          setHoverZoomRect({ left: r.left, top: r.top, width: r.width, height: r.height })
+                          setHoverZoomYear(yl.year)
+                        }}
+                        onMouseLeave={() => setHoverZoomYear(null)}
+                      >
+                        <PeriodCandleChart yearData={yl} />
+                      </div>
                     ))}
                   </div>
                 ) : (
                   <div style={{ color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace', textAlign: 'center', paddingTop: '20px', fontSize: '11px' }}>NO HISTORICAL DATA</div>
                 )}
               </div>
+            </div>,
+            document.body
+          )}
+          {/* Hover-zoom clone — fixed-position (viewport-relative), so scaling it up never gets
+              clipped by the popup's overflow:auto scroll container the way an in-place CSS scale would. */}
+          {isExpanded && hoverZoomYear !== null && hoverZoomRect && createPortal(
+            <div
+              style={{
+                position: 'fixed',
+                left: hoverZoomRect.left + hoverZoomRect.width / 2,
+                top: Math.min(
+                  Math.max(hoverZoomRect.top + hoverZoomRect.height / 2, (hoverZoomRect.height * 1.5) / 2 + 10),
+                  window.innerHeight - (hoverZoomRect.height * 1.5) / 2 - 10
+                ),
+                transform: 'translate(-50%, -50%) scale(1.5)',
+                width: hoverZoomRect.width,
+                height: hoverZoomRect.height,
+                zIndex: 2000,
+                pointerEvents: 'none',
+              }}
+              className="opp-candle-card opp-candle-hovering"
+            >
+              {(() => {
+                const yl = lineData.find((d) => d.year === hoverZoomYear)
+                return yl ? <PeriodCandleChart yearData={yl} /> : null
+              })()}
             </div>,
             document.body
           )}

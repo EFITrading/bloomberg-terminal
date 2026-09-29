@@ -75,6 +75,24 @@ input::-webkit-outer-spin-button {
     margin: 0;
 }
 
+/* iOS Safari auto-zooms the page whenever a focused text input has font-size < 16px.
+   Force every text-entry field to 16px on mobile so tapping a ticker search box no
+   longer triggers the zoom-in/zoom-out dance. */
+@media (max-width: 768px) {
+
+    input[type="text"],
+    input[type="search"],
+    input[type="number"],
+    input[type="email"],
+    input[type="tel"],
+    input[type="url"],
+    input:not([type]),
+    textarea,
+    select {
+        font-size: 16px !important;
+    }
+}
+
 /* Global scrollbar hiding */
 * {
     scrollbar-width: none;

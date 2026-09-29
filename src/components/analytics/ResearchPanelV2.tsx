@@ -2049,31 +2049,31 @@ function MiniSparkline({ pattern }: { pattern: Pattern }) {
                             display: 'flex',
                             flexDirection: 'column',
                             alignItems: 'center',
-                            padding: '6px 4px 5px',
+                            padding: '8px 4px 7px',
                             borderLeft: idx > 0 ? '1px solid rgba(255,255,255,0.06)' : 'none',
                         }}>
                             {/* Day label */}
                             <span style={{
                                 color: '#ff6600',
-                                fontSize: 10,
+                                fontSize: 13,
                                 fontFamily: 'monospace',
                                 fontWeight: 700,
                                 letterSpacing: '0.5px',
-                                marginBottom: 2,
+                                marginBottom: 3,
                             }}>+{bar}d</span>
                             {/* Avg return */}
                             <span style={{
                                 color: avgColor,
-                                fontSize: 13,
+                                fontSize: 16,
                                 fontFamily: 'monospace',
                                 fontWeight: 700,
                                 lineHeight: 1,
-                                marginBottom: 2,
+                                marginBottom: 3,
                             }}>{avg >= 0 ? '+' : ''}{avg.toFixed(1)}%</span>
                             {/* Win rate */}
                             <span style={{
                                 color: wrColor,
-                                fontSize: 12,
+                                fontSize: 15,
                                 fontFamily: 'monospace',
                                 fontWeight: 900,
                                 letterSpacing: '0.5px',
@@ -2902,10 +2902,19 @@ function ComboHistChart({ combo, bars, wyckoffZones }: { combo: ComboSignal; bar
     }, [bars, combo]);
 
     const tipColor = tooltip?.kind === 'BUY' ? '#00ff88' : tooltip?.kind === 'SELL' ? '#ff3333' : '#aaaaaa';
+    const dirColor = combo.direction === 'BULLISH' ? '#00ff88' : combo.direction === 'BEARISH' ? '#ff3333' : '#ff6600';
 
     return (
         <div style={{ position: 'relative', width: '100%', height: typeof window !== 'undefined' && window.innerWidth <= 768 ? '470px' : '600px' }}>
             <canvas ref={canvasRef} style={{ width: '100%', height: typeof window !== 'undefined' && window.innerWidth <= 768 ? '470px' : '600px', display: 'block', cursor: 'crosshair' }} />
+            <div style={{
+                position: 'absolute', left: 12, top: 12, zIndex: 15, pointerEvents: 'none',
+                background: `linear-gradient(135deg, ${dirColor}, ${dirColor}cc)`, color: '#000', fontSize: 14, fontWeight: 900,
+                padding: '7px 16px', borderRadius: 6, letterSpacing: '2px', boxShadow: `0 2px 12px ${dirColor}55`,
+                fontFamily: "'JetBrains Mono','Consolas',monospace",
+            }}>
+                {combo.direction}
+            </div>
             {tooltip && (
                 <div style={{
                     position: 'absolute', left: tooltip.x, top: tooltip.y,
@@ -2927,17 +2936,55 @@ function ComboHistChart({ combo, bars, wyckoffZones }: { combo: ComboSignal; bar
 
 // ─── Combo Panel ─────────────────────────────────────────────────────────────
 // Top-of-card composite signal: direction badge, scores, and tabbed charts.
-function ComboPanel({ combo, bars, wyckoffZones }: { combo: ComboSignal; bars: Bar[]; wyckoffZones: WyckoffZones }) {
+// Score/projection pills — rendered inline in the StockCard header row (direction badge
+// itself now lives as an overlay on the chart, not duplicated up here).
+function ComboScorePills({ combo }: { combo: ComboSignal }) {
     const mono: React.CSSProperties = { fontFamily: "'JetBrains Mono','Consolas',monospace" };
-    const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
     const dirColor = combo.direction === 'BULLISH' ? '#00ff88' : combo.direction === 'BEARISH' ? '#ff3333' : '#ff6600';
     const activeDirColor = combo.activeDirection === 'BULLISH' ? '#00ff88'
         : combo.activeDirection === 'BEARISH' ? '#ff3333'
             : combo.activeDirection ? '#ff6600' : '#ffffff';
-
     const proj30 = combo.combinedPath[30] ?? 0;
     const proj7 = combo.combinedPath[7] ?? 0;
     const proj1 = combo.combinedPath[1] ?? 0;
+
+    return (
+        <>
+            <div style={{
+                background: `linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01))`, border: `1px solid ${dirColor}66`,
+                borderRadius: 8, padding: '7px 16px', display: 'flex', alignItems: 'baseline', gap: 7,
+                boxShadow: `0 2px 8px ${dirColor}22`, ...mono,
+            }}>
+                <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 15, fontWeight: 800, letterSpacing: '1px' }}>ALL</span>
+                <span style={{ color: dirColor, fontSize: 18, fontWeight: 900 }}>{combo.score.toFixed(1)}%</span>
+            </div>
+            {combo.activeScore !== null && (
+                <div style={{
+                    background: `linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01))`, border: `1px solid ${activeDirColor}66`,
+                    borderRadius: 8, padding: '7px 16px', display: 'flex', alignItems: 'baseline', gap: 7,
+                    boxShadow: `0 2px 8px ${activeDirColor}22`, ...mono,
+                }}>
+                    <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 15, fontWeight: 800, letterSpacing: '1px' }}>ACTIVE</span>
+                    <span style={{ color: activeDirColor, fontSize: 18, fontWeight: 900 }}>{combo.activeScore.toFixed(1)}%</span>
+                </div>
+            )}
+            {([['1d', proj1], ['7d', proj7], ['30d', proj30]] as [string, number][]).map(([label, val]) => (
+                <div key={label} style={{
+                    background: val >= 0 ? 'rgba(0,255,136,0.06)' : 'rgba(255,51,51,0.06)', border: `1px solid ${val >= 0 ? '#00ff8866' : '#ff333366'}`,
+                    borderRadius: 8, padding: '7px 14px', display: 'flex', alignItems: 'baseline', gap: 7, ...mono,
+                }}>
+                    <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 15, fontWeight: 800, letterSpacing: '1px' }}>{label}</span>
+                    <span style={{ color: val >= 0 ? '#00ff88' : '#ff3333', fontSize: 18, fontWeight: 900 }}>
+                        {val >= 0 ? '+' : ''}{val.toFixed(1)}%
+                    </span>
+                </div>
+            ))}
+        </>
+    );
+}
+
+function ComboPanel({ combo, bars, wyckoffZones }: { combo: ComboSignal; bars: Bar[]; wyckoffZones: WyckoffZones }) {
+    const dirColor = combo.direction === 'BULLISH' ? '#00ff88' : combo.direction === 'BEARISH' ? '#ff3333' : '#ff6600';
 
     return (
         <div style={{
@@ -2948,62 +2995,6 @@ function ComboPanel({ combo, bars, wyckoffZones }: { combo: ComboSignal; bars: B
             marginBottom: '18px',
             overflow: 'hidden',
         }}>
-            {/* Header — desktop only */}
-            {!isMobile && <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '10px 14px', flexWrap: 'wrap', gap: 8,
-                borderBottom: '1px solid rgba(255,255,255,0.08)',
-                background: '#0f0f0f',
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{
-                        background: dirColor, color: '#000', fontSize: 13, fontWeight: 900,
-                        padding: '4px 10px', borderRadius: 3, letterSpacing: '2px', ...mono,
-                    }}>
-                        {combo.direction}
-                    </div>
-                </div>
-
-                {/* Score pills + projected returns */}
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <div style={{
-                        background: '#111', border: `1px solid ${dirColor}`,
-                        borderRadius: 4, padding: '4px 10px', ...mono,
-                    }}>
-                        <span style={{ color: '#ffffff', fontSize: 10, fontWeight: 700 }}>ALL  </span>
-                        <span style={{ color: dirColor, fontSize: 14, fontWeight: 900 }}>{combo.score.toFixed(1)}%W</span>
-                    </div>
-                    {combo.activeScore !== null ? (
-                        <div style={{
-                            background: '#111', border: `1px solid ${activeDirColor}`,
-                            borderRadius: 4, padding: '4px 10px', ...mono,
-                        }}>
-                            <span style={{ color: '#ffffff', fontSize: 10, fontWeight: 700 }}>ACTIVE  </span>
-                            <span style={{ color: activeDirColor, fontSize: 14, fontWeight: 900 }}>{combo.activeScore.toFixed(1)}%W</span>
-                        </div>
-                    ) : (
-                        <div style={{
-                            background: '#111', border: '1px solid rgba(255,255,255,0.20)',
-                            borderRadius: 4, padding: '4px 10px', ...mono,
-                        }}>
-                            <span style={{ color: '#ffffff', fontSize: 10, fontWeight: 700 }}>NO ACTIVE TRIGGERS</span>
-                        </div>
-                    )}
-                    {/* Projected move chips */}
-                    {([['1d', proj1], ['7d', proj7], ['30d', proj30]] as [string, number][]).map(([label, val]) => (
-                        <div key={label} style={{
-                            background: '#111', border: `1px solid ${val >= 0 ? '#00ff88' : '#ff3333'}`,
-                            borderRadius: 4, padding: '4px 8px', ...mono,
-                        }}>
-                            <span style={{ color: '#00cfff', fontSize: 10, fontWeight: 700 }}>{label}  </span>
-                            <span style={{ color: val >= 0 ? '#00ff88' : '#ff3333', fontSize: 13, fontWeight: 900 }}>
-                                {val >= 0 ? '+' : ''}{val.toFixed(1)}%
-                            </span>
-                        </div>
-                    ))}
-                </div>
-            </div>}
-
             {/* Chart area */}
             <div style={{ background: '#000' }}>
                 <ComboHistChart combo={combo} bars={bars} wyckoffZones={wyckoffZones} />
@@ -3817,7 +3808,7 @@ function PERatioChart({ ticker }: { ticker: string }) {
 }
 
 // ─── Stock Card ───────────────────────────────────────────────────────────────
-function StockCard({ ticker, showPE, setShowPE }: { ticker: string; showPE: boolean; setShowPE: (v: boolean) => void }) {
+function StockCard({ ticker, showPE, setShowPE, searchBar }: { ticker: string; showPE: boolean; setShowPE: (v: boolean) => void; searchBar?: React.ReactNode }) {
     const [result, setResult] = useState<StockResult | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -3921,74 +3912,74 @@ function StockCard({ ticker, showPE, setShowPE }: { ticker: string; showPE: bool
                 zIndex: 10,
                 borderRadius: '6px 6px 0 0',
             }}>
-                {/* Row 1: Ticker + price + badges */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: isMobile ? 3 : 14 }}>
-                    {/* Left: ticker / price / ret */}
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: isMobile ? 6 : 12 }}>
-                        <span style={{ color: '#ffffff', fontSize: isMobile ? 16 : 28, fontWeight: 900, letterSpacing: isMobile ? '1px' : '3px', lineHeight: 1, ...mono }}>{ticker}</span>
-                        <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: isMobile ? 13 : 20, fontWeight: 700, letterSpacing: '1px', ...mono }}>
-                            ${result.lastClose.toFixed(2)}
-                        </span>
-                        <span style={{
-                            color: retColor,
-                            fontSize: isMobile ? 11 : 13, fontWeight: 700, letterSpacing: '1px',
-                            background: result.todayRet >= 0 ? 'rgba(0,255,136,0.08)' : 'rgba(255,51,51,0.08)',
-                            border: `1px solid ${result.todayRet >= 0 ? 'rgba(0,255,136,0.20)' : 'rgba(255,51,51,0.20)'}`,
-                            borderRadius: 3,
-                            padding: '2px 7px',
-                            ...mono,
-                        }}>
-                            {result.todayRet >= 0 ? '+' : ''}{result.todayRet.toFixed(2)}%
-                        </span>
+                {/* Row 1: search bar + ticker + price + all badges/pills — everything in one row */}
+                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: isMobile ? 6 : 12, marginBottom: isMobile ? 3 : 14 }}>
+                    {/* Left: search controls + ticker / price / ret */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 14, flexWrap: 'wrap' }}>
+                        {searchBar}
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: isMobile ? 6 : 12 }}>
+                            <span style={{ color: '#ffffff', fontSize: isMobile ? 16 : 26, fontWeight: 900, letterSpacing: isMobile ? '1px' : '3px', lineHeight: 1, ...mono }}>{ticker}</span>
+                            <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: isMobile ? 13 : 18, fontWeight: 700, letterSpacing: '1px', ...mono }}>
+                                ${result.lastClose.toFixed(2)}
+                            </span>
+                            <span style={{
+                                color: retColor,
+                                fontSize: isMobile ? 11 : 13, fontWeight: 700, letterSpacing: '1px',
+                                background: result.todayRet >= 0 ? 'rgba(0,255,136,0.08)' : 'rgba(255,51,51,0.08)',
+                                border: `1px solid ${result.todayRet >= 0 ? 'rgba(0,255,136,0.20)' : 'rgba(255,51,51,0.20)'}`,
+                                borderRadius: 3,
+                                padding: '2px 7px',
+                                ...mono,
+                            }}>
+                                {result.todayRet >= 0 ? '+' : ''}{result.todayRet.toFixed(2)}%
+                            </span>
+                        </div>
                     </div>
 
-                    {/* Right: badges */}
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                    {/* Right: P/E toggle + composite-signal score pills */}
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                         {activePatterns.length > 0 && (
                             <div style={{
-                                background: '#ff8c00',
-                                borderRadius: 3,
-                                padding: '4px 10px',
+                                background: 'linear-gradient(135deg, #ff8c00, #ff6a00)',
+                                borderRadius: 8,
+                                padding: '7px 14px',
                                 color: '#000',
-                                fontSize: 11, fontWeight: 900, letterSpacing: '1.5px',
+                                fontSize: 12, fontWeight: 900, letterSpacing: '1.5px',
+                                boxShadow: '0 2px 10px rgba(255,140,0,0.35)',
                                 ...mono,
                             }}>
                                 {activePatterns.length} ACTIVE NOW
                             </div>
                         )}
-                        <div style={{
-                            background: 'rgba(255,255,255,0.06)',
-                            border: '1px solid rgba(255,255,255,0.12)',
-                            borderRadius: 3,
-                            padding: '4px 10px',
-                            color: 'rgba(255,255,255,0.55)',
-                            fontSize: 11, fontWeight: 700, letterSpacing: '1px',
-                            ...mono,
-                        }}>
-                            {qualifiedPatterns.length} PATTERNS
-                        </div>
                         {/* P/E toggle button — desktop only, mobile is in search row */}
                         {!isMobile && <button
                             onClick={() => setShowPE(v => !v)}
                             style={{
-                                background: showPE ? 'rgba(32,178,170,0.15)' : 'rgba(255,255,255,0.04)',
-                                border: `1px solid ${showPE ? 'rgba(32,178,170,0.50)' : 'rgba(255,255,255,0.12)'}`,
-                                borderRadius: 3,
-                                padding: '4px 10px',
-                                color: showPE ? '#20b2aa' : 'rgba(255,255,255,0.45)',
-                                fontSize: 11, fontWeight: 700, letterSpacing: '1px',
+                                background: showPE ? 'linear-gradient(135deg, rgba(32,178,170,0.30), rgba(32,178,170,0.12))' : 'linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))',
+                                border: `1px solid ${showPE ? '#20b2aa' : 'rgba(255,255,255,0.18)'}`,
+                                borderRadius: 8,
+                                padding: '7px 16px',
+                                color: showPE ? '#3dd9d0' : 'rgba(255,255,255,0.65)',
+                                fontSize: 12, fontWeight: 800, letterSpacing: '1px',
                                 cursor: 'pointer',
                                 lineHeight: 1,
                                 margin: 0,
                                 display: 'inline-flex',
                                 alignItems: 'center',
-                                height: '100%',
+                                gap: 6,
                                 boxSizing: 'border-box',
+                                boxShadow: showPE ? '0 2px 10px rgba(32,178,170,0.25)' : 'none',
+                                transition: 'background 0.15s, border-color 0.15s, box-shadow 0.15s',
                                 ...mono,
                             }}
                         >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                {showPE ? <path d="M18 6L6 18M6 6l12 12" /> : <path d="M3 17l6-6 4 4 8-8M15 7h6v6" />}
+                            </svg>
                             {showPE ? 'HIDE P/E' : 'P/E RATIO'}
                         </button>}
+                        {/* Composite signal score/projection pills — desktop only */}
+                        {!isMobile && <ComboScorePills combo={result.combo} />}
                     </div>
                 </div>
 
@@ -4105,11 +4096,7 @@ export default function ResearchPanelV2() {
     const addTicker = () => {
         const t = input.trim().toUpperCase();
         if (!t) return;
-        if (isMobile) {
-            setTickers([t]); // mobile: replace current ticker
-        } else {
-            if (!tickers.includes(t)) setTickers(prev => [...prev, t]);
-        }
+        setTickers([t]); // one ticker viewed/searched at a time
         setInput('');
     };
 
@@ -4121,146 +4108,113 @@ export default function ResearchPanelV2() {
 
     const mono: React.CSSProperties = { fontFamily: "'JetBrains Mono', 'Consolas', monospace" };
 
+    // Search input + add button (+ mobile P/E toggle) — rendered inline inside the StockCard's
+    // header row once a ticker is loaded, or standalone above the grid when nothing's loaded yet.
+    const searchControls = (
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, flexWrap: 'wrap' }}>
+            <div style={{ position: 'relative', flex: isMobile ? '1 1 80px' : '0 0 220px' }}>
+                <span style={{
+                    position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+                    color: 'rgba(0,255,136,0.5)', fontSize: isMobile ? 14 : 16, pointerEvents: 'none',
+                }}>⌕</span>
+                <input
+                    value={input}
+                    onChange={e => setInput(e.target.value.toUpperCase())}
+                    onKeyDown={handleKey}
+                    placeholder={isMobile ? 'TICKER...' : 'TICKER SYMBOL...'}
+                    maxLength={6}
+                    spellCheck={false}
+                    style={{
+                        width: '100%',
+                        background: 'rgba(255,255,255,0.03)',
+                        border: '1px solid rgba(255,255,255,0.10)',
+                        borderRadius: 6,
+                        color: '#ffffff',
+                        fontSize: isMobile ? 13 : 15, fontWeight: 700, letterSpacing: '2px',
+                        padding: isMobile ? '9px 10px 9px 32px' : '11px 12px 11px 36px',
+                        outline: 'none',
+                        boxSizing: 'border-box',
+                        boxShadow: 'inset 0 1px 4px rgba(0,0,0,0.6)',
+                        transition: 'border-color 0.15s',
+                        ...mono,
+                    }}
+                />
+            </div>
+            <button
+                onClick={addTicker}
+                style={{
+                    background: 'linear-gradient(135deg, rgba(0,255,136,0.15), rgba(0,200,100,0.08))',
+                    border: '1px solid rgba(0,255,136,0.40)',
+                    borderRadius: 6,
+                    color: '#00ff88',
+                    fontSize: isMobile ? 12 : 14, fontWeight: 900, letterSpacing: '2px',
+                    padding: isMobile ? '9px 14px' : '11px 22px',
+                    cursor: 'pointer',
+                    textShadow: '0 0 8px rgba(0,255,136,0.5)',
+                    lineHeight: 1,
+                    margin: 0,
+                    ...mono,
+                }}
+            >
+                {isMobile ? 'SCAN' : '+ ADD'}
+            </button>
+            {isMobile && tickers.length > 0 && (
+                <button
+                    onClick={() => setShowPE(v => !v)}
+                    style={{
+                        background: showPE ? 'rgba(32,178,170,0.15)' : 'rgba(255,255,255,0.04)',
+                        border: `1px solid ${showPE ? 'rgba(32,178,170,0.50)' : 'rgba(255,255,255,0.12)'}`,
+                        borderRadius: 6,
+                        color: showPE ? '#20b2aa' : 'rgba(255,255,255,0.45)',
+                        fontSize: 12, fontWeight: 700, letterSpacing: '1px',
+                        padding: '9px 14px',
+                        cursor: 'pointer',
+                        lineHeight: 1,
+                        margin: 0,
+                        ...mono,
+                    }}
+                >
+                    {showPE ? 'HIDE P/E' : 'P/E'}
+                </button>
+            )}
+            {tickers.length > 0 && (
+                <span
+                    onClick={() => removeTicker(tickers[0])}
+                    title="Clear ticker"
+                    style={{ color: 'rgba(255,80,80,0.6)', cursor: 'pointer', fontSize: 18, lineHeight: 1, fontWeight: 400, padding: '0 4px' }}
+                >×</span>
+            )}
+        </div>
+    );
+
     return (
         <div style={{ background: '#000', height: '100%', display: 'flex', flexDirection: 'column', color: '#fff', ...mono }}>
 
-            {/* ── Top Banner ─────────────────────────────────────────────────── */}
-            <div style={{
-                background: 'linear-gradient(180deg, #0a0a0a 0%, #050505 100%)',
-                borderBottom: '1px solid rgba(255,255,255,0.06)',
-                boxShadow: '0 1px 40px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.04)',
-                padding: isMobile ? '0 12px' : '0 32px',
-                flexShrink: 0,
-            }}>
-                {/* ── Row 1: Brand bar ── */}
+            {/* Standalone search bar — only shown before a ticker is loaded; once loaded it's
+                embedded directly in the StockCard header row alongside ticker/price/pattern badges. */}
+            {tickers.length === 0 && (
                 <div style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    borderBottom: '1px solid rgba(255,255,255,0.05)',
-                    padding: isMobile ? '4px 0' : '18px 0 16px',
-                    flexWrap: 'wrap', gap: 12,
+                    background: 'linear-gradient(180deg, #0a0a0a 0%, #050505 100%)',
+                    borderBottom: '1px solid rgba(255,255,255,0.06)',
+                    boxShadow: '0 1px 40px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.04)',
+                    padding: isMobile ? '10px 12px' : '16px 32px',
+                    flexShrink: 0,
                 }}>
-                    {/* Left: title */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                        <div>
-                        </div>
-                    </div>
-
+                    {searchControls}
                 </div>
-
-                {/* ── Row 2: Controls ── */}
-                <div style={{
-                    display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10,
-                    padding: isMobile ? '4px 0' : '14px 0',
-                    flexWrap: 'wrap',
-                }}>
-                    {/* Search input */}
-                    <div style={{ position: 'relative', flex: isMobile ? '1 1 80px' : '0 0 240px' }}>
-                        <span style={{
-                            position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
-                            color: 'rgba(0,255,136,0.5)', fontSize: isMobile ? 12 : 15, pointerEvents: 'none',
-                        }}>⌕</span>
-                        <input
-                            value={input}
-                            onChange={e => setInput(e.target.value.toUpperCase())}
-                            onKeyDown={handleKey}
-                            placeholder={isMobile ? 'TICKER...' : 'TICKER SYMBOL...'}
-                            maxLength={6}
-                            spellCheck={false}
-                            style={{
-                                width: '100%',
-                                background: 'rgba(255,255,255,0.03)',
-                                border: '1px solid rgba(255,255,255,0.10)',
-                                borderRadius: 5,
-                                color: '#ffffff',
-                                fontSize: isMobile ? 11 : 13, fontWeight: 700, letterSpacing: '2px',
-                                padding: isMobile ? '6px 8px 6px 24px' : '9px 12px 9px 34px',
-                                outline: 'none',
-                                boxSizing: 'border-box',
-                                boxShadow: 'inset 0 1px 4px rgba(0,0,0,0.6)',
-                                transition: 'border-color 0.15s',
-                                ...mono,
-                            }}
-                        />
-                    </div>
-
-                    {/* Scan / Add button */}
-                    <button
-                        onClick={addTicker}
-                        style={{
-                            background: 'linear-gradient(135deg, rgba(0,255,136,0.15), rgba(0,200,100,0.08))',
-                            border: '1px solid rgba(0,255,136,0.40)',
-                            borderRadius: 5,
-                            color: '#00ff88',
-                            fontSize: isMobile ? 10 : 12, fontWeight: 900, letterSpacing: '2px',
-                            padding: isMobile ? '6px 10px' : '9px 22px',
-                            cursor: 'pointer',
-                            textShadow: '0 0 8px rgba(0,255,136,0.5)',
-                            lineHeight: 1,
-                            margin: 0,
-                            ...mono,
-                        }}
-                    >
-                        {isMobile ? 'SCAN' : '+ ADD'}
-                    </button>
-
-                    {/* Mobile: P/E button shown here once ticker loaded */}
-                    {isMobile && tickers.length > 0 && (
-                        <button
-                            onClick={() => setShowPE(v => !v)}
-                            style={{
-                                background: showPE ? 'rgba(32,178,170,0.15)' : 'rgba(255,255,255,0.04)',
-                                border: `1px solid ${showPE ? 'rgba(32,178,170,0.50)' : 'rgba(255,255,255,0.12)'}`,
-                                borderRadius: 5,
-                                color: showPE ? '#20b2aa' : 'rgba(255,255,255,0.45)',
-                                fontSize: 10, fontWeight: 700, letterSpacing: '1px',
-                                padding: '6px 10px',
-                                cursor: 'pointer',
-                                lineHeight: 1,
-                                margin: 0,
-                                ...mono,
-                            }}
-                        >
-                            {showPE ? 'HIDE P/E' : 'P/E'}
-                        </button>
-                    )}
-
-                    {/* Desktop: divider + ticker chips */}
-                    {!isMobile && <>
-                        <div style={{ width: 1, height: 28, background: 'rgba(255,255,255,0.08)', margin: '0 4px' }} />
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                            {tickers.map(t => (
-                                <div key={t} style={{
-                                    display: 'flex', alignItems: 'center', gap: 7,
-                                    background: 'rgba(255,255,255,0.04)',
-                                    border: '1px solid rgba(255,255,255,0.10)',
-                                    borderRadius: 4,
-                                    padding: '5px 10px 5px 12px',
-                                    fontSize: 12, fontWeight: 900, letterSpacing: '1.5px',
-                                    color: '#ffffff',
-                                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
-                                    ...mono,
-                                }}>
-                                    {t}
-                                    <span onClick={() => removeTicker(t)} style={{ color: 'rgba(255,80,80,0.6)', cursor: 'pointer', fontSize: 16, lineHeight: 1, fontWeight: 400 }}>×</span>
-                                </div>
-                            ))}
-                        </div>
-                    </>}
-                </div>
-            </div>
+            )}
 
             {/* ── Ticker Grid ────────────────────────────────────────────────── */}
             <div style={{ padding: isMobile ? '0 8px' : '0 28px', flex: 1, overflowY: 'auto' }}>
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: (isMobile || tickers.length === 1) ? '1fr' : '1fr 1fr',
+                    gridTemplateColumns: '1fr',
                     gap: isMobile ? '12px' : '20px',
                     alignItems: 'start',
                     paddingTop: isMobile ? '12px' : '24px',
                     paddingBottom: isMobile ? '12px' : '24px',
-                    maxWidth: tickers.length === 1 ? '100%' : undefined,
                 }}>
-                    {tickers.map(t => <StockCard key={t} ticker={t} showPE={showPE} setShowPE={setShowPE} />)}
+                    {tickers.map(t => <StockCard key={t} ticker={t} showPE={showPE} setShowPE={setShowPE} searchBar={searchControls} />)}
                 </div>
             </div>
         </div>
