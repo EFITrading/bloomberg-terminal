@@ -1,10 +1,17 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import Navigation from '@/components/terminal/Navigation';
 
 export default function ConditionalNavigation() {
     const pathname = usePathname();
+    const searchParams = useSearchParams();
+
+    // AI Suite embeds real pages in an iframe as isolated "base" templates - ?embed=1
+    // hides the site's own nav bar + ticker scroller so only the tool itself is shown.
+    if (searchParams.get('embed') === '1') {
+        return null;
+    }
 
     // Don't show navigation on login page to keep it clean
     if (pathname === '/login') {

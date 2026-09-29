@@ -76,13 +76,6 @@ function HtmlBlock({ markup, style }: { markup: string; style?: React.CSSPropert
       fresh.textContent = old.textContent;
       old.replaceWith(fresh);
     }
-    // DEBUG: iframes blocked by CSP fail silently (no JS error) - log load/error explicitly.
-    const iframes = Array.from(el.querySelectorAll('iframe'));
-    for (const f of iframes) {
-      console.log('[debug] iframe src=', f.src);
-      f.addEventListener('load', () => console.log('[debug] iframe load fired for', f.src));
-      f.addEventListener('error', (ev) => console.error('[debug] iframe error for', f.src, ev));
-    }
   }, [markup]);
   return <div ref={ref} style={style} />;
 }
@@ -1070,23 +1063,35 @@ async function run() {
 return run();`;
 
 // Real base code: embeds the ACTUAL live Options Flow page (same component, same data,
-// same filters/buttons/grading - not a reimplementation).
+// same filters/buttons/grading - not a reimplementation). ?embed=1 hides the site's own
+// nav bar/ticker scroller, and the wrapper crops the resulting blank gap so the tool is
+// isolated alone with nothing else from the site around it.
+const NAV_OFFSET = 119;
+function embedUrl(path: string): string {
+  return path + (path.includes('?') ? '&' : '?') + 'embed=1';
+}
+function embedIframeHtml(label: string, path: string, height = 900): string {
+  const src = embedUrl(path);
+  return `<div style="width:100%;height:${height}px;overflow:hidden;position:relative;background:#000;">` +
+    `<iframe src="${src}" style="position:absolute;top:-${NAV_OFFSET}px;left:0;width:100%;height:${height + NAV_OFFSET}px;border:0;background:#000;" title="${label}"></iframe>` +
+    `</div>`;
+}
 const TPL_MY_FLOW_BASE = `// --- My Options Flow (Base) ----------------------------------------------------
-// This loads the REAL Options Flow page - exact design, filters, buttons, grading.
+// This loads the REAL Options Flow page - exact design, filters, buttons, grading. Isolated alone.
 async function run() {
-  html('<iframe src="/options-flow" style="width:100%;height:900px;border:0;background:#000;" title="Options Flow"></iframe>');
+  html('${embedIframeHtml('Options Flow', '/options-flow')}');
   log('Loaded real Options Flow.');
 }
 
 return run();`;
 
 // Iframe-embed "base" templates for the rest of the site's tools, same pattern as the
-// Options Flow one above: the real live page, not a reimplementation. Each is a real,
-// same-origin route so it renders identically to what you see when you visit it directly.
+// Options Flow one above: the real live page, not a reimplementation, isolated alone
+// (no site nav/ticker scroller). Each is a real, same-origin route.
 function iframeTpl(label: string, path: string, height = 900): string {
   return `// --- ${label} (Base) ----------------------------------------------------------\n` +
     `async function run() {\n` +
-    `  html('<iframe src="${path}" style="width:100%;height:${height}px;border:0;background:#000;" title="${label}"></iframe>');\n` +
+    `  html('${embedIframeHtml(label, path, height)}');\n` +
     `  log('Loaded real ${label}.');\n` +
     `}\n\n` +
     `return run();`;
@@ -1257,18 +1262,6 @@ let _logSeq = 0;
 async function runScript(code: string, onEntry: (e: LogEntry) => void): Promise<void> {
   const push = (type: LogEntry['type'], message: string, tableData?: Record<string, unknown>[]) =>
     onEntry({ id: ++_logSeq, type, message, tableData, timestamp: Date.now() });
-
-  // DEBUG: prove exactly which code is executing (first line + IV_MODE value + a stable
-  // hash) so "why does it show X when I didn't change anything" can be verified in-app
-  // instead of guessed at - this is the actual code string being run, not a cached copy.
-  {
-    let hash = 0;
-    for (let i = 0; i < code.length; i++) hash = (hash * 31 + code.charCodeAt(i)) | 0;
-    const ivLine = code.match(/const\s+IV_MODE\s*=\s*(\w+)/);
-    push('log', '[debug] running code hash=' + hash + ' len=' + code.length +
-      (ivLine ? ' IV_MODE=' + ivLine[1] : '') +
-      ' firstLine="' + code.split('\n')[0].slice(0, 80) + '"');
-  }
 
   const api = {
     // --- Price data ---
@@ -1571,18 +1564,6 @@ export default function AiSuitePage() {
   const [tab, setTab] = useState<'mine' | 'tpl' | 'community'>('tpl');
   const [showPreview, setShowPreview] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  // DEBUG: surface the actual browser-blocked CSP directive/URL directly in the console
-  // panel (not just devtools) whenever something like the options-flow iframe gets blocked.
-  useEffect(() => {
-    const onViolation = (e: SecurityPolicyViolationEvent) => {
-      setLogs(p => [...p, {
-        id: ++_logSeq, type: 'error', timestamp: Date.now(),
-        message: '[debug] CSP BLOCKED: directive="' + e.violatedDirective + '" blockedURI="' + e.blockedURI + '" sourceFile="' + e.sourceFile + '"',
-      }]);
-    };
-    document.addEventListener('securitypolicyviolation', onViolation);
-    return () => document.removeEventListener('securitypolicyviolation', onViolation);
-  }, []);
   const [running, setRunning] = useState(false);
   const [execTime, setExecTime] = useState<number | null>(null);
   const [aiMsgs, setAiMsgs] = useState<{ role: 'user' | 'ai'; text: string }[]>([
