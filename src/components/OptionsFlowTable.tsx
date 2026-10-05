@@ -4278,9 +4278,16 @@ Stock Reaction: ${scores.stockReaction}/15`
     // clears, permanently blocking the tab from committing results.
     const todayStr = new Date().toLocaleDateString('en-CA')
     const notExpired = data.filter((t) => t.expiry >= todayStr)
-    const shortOnly = notExpired.filter((t) => meetsEfiCriteria(t))
-    const longOnly = notExpired.filter((t) => meetsLeapCriteria(t))
-    const combined = notExpired.filter((trade) => meetsEfiCriteria(trade) || meetsLeapCriteria(trade))
+    // Sold calls (B/BB) are premium collection, not a bullish positioning signal - never let
+    // them into SweepSense unless it's part of a MULTI-LEG structure (spread legs are fine).
+    const soldCallsExcluded = notExpired.filter((t) => {
+      const isSoldCall = t.type === 'call' && (t.fill_style === 'B' || t.fill_style === 'BB')
+      const isMultiLeg = t.trade_type === 'MULTI-LEG' || t.classification === 'MULTI-LEG'
+      return !isSoldCall || isMultiLeg
+    })
+    const shortOnly = soldCallsExcluded.filter((t) => meetsEfiCriteria(t))
+    const longOnly = soldCallsExcluded.filter((t) => meetsLeapCriteria(t))
+    const combined = soldCallsExcluded.filter((trade) => meetsEfiCriteria(trade) || meetsLeapCriteria(trade))
     return combined
   }, [sweepSenseBgActive, data, sweepSenseDbStatus])
 

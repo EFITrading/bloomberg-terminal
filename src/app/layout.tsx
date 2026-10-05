@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import ConditionalNavigation from '@/components/ConditionalNavigation'
 import Background from '@/components/terminal/Background'
@@ -27,6 +27,16 @@ export const metadata: Metadata = {
         apple: '/icons/icon-152x152.svg',
     },
 }
+
+// Locks the pinch-zoom level so tapping a search input on mobile can never trigger the
+// browser's own auto-zoom (which happens regardless of font-size once allowed).
+export const viewport: Viewport = {
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 1,
+    userScalable: false,
+}
+
 
 export default function RootLayout({
     children,

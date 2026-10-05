@@ -1123,7 +1123,7 @@ function FlowSentimentPanel({ breakdown, isMobileCard = false }: { breakdown: { 
 // Small animated line-icon set for the SweepSense quick-filter control row. Deliberately not
 // emoji - crisp, single-color SVG strokes (Feather/Lucide-style) with a subtle per-icon motion
 // so the active/inactive states read clearly at a glance.
-function QuickFilterIcon({ icon, color }: { icon: 'ready' | 'missed' | 'hedge' | 'directional' | 'sweep' | 'gamma' | 'structural' | 'spam' | 'summary'; color: string }) {
+function QuickFilterIcon({ icon, color }: { icon: 'ready' | 'hedge' | 'directional' | 'sweep' | 'gamma' | 'spam' | 'summary'; color: string }) {
   const common = { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: color, strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
   switch (icon) {
     case 'summary':
@@ -1140,13 +1140,6 @@ function QuickFilterIcon({ icon, color }: { icon: 'ready' | 'missed' | 'hedge' |
           <rect x="4" y="3" width="16" height="18" rx="2" />
           <path d="M9 3h6v3H9z" />
           <path d="M8 13l2.5 2.5L16 10" style={{ strokeDasharray: 16, animation: 'qfCheckDraw 2.2s ease-in-out infinite' }} />
-        </svg>
-      )
-    case 'missed':
-      return (
-        <svg {...common} style={{ animation: 'qfMissedShake 2.4s ease-in-out infinite' }}>
-          <circle cx="12" cy="12" r="9" />
-          <path d="M9 9l6 6M15 9l-6 6" />
         </svg>
       )
     case 'hedge':
@@ -1174,13 +1167,6 @@ function QuickFilterIcon({ icon, color }: { icon: 'ready' | 'missed' | 'hedge' |
       return (
         <svg {...common} style={{ animation: 'qfBolt 2s ease-in-out infinite' }}>
           <path d="M13 2L4 14h6l-1 8 9-12h-6z" />
-        </svg>
-      )
-    case 'structural':
-      return (
-        <svg {...common}>
-          <path d="M4 21V9l8-5 8 5v12" />
-          <path d="M9 21v-7h6v7M4 9h16" />
         </svg>
       )
     case 'spam':
@@ -1460,16 +1446,14 @@ function SweepSenseTab({
     gammaMeta?: { ticker: string; strike: number; spot?: number; sigma?: number; expiry?: string }
     structuralMeta?: { callLevel: number | null; putLevel: number | null }
   } | null>(null)
-  // Top control row quick filters - "Ready 4 Pickup" (has an active entry plan), "He Missed"
-  // (stock moved the most % against the implied trade direction), "Hedge"/"Directional"
-  // (based on where the strike sits relative to the 90%/80% probability-of-profit level),
-  // "Sweep" (trade type), and "Gamma Attack"/"Structural"/"Spam" (FlowBias rows active).
-  type QuickFilterKey = 'READY' | 'MISSED' | 'HEDGE' | 'DIRECTIONAL' | 'SWEEP' | 'GAMMA' | 'STRUCTURAL' | 'SPAM'
+  // Top control row quick filters - "Ready 4 Pickup" (has an active entry plan), "Hedge"/
+  // "Directional" (based on where the strike sits relative to the 90%/80% probability-of-profit
+  // level), "Sweep" (trade type), and "Gamma Attack"/"Spam" (FlowBias rows active).
+  type QuickFilterKey = 'READY' | 'HEDGE' | 'DIRECTIONAL' | 'SWEEP' | 'GAMMA' | 'SPAM'
   const [openFilterDropdown, setOpenFilterDropdown] = useState<'TIMING' | 'BIAS' | 'SPECIALS' | null>(null)
-  // Multiple filters can be combined (AND'd) on BOTH desktop and mobile. READY/MISSED are
-  // mutually exclusive of each other, and HEDGE/DIRECTIONAL are mutually exclusive of each
-  // other (a trade can't be both a hedge and directional at once) - everything else
-  // (SWEEP/GAMMA/STRUCTURAL/SPAM) can be freely combined with anything, including each other
+  // Multiple filters can be combined (AND'd) on BOTH desktop and mobile. HEDGE/DIRECTIONAL are
+  // mutually exclusive of each other (a trade can't be both a hedge and directional at once) -
+  // everything else (SWEEP/GAMMA/SPAM) can be freely combined with anything, including each other
   // and with HEDGE/DIRECTIONAL (e.g. "Directional + Sweep" or "Hedge + Gamma Attack" are valid).
   const [mobileFilters, setMobileFilters] = useState<Set<QuickFilterKey>>(new Set())
   const toggleMobileFilter = (key: QuickFilterKey) => {
@@ -1478,8 +1462,6 @@ function SweepSenseTab({
       if (next.has(key)) {
         next.delete(key)
       } else {
-        if (key === 'READY') next.delete('MISSED')
-        if (key === 'MISSED') next.delete('READY')
         if (key === 'HEDGE') next.delete('DIRECTIONAL')
         if (key === 'DIRECTIONAL') next.delete('HEDGE')
         next.add(key)
@@ -2014,6 +1996,56 @@ function SweepSenseTab({
 
   const { trades } = data
 
+  // Tracks the worst adverse excursion seen since a bought (A/AA) trade was first observed -
+  // lowest live price for calls, highest for puts - keyed by flowId, so the reversal check
+  // below can tell "price went away and came back" apart from "price never moved at all".
+  const reversalExtremeRef = useRef<Map<string, number>>(new Map())
+
+  // Reversal re-entry: a bought (A/AA) call/put whose stock price first moved AGAINST the
+  // trade (away from the entry spot) and has now recovered back to/through the original entry
+  // price counts as ready again, just flagged cautious/half-size since the original thesis
+  // already got tested once. Sold (B/BB) contracts are untouched - they keep the plan-only logic.
+  const getReversalReadyLabel = (item: (typeof trades)[number]): string | null => {
+    const { trade, currentStockPrice, spot } = item
+    const fs = trade.fill_style || ''
+    if (fs !== 'A' && fs !== 'AA') return null
+    const entrySpot = trade.spot_price
+    if (!entrySpot || entrySpot <= 0) return null
+    const livePrice = currentStockPrice && currentStockPrice > 0 ? currentStockPrice : (spot && spot > 0 ? spot : entrySpot)
+    const isCall = trade.type === 'call'
+    const flowId = generateFlowId(trade)
+    const prevExtreme = reversalExtremeRef.current.get(flowId) ?? entrySpot
+    const adverseExtreme = isCall ? Math.min(prevExtreme, livePrice) : Math.max(prevExtreme, livePrice)
+    reversalExtremeRef.current.set(flowId, adverseExtreme)
+    const wentAway = isCall ? adverseExtreme < entrySpot : adverseExtreme > entrySpot
+    if (!wentAway) return null
+    const recovered = isCall ? livePrice >= entrySpot : livePrice <= entrySpot
+    if (!recovered) return null
+    return 'Enter Cautiously with Half Size'
+  }
+
+  // Multi-leg structures never get a magnet/pivot plan (the classifier can't score them), so
+  // they get their own distance-based entry instead: measured off the SOLD (B/BB) leg's strike,
+  // since that's the leg that defines the structure's risk - 50% of the way there is a
+  // half-size entry, 80%+ of the way there is a great entry.
+  const getMultiLegEntryLabel = (item: (typeof trades)[number]): string | null => {
+    const { trade, otherLegs, currentStockPrice, spot } = item
+    const legs = [trade, ...(otherLegs || [])]
+    const soldLeg = legs.find((l) => l.fill_style === 'B' || l.fill_style === 'BB')
+    if (!soldLeg) return null
+    const entrySpot = trade.spot_price
+    if (!entrySpot || entrySpot <= 0) return null
+    const livePrice = currentStockPrice && currentStockPrice > 0 ? currentStockPrice : (spot && spot > 0 ? spot : entrySpot)
+    const dist = soldLeg.strike - entrySpot
+    if (dist === 0) return null
+    const halfway = entrySpot + dist * 0.5
+    const eightyPct = entrySpot + dist * 0.8
+    const reachedHalf = dist > 0 ? livePrice >= halfway : livePrice <= halfway
+    if (!reachedHalf) return null
+    const reachedEighty = dist > 0 ? livePrice >= eightyPct : livePrice <= eightyPct
+    return reachedEighty ? 'Great Entry' : 'Half Size Entry'
+  }
+
   // "Ready 4 Pickup" - not just "does a plan exist", but "has price actually reached the
   // magnet/pivot entry trigger yet". A plan telling you to "wait for price to approach down
   // to $X and buy there" (or run up / break above / break below) is NOT ready until the live
@@ -2021,6 +2053,9 @@ function SweepSenseTab({
   // now ("you can enter and trade toward $X as your target") count as ready without a gate.
   const isReadyForPickup = (item: (typeof trades)[number]) => {
     const { planText, currentStockPrice, spot, trade } = item
+    const isMultiLeg = trade.trade_type === 'MULTI-LEG' || trade.classification === 'MULTI-LEG'
+    if (isMultiLeg) return getMultiLegEntryLabel(item) !== null
+    if (getReversalReadyLabel(item) !== null) return true
     const noPlan = planText === 'No Plan detected.' || planText === 'Waiting on dealer magnet/pivot data to build an entry plan.'
     if (noPlan) return false
     const livePrice = currentStockPrice && currentStockPrice > 0 ? currentStockPrice : (spot && spot > 0 ? spot : trade.spot_price)
@@ -2037,19 +2072,6 @@ function SweepSenseTab({
     if (planText.includes('break above')) return livePrice > level - tol
     if (planText.includes('break below')) return livePrice < level + tol
     return true
-  }
-
-  // "He Missed" - stock moved against the implied trade direction (bought calls/sold puts
-  // implies bullish, sold calls/bought puts implies bearish); returns the magnitude of the
-  // wrong-direction move, or null if the move actually went the right way / is unknown.
-  const missedMagnitude = (item: (typeof trades)[number]): number | null => {
-    const { trade, pctMove } = item
-    if (pctMove === null || pctMove === undefined) return null
-    const fs = trade.fill_style || ''
-    let impliedBullish = trade.type === 'call'
-    if (fs === 'B' || fs === 'BB') impliedBullish = !impliedBullish
-    const wentWrongWay = impliedBullish ? pctMove < 0 : pctMove > 0
-    return wentWrongWay ? Math.abs(pctMove) : null
   }
 
   // Hedge vs Directional - based on where the strike sits relative to the probability-of-profit
@@ -2080,11 +2102,11 @@ function SweepSenseTab({
     return v === 'SWEEP' || v === 'SUPER SWEEP'
   }
 
-  // Gamma Attack / Structural / Spam - reruns the exact same detection functions used by the
+  // Gamma Attack / Spam - reruns the exact same detection functions used by the
   // FlowBias rows further down in the card, so "active" here means the card itself is currently
   // showing a real (non-"No X Detected"/"Loading") label for that row.
   const computeBiasFlags = (item: (typeof trades)[number]) => {
-    const { trade, sigma, dte, spot, liveRawTrades } = item
+    const { trade, sigma, dte, spot } = item
     const isLongTerm = trade.days_to_expiry >= 30
     const { targetUp, target1, target2 } = calcTradeManagement(trade, sigma, dte, spot)
     const flowId = generateFlowId(trade)
@@ -2095,44 +2117,32 @@ function SweepSenseTab({
     const spamResult = flowBiasReady
       ? computeSpamLabel(flowBiasTrades!, trade.type, formatDate, spot, sigma)
       : { label: 'Loading…', trades: [], level: null }
-    const structuralResult = computeStructuralLabel(liveRawTrades, spot, sigma)
     const gammaResult = flowBiasReady
       ? computeGammaLabel(flowBiasTrades!, trade.type, target1, target2, targetUp, isLongTerm, trade.expiry, spot)
       : { label: 'Loading…', trades: [] }
     return {
       spamActive: spamResult.label !== 'No Spammer Detected' && spamResult.label !== 'Loading…',
-      structuralActive: structuralResult.label !== 'No Structural Formation Detected',
       gammaActive: gammaResult.label !== 'No Gamma Attack' && gammaResult.label !== 'Loading…',
     }
   }
 
   // Filters are combinable (AND'd) on both mobile and desktop now - same Set + rules apply
   // to both layouts, so "Directional + Sweep", "Hedge + Gamma Attack", etc. all work as long
-  // as they aren't mutually-contradictory (HEDGE vs DIRECTIONAL, READY vs MISSED).
+  // as they aren't mutually-contradictory (HEDGE vs DIRECTIONAL).
   let filteredTrades = trades
   if (mobileFilters.has('READY')) filteredTrades = filteredTrades.filter(isReadyForPickup)
-  if (mobileFilters.has('MISSED')) {
-    filteredTrades = filteredTrades
-      .map((t) => ({ t, mag: missedMagnitude(t) }))
-      .filter((x): x is { t: (typeof trades)[number]; mag: number } => x.mag !== null)
-      .sort((a, b) => b.mag - a.mag)
-      .map((x) => x.t)
-  }
   if (mobileFilters.has('HEDGE')) filteredTrades = filteredTrades.filter((t) => classifyHedgeDirectional(t) === 'HEDGE')
   if (mobileFilters.has('DIRECTIONAL')) filteredTrades = filteredTrades.filter((t) => classifyHedgeDirectional(t) === 'DIRECTIONAL')
   if (mobileFilters.has('SWEEP')) filteredTrades = filteredTrades.filter(isSweepTrade)
   if (mobileFilters.has('GAMMA')) filteredTrades = filteredTrades.filter((t) => computeBiasFlags(t).gammaActive)
-  if (mobileFilters.has('STRUCTURAL')) filteredTrades = filteredTrades.filter((t) => computeBiasFlags(t).structuralActive)
   if (mobileFilters.has('SPAM')) filteredTrades = filteredTrades.filter((t) => computeBiasFlags(t).spamActive)
 
-  const quickFilterButtons: Array<{ key: QuickFilterKey; label: string; icon: 'ready' | 'missed' | 'hedge' | 'directional' | 'sweep' | 'gamma' | 'structural' | 'spam' }> = [
+  const quickFilterButtons: Array<{ key: QuickFilterKey; label: string; icon: 'ready' | 'hedge' | 'directional' | 'sweep' | 'gamma' | 'spam' }> = [
     { key: 'READY', label: 'Ready 4 Pickup', icon: 'ready' },
-    { key: 'MISSED', label: 'He Missed', icon: 'missed' },
     { key: 'HEDGE', label: 'Hedge', icon: 'hedge' },
     { key: 'DIRECTIONAL', label: 'Directional', icon: 'directional' },
     { key: 'SWEEP', label: 'Sweep', icon: 'sweep' },
     { key: 'GAMMA', label: 'Gamma Attack', icon: 'gamma' },
-    { key: 'STRUCTURAL', label: 'Structural', icon: 'structural' },
     { key: 'SPAM', label: 'Spam', icon: 'spam' },
   ]
 
@@ -2182,9 +2192,9 @@ function SweepSenseTab({
           )}
           {isMobileCard ? (
             [
-              { key: 'TIMING' as const, label: 'Timing', items: quickFilterButtons.filter((b) => b.key === 'READY' || b.key === 'MISSED') },
+              { key: 'TIMING' as const, label: 'Timing', items: quickFilterButtons.filter((b) => b.key === 'READY') },
               { key: 'BIAS' as const, label: 'Bias', items: quickFilterButtons.filter((b) => b.key === 'HEDGE' || b.key === 'DIRECTIONAL' || b.key === 'SWEEP') },
-              { key: 'SPECIALS' as const, label: 'Specials', items: quickFilterButtons.filter((b) => b.key === 'GAMMA' || b.key === 'STRUCTURAL' || b.key === 'SPAM') },
+              { key: 'SPECIALS' as const, label: 'Specials', items: quickFilterButtons.filter((b) => b.key === 'GAMMA' || b.key === 'SPAM') },
             ].map((group) => {
               const groupActive = group.items.some((b) => mobileFilters.has(b.key))
               const isOpen = openFilterDropdown === group.key
@@ -2341,11 +2351,21 @@ function SweepSenseTab({
 
           const moveColor = contractPctChange === null ? '#fff' : contractPctChange >= 0 ? '#22c55e' : '#ef4444'
           const flowBiasScore = (breakdown.buyCallsPct + breakdown.buyPutsPct - breakdown.bearCallsPct - breakdown.bearPutsPct) / 100
-          const aiTakeText = hasPlan ? planText : (Math.abs(flowBiasScore) < 0.2
-            ? 'Flow is mixed across calls and puts. Watching for a clearer directional lean before conviction builds further.'
-            : flowBiasScore > 0
-              ? 'Buy-side flow is dominating this name. Positioning leans bullish with institutional money backing the move.'
-              : 'Sell-side/put flow is dominating this name. Positioning leans bearish or hedging-driven.')
+          const multiLegEntryLabelForTake = tradeTypeVal === 'MULTI-LEG'
+            ? getMultiLegEntryLabel({ trade, otherLegs, currentStockPrice, spot } as Parameters<typeof getMultiLegEntryLabel>[0])
+            : null
+          const reversalEntryLabelForTake = tradeTypeVal !== 'MULTI-LEG'
+            ? getReversalReadyLabel({ trade, currentStockPrice, spot } as Parameters<typeof getReversalReadyLabel>[0])
+            : null
+          const aiTakeText = multiLegEntryLabelForTake
+            ? multiLegEntryLabelForTake
+            : reversalEntryLabelForTake
+              ? reversalEntryLabelForTake
+              : hasPlan ? planText : (Math.abs(flowBiasScore) < 0.2
+                ? 'Flow is mixed across calls and puts. Watching for a clearer directional lean before conviction builds further.'
+                : flowBiasScore > 0
+                  ? 'Buy-side flow is dominating this name. Positioning leans bullish with institutional money backing the move.'
+                  : 'Sell-side/put flow is dominating this name. Positioning leans bearish or hedging-driven.')
 
           const flowId = generateFlowId(trade)
           const {
@@ -2560,14 +2580,22 @@ function SweepSenseTab({
 
           // Headless scrape hook (Discord alert bot) - not rendered, just a stable JSON snapshot
           // of everything the card already computed so nothing gets reimplemented server-side.
+          const multiLegEntryLabel = tradeTypeVal === 'MULTI-LEG'
+            ? getMultiLegEntryLabel({ trade, otherLegs, currentStockPrice, spot } as Parameters<typeof getMultiLegEntryLabel>[0])
+            : null
+          const reversalEntryLabel = tradeTypeVal !== 'MULTI-LEG'
+            ? getReversalReadyLabel({ trade, currentStockPrice, spot } as Parameters<typeof getReversalReadyLabel>[0])
+            : null
+          const pickupLabel = multiLegEntryLabel || reversalEntryLabel
           const readyForPickupNow = (() => {
+            if (tradeTypeVal === 'MULTI-LEG') return multiLegEntryLabel !== null
+            if (reversalEntryLabel !== null) return true
             const noPlan = planText === 'No Plan detected.' || planText === 'Waiting on dealer magnet/pivot data to build an entry plan.'
             if (noPlan) return false
             // SweepSense alerts only fire for short-term trades - long-term never qualifies.
             if (isLongTerm) return false
-            // SweepSense alerts only fire for directional trades - hedges (and anything the
-            // classifier can't score, e.g. MULTI-LEG) never qualify regardless of plan/price.
-            if (tradeTypeVal !== 'MULTI-LEG' && classifyHedgeDirectional({ trade, sigma, dte, spot } as Parameters<typeof classifyHedgeDirectional>[0]) !== 'DIRECTIONAL') return false
+            // SweepSense alerts only fire for directional trades (hedges never qualify).
+            if (classifyHedgeDirectional({ trade, sigma, dte, spot } as Parameters<typeof classifyHedgeDirectional>[0]) !== 'DIRECTIONAL') return false
             const livePrice = currentStockPrice && currentStockPrice > 0 ? currentStockPrice : (spot && spot > 0 ? spot : trade.spot_price)
             const dollarMatch = planText.match(/\$([0-9]+(?:\.[0-9]+)?)/)
             const level = dollarMatch ? parseFloat(dollarMatch[1]) : null
@@ -2582,7 +2610,7 @@ function SweepSenseTab({
             return true
           })()
           const flowAlertPayload = JSON.stringify({
-            flowId, ticker: trade.underlying_ticker, ready: readyForPickupNow,
+            flowId, ticker: trade.underlying_ticker, ready: readyForPickupNow, pickupLabel,
             direction: targetUp ? 'BULLISH' : 'BEARISH', tradeType: tradeTypeVal,
             term: isLongTerm ? 'LONG TERM' : 'SHORT TERM',
             strike: trade.strike, expiry: trade.expiry, optionType: trade.type,
@@ -3392,431 +3420,6 @@ function SweepSenseTab({
   )
 }
 
-// ── SweepView: 4-quadrant rotation map classifying each ticker's DOMINANT flow of the day ──
-// Building Resistance: calls sold (B/BB) - outer shade = strike ITM (below spot), inner/regular
-//   shade = strike OTM (above spot).
-// Building Support: puts sold (B/BB) - outer shade = strike ITM (above spot), inner/regular
-//   shade = strike OTM (below spot).
-// Forming a Magnet: buy-side (A/AA) flow that's OTM.
-// Forming a Pivot: buy-side (A/AA) flow that's ITM.
-type SweepViewQuad = 'RESISTANCE' | 'SUPPORT' | 'MAGNET' | 'PIVOT'
-interface SweepViewPoint {
-  ticker: string
-  quad: SweepViewQuad
-  shade: 'inner' | 'outer' // only meaningful for RESISTANCE/SUPPORT
-  dominantPct: number // 0-1, share of this ticker's classified premium in the dominant bucket
-  total: number
-  otmPct: number // premium-weighted avg |strike-spot|/spot of the dominant bucket's trades - drives radial placement (0 = ATM/center, higher = further OTM/outer corner)
-  level: number // premium-weighted avg strike of the dominant bucket - the actual magnet/pivot/support/resistance price level
-  spot: number // latest known spot price for this ticker, straight from the same flow rows already loaded
-  expiry: string // expiry of the single largest trade in the dominant bucket - the flow actually driving this placement
-}
-
-function computeSweepViewData(allFlowData: OptionsFlowData[] | undefined): SweepViewPoint[] {
-  if (!allFlowData || allFlowData.length === 0) return []
-  // Only the 3 broad-market ETFs and their index/futures-option counterparts get excluded -
-  // every other ETF stays. VIX is a real single-name-style vol read, so it stays too.
-  const EXCLUDED_TICKERS = new Set(['SPY', 'QQQ', 'IWM', 'SPX', 'SPXW', 'NDX', 'NDXP', 'RUT', 'RUTW'])
-  const byTicker = new Map<string, OptionsFlowData[]>()
-  for (const t of allFlowData) {
-    if (t.trade_type === 'MINI') continue
-    if (EXCLUDED_TICKERS.has(t.underlying_ticker.toUpperCase())) continue
-    if (t.days_to_expiry > 45) continue
-    const arr = byTicker.get(t.underlying_ticker)
-    if (arr) arr.push(t); else byTicker.set(t.underlying_ticker, [t])
-  }
-
-  const points: SweepViewPoint[] = []
-  for (const [ticker, trades] of byTicker) {
-    let resistanceOTM = 0, resistanceITM = 0, supportOTM = 0, supportITM = 0, magnet = 0, pivot = 0
-    // Premium-weighted OTM-distance / strike-level accumulators per bucket, so we can compute the
-    // dominant bucket's average moneyness distance AND actual price level after the fact.
-    let resistanceDist = 0, supportDist = 0, magnetDist = 0, pivotDist = 0
-    let resistanceStrike = 0, supportStrike = 0, magnetStrike = 0, pivotStrike = 0
-    let resistanceTop = 0, supportTop = 0, magnetTop = 0, pivotTop = 0
-    let resistanceExpiry = '', supportExpiry = '', magnetExpiry = '', pivotExpiry = ''
-    let latestTs = ''
-    let latestSpot = 0
-    for (const t of trades) {
-      if (t.trade_timestamp && t.trade_timestamp > latestTs) { latestTs = t.trade_timestamp; latestSpot = t.spot_price }
-      const fs = t.fill_style
-      const prem = t.total_premium
-      if (!prem || !fs || fs === 'N/A') continue
-      const isBuy = fs === 'A' || fs === 'AA'
-      const isSell = fs === 'B' || fs === 'BB'
-      const spot = t.spot_price
-      const isITM = spot > 0
-        ? (t.type === 'call' ? t.strike < spot : t.strike > spot)
-        : t.moneyness === 'ITM'
-      const dist = spot > 0 ? Math.abs(t.strike - spot) / spot : 0
-      if (isSell && t.type === 'call') {
-        if (isITM) { resistanceITM += prem } else { resistanceOTM += prem }
-        resistanceDist += dist * prem; resistanceStrike += t.strike * prem
-        if (prem > resistanceTop) { resistanceTop = prem; resistanceExpiry = t.expiry }
-      }
-      else if (isSell && t.type === 'put') {
-        if (isITM) { supportITM += prem } else { supportOTM += prem }
-        supportDist += dist * prem; supportStrike += t.strike * prem
-        if (prem > supportTop) { supportTop = prem; supportExpiry = t.expiry }
-      }
-      else if (isBuy) {
-        if (isITM) { pivot += prem; pivotDist += dist * prem; pivotStrike += t.strike * prem; if (prem > pivotTop) { pivotTop = prem; pivotExpiry = t.expiry } }
-        else { magnet += prem; magnetDist += dist * prem; magnetStrike += t.strike * prem; if (prem > magnetTop) { magnetTop = prem; magnetExpiry = t.expiry } }
-      }
-    }
-    const resistance = resistanceOTM + resistanceITM
-    const support = supportOTM + supportITM
-    const total = resistance + support + magnet + pivot
-    if (total <= 0) continue
-    const buckets: Array<{ quad: SweepViewQuad; val: number; distSum: number; strikeSum: number; expiry: string }> = [
-      { quad: 'RESISTANCE', val: resistance, distSum: resistanceDist, strikeSum: resistanceStrike, expiry: resistanceExpiry }, { quad: 'SUPPORT', val: support, distSum: supportDist, strikeSum: supportStrike, expiry: supportExpiry },
-      { quad: 'MAGNET', val: magnet, distSum: magnetDist, strikeSum: magnetStrike, expiry: magnetExpiry }, { quad: 'PIVOT', val: pivot, distSum: pivotDist, strikeSum: pivotStrike, expiry: pivotExpiry },
-    ]
-    const dominant = buckets.reduce((a, b) => (b.val > a.val ? b : a))
-    const dominantPct = dominant.val / total
-    if (dominantPct < 0.35) continue
-    // Support/Resistance is only meaningful selling pressure once it's a real wall - require
-    // at least $1M in that specific B/BB fill-style flow, or the quadrants clutter with noise.
-    if ((dominant.quad === 'RESISTANCE' || dominant.quad === 'SUPPORT') && dominant.val < 1_000_000) continue
-    const shade: 'inner' | 'outer' = dominant.quad === 'RESISTANCE'
-      ? (resistanceITM >= resistanceOTM ? 'outer' : 'inner')
-      : dominant.quad === 'SUPPORT'
-        ? (supportITM >= supportOTM ? 'outer' : 'inner')
-        : 'inner'
-    const otmPct = dominant.val > 0 ? dominant.distSum / dominant.val : 0
-    const level = dominant.val > 0 ? dominant.strikeSum / dominant.val : 0
-    points.push({ ticker, quad: dominant.quad, shade, dominantPct, total, otmPct, level, spot: latestSpot, expiry: dominant.expiry })
-  }
-  return points.sort((a, b) => b.total - a.total)
-}
-
-const SWEEPVIEW_QUAD_COLOR: Record<SweepViewQuad, string> = {
-  RESISTANCE: '#ff4444', SUPPORT: '#00ff88', MAGNET: '#4da6ff', PIVOT: '#ffaa00',
-}
-
-// Simple hash -> [0,1) for a stable per-ticker angular jitter (so same ticker always lands in
-// roughly the same spot between renders, instead of jumping around randomly).
-function hash01(s: string): number {
-  let h = 0
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0
-  return ((h >>> 0) % 10000) / 10000
-}
-
-function SweepViewTab({ allFlowData }: { allFlowData?: OptionsFlowData[] }) {
-  const points = useMemo(() => computeSweepViewData(allFlowData), [allFlowData])
-  const W = 1755, H = 875, PAD = { t: 32, r: 32, b: 44, l: 90 }
-  const CW = W - PAD.l - PAD.r, CH = H - PAD.t - PAD.b
-  const CX = PAD.l + CW / 2, CY = PAD.t + CH / 2
-  const maxPrem = Math.max(...points.map((p) => p.total), 1)
-  // Bubble radius sized to comfortably fit the ticker text inside it (longest ticker ~5 chars).
-  const dotR = (total: number, tickerLen: number) => Math.max(22 + Math.sqrt(total / maxPrem) * 30, tickerLen * 6.5)
-
-  // Same wheel-zoom + drag-pan pattern as the AlgoFlow Flow Matrix RRG.
-  const [transform, setTransform] = useState({ tx: 0, ty: 0, k: 1 })
-  const [hovered, setHovered] = useState<{ p: SweepViewPoint; mx: number; my: number } | null>(null)
-  const dragRef = useRef({ dragging: false, mouseDownActive: false, lastSvgX: 0, lastSvgY: 0 })
-  const svgRef = useRef<SVGSVGElement | null>(null)
-
-  useEffect(() => {
-    const el = svgRef.current
-    if (!el) return
-    const clamp = (tx: number, ty: number, k: number) => {
-      const k1 = Math.max(1, k)
-      return {
-        k: k1,
-        tx: Math.max((1 - k1) * (PAD.l + CW), Math.min((1 - k1) * PAD.l, tx)),
-        ty: Math.max((1 - k1) * (PAD.t + CH), Math.min((1 - k1) * PAD.t, ty)),
-      }
-    }
-    const wheelHandler = (e: WheelEvent) => {
-      e.preventDefault()
-      const rect = el.getBoundingClientRect()
-      const mx = (e.clientX - rect.left) * W / rect.width
-      const my = (e.clientY - rect.top) * H / rect.height
-      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
-      setTransform((t) => {
-        const k2 = Math.max(1, Math.min(12, t.k * factor))
-        const raw = { k: k2, tx: mx - (mx - t.tx) * (k2 / t.k), ty: my - (my - t.ty) * (k2 / t.k) }
-        return clamp(raw.tx, raw.ty, raw.k)
-      })
-    }
-    el.addEventListener('wheel', wheelHandler, { passive: false })
-
-    // Mobile touch: pinch-to-zoom + single-finger pan — same pattern as the RRG Flow Matrix.
-    let lastTouches: TouchList | null = null
-    const toSvg = (t: Touch, rect: DOMRect) => ({ x: (t.clientX - rect.left) * W / rect.width, y: (t.clientY - rect.top) * H / rect.height })
-    const touchStart = (e: TouchEvent) => { e.preventDefault(); lastTouches = e.touches }
-    const touchMove = (e: TouchEvent) => {
-      e.preventDefault()
-      if (!lastTouches) return
-      const rect = el.getBoundingClientRect()
-      if (e.touches.length === 1 && lastTouches.length === 1) {
-        const prev = toSvg(lastTouches[0], rect), cur = toSvg(e.touches[0], rect)
-        const dx = cur.x - prev.x, dy = cur.y - prev.y
-        setTransform((t) => clamp(t.tx + dx, t.ty + dy, t.k))
-      } else if (e.touches.length === 2 && lastTouches.length >= 1) {
-        const p0 = toSvg(lastTouches[0] || e.touches[0], rect)
-        const p1 = toSvg(lastTouches[1] || e.touches[1], rect)
-        const c0 = toSvg(e.touches[0], rect), c1 = toSvg(e.touches[1], rect)
-        const prevDist = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1
-        const curDist = Math.hypot(c1.x - c0.x, c1.y - c0.y)
-        const factor = Math.max(0.5, Math.min(2, curDist / prevDist))
-        const mx = (c0.x + c1.x) / 2, my = (c0.y + c1.y) / 2
-        setTransform((t) => {
-          const k2 = Math.max(1, Math.min(12, t.k * factor))
-          const raw = { k: k2, tx: mx - (mx - t.tx) * (k2 / t.k), ty: my - (my - t.ty) * (k2 / t.k) }
-          return clamp(raw.tx, raw.ty, raw.k)
-        })
-      }
-      lastTouches = e.touches
-    }
-    const touchEnd = (e: TouchEvent) => { lastTouches = e.touches.length > 0 ? e.touches : null }
-    el.addEventListener('touchstart', touchStart, { passive: false })
-    el.addEventListener('touchmove', touchMove, { passive: false })
-    el.addEventListener('touchend', touchEnd, { passive: false })
-    return () => {
-      el.removeEventListener('wheel', wheelHandler)
-      el.removeEventListener('touchstart', touchStart)
-      el.removeEventListener('touchmove', touchMove)
-      el.removeEventListener('touchend', touchEnd)
-    }
-    // points.length is included so this re-attaches once the SVG actually mounts (it doesn't
-    // exist yet on the first render before allFlowData/points arrive, so svgRef.current is null
-    // and the listeners never got attached otherwise).
-  }, [CW, CH, points.length])
-
-  // Position bubbles radially FROM the shared center (CX,CY) OUT toward each quadrant's outer
-  // corner: distance from center is driven by otmPct (ATM/near-the-money trades sit near the
-  // center, the furthest-OTM trades sit out near the corner). Angle within the quadrant's 90°
-  // wedge is a stable per-ticker jitter so bubbles fan out instead of stacking on one line.
-  // Overlap is then resolved with a short physical relaxation pass that nudges bubbles apart
-  // while a mild spring pulls them back toward their intended OTM-distance radius.
-  const positions = useMemo(() => {
-    const QUAD_DIR: Record<SweepViewQuad, { x: number; y: number }> = {
-      RESISTANCE: { x: 1, y: -1 }, MAGNET: { x: -1, y: -1 }, SUPPORT: { x: -1, y: 1 }, PIVOT: { x: 1, y: 1 },
-    }
-    const maxOtm = Math.max(...points.map((p) => p.otmPct), 0.01)
-    const maxRadius = Math.min(CW, CH) / 2 - 40
-
-    type Node = { key: string; r: number; x: number; y: number; tx: number; ty: number; angle: number; radius: number; quad: SweepViewQuad }
-    const nodes: Node[] = points.map((p) => {
-      const dir = QUAD_DIR[p.quad]
-      const baseAngle = Math.atan2(dir.y, dir.x) // 45° diagonal into the quadrant
-      // Spread across roughly the middle 70% of the 90° wedge so bubbles never cross into a
-      // neighboring quadrant, using a stable hash so the same ticker keeps its lane.
-      const jitter = (hash01(p.ticker) - 0.5) * (Math.PI / 2) * 0.7
-      const angle = baseAngle + jitter
-      const t = Math.sqrt(Math.max(0, Math.min(1, p.otmPct / maxOtm))) // sqrt so near-ATM names aren't all crushed at the very center
-      const radius = 30 + t * (maxRadius - 30)
-      const r = dotR(p.total, p.ticker.length)
-      return { key: p.ticker, r, x: CX + Math.cos(angle) * radius, y: CY + Math.sin(angle) * radius, tx: CX, ty: CY, angle, radius, quad: p.quad }
-    })
-
-    const clampToQuadrant = (n: Node) => {
-      const dir = QUAD_DIR[n.quad]
-      const minX = dir.x > 0 ? CX + n.r + 6 : PAD.l + n.r + 6
-      const maxX = dir.x > 0 ? PAD.l + CW - n.r - 6 : CX - n.r - 6
-      const minY = dir.y > 0 ? CY + n.r + 6 : PAD.t + n.r + 6
-      const maxY = dir.y > 0 ? PAD.t + CH - n.r - 6 : CY - n.r - 6
-      n.x = Math.max(minX, Math.min(maxX, n.x))
-      n.y = Math.max(minY, Math.min(maxY, n.y))
-    }
-    nodes.forEach(clampToQuadrant)
-
-    const GAP = 10
-    for (let iter = 0; iter < 220; iter++) {
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const a = nodes[i], b = nodes[j]
-          const dx = b.x - a.x, dy = b.y - a.y
-          const dist = Math.hypot(dx, dy) || 0.0001
-          const minDist = a.r + b.r + GAP
-          if (dist < minDist) {
-            const push = (minDist - dist) / 2
-            const ux = dx / dist, uy = dy / dist
-            a.x -= ux * push; a.y -= uy * push
-            b.x += ux * push; b.y += uy * push
-          }
-        }
-      }
-      // Mild spring back toward each bubble's intended OTM-distance radius from center, so
-      // overlap resolution mostly shuffles bubbles tangentially rather than erasing the
-      // near-center-to-far-corner ordering the OTM% is meant to convey.
-      for (const n of nodes) {
-        const idealX = CX + Math.cos(n.angle) * n.radius
-        const idealY = CY + Math.sin(n.angle) * n.radius
-        n.x += (idealX - n.x) * 0.04
-        n.y += (idealY - n.y) * 0.04
-        clampToQuadrant(n)
-      }
-    }
-
-    const merged = new Map<string, { x: number; y: number }>()
-    for (const n of nodes) merged.set(n.key, { x: n.x, y: n.y })
-    return merged
-  }, [points, CX, CY, CW, CH, PAD.t, PAD.l])
-
-
-  if (points.length === 0) {
-    return (
-      <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, color: '#2a2a3a', letterSpacing: '0.15em' }}>
-          NO CLASSIFIED FLOW YET
-        </span>
-      </div>
-    )
-  }
-
-  return (
-    <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#060608' }}>
-      <div style={{ position: 'absolute', top: 10, left: 0, right: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10, pointerEvents: 'none' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 22, fontWeight: 900, color: '#ff8500', letterSpacing: '0.25em', textTransform: 'uppercase', filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.9))' }}>SWEEPVIEW</span>
-          {(transform.k !== 1 || transform.tx !== 0 || transform.ty !== 0) && (
-            <button onClick={() => setTransform({ tx: 0, ty: 0, k: 1 })} style={{ pointerEvents: 'all', height: 22, padding: '0 8px', background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(255,133,0,0.4)', borderRadius: 4, color: '#ff8500', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>↺</button>
-          )}
-        </div>
-      </div>
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${W} ${H}`}
-        width="100%"
-        height="100%"
-        preserveAspectRatio="none"
-        style={{ display: 'block', cursor: dragRef.current.dragging ? 'grabbing' : 'grab', userSelect: 'none' }}
-        onMouseDown={(e) => {
-          const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect()
-          dragRef.current = { dragging: false, mouseDownActive: true, lastSvgX: (e.clientX - rect.left) * W / rect.width, lastSvgY: (e.clientY - rect.top) * H / rect.height }
-        }}
-        onMouseMove={(e) => {
-          if (!dragRef.current.mouseDownActive) return
-          const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect()
-          const cx2 = (e.clientX - rect.left) * W / rect.width, cy2 = (e.clientY - rect.top) * H / rect.height
-          const dx = cx2 - dragRef.current.lastSvgX, dy = cy2 - dragRef.current.lastSvgY
-          if (!dragRef.current.dragging && Math.sqrt(dx * dx + dy * dy) < 4) return
-          dragRef.current.dragging = true
-          dragRef.current.lastSvgX = cx2; dragRef.current.lastSvgY = cy2
-          setTransform((t) => {
-            const minTx = (1 - t.k) * (PAD.l + CW), maxTx = (1 - t.k) * PAD.l
-            const minTy = (1 - t.k) * (PAD.t + CH), maxTy = (1 - t.k) * PAD.t
-            const next = { ...t, tx: Math.max(minTx, Math.min(maxTx, t.tx + dx)), ty: Math.max(minTy, Math.min(maxTy, t.ty + dy)) }
-            return next
-          })
-        }}
-        onMouseUp={() => { dragRef.current.dragging = false; dragRef.current.mouseDownActive = false }}
-        onMouseLeave={() => { dragRef.current.dragging = false; dragRef.current.mouseDownActive = false }}
-      >
-        <defs>
-          <radialGradient id="sv-bg" cx="50%" cy="35%" r="70%">
-            <stop offset="0%" stopColor="#0d1420" /><stop offset="60%" stopColor="#060810" /><stop offset="100%" stopColor="#020305" />
-          </radialGradient>
-          <linearGradient id="sv-q-resistance" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#000000" /><stop offset="100%" stopColor="#5a0000" />
-          </linearGradient>
-          <linearGradient id="sv-q-support" x1="100%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="#000000" /><stop offset="100%" stopColor="#005a20" />
-          </linearGradient>
-          <linearGradient id="sv-q-magnet" x1="100%" y1="100%" x2="0%" y2="0%">
-            <stop offset="0%" stopColor="#000000" /><stop offset="100%" stopColor="#00404a" />
-          </linearGradient>
-          <linearGradient id="sv-q-pivot" x1="0%" y1="100%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#000000" /><stop offset="100%" stopColor="#5a3000" />
-          </linearGradient>
-          {(['RESISTANCE', 'SUPPORT', 'MAGNET', 'PIVOT'] as SweepViewQuad[]).map((q) => (
-            <radialGradient key={q} id={`sv-dot-${q}`} cx="35%" cy="28%" r="65%">
-              <stop offset="0%" stopColor="#ffffff" stopOpacity="0.55" />
-              <stop offset="35%" stopColor={SWEEPVIEW_QUAD_COLOR[q]} stopOpacity="0.9" />
-              <stop offset="100%" stopColor={SWEEPVIEW_QUAD_COLOR[q]} stopOpacity="0.55" />
-            </radialGradient>
-          ))}
-          <filter id="sv-txt-shadow" x="-20%" y="-20%" width="140%" height="140%">
-            <feDropShadow dx="0" dy="0" stdDeviation="3" floodColor="#000" floodOpacity="1" />
-          </filter>
-        </defs>
-        <rect x={PAD.l} y={PAD.t} width={CW} height={CH} fill="url(#sv-bg)" />
-        <rect x={PAD.l} y={PAD.t} width={CW} height={CH} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
-        <clipPath id="sv-clip"><rect x={PAD.l} y={PAD.t} width={CW} height={CH} /></clipPath>
-        {/* Quadrant backgrounds/lines/labels live INSIDE the same transformed group as the bubbles
-            (same nesting the RRG Flow Matrix uses) - otherwise zoom only moved the bubbles while
-            the quadrant backdrop stayed fixed, which is the "same issue" that looked broken. */}
-        <g clipPath="url(#sv-clip)">
-          <g transform={`translate(${transform.tx},${transform.ty}) scale(${transform.k})`}>
-            <rect x={CX} y={PAD.t} width={CW / 2} height={CH / 2} fill="url(#sv-q-resistance)" />
-            <rect x={PAD.l} y={PAD.t} width={CW / 2} height={CH / 2} fill="url(#sv-q-magnet)" />
-            <rect x={PAD.l} y={CY} width={CW / 2} height={CH / 2} fill="url(#sv-q-support)" />
-            <rect x={CX} y={CY} width={CW / 2} height={CH / 2} fill="url(#sv-q-pivot)" />
-            <line x1={CX} y1={PAD.t} x2={CX} y2={PAD.t + CH} stroke="rgba(255,255,255,0.22)" strokeWidth={1.5 / transform.k} />
-            <line x1={PAD.l} y1={CY} x2={PAD.l + CW} y2={CY} stroke="rgba(255,255,255,0.22)" strokeWidth={1.5 / transform.k} />
-            {points.map((p) => {
-              const pos = positions.get(p.ticker)
-              if (!pos) return null
-              const { x: sx, y: sy } = pos
-              const r = dotR(p.total, p.ticker.length) / transform.k
-              const col = SWEEPVIEW_QUAD_COLOR[p.quad]
-              const fontSize = Math.max(9, r * 0.42)
-              return (
-                <g key={p.ticker}
-                  onMouseEnter={(e) => { const rect = (e.currentTarget.ownerSVGElement as SVGSVGElement).getBoundingClientRect(); setHovered({ p, mx: e.clientX - rect.left, my: e.clientY - rect.top }) }}
-                  onMouseMove={(e) => { const rect = (e.currentTarget.ownerSVGElement as SVGSVGElement).getBoundingClientRect(); setHovered({ p, mx: e.clientX - rect.left, my: e.clientY - rect.top }) }}
-                  onMouseLeave={() => setHovered(null)}
-                  style={{ cursor: 'pointer' }}
-                >
-                  <circle cx={sx + 1.5 / transform.k} cy={sy + 1.5 / transform.k} r={r} fill="rgba(0,0,0,0.5)" />
-                  <circle cx={sx} cy={sy} r={r} fill={`url(#sv-dot-${p.quad})`} stroke={col} strokeWidth={1.2 / transform.k} />
-                  <text x={sx} y={sy + fontSize * 0.35} textAnchor="middle" fontFamily="system-ui,sans-serif" fontSize={fontSize} fontWeight={800} fill="#ffffff" stroke="#000000" strokeWidth={fontSize * 0.08} paintOrder="stroke" style={{ pointerEvents: 'none', userSelect: 'none' }}>{p.ticker}</text>
-                </g>
-              )
-            })}
-          </g>
-        </g>
-        {/* Quadrant labels - rendered as a SIBLING of the clipped/transformed group (NOT nested
-            inside it, same fix as the RRG Flow Matrix), in fixed screen-space, clamped to whichever
-            part of the quadrant is currently on-screen so they never vanish/get clipped on zoom/pan. */}
-        {(() => {
-          const { tx, ty, k } = transform
-          const sCX = CX * k + tx, sCY = CY * k + ty
-          const frameL = PAD.l, frameR = PAD.l + CW, frameT = PAD.t, frameB = PAD.t + CH
-          const solveAxis = (qMin: number, qMax: number, visMin: number, visMax: number, pref: number) => {
-            const lo = Math.max(qMin, visMin), hi = Math.min(qMax, visMax)
-            if (hi <= lo) return null
-            return Math.min(hi - 10, Math.max(lo + 10, pref))
-          }
-          const qlabels = [
-            { label: 'FORMING A MAGNET', col: '#4da6ff', x: solveAxis(frameL, sCX, frameL, frameR, frameL + 22), y: solveAxis(frameT, sCY, frameT, frameB, frameT + 22), anchor: 'start' as const },
-            { label: 'BUILDING RESISTANCE', col: '#ff4444', x: solveAxis(sCX, frameR, frameL, frameR, frameR - 22), y: solveAxis(frameT, sCY, frameT, frameB, frameT + 22), anchor: 'end' as const },
-            { label: 'BUILDING SUPPORT', col: '#00ff88', x: solveAxis(frameL, sCX, frameL, frameR, frameL + 22), y: solveAxis(sCY, frameB, frameT, frameB, frameB - 22), anchor: 'start' as const },
-            { label: 'FORMING A PIVOT', col: '#ffaa00', x: solveAxis(sCX, frameR, frameL, frameR, frameR - 22), y: solveAxis(sCY, frameB, frameT, frameB, frameB - 22), anchor: 'end' as const },
-          ]
-          return qlabels.map(({ label, col, x, y, anchor }) => (
-            x == null || y == null ? null : (
-              <text key={label} x={x} y={y} textAnchor={anchor} fontFamily="'JetBrains Mono',monospace" fontSize={17} fontWeight={900} fill={col} letterSpacing={1.5} filter="url(#sv-txt-shadow)">{label}</text>
-            )
-          ))
-        })()}
-      </svg>
-      {hovered && (() => {
-        const QUAD_LABEL: Record<SweepViewQuad, string> = {
-          RESISTANCE: 'Resistance', SUPPORT: 'Support', MAGNET: 'Magnet', PIVOT: 'Pivot',
-        }
-        const col = SWEEPVIEW_QUAD_COLOR[hovered.p.quad]
-        return (
-          <div style={{
-            position: 'absolute', left: hovered.mx + 14, top: hovered.my + 14, zIndex: 20, pointerEvents: 'none',
-            background: 'rgba(8,8,10,0.95)', border: `1px solid ${col}`, borderRadius: 8, padding: '10px 16px',
-            fontFamily: "'JetBrains Mono',monospace", fontSize: 16, color: '#ffffff', whiteSpace: 'nowrap',
-            boxShadow: '0 4px 14px rgba(0,0,0,0.6)',
-          }}>
-            <div style={{ fontWeight: 900, color: col, marginBottom: 5 }}>{hovered.p.ticker} · {QUAD_LABEL[hovered.p.quad]}</div>
-            <div>Level: <span style={{ fontWeight: 700 }}>${hovered.p.level.toFixed(2)}</span></div>
-            <div>Stock Price: <span style={{ fontWeight: 700 }}>${hovered.p.spot.toFixed(2)}</span></div>
-            {hovered.p.expiry && <div>Expiry: <span style={{ fontWeight: 700 }}>{hovered.p.expiry}</span></div>}
-          </div>
-        )
-      })()}
-    </div>
-  )
-}
-
 export default function FlowTrackingPanel({
   onClose,
   relativeStrengthData,
@@ -3841,7 +3444,7 @@ export default function FlowTrackingPanel({
   initialTab,
 }: {
   onClose?: () => void
-  initialTab?: 'TRACKER' | 'SWEEPSENSE' | 'SWEEPVIEW'
+  initialTab?: 'TRACKER' | 'SWEEPSENSE'
   relativeStrengthData?: Map<string, number>
   historicalStdDevs?: Map<string, number>
   comboTradeMap?: Map<string, boolean>
@@ -3940,7 +3543,7 @@ export default function FlowTrackingPanel({
   // (so the X button appeared to do nothing - the card was rebuilt right back from the parent).
   onRemoveTrackedFlow?: (trade: OptionsFlowData) => void
 } = {}) {
-  const [panelTab, setPanelTab] = useState<'TRACKER' | 'SWEEPSENSE' | 'SWEEPVIEW'>(initialTab ?? 'SWEEPSENSE')
+  const [panelTab, setPanelTab] = useState<'TRACKER' | 'SWEEPSENSE'>(initialTab ?? 'SWEEPSENSE')
   const [sweepSenseSummaryMode, setSweepSenseSummaryMode] = useState(false)
   useEffect(() => {
     if (initialTab) setPanelTab(initialTab)
@@ -4393,25 +3996,6 @@ export default function FlowTrackingPanel({
               }}
             >{isMobile ? 'A+ Tracker' : 'A+ TRACKER'}</button>
           )}
-          {(!isMobile || panelTab === 'SWEEPVIEW') && (
-            <button
-              onClick={() => setPanelTab('SWEEPVIEW')}
-              style={{
-                flex: 1, padding: isMobile ? '6px 6px' : '12px 8px', cursor: isMobile ? 'default' : 'pointer',
-                border: panelTab === 'SWEEPVIEW' ? '1px solid rgba(255,133,0,0.45)' : '1px solid rgba(255,255,255,0.10)',
-                borderRadius: isMobile ? '6px' : '10px',
-                background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)',
-                backdropFilter: 'blur(10px)',
-                WebkitBackdropFilter: 'blur(10px)',
-                boxShadow: panelTab === 'SWEEPVIEW'
-                  ? '0 0 10px rgba(255,133,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15)'
-                  : 'inset 0 1px 0 rgba(255,255,255,0.10)',
-                color: panelTab === 'SWEEPVIEW' ? '#ff8500' : '#ffffff',
-                fontWeight: 900, fontSize: isMobile ? '9px' : '17px', letterSpacing: isMobile ? '0.5px' : '1px', textTransform: 'uppercase',
-                transition: 'all 0.18s ease',
-              }}
-            >{isMobile ? 'SweepView' : 'SWEEPVIEW'}</button>
-          )}
         </div>
         {onClose && (
           <button
@@ -4468,11 +4052,6 @@ export default function FlowTrackingPanel({
           summaryMode={sweepSenseSummaryMode}
           onRemove={onRemoveTrackedFlow ?? removeFromFlowTracking}
         />
-      </div>
-
-      {/* ── SWEEPVIEW TAB ── */}
-      <div style={{ flex: 1, display: panelTab === 'SWEEPVIEW' ? 'flex' : 'none', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
-        <SweepViewTab allFlowData={allFlowData} />
       </div>
 
     </div>

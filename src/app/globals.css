@@ -40,6 +40,23 @@ html {
     }
 }
 
+/* iOS Safari auto-zooms the page whenever a focused input's font-size is below 16px -
+   force 16px on every text input/search box on mobile so tapping to search never zooms. */
+@media (max-width: 1024px) {
+
+    input[type="text"],
+    input[type="search"],
+    input[type="number"],
+    input[type="email"],
+    input[type="tel"],
+    input[type="password"],
+    input:not([type]),
+    textarea,
+    select {
+        font-size: 16px !important;
+    }
+}
+
 body {
     font-family: 'Inter', -apple-system, sans-serif;
     background: var(--primary-bg);

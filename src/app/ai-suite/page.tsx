@@ -1108,7 +1108,7 @@ const TEMPLATES = [
   { id: 'tpl-light', name: 'Theme - Light Mode', desc: 'Clean white dashboard with striped tables, horizontal bar charts, and a news feed. Copy for light tools.', code: TPL_LIGHT },
   { id: 'tpl-regime', name: 'Regime Industry Picker', desc: 'Ranks sector ETFs by momentum and aligns them with the current market regime for rotation signals.', apis: ['historical', 'marketSnapshot'], code: TPL_REGIME },
   { id: 'tpl-my-flow-base', name: 'My Options Flow (Base)', desc: 'The REAL live Options Flow page embedded exactly as-is - same design, filters, buttons, grading.', apis: ['optionsFlow'], code: TPL_MY_FLOW_BASE },
-  { id: 'tpl-flow-addon-base', name: 'My Options Flow Add-On (Base)', desc: 'Just the SweepSense summary, A+ Tracker and Sweepview panel - no main table.', apis: ['optionsFlow'], code: TPL_FLOW_ADDON_BASE },
+  { id: 'tpl-flow-addon-base', name: 'My Options Flow Add-On (Base)', desc: 'Just the SweepSense summary and A+ Tracker panel - no main table.', apis: ['optionsFlow'], code: TPL_FLOW_ADDON_BASE },
   { id: 'tpl-seasonality-base', name: 'My Data Driven Seasonality (Base)', desc: 'The REAL live Data Driven seasonality chart, embedded exactly as-is.', code: TPL_SEASONALITY_BASE },
   { id: 'tpl-efichart-base', name: 'My EFI Chart (Base)', desc: 'The REAL live EFI Chart / Market Overview page, embedded exactly as-is.', code: TPL_EFI_CHART_BASE },
   { id: 'tpl-rrg-base', name: 'My RRG Screener (Base)', desc: 'The REAL live RRG Screener page, embedded exactly as-is.', code: TPL_RRG_BASE },
