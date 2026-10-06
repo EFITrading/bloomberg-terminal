@@ -18,6 +18,7 @@ const MOBILE_TABS = [
     { id: 'screeners', label: 'Screeners' },
     { id: 'market-cycle', label: 'Market Cycle' },
     { id: 'dealer-cluster', label: 'Dealer Cluster' },
+    { id: 'dealer-management', label: 'Dealer Mangment' },
 ]
 
 const PANEL_LABELS: Record<string, string> = Object.fromEntries(

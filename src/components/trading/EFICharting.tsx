@@ -4519,6 +4519,7 @@ export function TradePopupChart({
   entryMarker,
   containerWidth,
   disableFetch,
+  indicatorPanes,
 }: {
   symbol: string
   fallbackCandles: any[]
@@ -4528,6 +4529,10 @@ export function TradePopupChart({
   // Screenshot-only mode (chart-embed): fallbackCandles is the exact, final candle set to
   // render (e.g. today's session only) - never re-fetch a wider/blended window over it.
   disableFetch?: boolean
+  // Extra line series (e.g. option IV/Premium/Delta) drawn as sub-panes INSIDE the same
+  // canvas, above the x-axis, using the exact same offset/zoom state as the candles so they
+  // pan and zoom together instead of living in a separate, unsynced chart.
+  indicatorPanes?: Array<{ label: string; color: string; data: Array<{ t: number; v: number }>; fmt: (v: number) => string }>
 }) {
   const POPUP_TIMEFRAMES = [
     { label: '5M', value: '5m', days: 10, defaultBars: 78 }, // ~1 trading day visible
@@ -4660,13 +4665,17 @@ export function TradePopupChart({
     if (visible.length === 0) return
 
     const PAD_L = 8,
-      PAD_R = 62,
+      PAD_R = 80,
       PAD_T = 14,
-      PAD_B = 44
+      PAD_B = 54
     const chartW = W - PAD_L - PAD_R
     const chartH = H - PAD_T - PAD_B
-    const VOLUME_H = Math.floor(chartH * 0.18)
-    const CANDLE_H = chartH - VOLUME_H - 6
+    const PANE_GAP = 4
+    const paneCount = indicatorPanes?.length ?? 0
+    const PANE_H = paneCount > 0 ? Math.floor(chartH * 0.15) : 0
+    const panesTotalH = paneCount > 0 ? paneCount * PANE_H + paneCount * PANE_GAP : 0
+    const VOLUME_H = Math.floor((chartH - panesTotalH) * 0.18)
+    const CANDLE_H = chartH - VOLUME_H - 6 - panesTotalH
 
     const highs = visible.map((c: any) => c.high ?? c.close)
     const lows = visible.map((c: any) => c.low ?? c.close)
@@ -4710,7 +4719,12 @@ export function TradePopupChart({
       })
     }
 
-    // Candles
+    // Candles — clipped to the candle region so an outlier price spike can never visually
+    // bleed down into the volume bars / indicator panes / x-axis below it.
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(PAD_L, PAD_T, chartW, CANDLE_H)
+    ctx.clip()
     visible.forEach((c: any, i: number) => {
       const x = PAD_L + i * barW
       const o = c.open ?? c.close
@@ -4730,11 +4744,16 @@ export function TradePopupChart({
       ctx.fillStyle = color
       ctx.fillRect(x + barW * 0.1, bodyTop, barW * 0.8, bodyH)
     })
+    ctx.restore()
 
-    // Volume bars — solid colors
+    // Volume bars — solid colors, clipped to their own strip
+    ctx.save()
+    ctx.beginPath()
+    const volY0 = PAD_T + CANDLE_H + 6
+    ctx.rect(PAD_L, volY0, chartW, VOLUME_H)
+    ctx.clip()
     const volumes = visible.map((c: any) => c.volume ?? c.v ?? 0)
     const maxVol = Math.max(...volumes, 1)
-    const volY0 = PAD_T + CANDLE_H + 6
     visible.forEach((c: any, i: number) => {
       const x = PAD_L + i * barW
       const vol = c.volume ?? c.v ?? 0
@@ -4742,9 +4761,79 @@ export function TradePopupChart({
       ctx.fillStyle = c.close >= (c.open ?? c.close) ? '#00BFFF' : '#ff0000'
       ctx.fillRect(x + barW * 0.1, volY0 + VOLUME_H - volH, barW * 0.8, volH)
     })
+    ctx.restore()
+
+    // Indicator panes (IV/Premium/Delta etc.) — same offset/zoom/x-mapping as candles above,
+    // so dragging or zooming the price chart moves these in lockstep automatically. Each pane
+    // is clipped to its own strip so a line can never bleed into the pane below it or the x-axis.
+    // paneHoverInfo is filled in below so the crosshair section (further down) can show the
+    // hovered value for each pane, not just the candle price — captured per-pane since `paneTop`
+    // itself keeps advancing as we loop.
+    const paneHoverInfo: Array<{ top: number; color: string; fmt: (v: number) => string; nearestVal: (ts: number) => number | null; vMin: number; vRange: number }> = []
+    if (indicatorPanes && indicatorPanes.length > 0) {
+      let paneTop = volY0 + VOLUME_H + 6
+      indicatorPanes.forEach((pane) => {
+        const paneTopSnapshot = paneTop
+        ctx.save()
+        ctx.beginPath()
+        ctx.rect(PAD_L, paneTop, chartW, PANE_H)
+        ctx.clip()
+        const sortedTs = pane.data.map((p) => p.t)
+        const nearestVal = (ts: number): number | null => {
+          if (sortedTs.length === 0) return null
+          let lo2 = 0, hi2 = sortedTs.length - 1, best = -1
+          while (lo2 <= hi2) {
+            const mid = (lo2 + hi2) >> 1
+            if (sortedTs[mid] <= ts) { best = mid; lo2 = mid + 1 } else hi2 = mid - 1
+          }
+          return best >= 0 ? pane.data[best].v : pane.data[0].v
+        }
+        const vals = visible.map((c: any) => nearestVal(c.timestamp ?? c.t))
+        const valid = vals.filter((v): v is number => v !== null)
+        if (valid.length === 0) { ctx.restore(); paneTop += PANE_H + PANE_GAP; return }
+        const vMin = Math.min(...valid)
+        const vMax = Math.max(...valid)
+        const vRange = vMax - vMin || 1
+        const toPaneY = (v: number) => paneTopSnapshot + PANE_H - ((v - vMin) / vRange) * PANE_H
+        paneHoverInfo.push({ top: paneTopSnapshot, color: pane.color, fmt: pane.fmt, nearestVal, vMin, vRange })
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)'
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(PAD_L, paneTop + PANE_H / 2)
+        ctx.lineTo(W - PAD_R, paneTop + PANE_H / 2)
+        ctx.stroke()
+        ctx.strokeStyle = pane.color
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        let started = false
+        vals.forEach((v, i) => {
+          if (v === null) return
+          const x = PAD_L + i * barW + barW * 0.5
+          const y = toPaneY(v)
+          if (!started) { ctx.moveTo(x, y); started = true } else ctx.lineTo(x, y)
+        })
+        ctx.stroke()
+        ctx.font = 'bold 20px "Courier New", monospace'
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'middle'
+        ctx.fillStyle = '#ffffff'
+        ctx.fillText(pane.label, PAD_L + 2, paneTop + 9)
+        const lastVal = valid[valid.length - 1]
+        const lastY = toPaneY(lastVal)
+        ctx.restore()
+        // End-value label lives to the right of the clipped plot area, so it must be drawn
+        // AFTER restoring the clip or it gets silently cut off along with the line.
+        ctx.font = 'bold 20px "Courier New", monospace'
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'middle'
+        ctx.fillStyle = pane.color
+        ctx.fillText(pane.fmt(lastVal), W - PAD_R + 5, lastY)
+        paneTop += PANE_H + PANE_GAP
+      })
+    }
 
     // Y-axis — crispy white, 30% bigger, abs values
-    ctx.font = 'bold 17px "Courier New", monospace'
+    ctx.font = 'bold 20px "Courier New", monospace'
     ctx.textAlign = 'left'
     ctx.textBaseline = 'middle'
     const yAxisTicks: { i: number; val: number; y: number; label: string }[] = []
@@ -4763,11 +4852,11 @@ export function TradePopupChart({
     if (displayPrice !== undefined) {
       const lastY = toY(displayPrice)
       const lastLabel = fmtPrice(displayPrice)
-      ctx.font = 'bold 17px "Courier New", monospace'
+      ctx.font = 'bold 20px "Courier New", monospace'
       ctx.textAlign = 'left'
       ctx.textBaseline = 'middle'
       const labelW = PAD_R - 6
-      const labelH = 20
+      const labelH = 24
       ctx.fillStyle = '#FF6600'
       ctx.fillRect(W - PAD_R + 1, lastY - labelH / 2, labelW, labelH)
       ctx.fillStyle = '#000000'
@@ -4776,7 +4865,7 @@ export function TradePopupChart({
 
     // X-axis dates — crispy white, 30% bigger
     ctx.fillStyle = '#ffffff'
-    ctx.font = 'bold 16px "Courier New", monospace'
+    ctx.font = 'bold 20px "Courier New", monospace'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     const step = Math.max(1, Math.floor(visible.length / 5))
@@ -4819,6 +4908,16 @@ export function TradePopupChart({
     ctx.lineTo(PAD_L, H - PAD_B)
     ctx.lineTo(W - PAD_R, H - PAD_B)
     ctx.stroke()
+
+    // Divider between the candle/volume area and the indicator panes below it
+    if (indicatorPanes && indicatorPanes.length > 0) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)'
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.moveTo(PAD_L, volY0 + VOLUME_H)
+      ctx.lineTo(W - PAD_R, volY0 + VOLUME_H)
+      ctx.stroke()
+    }
 
     // Entry marker — vertical line at the candle nearest the trade's actual fill time
     if (entryMarker) {
@@ -4868,8 +4967,9 @@ export function TradePopupChart({
       ch.x >= PAD_L &&
       ch.x <= W - PAD_R &&
       ch.y >= PAD_T &&
-      ch.y <= PAD_T + CANDLE_H
+      ch.y <= H - PAD_B
     ) {
+      const inCandleRegion = ch.y <= PAD_T + CANDLE_H
       ctx.strokeStyle = 'rgba(255,255,255,0.5)'
       ctx.lineWidth = 1
       ctx.setLineDash([4, 4])
@@ -4877,21 +4977,25 @@ export function TradePopupChart({
       ctx.moveTo(ch.x, PAD_T)
       ctx.lineTo(ch.x, H - PAD_B)
       ctx.stroke()
-      ctx.beginPath()
-      ctx.moveTo(PAD_L, ch.y)
-      ctx.lineTo(W - PAD_R, ch.y)
-      ctx.stroke()
+      if (inCandleRegion) {
+        ctx.beginPath()
+        ctx.moveTo(PAD_L, ch.y)
+        ctx.lineTo(W - PAD_R, ch.y)
+        ctx.stroke()
+      }
       ctx.setLineDash([])
-      // Price label
-      const chPrice = hi - ((ch.y - PAD_T) / CANDLE_H) * range
-      const chPriceLabel = fmtPrice(chPrice)
-      ctx.fillStyle = '#ff6600'
-      ctx.fillRect(W - PAD_R + 1, ch.y - 9, PAD_R - 2, 18)
-      ctx.fillStyle = '#000000'
-      ctx.font = 'bold 11px "Courier New", monospace'
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      ctx.fillText(chPriceLabel, W - PAD_R + PAD_R / 2, ch.y)
+      // Price label — only meaningful while hovering the candle region itself
+      if (inCandleRegion) {
+        const chPrice = hi - ((ch.y - PAD_T) / CANDLE_H) * range
+        const chPriceLabel = fmtPrice(chPrice)
+        ctx.fillStyle = '#ff6600'
+        ctx.fillRect(W - PAD_R + 1, ch.y - 9, PAD_R - 2, 18)
+        ctx.fillStyle = '#000000'
+        ctx.font = 'bold 11px "Courier New", monospace'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(chPriceLabel, W - PAD_R + PAD_R / 2, ch.y)
+      }
       // Date label
       const chBarIdx = Math.floor((ch.x - PAD_L) / barW)
       if (chBarIdx >= 0 && chBarIdx < visible.length) {
@@ -4920,9 +5024,28 @@ export function TradePopupChart({
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
         ctx.fillText(chDateStr, ch.x, H - PAD_B + 9)
+
+        // Per-pane hover value — same bar index as the candle/date lookup above, drawn as a
+        // filled badge on the right edge of each pane so IV/Premium/Delta get a crosshair
+        // readout exactly like the price axis does, instead of only showing their last value.
+        const chBarTs = chC.timestamp ?? chC.t
+        paneHoverInfo.forEach((p) => {
+          const val = p.nearestVal(chBarTs)
+          if (val === null) return
+          const y = Math.max(p.top + 9, Math.min(p.top + PANE_H - 9, p.top + PANE_H - ((val - p.vMin) / p.vRange) * PANE_H))
+          const label = p.fmt(val)
+          ctx.font = 'bold 13px "Courier New", monospace'
+          const tw = ctx.measureText(label).width
+          ctx.fillStyle = p.color
+          ctx.fillRect(W - PAD_R + 1, y - 10, Math.max(PAD_R - 2, tw + 10), 20)
+          ctx.fillStyle = '#000000'
+          ctx.textAlign = 'left'
+          ctx.textBaseline = 'middle'
+          ctx.fillText(label, W - PAD_R + 6, y)
+        })
       }
     }
-  }, [candles, fetching, timeframe, symbol, entryMarker]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [candles, fetching, timeframe, symbol, entryMarker, indicatorPanes]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Canvas DPR setup + ResizeObserver
   React.useEffect(() => {
@@ -5120,11 +5243,11 @@ export function TradePopupChart({
           dragRef.current.startOffset + dragBars
         )
       )
-      // Y-axis pan — drag up shows higher prices, drag down shows lower prices
+      // Y-axis pan — drag down moves the chart content down (price under cursor follows cursor)
       const dy = e.clientY - dragRef.current.startY
       const priceShift = dy * pricePerPixelRef.current
       if (dragRef.current.startCenterPrice !== null && dragRef.current.startCenterPrice !== undefined) {
-        yScaleRef.current.centerPrice = dragRef.current.startCenterPrice - priceShift
+        yScaleRef.current.centerPrice = dragRef.current.startCenterPrice + priceShift
       }
       drawRef.current()
     }
@@ -5175,7 +5298,7 @@ export function TradePopupChart({
   }
 
   return (
-    <div style={{ position: 'relative', width: containerWidth || '50%', height: '476px' }}>
+    <div style={{ position: 'relative', width: containerWidth || '50%', height: indicatorPanes && indicatorPanes.length > 0 ? '700px' : '476px' }}>
       <canvas
         ref={canvasRef}
         style={{

@@ -18,8 +18,8 @@ interface PriceData {
   timestamp: number
 }
 
-const POLYGON_API_KEY = '' || ''
-const BASE_URL = 'https://api.polygon.io'
+const POLYGON_API_KEY = ''
+const BASE_URL = '/api/polygon'
 
 // Sector ETFs - exact replicas of StockCharts.com RRG
 const SECTOR_ETFS = [

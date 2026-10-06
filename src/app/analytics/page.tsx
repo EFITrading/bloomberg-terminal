@@ -13,6 +13,7 @@ import MarketCycleIndicator from '@/components/analytics/MarketCycleIndicator'
 import MarketHeatmap from '@/components/analytics/MarketHeatmap'
 import RRGAnalytics from '@/components/analytics/RRGAnalytics'
 import DealerClusterScreener from '@/components/analytics/DealerClusterScreener'
+import DealerManagementPanel from '@/components/analytics/DealerManagementPanel'
 import ScreenersPanel from '@/components/analytics/ScreenersPanel'
 import Footer from '@/components/terminal/Footer'
 
@@ -30,6 +31,7 @@ export default function Analytics() {
     'hv-screener': 'HV Screener', 'heatmap': 'Heatmap', 'screeners': 'Screeners',
     'market-cycle': 'Market Cycle',
     'dealer-cluster': 'Dealer Cluster',
+    'dealer-management': 'Dealer Mangment',
   }
 
   const togglePanel = (id: string) => {
@@ -104,6 +106,12 @@ export default function Analytics() {
         return (
           <div key={id} style={{ ...panelStyle, overflow: 'visible' }}>
             <DealerClusterScreener />
+          </div>
+        )
+      case 'dealer-management':
+        return (
+          <div key={id} style={{ ...panelStyle, overflow: 'visible' }}>
+            <DealerManagementPanel />
           </div>
         )
       default:
@@ -552,6 +560,7 @@ export default function Analytics() {
           <TabButton id="screeners" label="Screeners" />
           <TabButton id="market-cycle" label="Market Cycle" />
           <TabButton id="dealer-cluster" label="Dealer Cluster" />
+          <TabButton id="dealer-management" label="Dealer Mangment" />
         </div>
 
         {/* Full Page Content Area - With left margin for fixed sidebar */}
