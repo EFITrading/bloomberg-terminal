@@ -1,9 +1,10 @@
 'use client';
 
+import { Suspense } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import Navigation from '@/components/terminal/Navigation';
 
-export default function ConditionalNavigation() {
+function ConditionalNavigationInner() {
     const pathname = usePathname();
     const searchParams = useSearchParams();
 
@@ -27,4 +28,12 @@ export default function ConditionalNavigation() {
 
     // Always show navigation
     return <Navigation />;
+}
+
+export default function ConditionalNavigation() {
+    return (
+        <Suspense fallback={null}>
+            <ConditionalNavigationInner />
+        </Suspense>
+    );
 }
