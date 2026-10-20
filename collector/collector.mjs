@@ -10,6 +10,7 @@
 import WebSocket from 'ws'
 import { gzip, gunzip } from 'zlib'
 import { promisify } from 'util'
+import { execSync } from 'child_process'
 import { PrismaClient } from '@prisma/client'
 
 const gzipAsync = promisify(gzip)
@@ -768,6 +769,11 @@ function buildSweepSenseCardHtml(c) {
 // math lives entirely client-side, so this opens the REAL page and reads the `data-flow-payload`
 // JSON each card already stamps itself with (see FlowTrackingPanel.tsx) instead of reimplementing
 // any of that logic here. Only trades not already alerted today (DiscordAlertedFlow table) get posted.
+// Leaked Chrome processes exhaust the container PID limit (posix_spawn EAGAIN) and block every later launch
+function killStrayChrome() {
+    try { execSync('pkill -9 -f chrome || true', { stdio: 'ignore' }) } catch { }
+}
+
 let discordAlertRunning = false
 async function runSweepSenseDiscordAlert() {
     if (discordAlertRunning) { console.log('[Discord] Previous scan still running — skipping this tick.'); return }
@@ -900,6 +906,7 @@ async function runSweepSenseDiscordAlert() {
         console.log(`[Discord] Posted ${postedCount}/${newOnes.length} Ready-4-Pickup alert(s).`)
     } catch (err) {
         console.error('[Discord] Alert scan failed:', err.message)
+        if (/Failed to launch|Resource temporarily/i.test(err.message)) killStrayChrome()
     } finally {
         if (scrapeBrowser) await scrapeBrowser.close().catch(() => { })
         if (cardBrowser) await cardBrowser.close().catch(() => { })
