@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { TbStar, TbStarFilled } from 'react-icons/tb'
 import * as XLSX from 'xlsx'
@@ -499,8 +499,8 @@ function computeLiquidationNodeLevel(candles: Candle[], lookback = 60): number |
 }
 // Groups every raw technical level within ~0.75% of each other into one confluence zone -
 // a zone confirmed by multiple independent tools scores higher than any single tool's level.
-function clusterConfluenceZones(levels: TechLevel[], spot: number): { price: number; confluence: number; tools: string[] }[] {
-  const tol = spot * 0.0075
+function clusterConfluenceZones(levels: TechLevel[], spot: number, tolPct = 0.0075): { price: number; confluence: number; tools: string[] }[] {
+  const tol = spot * tolPct
   const sorted = [...levels].sort((a, b) => a.price - b.price)
   const clusters: { avgPrice: number; tools: Set<string> }[] = []
   for (const lvl of sorted) {
@@ -572,55 +572,75 @@ function computePlanEntry(params: {
   // restricted to a realistic near-term pullback zone (0.5%-8% from spot, on the side that
   // matches the trade's direction), so the entry is always a close, multi-confirmed dip/rip -
   // never a level the dealer magnet alone dictates.
-  if (candles && candles.length >= 20) {
-    const pullbackSide = (price: number) => (impliedBullish ? price < spot : price > spot)
-    const minDist = spot * 0.005
-    const maxDist = spot * 0.08
+  // Expected move over the trade's life - every distance below is scaled to it so a 0-2 DTE
+  // trade gets a tight entry and a longer-dated one a wider entry, instead of a fixed 8% window.
+  const em = spot * sigma * Math.sqrt(Math.max(dte, 1) / 365)
+  const minDist = Math.max(spot * 0.001, em * 0.1)
+  const maxDist = Math.min(spot * 0.03, Math.max(spot * 0.006, em * 0.6))
+  const enterNowStop = impliedBullish ? spot - em * 0.35 : spot + em * 0.35
+  const enterNow = (why: string) => {
+    sigCode = impliedBullish ? `Enter Long $${spot.toFixed(2)}` : `Enter Short $${spot.toFixed(2)}`
+    sigColor = impliedBullish ? '#00e5ff' : '#ff0000'
+    return { sigCode, sigColor, planText: `${why} Enter now near $${spot.toFixed(2)}; idea is wrong beyond $${enterNowStop.toFixed(2)}.` }
+  }
 
+  if (candles && candles.length >= 10) {
+    const pullbackSide = (price: number) => (impliedBullish ? price < spot : price > spot)
+
+    // Near-term levels only (last few daily bars + prior-day H/L/C) - the 50-bar SMA, 60-bar
+    // gaps/FVGs and 60-bar volume node put entries weeks away from the current price.
     const rawLevels: TechLevel[] = []
+    const prev = candles[candles.length - 1]
+    rawLevels.push({ price: prev.h, kind: 'prev-high' }, { price: prev.l, kind: 'prev-low' }, { price: prev.c, kind: 'prev-close' })
+    const sma10 = computeSMALevel(candles, 10); if (sma10 !== null) rawLevels.push({ price: sma10, kind: 'sma10' })
     const sma20 = computeSMALevel(candles, 20); if (sma20 !== null) rawLevels.push({ price: sma20, kind: 'sma20' })
-    const sma50 = computeSMALevel(candles, 50); if (sma50 !== null) rawLevels.push({ price: sma50, kind: 'sma50' })
-    const vwap20 = computeVWAPLevel(candles, 20); if (vwap20 !== null) rawLevels.push({ price: vwap20, kind: 'vwap20' })
-    const chan = computeRegressionChannelLevels(candles)
+    const vwap5 = computeVWAPLevel(candles, 5); if (vwap5 !== null) rawLevels.push({ price: vwap5, kind: 'vwap5' })
+    const chan = computeRegressionChannelLevels(candles, 20)
     if (chan) {
       rawLevels.push({ price: chan.lower1, kind: 'chan-dev1' }, { price: chan.upper1, kind: 'chan-dev1' })
-      rawLevels.push({ price: chan.lower2, kind: 'chan-dev2' }, { price: chan.upper2, kind: 'chan-dev2' })
     }
-    const liqNode = computeLiquidationNodeLevel(candles); if (liqNode !== null) rawLevels.push({ price: liqNode, kind: 'liquidation-node' })
-    rawLevels.push(...computeFairValueGapLevels(candles))
-    rawLevels.push(...computeUnfilledGapLevels(candles))
-    rawLevels.push(...computeRecentCloseExtremeLevels(candles))
+    rawLevels.push(...computeFairValueGapLevels(candles, 10))
+    rawLevels.push(...computeUnfilledGapLevels(candles, 10))
+    rawLevels.push(...computeRecentCloseExtremeLevels(candles, 3))
 
-    const zones = clusterConfluenceZones(rawLevels, spot)
+    const zones = clusterConfluenceZones(rawLevels, spot, 0.003)
+
+    // Price is already sitting on a multi-tool level - no reason to wait for a pullback.
+    if (zones.some((z) => Math.abs(z.price - spot) < minDist && z.confluence >= 2)) {
+      return enterNow('Price is already at a confluence level.')
+    }
+
     const inBand = zones.filter((z) => {
       const dist = Math.abs(z.price - spot)
       return pullbackSide(z.price) && dist >= minDist && dist <= maxDist
     })
 
     if (inBand.length > 0) {
-      const dealerTol = spot * 0.0075
+      const dealerTol = spot * 0.003
       const scored = inBand.map((z) => {
-        const distPct = Math.abs(z.price - spot) / spot
-        const proximityScore = 1 - distPct / 0.08
+        const distPct = Math.abs(z.price - spot) / maxDist
+        const proximityScore = 1 - Math.min(1, distPct)
         const confluenceScore = Math.min(1, z.confluence / 4)
-        const techScore = confluenceScore * 0.55 + proximityScore * 0.15 // 70% bucket total
         const dealerAgrees = (magnet !== null && Math.abs(magnet - z.price) <= dealerTol) || (pivot !== null && Math.abs(pivot - z.price) <= dealerTol)
-        const dealerScore = dealerAgrees ? 0.3 : 0 // 30% bucket - only when the dealer level agrees
-        return { ...z, finalScore: techScore + dealerScore, dealerAgrees }
+        const finalScore = confluenceScore * 0.4 + proximityScore * 0.4 + (dealerAgrees ? 0.2 : 0)
+        return { ...z, finalScore, dealerAgrees }
       }).sort((a, b) => b.finalScore - a.finalScore)
 
       const winner = scored[0]
+      // Optional deeper add level, only if it is a clearly different price on the same side.
+      const add = scored.find((z) => Math.abs(z.price - winner.price) / spot > 0.004 && Math.abs(z.price - spot) > Math.abs(winner.price - spot))
+      const addText = add ? ` Add on a deeper move to $${add.price.toFixed(2)}.` : ''
+      const stop = impliedBullish ? Math.min(winner.price, add?.price ?? winner.price) - em * 0.25 : Math.max(winner.price, add?.price ?? winner.price) + em * 0.25
       if (impliedBullish) {
         sigCode = `Reversal Long $${winner.price.toFixed(2)}`; sigColor = '#00e5ff'
-        planText = `Wait for price to pull back down to $${winner.price.toFixed(2)} and buy there for entry.`
+        planText = `Wait for price to pull back down to $${winner.price.toFixed(2)} and buy there for entry.${addText} Wrong below $${stop.toFixed(2)}.`
       } else {
         sigCode = `Reversal Short $${winner.price.toFixed(2)}`; sigColor = '#ff0000'
-        planText = `Wait for price to run up to $${winner.price.toFixed(2)} and short there for entry.`
+        planText = `Wait for price to run up to $${winner.price.toFixed(2)} and short there for entry.${addText} Wrong above $${stop.toFixed(2)}.`
       }
       return { sigCode, sigColor, planText }
     }
   }
-
   // -- Fallback (no candle history yet, or no technical zone qualifies in the pullback band):
   // the original magnet/pivot-only decision tree.
   const near = 0.025
@@ -665,6 +685,8 @@ function computePlanEntry(params: {
       sigCode = impliedBullish ? `Long ? $${secondary!.value.toFixed(2)}` : `Short ? $${secondary!.value.toFixed(2)}`
       planText += ` On a confirmed break past $${primary.value.toFixed(2)}, add/enter more targeting the ${secondary!.label} at $${secondary!.value.toFixed(2)}.`
     }
+  } else if (primary.dist > maxDist) {
+    return enterNow(`No nearby level (the ${primary.label} is $${primary.value.toFixed(2)}, too far to wait for).`)
   } else {
     const primaryLabel = primary.label
     if (impliedBullish) {
