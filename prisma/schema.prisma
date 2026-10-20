@@ -132,3 +132,10 @@ model UserScript {
   @@index([isShared])
 }
 
+
+model SeasonalScan {
+  key       String   @id // e.g. normal:SP500:15, seasoned:SP500, leaps:SP500 - one row per scan, replaced nightly
+  scanDate  String   // America/Los_Angeles date the scan ran
+  data      Json
+  updatedAt DateTime @updatedAt
+}

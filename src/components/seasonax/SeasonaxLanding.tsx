@@ -42,6 +42,17 @@ import SeasonalScanScene from '@/components/loading/SeasonalScanScene'
 // naturally refresh the next day instead of relying solely on the Redis TTL.
 const todayET = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 
+// The three index markets are scanned nightly (10PM PT) by the collector and stored in the DB under
+// date-less `idx:` keys, so users load the saved result instead of re-scanning. Other markets
+// (sectors, industries) keep the per-day cache key.
+const INDEX_MARKETS = ['SP500', 'NASDAQ100', 'DOWJONES']
+const normalizeMarket = (m: string) => m.toUpperCase().replace(/[^A-Z0-9-]/g, '')
+const scanCacheKey = (mode: 'normal' | 'seasoned' | 'leaps', market: string, years?: number) => {
+  const n = normalizeMarket(market)
+  const suffix = years ? `:${years}` : ''
+  return INDEX_MARKETS.includes(n) ? `idx:${mode}:${n}${suffix}` : `${mode}:${market}${suffix}:${todayET()}`
+}
+
 interface SeasonaxLandingProps {
   // Optional props for external control from sidebar
   autoStart?: boolean
@@ -56,6 +67,7 @@ interface SeasonaxLandingProps {
     mover: string
   }) => void
   sidebarMode?: boolean // Flag to enable larger fonts for sidebar
+  autoScanAll?: boolean // Headless nightly job: scan every index/mode/timeframe and save to the DB
 }
 
 const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
@@ -65,6 +77,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   externalFilters,
   onFiltersChange,
   sidebarMode = false,
+  autoScanAll = false,
 }) => {
   const [activeMarket, setActiveMarket] = useState(initialMarket)
   const [timePeriod, setTimePeriod] = useState(initialTimePeriod)
@@ -263,7 +276,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
 
   const selectedYears = timePeriodOptions.find((p) => p.id === timePeriod)?.years || 15
 
-  const loadMarketData = async (selectedMarket?: string) => {
+  const loadMarketData = async (selectedMarket?: string, forcedYears?: number, force = false) => {
     try {
       // Load fresh data directly from SeasonalScreenerService
       // Import market indices and service
@@ -289,10 +302,11 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       setProgressStats({ processed: 0, total: marketStocks.length, found: 0 })
 
       const selectedPeriod = timePeriodOptions.find((p) => p.id === timePeriod)
-      const years = selectedPeriod?.years || 15 // FULL years as requested - no limits
+      const years = forcedYears || selectedPeriod?.years || 15 // FULL years as requested - no limits
 
-      const cacheKey = `normal:${market}:${years}:${todayET()}`
+      const cacheKey = scanCacheKey('normal', market, years)
       try {
+        if (force) throw new Error('forced fresh scan')
         const cacheRes = await fetch(`/api/seasonal-cache?key=${encodeURIComponent(cacheKey)}`)
         const { data: cached } = await cacheRes.json()
         if (cached && Array.isArray(cached) && cached.length > 0) {
@@ -308,7 +322,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
 
       // Only the first concurrent scanner for this market+years+day actually scans -
       // everyone else waits on the cache that scan writes when it finishes.
-      const wonLock = await acquireScanLock(cacheKey)
+      const wonLock = force || (await acquireScanLock(cacheKey))
       if (!wonLock) {
         const waited = await waitForScanCache<SeasonalPattern[]>(cacheKey)
         if (waited && waited.length > 0) {
@@ -427,7 +441,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   }
 
   // Load seasoned multi-timeframe data - scan 5Y, 10Y, 15Y, 20Y and find stocks with 60%+ win rate on 2+ timeframes
-  const loadSeasonedData = async (selectedMarket?: string) => {
+  const loadSeasonedData = async (selectedMarket?: string, force = false) => {
     try {
       const { default: SeasonalScreenerService } = await import('@/lib/seasonalScreenerService')
       const { getMarketStocks } = await import('@/lib/marketIndices')
@@ -450,8 +464,9 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       )
       setProgressStats({ processed: 0, total: marketStocks.length * 4, found: 0 })
 
-      const seasonedCacheKey = `seasoned:${market}:${todayET()}`
+      const seasonedCacheKey = scanCacheKey('seasoned', market)
       try {
+        if (force) throw new Error('forced fresh scan')
         const cacheRes = await fetch(`/api/seasonal-cache?key=${encodeURIComponent(seasonedCacheKey)}`)
         const { data: cached } = await cacheRes.json()
         if (cached && Array.isArray(cached) && cached.length > 0) {
@@ -466,7 +481,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
         // Cache unavailable — fall through to a fresh scan
       }
 
-      const wonSeasonedLock = await acquireScanLock(seasonedCacheKey)
+      const wonSeasonedLock = force || (await acquireScanLock(seasonedCacheKey))
       if (!wonSeasonedLock) {
         const waited = await waitForScanCache<SeasonalPattern[]>(seasonedCacheKey)
         if (waited && waited.length > 0) {
@@ -600,7 +615,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
   }
 
   // ── Seasonal Leaps scan: sweet-spot/pain-point (50–90 day), 8–15 years ──
-  const loadLeapsData = async (selectedMarket?: string) => {
+  const loadLeapsData = async (selectedMarket?: string, force = false) => {
     try {
       const { default: SeasonalScreenerService } = await import('@/lib/seasonalScreenerService')
       const { getMarketStocks } = await import('@/lib/marketIndices')
@@ -621,8 +636,9 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
       setStreamStatus(`🚀 SEASONAL LEAPS: Scanning ${marketStocks.length} stocks (8–15 year sweet-spot windows)...`)
       setProgressStats({ processed: 0, total: marketStocks.length, found: 0 })
 
-      const leapsCacheKey = `leaps:${market}:${todayET()}`
+      const leapsCacheKey = scanCacheKey('leaps', market)
       try {
+        if (force) throw new Error('forced fresh scan')
         const cacheRes = await fetch(`/api/seasonal-cache?key=${encodeURIComponent(leapsCacheKey)}`)
         const { data: cached } = await cacheRes.json()
         if (cached && Array.isArray(cached) && cached.length > 0) {
@@ -637,7 +653,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
         // Cache unavailable — fall through to a fresh scan
       }
 
-      const wonLeapsLock = await acquireScanLock(leapsCacheKey)
+      const wonLeapsLock = force || (await acquireScanLock(leapsCacheKey))
       if (!wonLeapsLock) {
         const waited = await waitForScanCache<SeasonalPattern[]>(leapsCacheKey)
         if (waited && waited.length > 0) {
@@ -694,6 +710,23 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
     setActiveMarket(market)
     loadSeasonedData(market)
   }
+
+  // Nightly headless run (collector opens /seasonal-autoscan): scans one by one - for each index
+  // the 5/10/15/20Y timeframes, then Seasoned (multiframe) and Leaps - saving each to the DB.
+  const autoScanStartedRef = useRef(false)
+  useEffect(() => {
+    if (!autoScanAll || autoScanStartedRef.current) return
+    autoScanStartedRef.current = true
+    ;(async () => {
+      for (const market of INDEX_MARKETS) {
+        for (const tf of timePeriodOptions) await loadMarketData(market, tf.years, true)
+        await loadSeasonedData(market, true)
+        await loadLeapsData(market, true)
+      }
+      ;(window as any).__seasonalAutoScanDone = true
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoScanAll])
 
   const handleLeapsScan = (market: string) => {
     setActiveMarket(market)

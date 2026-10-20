@@ -495,6 +495,53 @@ async function runSweepSenseAutoSave() {
     }
 }
 
+// ── Nightly seasonal scan (10:00 PM America/Los_Angeles) ──────────────────────
+// Same approach as the SweepSense auto-save: the scan logic lives in the browser, so a headless
+// page (/seasonal-autoscan) runs it for S&P 500 / Nasdaq 100 / Dow (5/10/15/20Y, Seasoned, Leaps)
+// one by one and POSTs each result to /api/seasonal-cache, which overwrites the previous day's row.
+async function runSeasonalNightlyScan() {
+    if (!APP_URL) { console.warn('[SeasonalScan] APP_URL not set — skipping'); return }
+    console.log('[SeasonalScan] Launching headless browser for nightly seasonal scan...')
+    let browser
+    try {
+        const puppeteer = (await import('puppeteer')).default
+        browser = await puppeteer.launch({ headless: true, args: CHROME_LAUNCH_ARGS, protocolTimeout: 120 * 60 * 1000 })
+        const page = await browser.newPage()
+        const cookies = await loginCookies()
+        if (cookies.length > 0) await page.setCookie(...cookies)
+        await page.goto(`${APP_URL}/seasonal-autoscan`, { waitUntil: 'domcontentloaded', timeout: 60_000 })
+        // Poll with evaluate (not waitForFunction) so a transient navigation/context reset doesn't abort the run
+        const deadline = Date.now() + 90 * 60 * 1000
+        while (Date.now() < deadline) {
+            const done = await page.evaluate(() => window.__seasonalAutoScanDone === true).catch(() => false)
+            if (done) break
+            await new Promise((r) => setTimeout(r, 5000))
+        }
+        console.log('[SeasonalScan] Nightly scan complete.')
+    } catch (err) {
+        console.error('[SeasonalScan] Nightly scan failed:', err.message)
+    } finally {
+        if (browser) await browser.close().catch(() => { })
+    }
+}
+
+function msUntilNextSeasonalScan() {
+    const now = new Date()
+    const pt = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+    const next = new Date(pt)
+    next.setHours(22, 0, 0, 0)
+    if (next <= pt) next.setDate(next.getDate() + 1)
+    return next - pt
+}
+
+function scheduleSeasonalScan() {
+    const wait = msUntilNextSeasonalScan()
+    console.log(`[SeasonalScan] Next nightly scan in ${(wait / 1000 / 60).toFixed(0)} minutes (10:00 PM PT)`)
+    setTimeout(async () => {
+        await runSeasonalNightlyScan()
+        scheduleSeasonalScan()
+    }, wait)
+}
 // ── SweepSense Discord card rendering (static self-built HTML, no live-page screenshot) ────
 // Everything needed is already in the scraped `data-flow-payload` JSON (see
 // flowAlertPayload in FlowTrackingPanel.tsx). Rather than screenshotting the REAL, constantly
@@ -1006,3 +1053,4 @@ function scheduleNextOpen() {
 // ── Boot ──────────────────────────────────────────────────────────────────────
 console.log('[BOOT] EFI Options Flow Collector starting ...')
 scheduleNextOpen()
+scheduleSeasonalScan()

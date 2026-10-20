@@ -339,7 +339,10 @@ class PolygonService {
       const data = await response.json()
       return data
     } catch (error) {
-      console.error(` Failed to fetch historical data for ${symbol}:`, error)
+      // Timeouts are expected/handled (not a bug) - warn instead of error so the dev overlay doesn't fire
+      const isAbort = error instanceof Error && error.name === 'AbortError'
+      if (isAbort) console.warn(` Historical data request for ${symbol} timed out after 10s`)
+      else console.error(` Failed to fetch historical data for ${symbol}:`, error)
       return null
     }
   }
@@ -372,7 +375,7 @@ class PolygonService {
           const controller = new AbortController()
           const timeoutId = setTimeout(() => {
             console.warn(` Timing out bulk data request for ${symbol} after 15s`)
-            controller.abort()
+            controller.abort(new Error(`Timed out fetching bulk historical data for ${symbol} after 15s`))
           }, 15000)
 
           const response = await fetch(url, {
