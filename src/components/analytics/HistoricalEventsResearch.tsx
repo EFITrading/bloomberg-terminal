@@ -957,7 +957,7 @@ export default function HistoricalEventsResearch({ inDrawer = false, onCloseDraw
       </div>
 
       {/* TAB CONTENT */}
-      <AdminOnlyGate message="Members will gain access to these tools very soon, currently beta testing Seasonal Annual and Monthly charts only.">
+      <AdminOnlyGate allowUser message="Members will gain access to these tools very soon, currently beta testing Seasonal Annual and Monthly charts only.">
         {/* Research + Screener tabs stay mounted at all times (just hidden via display:none) so
             switching tabs or resizing the window never wipes scan results/state underneath. */}
         <div style={{ flex: activeTab === 'research' ? 1 : undefined, minHeight: activeTab === 'research' ? 0 : undefined, overflow: 'hidden', display: activeTab === 'research' ? 'flex' : 'none', flexDirection: 'column' }}>

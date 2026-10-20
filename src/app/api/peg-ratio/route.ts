@@ -54,12 +54,25 @@ export async function GET(req: NextRequest) {
 
         // ── 2. Quarterly financials — paginate to get ALL available quarters ──────
         const results: any[] = []
-        let finUrl: string | null = `https://api.polygon.io/vX/reference/financials?ticker=${ticker}&timeframe=quarterly&limit=100&sort=period_of_report_date&order=desc&apiKey=${POLYGON_API_KEY}`
+        let finUrl: string | null = `https://api.polygon.io/stocks/financials/v1/income-statements?tickers=${ticker}&timeframe=quarterly&limit=100&sort=period_end.desc&apiKey=${POLYGON_API_KEY}`
         while (finUrl) {
             const finRes = await fetch(finUrl)
             if (!finRes.ok) return NextResponse.json({ error: `Polygon financials error: ${finRes.status}` }, { status: 502 })
             const finJson = await finRes.json()
-            if (Array.isArray(finJson.results)) results.push(...finJson.results)
+            if (Array.isArray(finJson.results)) {
+                for (const r of finJson.results) {
+                    results.push({
+                        end_date: r.period_end,
+                        financials: {
+                            income_statement: {
+                                diluted_earnings_per_share: { value: r.diluted_earnings_per_share },
+                                basic_earnings_per_share: { value: r.basic_earnings_per_share },
+                                revenues: { value: r.revenue },
+                            },
+                        },
+                    })
+                }
+            }
             finUrl = finJson.next_url ? `${finJson.next_url}&apiKey=${POLYGON_API_KEY}` : null
         }
 

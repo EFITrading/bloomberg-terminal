@@ -1562,7 +1562,6 @@ export default function AiSuitePage() {
   const [sharedScripts, setSharedScripts] = useState<SharedScript[]>([]);
   const [saveVisibility, setSaveVisibility] = useState<'private' | 'shared'>('private');
   const [tab, setTab] = useState<'mine' | 'tpl' | 'community'>('tpl');
-  const [showPreview, setShowPreview] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [running, setRunning] = useState(false);
   const [execTime, setExecTime] = useState<number | null>(null);
@@ -1579,8 +1578,8 @@ export default function AiSuitePage() {
   const [showLeft, setShowLeft] = useState(true);
   const [showAi, setShowAi] = useState(true);
   const [showConsole, setShowConsole] = useState(true);
-  const [previewPos, setPreviewPos] = useState({ x: 120, y: 90 });
-  const [previewSize, setPreviewSize] = useState({ w: 520, h: 420 });
+  // Output panel now lives as a tab (not a floating window) so results feel like a real page, not a popup
+  const [consoleView, setConsoleView] = useState<'logs' | 'preview'>('logs');
   const [autoRunSec, setAutoRunSec] = useState<number | null>(null); // null = off
   // Editor controls
   const [wordWrap, setWordWrap] = useState<'off' | 'on'>('off');
@@ -1599,7 +1598,7 @@ export default function AiSuitePage() {
   const [copied, setCopied] = useState(false);
   // Mobile
   const [isMobile, setIsMobile] = useState(false);
-  const [mobileTab, setMobileTab] = useState<'editor' | 'scripts' | 'console' | 'ai'>('editor');
+  const [mobileTab, setMobileTab] = useState<'editor' | 'scripts' | 'console' | 'preview' | 'ai'>('editor');
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth <= 768);
     check();
@@ -1945,22 +1944,11 @@ export default function AiSuitePage() {
     tables: logs.filter(l => l.type === 'table').length,
   }), [logs]);
   const htmlOutputs = useMemo(() => logs.filter(l => l.type === 'html'), [logs]);
-  const previewDrag = useRef<null | { mode: 'move' | 'resize'; sx: number; sy: number; ox: number; oy: number; ow: number; oh: number }>(null);
+  // Auto-switch to the Preview tab the first time a script renders html(...) output
   useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      const d = previewDrag.current;
-      if (!d) return;
-      if (d.mode === 'move') {
-        setPreviewPos({ x: Math.max(0, d.ox + (e.clientX - d.sx)), y: Math.max(0, d.oy + (e.clientY - d.sy)) });
-      } else {
-        setPreviewSize({ w: Math.max(280, d.ow + (e.clientX - d.sx)), h: Math.max(200, d.oh + (e.clientY - d.sy)) });
-      }
-    };
-    const onUp = () => { previewDrag.current = null; };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-  }, []);
+    if (htmlOutputs.length > 0) setConsoleView('preview');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [htmlOutputs.length]);
 
   // -- Style helpers --
   const btnBase: React.CSSProperties = {
@@ -2165,6 +2153,19 @@ export default function AiSuitePage() {
           {/* SCRIPTS panel */}
           {mobileTab === 'scripts' && scriptLibrary}
 
+          {/* PREVIEW panel - rendered design/UI output, as its own page instead of a floating window */}
+          {mobileTab === 'preview' && (
+            <div style={{ flex: 1, minHeight: 0, overflow: 'auto', background: '#050505', padding: 12 }}>
+              {htmlOutputs.length === 0 ? (
+                <div style={{ color: '#555', fontSize: 12, textAlign: 'center', padding: '40px 16px' }}>
+                  Run a script that calls <code style={{ color: '#ff9940' }}>html(...)</code> to see its rendered design/UI here.
+                </div>
+              ) : htmlOutputs.map(entry => (
+                <HtmlBlock key={entry.id} markup={entry.message} style={{ marginBottom: 10 }} />
+              ))}
+            </div>
+          )}
+
           {/* CONSOLE panel */}
           {mobileTab === 'console' && (
             <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', background: '#050505' }}>
@@ -2273,6 +2274,7 @@ export default function AiSuitePage() {
             { key: 'editor', icon: Icon.code, label: 'EDITOR' },
             { key: 'scripts', icon: Icon.file, label: 'SCRIPTS' },
             { key: 'console', icon: Icon.terminal, label: 'OUTPUT' },
+            { key: 'preview', icon: Icon.panel, label: 'PREVIEW' },
             { key: 'ai', icon: Icon.bot, label: 'AI' },
           ] as const).map(({ key, icon, label }) => (
             <button key={key} onClick={() => setMobileTab(key)} style={{
@@ -2411,42 +2413,6 @@ export default function AiSuitePage() {
         </div>
       )}
 
-      {/* PREVIEW WINDOW - in-app "second window" showing your script's rendered design/UI output */}
-      {showPreview && (
-        <div style={{
-          position: 'fixed', left: previewPos.x, top: previewPos.y,
-          width: previewSize.w, height: previewSize.h, zIndex: 9997,
-          background: '#050505', border: '1px solid #2a2a2a', borderRadius: 6,
-          boxShadow: '0 12px 48px rgba(0,0,0,0.9)', display: 'flex', flexDirection: 'column', overflow: 'hidden',
-        }}>
-          <div
-            onMouseDown={e => { previewDrag.current = { mode: 'move', sx: e.clientX, sy: e.clientY, ox: previewPos.x, oy: previewPos.y, ow: previewSize.w, oh: previewSize.h }; }}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#0e0800', borderBottom: '1px solid #2a1a00', cursor: 'move', flexShrink: 0 }}
-          >
-            <span style={{ color: '#ff6600', display: 'flex' }}>{Icon.panel}</span>
-            <span style={{ fontSize: 11, fontWeight: 800, color: '#ff9940', letterSpacing: '0.08em', textTransform: 'uppercase', flex: 1 }}>Preview Window</span>
-            <button onClick={() => setShowPreview(false)} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', display: 'flex' }}>{Icon.close}</button>
-          </div>
-          <div style={{ flex: 1, overflow: 'auto', background: '#050505', padding: 12 }}>
-            {htmlOutputs.length === 0 ? (
-              <div style={{ color: '#555', fontSize: 12, textAlign: 'center', padding: '40px 16px' }}>
-                Run a script that calls <code style={{ color: '#ff9940' }}>html(...)</code> to see its design rendered here, live, separate from the log console.
-              </div>
-            ) : htmlOutputs.map(entry => (
-              <HtmlBlock key={entry.id} markup={entry.message} style={{ marginBottom: 10 }} />
-            ))}
-          </div>
-          <div
-            onMouseDown={e => { previewDrag.current = { mode: 'resize', sx: e.clientX, sy: e.clientY, ox: previewPos.x, oy: previewPos.y, ow: previewSize.w, oh: previewSize.h }; }}
-            style={{ position: 'absolute', right: 0, bottom: 0, width: 16, height: 16, cursor: 'nwse-resize' }}
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" style={{ position: 'absolute', right: 1, bottom: 1 }}>
-              <path d="M12 2L2 12M12 7L7 12M12 12L12 12" stroke="#444" strokeWidth="1.4" />
-            </svg>
-          </div>
-        </div>
-      )}
-
       {/* HEADER */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8,
@@ -2539,10 +2505,10 @@ export default function AiSuitePage() {
             {Icon.bot}
           </button>
           <button
-            className={`efi-tool-btn ${showPreview ? 'efi-tool-btn-active' : ''}`}
-            onClick={() => setShowPreview(s => !s)}
-            title="Toggle preview window (your script's design/UI output)"
-            style={{ ...toolbarBtnBase, padding: '5px 9px', color: showPreview ? '#ff6600' : '#bbb', border: `1px solid ${showPreview ? '#ff660033' : '#222'}`, borderRadius: 3, background: showPreview ? '#0e0800' : 'transparent' }}
+            className={`efi-tool-btn ${consoleView === 'preview' ? 'efi-tool-btn-active' : ''}`}
+            onClick={() => { setShowConsole(true); setConsoleView('preview'); }}
+            title="Switch Output panel to the Preview tab (your script's design/UI output)"
+            style={{ ...toolbarBtnBase, padding: '5px 9px', color: consoleView === 'preview' ? '#ff6600' : '#bbb', border: `1px solid ${consoleView === 'preview' ? '#ff660033' : '#222'}`, borderRadius: 3, background: consoleView === 'preview' ? '#0e0800' : 'transparent' }}
           >
             {Icon.panel}
           </button>
@@ -2889,8 +2855,23 @@ export default function AiSuitePage() {
 
                 <div style={{ width: 1, height: 14, background: '#1a1a1a', margin: '0 2px' }} />
 
-                {/* Log level filter */}
-                {(['all', 'log', 'warn', 'error'] as const).map(f => (
+                {/* Logs / Preview view tabs - in-page instead of a floating window */}
+                {(['logs', 'preview'] as const).map(v => (
+                  <button key={v} onClick={() => setConsoleView(v)} style={{
+                    background: consoleView === v ? '#161616' : 'transparent', border: consoleView === v ? '1px solid #ff660044' : '1px solid transparent',
+                    borderRadius: 3, padding: '2px 9px', fontSize: 10, fontWeight: 800,
+                    cursor: 'pointer', fontFamily: 'inherit', letterSpacing: '0.08em', textTransform: 'uppercase',
+                    color: consoleView === v ? '#ff6600' : '#777', display: 'flex', alignItems: 'center', gap: 4,
+                  }}>
+                    {v === 'preview' && Icon.panel}{v}
+                    {v === 'preview' && htmlOutputs.length > 0 && <span style={{ background: '#2a1800', color: '#ff9940', borderRadius: 2, padding: '0 3px' }}>{htmlOutputs.length}</span>}
+                  </button>
+                ))}
+
+                <div style={{ width: 1, height: 14, background: '#1a1a1a', margin: '0 2px' }} />
+
+                {/* Log level filter - only relevant to the Logs view */}
+                {consoleView === 'logs' && (['all', 'log', 'warn', 'error'] as const).map(f => (
                   <button key={f} className={`efi-logbtn ${logFilter === f ? 'efi-logbtn-active' : ''}`} onClick={() => setLogFilter(f)} style={{
                     background: logFilter === f ? '#161616' : 'transparent', border: logFilter === f ? '1px solid #2a2a2a' : '1px solid transparent',
                     borderRadius: 3, padding: '2px 7px', fontSize: 10, fontWeight: 700,
@@ -2908,20 +2889,22 @@ export default function AiSuitePage() {
                 <div style={{ width: 1, height: 14, background: '#1a1a1a', margin: '0 2px' }} />
 
                 {/* Console */}
-                <div style={{ position: 'relative', marginRight: 2 }}>
-                  <span style={{ position: 'absolute', left: 6, top: '50%', transform: 'translateY(-50%)', color: '#555', display: 'flex', pointerEvents: 'none' }}>{Icon.search}</span>
-                  <input
-                    value={logSearch}
-                    onChange={e => setLogSearch(e.target.value)}
-                    className="efi-input"
-                    placeholder="Filter output..."
-                    style={{ background: '#060606', border: '1px solid #1a1a1a', borderRadius: 3, color: '#ccc', fontSize: 11, padding: '3px 8px 3px 24px', fontFamily: 'inherit', width: 130 }}
-                  />
-                </div>
+                {consoleView === 'logs' && (
+                  <div style={{ position: 'relative', marginRight: 2 }}>
+                    <span style={{ position: 'absolute', left: 6, top: '50%', transform: 'translateY(-50%)', color: '#555', display: 'flex', pointerEvents: 'none' }}>{Icon.search}</span>
+                    <input
+                      value={logSearch}
+                      onChange={e => setLogSearch(e.target.value)}
+                      className="efi-input"
+                      placeholder="Filter output..."
+                      style={{ background: '#060606', border: '1px solid #1a1a1a', borderRadius: 3, color: '#ccc', fontSize: 11, padding: '3px 8px 3px 24px', fontFamily: 'inherit', width: 130 }}
+                    />
+                  </div>
+                )}
 
                 <div style={{ flex: 1 }} />
 
-                {logCounts.tables > 0 && (
+                {consoleView === 'logs' && logCounts.tables > 0 && (
                   <button className="efi-tool-btn" onClick={handleExportCsv} title="Export table as CSV" style={{ ...toolbarBtnBase, padding: '3px 7px', gap: 4, color: '#fff' }}>
                     {Icon.csv}<span style={{ fontSize: 10 }}>CSV</span>
                   </button>
@@ -2934,9 +2917,17 @@ export default function AiSuitePage() {
                 </button>
               </div>
 
-              {/* Log entries */}
-              <div style={{ flex: 1, overflowY: 'auto', padding: '3px 0' }}>
-                {filteredLogs.length === 0 ? (
+              {/* Logs / Preview body */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: consoleView === 'preview' ? 12 : '3px 0' }}>
+                {consoleView === 'preview' ? (
+                  htmlOutputs.length === 0 ? (
+                    <div style={{ color: '#555', fontSize: 12, textAlign: 'center', padding: '40px 16px' }}>
+                      Run a script that calls <code style={{ color: '#ff9940' }}>html(...)</code> to see its rendered design/UI here.
+                    </div>
+                  ) : htmlOutputs.map(entry => (
+                    <HtmlBlock key={entry.id} markup={entry.message} style={{ marginBottom: 10 }} />
+                  ))
+                ) : filteredLogs.length === 0 ? (
                   <div style={{ color: '#666', fontSize: 12, padding: '12px 16px', fontFamily: '"JetBrains Mono", monospace' }}>
                     {logs.length === 0 ? 'Run a script to see output here.' : 'No entries match current filter.'}
                   </div>

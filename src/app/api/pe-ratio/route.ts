@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
         }
 
         // ── Step 2: Fetch up to 100 quarters of EPS (max Polygon returns per page) ──
-        const finUrl = `https://api.polygon.io/vX/reference/financials?ticker=${ticker}&timeframe=quarterly&limit=100&sort=period_of_report_date&order=desc&apiKey=${POLYGON_API_KEY}`
+        const finUrl = `https://api.polygon.io/stocks/financials/v1/income-statements?tickers=${ticker}&timeframe=quarterly&limit=100&sort=period_end.desc&apiKey=${POLYGON_API_KEY}`
         const finRes = await fetch(finUrl)
         if (!finRes.ok) {
             return NextResponse.json({ error: `Polygon financials error: ${finRes.status}` }, { status: 502 })
@@ -57,11 +57,9 @@ export async function GET(req: NextRequest) {
 
         if (Array.isArray(finJson.results)) {
             for (const item of finJson.results) {
-                const epsRaw =
-                    item?.financials?.income_statement?.diluted_earnings_per_share?.value ??
-                    item?.financials?.income_statement?.basic_earnings_per_share?.value
-                if (typeof epsRaw === 'number' && item.end_date) {
-                    quarters.push({ endDate: item.end_date, eps: splitAdjust(item.end_date, epsRaw) })
+                const epsRaw = item?.diluted_earnings_per_share ?? item?.basic_earnings_per_share
+                if (typeof epsRaw === 'number' && item.period_end) {
+                    quarters.push({ endDate: item.period_end, eps: splitAdjust(item.period_end, epsRaw) })
                 }
             }
         }

@@ -1446,6 +1446,10 @@ function SweepSenseTab({
     gammaMeta?: { ticker: string; strike: number; spot?: number; sigma?: number; expiry?: string }
     structuralMeta?: { callLevel: number | null; putLevel: number | null }
   } | null>(null)
+  // Tracks the worst adverse excursion seen since a bought (A/AA) trade was first observed -
+  // lowest live price for calls, highest for puts - keyed by flowId, so the reversal check
+  // in getReversalReadyLabel can tell "price went away and came back" apart from "price never moved at all".
+  const reversalExtremeRef = useRef<Map<string, number>>(new Map())
   // Top control row quick filters - "Ready 4 Pickup" (has an active entry plan), "Hedge"/
   // "Directional" (based on where the strike sits relative to the 90%/80% probability-of-profit
   // level), "Sweep" (trade type), and "Gamma Attack"/"Spam" (FlowBias rows active).
@@ -1995,11 +1999,6 @@ function SweepSenseTab({
   }
 
   const { trades } = data
-
-  // Tracks the worst adverse excursion seen since a bought (A/AA) trade was first observed -
-  // lowest live price for calls, highest for puts - keyed by flowId, so the reversal check
-  // below can tell "price went away and came back" apart from "price never moved at all".
-  const reversalExtremeRef = useRef<Map<string, number>>(new Map())
 
   // Reversal re-entry: a bought (A/AA) call/put whose stock price first moved AGAINST the
   // trade (away from the entry spot) and has now recovered back to/through the original entry

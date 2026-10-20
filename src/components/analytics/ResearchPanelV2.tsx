@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
+import StockDossier from './StockDossier';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const TICKERS: string[] = [];
@@ -3938,19 +3939,6 @@ function StockCard({ ticker, showPE, setShowPE, searchBar }: { ticker: string; s
 
                     {/* Right: P/E toggle + composite-signal score pills */}
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                        {activePatterns.length > 0 && (
-                            <div style={{
-                                background: 'linear-gradient(135deg, #ff8c00, #ff6a00)',
-                                borderRadius: 8,
-                                padding: '7px 14px',
-                                color: '#000',
-                                fontSize: 12, fontWeight: 900, letterSpacing: '1.5px',
-                                boxShadow: '0 2px 10px rgba(255,140,0,0.35)',
-                                ...mono,
-                            }}>
-                                {activePatterns.length} ACTIVE NOW
-                            </div>
-                        )}
                         {/* P/E toggle button — desktop only, mobile is in search row */}
                         {!isMobile && <button
                             onClick={() => setShowPE(v => !v)}
@@ -3979,7 +3967,6 @@ function StockCard({ ticker, showPE, setShowPE, searchBar }: { ticker: string; s
                             {showPE ? 'HIDE P/E' : 'P/E RATIO'}
                         </button>}
                         {/* Composite signal score/projection pills — desktop only */}
-                        {!isMobile && <ComboScorePills combo={result.combo} />}
                     </div>
                 </div>
 
@@ -3987,97 +3974,9 @@ function StockCard({ ticker, showPE, setShowPE, searchBar }: { ticker: string; s
 
             <div style={{ padding: isMobile ? '8px 10px' : '14px 18px' }}>
 
-                {/* ── P/E Ratio Chart (toggled) ────────────────────────────── */}
-                {showPE && <PERatioChart ticker={ticker} />}
+                {/* ── Stock dossier: past, now, next (P/E sits under the chart) ── */}
+                <StockDossier ticker={ticker} bars={result.sortedBars} belowChart={showPE ? <PERatioChart ticker={ticker} /> : null} />
 
-                {/* ── Composite signal panel ─────────────────────────────────── */}
-                <ComboPanel combo={result.combo} bars={result.sortedBars} wyckoffZones={result.wyckoffZones} />
-
-                {/* ── Active signals ─────────────────────────────────────────── */}
-                {activePatterns.length > 0 && (
-                    <div style={{ marginBottom: '18px' }}>
-                        <div style={{
-                            display: 'flex', alignItems: 'center', gap: 8,
-                            marginBottom: 10,
-                            borderBottom: '1px solid rgba(255,140,0,0.15)',
-                            paddingBottom: 6,
-                        }}>
-                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ff8c00', display: 'inline-block', flexShrink: 0 }} />
-                            <span style={{ color: '#ff8c00', fontSize: 11, fontWeight: 900, letterSpacing: '2.5px', ...mono }}>
-                                ACTIVE NOW
-                            </span>
-                            <span style={{ color: 'rgba(255,255,255,0.20)', fontSize: 11, ...mono }}>CONDITIONS MATCHING TODAY'S CLOSE</span>
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '6px' }}>
-                            {activePatterns.map(p => (
-                                <PatternRow
-                                    key={p.label}
-                                    p={p}
-                                    expanded={expanded.has(p.label)}
-                                    onToggle={() => toggle(p.label)}
-                                />
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* ── All qualifying patterns ──────────────────────────────── */}
-                <div>
-                    <div style={{
-                        display: 'flex', alignItems: 'baseline', gap: 12,
-                        marginBottom: 10,
-                        borderBottom: '1px solid rgba(212,170,0,0.20)',
-                        paddingBottom: 8,
-                    }}>
-                        <span style={{
-                            fontSize: 15,
-                            fontWeight: 900,
-                            letterSpacing: '2.5px',
-                            fontFamily: 'monospace',
-                            background: 'linear-gradient(180deg, #ffe066 0%, #ffbb00 38%, #cc8800 72%, #fff0a0 100%)',
-                            WebkitBackgroundClip: 'text',
-                            WebkitTextFillColor: 'transparent',
-                            backgroundClip: 'text',
-                            filter: 'drop-shadow(0px 1px 0px #7a5200) drop-shadow(0px 2px 3px rgba(0,0,0,0.85))',
-                            textShadow: 'none',
-                        }}>
-                            Qualifying Patterns
-                        </span>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '6px' }}>
-                        {displayAll.map(p => (
-                            <PatternRow
-                                key={p.label}
-                                p={p}
-                                expanded={expanded.has(p.label)}
-                                onToggle={() => toggle(p.label)}
-                            />
-                        ))}
-                    </div>
-
-                    {qualifiedPatterns.length > 12 && (
-                        <button
-                            onClick={() => setShowAll(v => !v)}
-                            style={{
-                                width: '100%',
-                                background: 'rgba(255,255,255,0.03)',
-                                border: '1px solid rgba(255,255,255,0.10)',
-                                borderRadius: '5px',
-                                color: 'rgba(255,255,255,0.35)',
-                                cursor: 'pointer',
-                                padding: '9px',
-                                fontSize: '12px',
-                                fontWeight: 700,
-                                letterSpacing: '1.5px',
-                                marginTop: '6px',
-                                ...mono,
-                            }}
-                        >
-                            {showAll ? '↑ SHOW LESS' : `↓ SHOW ALL ${qualifiedPatterns.length} PATTERNS`}
-                        </button>
-                    )}
-                </div>
 
             </div>
 

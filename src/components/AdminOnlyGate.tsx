@@ -8,10 +8,12 @@ import { useEffect, useState } from 'react'
 export default function AdminOnlyGate({
     children,
     label = 'Coming Soon',
+    allowUser = false,
     message = 'Members will gain access to these tools very soon, currently beta testing Seasonal Annual and Monthly charts only.',
 }: {
     children: React.ReactNode
     label?: string
+    allowUser?: boolean
     message?: string
 }) {
     // Fail-closed: starts locked until the cookie check resolves.
@@ -23,7 +25,7 @@ export default function AdminOnlyGate({
         const authCookie = cookies.find((c) => c.trim().startsWith('efi-auth='))
         const level = levelCookie?.split('=')[1]?.trim()
         const auth = authCookie?.split('=')[1]?.trim()
-        setIsAdmin(level === 'admin' || auth === 'admin')
+        setIsAdmin(level === 'admin' || auth === 'admin' || (allowUser && (level === 'user' || auth === 'authenticated')))
     }, [])
 
     if (!isAdmin) {
