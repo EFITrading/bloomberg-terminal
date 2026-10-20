@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 
@@ -12,6 +12,8 @@ import { useSeasonalityChartMobile } from './useSeasonalityChartMobile'
 import AlmanacDailyChart from './AlmanacDailyChart'
 import HorizontalMonthlyReturns from './HorizontalMonthlyReturns'
 import SeasonaxMainChart from './SeasonaxMainChart'
+import SeasonalDivePanel from './SeasonalDivePanel'
+import { DEFAULT_DIVE_OPTIONS, DiveOptions } from './seasonalDive'
 import SeasonaxStatistics from './SeasonaxStatistics'
 import SeasonaxSymbolSearch from './SeasonaxSymbolSearch'
 
@@ -165,6 +167,8 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   const [candlenalityMode, setCandlenalityMode] = useState<boolean>(false)
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
+  const [diveActive, setDiveActive] = useState<boolean>(false)
+  const [diveOptions, setDiveOptions] = useState<DiveOptions>(DEFAULT_DIVE_OPTIONS)
   const [sweetSpotPeriod, setSweetSpotPeriod] = useState<{
     startDay: number
     endDay: number
@@ -1538,6 +1542,22 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
     return { bestSweetSpot, worstPainPoint }
   }
 
+  const toggleDive = () => {
+    if (!diveActive) {
+      const activeData = isElectionMode ? electionData : seasonalData
+      if (activeData?.dailyData && (!sweetSpotPeriod || !painPointPeriod)) {
+        const { bestSweetSpot, worstPainPoint } = analyzeLongTermPatterns(activeData.dailyData)
+        if (!sweetSpotPeriod && bestSweetSpot.period) {
+          setSweetSpotPeriod({ startDay: bestSweetSpot.startDay, endDay: bestSweetSpot.endDay, period: bestSweetSpot.period })
+        }
+        if (!painPointPeriod && worstPainPoint.period) {
+          setPainPointPeriod({ startDay: worstPainPoint.startDay, endDay: worstPainPoint.endDay, period: worstPainPoint.period })
+        }
+      }
+    }
+    setDiveActive((v) => !v)
+  }
+
   const handleSweetSpotClick = () => {
     const activeData = isElectionMode ? electionData : seasonalData
     if (!activeData?.dailyData) {
@@ -2301,7 +2321,35 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                           multiScanData={multiScanData.length > 0 ? multiScanData : undefined}
                           isFullscreen={false}
                           candlenalityMode={candlenalityMode}
+                          dive={diveActive ? diveOptions : null}
                         />
+{seasonalData && (
+  <button
+    onClick={toggleDive}
+    title="Dive In"
+    style={{
+      position: 'absolute', top: '8px', right: '72px', zIndex: 10001,
+      height: '30px', padding: '0 12px', borderRadius: '15px',
+      border: '1.5px solid #00e5ff', boxShadow: '0 0 8px #00e5ff44',
+      background: diveActive ? 'rgba(0,229,255,0.25)' : 'rgba(0,0,0,0.7)',
+      color: '#00e5ff', textShadow: '0 0 8px #00e5ff88', cursor: 'pointer',
+      fontFamily: "'Courier New', monospace", fontSize: '11px', fontWeight: 900, letterSpacing: '1px',
+    }}
+  >
+    DIVE IN
+  </button>
+)}{diveActive && seasonalData && (
+  <SeasonalDivePanel
+    symbol={selectedSymbol || 'SPY'}
+    daily={((isElectionMode ? electionData : seasonalData)?.dailyData || []) as never}
+    sweetSpot={sweetSpotPeriod}
+    painPoint={painPointPeriod}
+    trendSync={trendSync}
+    options={diveOptions}
+    onOptionsChange={setDiveOptions}
+    onClose={() => setDiveActive(false)}
+  />
+)}
                         {/* Trend Sync badge */}
                         {trendSync && (
                           <div style={{
@@ -2364,7 +2412,35 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                   multiScanData={multiScanData.length > 0 ? multiScanData : undefined}
                   isFullscreen={isFullscreen}
                   candlenalityMode={candlenalityMode}
+                  dive={diveActive ? diveOptions : null}
                 />
+{seasonalData && (
+  <button
+    onClick={toggleDive}
+    title="Dive In"
+    style={{
+      position: 'absolute', top: '8px', right: '8px', zIndex: 10001,
+      height: '30px', padding: '0 12px', borderRadius: '15px',
+      border: '1.5px solid #00e5ff', boxShadow: '0 0 8px #00e5ff44',
+      background: diveActive ? 'rgba(0,229,255,0.25)' : 'rgba(0,0,0,0.7)',
+      color: '#00e5ff', textShadow: '0 0 8px #00e5ff88', cursor: 'pointer',
+      fontFamily: "'Courier New', monospace", fontSize: '11px', fontWeight: 900, letterSpacing: '1px',
+    }}
+  >
+    DIVE IN
+  </button>
+)}{diveActive && seasonalData && (
+  <SeasonalDivePanel
+    symbol={selectedSymbol || 'SPY'}
+    daily={((isElectionMode ? electionData : seasonalData)?.dailyData || []) as never}
+    sweetSpot={sweetSpotPeriod}
+    painPoint={painPointPeriod}
+    trendSync={trendSync}
+    options={diveOptions}
+    onOptionsChange={setDiveOptions}
+    onClose={() => setDiveActive(false)}
+  />
+)}
                 {/* Trend Sync badge */}
                 {/* EXIT button — bottom-right of chart */}
                 <button

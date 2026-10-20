@@ -1,7 +1,15 @@
 'use client'
 
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { getSeasonaxMainChartMobile, getSeasonaxMainChartMinHeight } from './SeasonaxMainChartMobile'
+import {
+  CRISIS_YEARS,
+  DiveOptions,
+  buildSubsetAverage,
+  buildYearPath,
+  getYears,
+  percentile,
+} from './seasonalDive'
 
 interface DailySeasonalData {
   dayOfYear: number
@@ -69,6 +77,7 @@ interface SeasonaxMainChartProps {
   currentYearSeries?: Array<{ dayOfYear: number; cumulativeReturn: number }> | null
   isFullscreen?: boolean
   candlenalityMode?: boolean
+  dive?: DiveOptions | null // "Dive In" overlays; null/undefined = off
 }
 
 // Helper function to smooth data - removes abnormal spikes/crashes
@@ -259,6 +268,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
   currentYearSeries = null,
   isFullscreen = false,
   candlenalityMode = false,
+  dive = null,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -281,6 +291,61 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
       setHiddenLines(new Set())
     }
   }, [multiScanData])
+
+  // Dive In model: one path per past year, their IQR band, and re-cut averages. Each series goes
+  // through the same smoothing/detrend as the white line (both are linear, so the average of the
+  // year paths still equals the white line).
+  const diveModel = useMemo(() => {
+    if (!dive || !data?.dailyData?.length) return null
+    const daily = data.dailyData
+    const currentYear = new Date().getFullYear()
+    const years = getYears(daily).filter((y) => y !== currentYear)
+    if (years.length < 2) return null
+
+    const process = (series: DailySeasonalData[]) => {
+      let out = series
+      if (settings.smoothing) out = smoothData(out)
+      if (settings.detrend) out = detrendData(out)
+      return out
+    }
+
+    const paths = years.map((year) => {
+      const path = buildYearPath(daily, year)
+      return process(daily.map((d, i) => ({ ...d, cumulativeReturn: path[i] })))
+    })
+
+    const band = daily.map((d, i) => {
+      const vals = paths.map((p) => p[i].cumulativeReturn).sort((a, b) => a - b)
+      return {
+        dayOfYear: d.dayOfYear,
+        lo: percentile(vals, 0.25),
+        hi: percentile(vals, 0.75),
+        upYears: vals.filter((v) => v > 0).length,
+      }
+    })
+
+    const allYears = getYears(daily)
+    const excluded = CRISIS_YEARS.filter((y) => allYears.includes(y))
+    const exCrisis =
+      excluded.length > 0
+        ? process(buildSubsetAverage(daily, allYears.filter((y) => !excluded.includes(y))))
+        : null
+
+    const half = Math.floor(allYears.length / 2)
+    const older = allYears.slice(0, half)
+    const recent = allYears.slice(half)
+    const halves =
+      older.length >= 2 && recent.length >= 2
+        ? {
+            older: process(buildSubsetAverage(daily, older)),
+            recent: process(buildSubsetAverage(daily, recent)),
+            olderLabel: `${older[0]}-${older[older.length - 1]}`,
+            recentLabel: `${recent[0]}-${recent[recent.length - 1]}`,
+          }
+        : null
+
+    return { paths, band, exCrisis, excluded, halves, yearCount: years.length }
+  }, [dive, data, settings.smoothing, settings.detrend])
 
   const toggleLine = (symbol: string) => {
     setHiddenLines((prev) => {
@@ -312,7 +377,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
         return () => clearTimeout(timer)
       }
     }
-  }, [data, comparisonData, multiScanData, settings, currentYearSeries])
+  }, [data, comparisonData, multiScanData, settings, currentYearSeries, diveModel, dive])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -551,7 +616,7 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
       if (!containerRef.current || containerRef.current.offsetWidth === 0) return
       drawCharts()
     }
-  }, [mousePos, zoomLevel, panOffset, data, comparisonData, multiScanData, hiddenLines, settings])
+  }, [mousePos, zoomLevel, panOffset, data, comparisonData, multiScanData, hiddenLines, settings, diveModel, dive])
 
   const drawCharts = () => {
     drawMainSeasonalChart()
@@ -745,6 +810,21 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
         allCumulativeReturns = allCumulativeReturns.concat(cyReturns)
       }
 
+      if (diveModel && dive && (selectedMonth === null || selectedMonth === undefined)) {
+        if (dive.band) {
+          diveModel.band.forEach((b) => {
+            allCumulativeReturns.push(b.lo, b.hi)
+          })
+        }
+        if (dive.exCrisis && diveModel.exCrisis) {
+          diveModel.exCrisis.forEach((d) => allCumulativeReturns.push(d.cumulativeReturn))
+        }
+        if (dive.halves && diveModel.halves) {
+          diveModel.halves.older.forEach((d) => allCumulativeReturns.push(d.cumulativeReturn))
+          diveModel.halves.recent.forEach((d) => allCumulativeReturns.push(d.cumulativeReturn))
+        }
+      }
+
       const minReturn = Math.min(...allCumulativeReturns)
       const maxReturn = Math.max(...allCumulativeReturns)
       const returnRange = maxReturn - minReturn
@@ -899,6 +979,63 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
 
       // Draw main seasonal line with processed data
       const isMonthlyView = selectedMonth !== null && selectedMonth !== undefined
+
+      // ── Dive In overlays (full-year view only), drawn under the white line ──
+      const diveLegend: Array<{ color: string; label: string }> = []
+      if (diveModel && dive && !isMonthlyView) {
+        if (dive.yearLines) {
+          diveModel.paths.forEach((p) => {
+            drawSeasonalLine(
+              ctx, p, containerWidth, containerHeight, padding, chartWidth, chartHeight,
+              paddedMin, paddedRange, 'rgba(255,255,255,0.11)', 1, data.symbol, false, p, zoomLevel, panOffset
+            )
+          })
+          diveLegend.push({ color: 'rgba(255,255,255,0.45)', label: `${diveModel.yearCount} individual years` })
+        }
+        if (dive.band) {
+          const yOf = (v: number) =>
+            containerHeight - padding.bottom - ((v - paddedMin) / paddedRange) * chartHeight
+          ctx.beginPath()
+          diveModel.band.forEach((b, i) => {
+            const x = getXPosition({ dayOfYear: b.dayOfYear } as DailySeasonalData)
+            if (i === 0) ctx.moveTo(x, yOf(b.hi))
+            else ctx.lineTo(x, yOf(b.hi))
+          })
+          for (let i = diveModel.band.length - 1; i >= 0; i--) {
+            const b = diveModel.band[i]
+            ctx.lineTo(getXPosition({ dayOfYear: b.dayOfYear } as DailySeasonalData), yOf(b.lo))
+          }
+          ctx.closePath()
+          ctx.fillStyle = 'rgba(90,160,255,0.20)'
+          ctx.fill()
+          ctx.strokeStyle = 'rgba(90,160,255,0.55)'
+          ctx.lineWidth = 1
+          ctx.stroke()
+          diveLegend.push({ color: '#5AA0FF', label: 'Middle 50% of years (25th-75th pct)' })
+        }
+        ctx.setLineDash([6, 4])
+        if (dive.exCrisis && diveModel.exCrisis) {
+          drawSeasonalLine(
+            ctx, diveModel.exCrisis, containerWidth, containerHeight, padding, chartWidth, chartHeight,
+            paddedMin, paddedRange, '#FFD700', 2, data.symbol, false, diveModel.exCrisis, zoomLevel, panOffset
+          )
+          diveLegend.push({ color: '#FFD700', label: 'Excluding recessions' })
+        }
+        if (dive.halves && diveModel.halves) {
+          drawSeasonalLine(
+            ctx, diveModel.halves.older, containerWidth, containerHeight, padding, chartWidth, chartHeight,
+            paddedMin, paddedRange, '#FF66CC', 2, data.symbol, false, diveModel.halves.older, zoomLevel, panOffset
+          )
+          drawSeasonalLine(
+            ctx, diveModel.halves.recent, containerWidth, containerHeight, padding, chartWidth, chartHeight,
+            paddedMin, paddedRange, '#00E5A0', 2, data.symbol, false, diveModel.halves.recent, zoomLevel, panOffset
+          )
+          diveLegend.push({ color: '#FF66CC', label: `Older years ${diveModel.halves.olderLabel}` })
+          diveLegend.push({ color: '#00E5A0', label: `Recent years ${diveModel.halves.recentLabel}` })
+        }
+        ctx.setLineDash([])
+      }
+
       if (candlenalityMode) {
         drawSeasonalCandles(
           ctx,
@@ -1308,6 +1445,19 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
         })
       }
 
+      if (diveLegend.length > 0) {
+        ctx.font = '700 12px "Roboto Mono", monospace'
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'middle'
+        diveLegend.forEach((item, i) => {
+          const y = containerHeight - padding.bottom - 14 - (diveLegend.length - 1 - i) * 16
+          ctx.fillStyle = item.color
+          ctx.fillRect(padding.left + 10, y - 2, 14, 4)
+          ctx.fillStyle = '#ffffff'
+          ctx.fillText(item.label, padding.left + 30, y)
+        })
+      }
+
       // Draw Y-axis labels - crispy white with % symbol and 30% smaller
       ctx.fillStyle = '#ffffff'
       ctx.font = 'bold 17px "Roboto Mono", monospace'
@@ -1445,6 +1595,24 @@ const SeasonaxMainChart: React.FC<SeasonaxMainChartProps> = ({
 
             ctx.fillStyle = '#ff6600'
             ctx.fillText(dateText, mouseX, labelY)
+          }
+
+          // Draw Y-axis tooltip (percentage)
+          if (diveModel && dive && dive.band && dataPoint && !isMonthlyView) {
+            const idx = data.dailyData.indexOf(dataPoint)
+            const b = diveModel.band[idx]
+            if (b) {
+              const infoText = `${b.upYears}/${diveModel.yearCount} yrs above 0  |  mid 50%: ${b.lo.toFixed(2)}% to ${b.hi.toFixed(2)}%`
+              ctx.font = '700 13px "Roboto Mono", monospace'
+              ctx.textAlign = 'center'
+              ctx.textBaseline = 'middle'
+              const w = ctx.measureText(infoText).width + 14
+              const bx = Math.max(padding.left + w / 2, Math.min(mouseX, containerWidth - padding.right - w / 2))
+              ctx.fillStyle = 'rgba(0,0,0,0.85)'
+              ctx.fillRect(bx - w / 2, padding.top + 24, w, 20)
+              ctx.fillStyle = '#5AA0FF'
+              ctx.fillText(infoText, bx, padding.top + 34)
+            }
           }
 
           // Draw Y-axis tooltip (percentage)
