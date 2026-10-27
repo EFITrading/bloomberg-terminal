@@ -2314,16 +2314,18 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
               onClick={() => setActiveTab(tab.id as any)}
               className="relative flex flex-1 items-center justify-center gap-2 py-3.5 text-sm font-semibold transition-colors duration-150 select-none outline-none"
               style={{
-                background: isActive ? meta.hexBg : 'transparent',
-                color: isActive ? meta.hexText : meta.hexInactive,
-                borderBottom: isActive ? `2px solid ${meta.hexBorder}` : '2px solid transparent',
-                letterSpacing: '0.04em',
+                background: isActive ? 'linear-gradient(180deg,rgba(255,102,0,0.16) 0%,rgba(255,102,0,0.02) 60%,#050505 100%)' : 'linear-gradient(180deg,#121212 0%,#050505 100%)',
+                color: isActive ? '#FFFFFF' : '#6B7280',
+                borderBottom: isActive ? '2px solid #FF6600' : '2px solid transparent',
+                boxShadow: isActive ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 6px 14px -8px rgba(255,102,0,0.6)' : 'inset 0 1px 0 rgba(255,255,255,0.05)',
+                letterSpacing: '0.18em',
+                fontFamily: 'system-ui, -apple-system, sans-serif',
               }}
               onMouseEnter={(e) => {
                 if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = '#ffffff'
               }}
               onMouseLeave={(e) => {
-                if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = meta.hexInactive
+                if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = '#6B7280'
               }}
             >
               <IconComponent size={22} strokeWidth={2} />

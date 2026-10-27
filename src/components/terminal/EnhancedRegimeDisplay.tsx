@@ -968,117 +968,98 @@ function EnhancedRegimeDisplay({
     const circumference = Math.PI * radius
     const strokeDashoffset = circumference - (gaugePercentage / 100) * circumference
 
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-        <div style={{ position: 'relative', width: size, height: size / 2 + 20 }}>
-          {/* Background arc */}
-          <svg width={size} height={size / 2 + 20} style={{ transform: 'rotate(0deg)' }}>
-            {/* Outline ring for combined regimes */}
-            {outlineColor && (
-              <path
-                d={`M ${thickness / 2} ${size / 2} A ${radius} ${radius} 0 0 1 ${size - thickness / 2} ${size / 2}`}
-                fill="none"
-                stroke={outlineColor}
-                strokeWidth={thickness + 6}
-                strokeLinecap="round"
-                opacity={0.6}
-              />
-            )}
-            <path
-              d={`M ${thickness / 2} ${size / 2} A ${radius} ${radius} 0 0 1 ${size - thickness / 2} ${size / 2}`}
-              fill="none"
-              stroke="#1a1a1a"
-              strokeWidth={thickness}
-              strokeLinecap="round"
-            />
-            {/* Colored arc */}
-            <path
-              d={`M ${thickness / 2} ${size / 2} A ${radius} ${radius} 0 0 1 ${size - thickness / 2} ${size / 2}`}
-              fill="none"
-              stroke={color}
-              strokeWidth={thickness}
-              strokeLinecap="round"
-              strokeDasharray={circumference}
-              strokeDashoffset={strokeDashoffset}
-              style={{ transition: 'stroke-dashoffset 0.5s ease' }}
-            />
-          </svg>
-
-          {/* Center labels */}
-          <div
-            style={{
-              position: 'absolute',
-              top: '45%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              textAlign: 'center',
-            }}
-          >
-            <div
-              style={{
-                fontSize: size > 100 ? '11px' : '9px',
-                color: '#ffffff',
-                fontWeight: '700',
-                fontFamily: 'monospace',
-                textTransform: 'uppercase',
-                letterSpacing: '0.1em',
-                marginTop: '2px',
-              }}
-            >
-              {label}
-            </div>
-          </div>
-
-          {/* Needle indicator */}
-          <div
-            style={{
-              position: 'absolute',
-              bottom: 0,
-              left: '50%',
-              width: '2px',
-              height: radius - 10,
-              background: '#ff6600',
-              transformOrigin: 'bottom center',
-              transform: `translateX(-50%) rotate(${rotation}deg)`,
-              transition: 'transform 0.5s ease',
-              boxShadow: `0 0 8px ${color}80`,
-            }}
+      const cx = size / 2
+      const cy = size / 2
+      const segs = 24
+      const gap = 1.6
+      const outerR = size / 2 - 2
+      const innerR = outerR - thickness
+      const pt = (r: number, deg: number) => [
+        cx + r * Math.cos((deg * Math.PI) / 180),
+        cy - r * Math.sin((deg * Math.PI) / 180),
+      ]
+      const segColor = (f: number) => {
+        const stops = [
+          [0, [239, 68, 68]],
+          [0.5, [251, 191, 36]],
+          [1, [16, 185, 129]],
+        ] as [number, number[]][]
+        const [s0, c0] = f <= 0.5 ? stops[0] : stops[1]
+        const [s1, c1] = f <= 0.5 ? stops[1] : stops[2]
+        const k = (f - s0) / (s1 - s0)
+        return `rgb(${c0.map((v, i) => Math.round(v + (c1[i] - v) * k)).join(',')})`
+      }
+      const frac = gaugePercentage / 100
+      const segPaths = Array.from({ length: segs }, (_, i) => {
+        const f0 = i / segs
+        const f1 = (i + 1) / segs
+        const mid = (f0 + f1) / 2
+        const d0 = 180 - f0 * 180 - gap / 2
+        const d1 = 180 - f1 * 180 + gap / 2
+        const [x0, y0] = pt(outerR, d0)
+        const [x1, y1] = pt(outerR, d1)
+        const [x2, y2] = pt(innerR, d1)
+        const [x3, y3] = pt(innerR, d0)
+        const lo = Math.min(0.5, frac)
+        const hi = Math.max(0.5, frac)
+        const lit = mid >= lo && mid <= hi
+        return (
+          <path
+            key={i}
+            d={`M ${x0} ${y0} A ${outerR} ${outerR} 0 0 1 ${x1} ${y1} L ${x2} ${y2} A ${innerR} ${innerR} 0 0 0 ${x3} ${y3} Z`}
+            fill={segColor(mid)}
+            opacity={lit ? 1 : 0.18}
           />
-
-          {/* Labels — only shown for large gauges to avoid overlap */}
+        )
+      })
+      const needleDeg = 180 - frac * 180
+      const [nx, ny] = pt(innerR - 3, needleDeg)
+      const [bx1, by1] = pt(4, needleDeg + 90)
+      const [bx2, by2] = pt(4, needleDeg - 90)
+      const [tx, ty] = pt(outerR + 1, 90)
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <svg width={size} height={size / 2 + (size > 200 ? 34 : 22)} style={{ overflow: 'visible' }}>
+            {segPaths}
+            <polygon
+              points={`${bx1 + cx - cx},${by1 + cy - cy} ${nx},${ny} ${bx2},${by2}`}
+              fill="#F3F4F6"
+              style={{ transform: 'none' }}
+            />
+            <circle cx={cx} cy={cy} r={6} fill="#0b0b0b" stroke="#F3F4F6" strokeWidth={2} />
+            <line x1={tx} y1={cy - outerR - 3} x2={tx} y2={cy - outerR + 1} stroke="#6B7280" strokeWidth={1} />
+            <text
+              x={cx}
+              y={cy + (size > 200 ? 30 : 20)}
+              textAnchor="middle"
+              fill={color}
+              fontSize={size > 200 ? 28 : size > 100 ? 17 : 13}
+              fontWeight={700}
+              fontFamily="system-ui, -apple-system, sans-serif"
+            >
+              {value > 0 ? '+' : ''}
+              {value.toFixed(1)}
+            </text>
+          </svg>
           {size > 100 && (
             <div
               style={{
-                position: 'absolute',
-                bottom: labelOffset,
-                left: -10,
-                fontSize: size > 200 ? '14px' : '11px',
-                color: '#ef4444',
-                fontWeight: '900',
-                fontFamily: 'monospace',
+                display: 'flex',
+                justifyContent: 'space-between',
+                width: size,
+                marginTop: 2,
+                fontSize: size > 200 ? 13 : 9,
+                fontWeight: 600,
+                letterSpacing: '0.1em',
+                fontFamily: 'system-ui, -apple-system, sans-serif',
               }}
             >
-              DEFENSIVE
-            </div>
-          )}
-          {size > 100 && (
-            <div
-              style={{
-                position: 'absolute',
-                bottom: labelOffset,
-                right: -10,
-                fontSize: size > 200 ? '14px' : '11px',
-                color: '#22c55e',
-                fontWeight: '900',
-                fontFamily: 'monospace',
-              }}
-            >
-              GROWTH
+              <span style={{ color: '#ef4444' }}>DEFENSIVE</span>
+              <span style={{ color: '#10b981' }}>GROWTH</span>
             </div>
           )}
         </div>
-      </div>
-    )
+      )
   }
 
   return (
@@ -1104,9 +1085,9 @@ function EnhancedRegimeDisplay({
             gap: isMobile ? '6px' : '20px',
             padding: isMobile ? '4px 8px' : '20px',
             background: '#000000',
-            border: `3px solid #ffffff`,
-            borderRadius: '2px',
-            boxShadow: `inset 0 2px 0 rgba(255, 255, 255, 0.15), 0 4px 8px rgba(0, 0, 0, 0.9), 0 0 30px ${compositeColor}30`,
+            border: '1px solid #2a2a2a',
+            borderRadius: '8px',
+            boxShadow: 'none',
             alignItems: isMobile ? 'flex-start' : 'center',
             overflow: 'hidden',
           }}
@@ -1128,11 +1109,11 @@ function EnhancedRegimeDisplay({
             >
               <div
                 style={{
-                  fontSize: isMobile ? '14px' : '16px',
-                  color: '#ff6600',
-                  fontWeight: '900',
-                  fontFamily: 'monospace',
-                  letterSpacing: isMobile ? '0.1em' : '0.3em',
+                  fontSize: '15px',
+                  color: '#D1D5DB',
+                  fontWeight: '700',
+                  fontFamily: 'system-ui, -apple-system, sans-serif',
+                  letterSpacing: '0.2em',
                   textTransform: 'uppercase',
                 }}
               >
@@ -1142,8 +1123,8 @@ function EnhancedRegimeDisplay({
               <div
                 style={{
                   display: 'flex',
-                  border: '1px solid #ff660060',
-                  borderRadius: '2px',
+                  border: '1px solid #2f2f2f',
+                  borderRadius: '999px',
                   overflow: 'hidden',
                 }}
               >
@@ -1160,8 +1141,8 @@ function EnhancedRegimeDisplay({
                       textTransform: 'uppercase',
                       cursor: 'pointer',
                       border: 'none',
-                      background: '#000000',
-                      color: compositeView === v ? '#ff6600' : '#ffffff',
+                      background: compositeView === v ? '#262626' : 'transparent',
+                      color: compositeView === v ? '#F3F4F6' : '#6B7280',
                       transition: 'all 0.2s',
                     }}
                   >
@@ -1178,7 +1159,7 @@ function EnhancedRegimeDisplay({
                     value={compositeSpread}
                     label=""
                     size={isMobile ? 147 : 276}
-                    thickness={isMobile ? 16 : 26}
+                    thickness={isMobile ? 10 : 26}
                     regime={compositeRegime}
                     showValue={false}
                     labelOffset={-15}
@@ -1189,9 +1170,10 @@ function EnhancedRegimeDisplay({
                   style={{
                     padding: isMobile ? '4px 8px' : '10px 20px',
                     background: '#000000',
-                    border: `2px solid ${compositeColor}`,
-                    borderRadius: '2px',
-                    boxShadow: `inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 15px ${compositeColor}50`,
+                    border: '1px solid #2a2a2a',
+                    borderLeft: `3px solid ${compositeColor}`,
+                    borderRadius: '6px',
+                    boxShadow: 'none',
                     textAlign: 'center',
                     marginTop: isMobile ? '54px' : '20px',
                     width: '100%',
@@ -1201,10 +1183,10 @@ function EnhancedRegimeDisplay({
                     style={{
                       fontSize: isMobile ? '11px' : '19px',
                       fontWeight: '900',
-                      color: compositeColor,
-                      fontFamily: 'monospace',
+                      color: '#F3F4F6',
+                      fontFamily: 'system-ui, -apple-system, sans-serif',
                       letterSpacing: '0.05em',
-                      textShadow: `0 0 10px ${compositeColor}70`,
+                      textShadow: 'none',
                     }}
                   >
                     {compositeRegime}
@@ -1212,9 +1194,9 @@ function EnhancedRegimeDisplay({
                   <div
                     style={{
                       fontSize: isMobile ? '9px' : '13px',
-                      color: '#ff6600',
+                      color: '#9CA3AF',
                       fontWeight: '800',
-                      fontFamily: 'monospace',
+                      fontFamily: 'system-ui, -apple-system, sans-serif',
                       marginTop: '2px',
                       letterSpacing: '0.1em',
                     }}
@@ -1269,22 +1251,22 @@ function EnhancedRegimeDisplay({
                     style={{
                       padding: isMobile ? '4px 4px' : '12px 8px',
                       background: '#000000',
-                      border: isSelected ? `2px solid #ff6600` : '2px solid #333333',
-                      borderRadius: '2px',
+                      border: isSelected ? '1px solid #ff6600' : '1px solid #2a2a2a',
+                      borderRadius: '8px',
                       cursor: 'pointer',
                       transition: 'all 0.2s',
-                      boxShadow: isSelected ? `0 0 15px #ff660040` : 'none',
+                      boxShadow: 'none',
                     }}
                   >
                     <div
                       style={{
-                        fontSize: isMobile ? '12px' : '14px',
-                        color: '#ff6600',
-                        fontWeight: '900',
-                        fontFamily: 'monospace',
+                        fontSize: isMobile ? '11px' : '14px',
+                        color: isSelected ? '#F3F4F6' : '#9CA3AF',
+                        fontWeight: '700',
+                        fontFamily: 'system-ui, -apple-system, sans-serif',
                         textAlign: 'center',
                         marginBottom: isMobile ? '2px' : '8px',
-                        letterSpacing: '0.1em',
+                        letterSpacing: '0.16em',
                       }}
                     >
                       {tf === '1d'
@@ -1301,7 +1283,7 @@ function EnhancedRegimeDisplay({
                       value={tfSpread}
                       label=""
                       size={isMobile ? 94 : 168}
-                      thickness={isMobile ? 13 : 16}
+                      thickness={isMobile ? 8 : 16}
                       showValue={true}
                       regime={tfAnalysis.regime}
                     />

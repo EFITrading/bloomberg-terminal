@@ -38,7 +38,7 @@ const DealerAttractionOIMobile: React.FC<{ selectedTicker: string }> = ({ select
     const update = () => {
       if (!chartsScrollRef.current) return
       const available = chartsScrollRef.current.clientHeight
-      const perChart = Math.floor((available - 118) / 2) // 8px gap + 110px total reduction buffer
+      const perChart = Math.floor((available - 175) / 2) // 8px gap + buffer so the bottom of the GEX chart isn't cropped
       setChartH(Math.max(180, Math.min(420, perChart)))
     }
     const ro = new ResizeObserver(update)

@@ -4156,18 +4156,17 @@ export default function RegimesPanel({
                   style={{
                     padding: '14px 8px',
                     fontSize: '13px',
-                    color: mainTab === t ? '#FF6600' : '#ffffff',
-                    border: mainTab === t ? '2px solid #FF6600' : '2px solid rgba(255,255,255,0.15)',
-                    background: mainTab === t
-                      ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
-                      : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
-                    boxShadow: mainTab === t
-                      ? '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)'
-                      : 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                    fontWeight: 700,
+                    letterSpacing: '0.22em',
+                    fontFamily: 'system-ui, -apple-system, sans-serif',
+                    color: mainTab === t ? '#FFFFFF' : '#6B7280',
+                    border: 'none',
+                    borderBottom: mainTab === t ? '2px solid #FF6600' : '2px solid transparent',
+                    background: mainTab === t ? 'linear-gradient(180deg,rgba(255,102,0,0.16) 0%,rgba(255,102,0,0.02) 60%,#050505 100%)' : 'linear-gradient(180deg,#121212 0%,#050505 100%)',
+                    boxShadow: mainTab === t ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 6px 14px -8px rgba(255,102,0,0.6)' : 'inset 0 1px 0 rgba(255,255,255,0.05)',
                     cursor: 'pointer',
                   }}
                 >
-                  {mainTab === t && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />}
                   <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>{label}</span>
                 </button>
               ))}
@@ -4204,18 +4203,17 @@ export default function RegimesPanel({
                   style={{
                     padding: '14px 16px',
                     fontSize: '14px',
-                    color: mainTab === t ? '#FF6600' : '#ffffff',
-                    border: mainTab === t ? '2px solid #FF6600' : '2px solid rgba(255,255,255,0.15)',
-                    background: mainTab === t
-                      ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
-                      : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
-                    boxShadow: mainTab === t
-                      ? '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)'
-                      : 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                    fontWeight: 700,
+                    letterSpacing: '0.22em',
+                    fontFamily: 'system-ui, -apple-system, sans-serif',
+                    color: mainTab === t ? '#FFFFFF' : '#6B7280',
+                    border: 'none',
+                    borderBottom: mainTab === t ? '2px solid #FF6600' : '2px solid transparent',
+                    background: mainTab === t ? 'linear-gradient(180deg,rgba(255,102,0,0.16) 0%,rgba(255,102,0,0.02) 60%,#050505 100%)' : 'linear-gradient(180deg,#121212 0%,#050505 100%)',
+                    boxShadow: mainTab === t ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 6px 14px -8px rgba(255,102,0,0.6)' : 'inset 0 1px 0 rgba(255,255,255,0.05)',
                     cursor: 'pointer',
                   }}
                 >
-                  {mainTab === t && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />}
                   <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>{label}</span>
                 </button>
               ))}

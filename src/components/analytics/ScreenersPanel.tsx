@@ -1391,32 +1391,31 @@ export default function ScreenersPanel() {
                 minWidth: '140px',
                 padding: '16px 20px',
                 background: isActive
-                  ? `linear-gradient(180deg, ${tab.color}15 0%, ${tab.color}08 100%)`
-                  : 'transparent',
+                  ? 'linear-gradient(180deg,rgba(255,102,0,0.16) 0%,rgba(255,102,0,0.02) 60%,#050505 100%)'
+                  : 'linear-gradient(180deg,#121212 0%,#050505 100%)',
                 border: 'none',
-                borderBottom: isActive ? `3px solid ${tab.color}` : '3px solid transparent',
-                color: isActive ? tab.color : '#ffffff',
-                fontSize: '16px',
-                fontWeight: isActive ? '800' : '600',
-                fontFamily: 'JetBrains Mono, monospace',
+                borderBottom: isActive ? '2px solid #FF6600' : '2px solid transparent',
+                boxShadow: isActive ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 6px 14px -8px rgba(255,102,0,0.6)' : 'inset 0 1px 0 rgba(255,255,255,0.05)',
+                color: isActive ? '#FFFFFF' : '#6B7280',
+                fontSize: '14px',
+                fontWeight: '700',
+                fontFamily: 'system-ui, -apple-system, sans-serif',
                 textTransform: 'uppercase',
-                letterSpacing: '1px',
+                letterSpacing: '0.2em',
                 cursor: 'pointer',
                 transition: 'all 0.3s ease',
                 position: 'relative',
-                textShadow: isActive ? `0 0 10px ${tab.color}40` : 'none',
+                textShadow: 'none',
                 whiteSpace: 'nowrap',
               }}
               onMouseEnter={(e) => {
                 if (!isActive) {
-                  e.currentTarget.style.color = '#ffffff'
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)'
+                  e.currentTarget.style.color = '#D1D5DB'
                 }
               }}
               onMouseLeave={(e) => {
                 if (!isActive) {
-                  e.currentTarget.style.color = '#ffffff'
-                  e.currentTarget.style.background = 'transparent'
+                  e.currentTarget.style.color = '#6B7280'
                 }
               }}
             >

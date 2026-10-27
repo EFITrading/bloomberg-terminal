@@ -4330,13 +4330,13 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
         ] as const).map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
             flex: 1, padding: '9px 12px', cursor: 'pointer',
-            background: 'transparent', border: 'none',
-            borderBottom: activeTab === t.id ? `2px solid #60A5FA` : '2px solid transparent',
-            borderRight: '1px solid rgba(255,107,0,0.1)',
+            background: activeTab === t.id ? 'linear-gradient(180deg,rgba(255,102,0,0.16) 0%,rgba(255,102,0,0.02) 60%,#050505 100%)' : 'linear-gradient(180deg,#121212 0%,#050505 100%)', border: 'none',
+            borderBottom: activeTab === t.id ? '2px solid #FF6600' : '2px solid transparent',
+            boxShadow: activeTab === t.id ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 6px 14px -8px rgba(255,102,0,0.6)' : 'inset 0 1px 0 rgba(255,255,255,0.05)',
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
           }}>
-            <span style={{ fontSize: '14px', fontWeight: 900, letterSpacing: '1.5px', color: activeTab === t.id ? '#FF6B00' : 'rgba(255,255,255,0.85)', fontFamily: 'monospace' }}>{t.label}</span>
-            <span style={{ fontSize: '13px', letterSpacing: '1px', color: activeTab === t.id ? '#FF8C00' : 'rgba(255,255,255,0.85)', fontFamily: 'monospace' }}>{t.sub}</span>
+            <span style={{ fontSize: '14px', fontWeight: 700, letterSpacing: '0.22em', color: activeTab === t.id ? '#FFFFFF' : '#6B7280', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{t.label}</span>
+            <span style={{ fontSize: '11px', letterSpacing: '0.14em', color: activeTab === t.id ? '#FF8C00' : '#6B7280', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{t.sub}</span>
           </button>
         ))}
       </div>

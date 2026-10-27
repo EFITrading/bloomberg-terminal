@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 import AlgoFlowScreener from '@/components/AlgoFlowScreener'
 import { getDatesList as getFlowDatesList, loadDateTrades as loadFlowDateTrades } from '@/lib/flowDataCache'
 import AlertsPanelView from './AlertsPanelView'
@@ -10266,6 +10266,9 @@ export default function TradingViewChart({
   const [expectedRangeLevels, setExpectedRangeLevels] = useState<any>(null)
   const [isLoadingExpectedRange, setIsLoadingExpectedRange] = useState(false)
   const [isExpectedRangeActive, setIsExpectedRangeActive] = useState(false)
+  const [showVolume, setShowVolume] = useState(true)
+  const [mobileLegendOpen, setMobileLegendOpen] = useState(true)
+  const [mobileHiddenIndicators, setMobileHiddenIndicators] = useState<string[]>([])
   const [isExpectedRangeDropdownOpen, setIsExpectedRangeDropdownOpen] = useState(false)
   const [expectedRangeType, setExpectedRangeType] = useState<'weekly' | 'monthly' | 'custom'>(
     'weekly'
@@ -19272,7 +19275,7 @@ export default function TradingViewChart({
     }
 
     // Draw volume bars as overlay on the price chart bottom (TradingView style)
-    drawVolumeProfile(
+    if (showVolume) drawVolumeProfile(
       ctx,
       visibleData,
       chartWidth,
@@ -19383,6 +19386,7 @@ export default function TradingViewChart({
     config.colors.bearish.border,
     config.colors.volume.bullish,
     config.colors.volume.bearish,
+    showVolume,
     config.axisStyle.xAxis.textColor,
     config.axisStyle.xAxis.textSize,
     config.axisStyle.yAxis.textColor,
@@ -21899,6 +21903,7 @@ export default function TradingViewChart({
     config.colors.bearish.border,
     config.colors.volume.bullish,
     config.colors.volume.bearish,
+    showVolume,
     config.axisStyle.xAxis.textColor,
     config.axisStyle.xAxis.textSize,
     config.axisStyle.yAxis.textColor,
@@ -24705,21 +24710,24 @@ export default function TradingViewChart({
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className="flex-1 font-black uppercase tracking-[0.15em] transition-all relative"
+                  className="flex-1 uppercase transition-all relative"
                   style={{
-                    padding: '14px 16px',
-                    fontSize: '14px',
-                    color: activeTab === tab ? '#FF6600' : '#ffffff',
-                    border: activeTab === tab ? '2px solid #FF6600' : '2px solid rgba(255,255,255,0.15)',
+                    padding: '15px 16px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    letterSpacing: '0.22em',
+                    fontFamily: 'system-ui, -apple-system, sans-serif',
+                    color: activeTab === tab ? '#FFFFFF' : '#6B7280',
+                    border: 'none',
+                    borderBottom: activeTab === tab ? '2px solid #FF6600' : '2px solid transparent',
                     background: activeTab === tab
-                      ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
-                      : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
+                      ? 'linear-gradient(180deg,rgba(255,102,0,0.16) 0%,rgba(255,102,0,0.02) 60%,#050505 100%)'
+                      : 'linear-gradient(180deg,#121212 0%,#050505 100%)',
                     boxShadow: activeTab === tab
-                      ? '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)'
-                      : 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                      ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 6px 14px -8px rgba(255,102,0,0.6)'
+                      : 'inset 0 1px 0 rgba(255,255,255,0.05)',
                   }}
                 >
-                  {activeTab === tab && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none"></div>}
                   <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>
                     {tab}
                   </span>
@@ -24880,15 +24888,11 @@ export default function TradingViewChart({
                       const colors = colorMap[item.color as keyof typeof colorMap]
 
                       return (
-                        <div key={`separator-${item.label}`} className="my-4 px-2">
-                          <div className="relative h-12 bg-gradient-to-r from-transparent via-[#FF6600]/20 to-transparent border-y border-[#FF6600]/40">
-                            <div className="absolute inset-0 flex items-center justify-center">
-                              <span
-                                className={`px-8 py-2 bg-black/95 ${colors.text} text-base font-black tracking-[0.3em] uppercase border border-[#FF6600]/50 rounded shadow-[0_0_20px_rgba(255,102,0,0.4)]`}
-                              >
-                                ★ {item.label}
-                              </span>
-                            </div>
+                        <div key={`separator-${item.label}`}>
+                          <div className="flex items-center gap-3 px-3 py-3 mt-3"                           style={{ background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 48%,#000000 52%,#0d0d0d 100%)', borderTop: '1px solid #3a3a3a', borderBottom: '1px solid #000', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), 0 2px 6px rgba(0,0,0,0.8)' }}>
+                                                      <div style={{ width: 4, height: 26, background: '#FF6600', borderRadius: 2 }} />
+                                                      <span style={{ color: '#F3F4F6', fontSize: 22, fontWeight: 800, letterSpacing: '0.18em', textTransform: 'uppercase' }}>{item.label}</span>
+                            <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg,#3a3a3a,transparent)' }} />
                           </div>
                         </div>
                       )
@@ -25170,7 +25174,7 @@ export default function TradingViewChart({
           <div className="flex-1 flex flex-col overflow-hidden bg-black">
             {/* Timeframe Selector */}
             <div className="px-6 pt-6 pb-4 border-b border-gray-800">
-              <div className="flex items-center gap-2">
+              <div className="hidden md:flex items-center gap-2">
                 {(['1D', '5D', '1M', '3M', '6M', '1Y'] as const).map((tf) => (
                   <button
                     key={tf}
@@ -25186,6 +25190,22 @@ export default function TradingViewChart({
                     {tf}
                   </button>
                 ))}
+              </div>
+              <div className="md:hidden relative inline-block">
+                <select
+                  value={trackingTimeframe}
+                  onChange={(e) => {
+                    setTrackingTimeframe(e.target.value as typeof trackingTimeframe)
+                    setTrackingData({})
+                  }}
+                  className="appearance-none font-bold text-sm rounded-md pl-4 pr-10 py-2 border outline-none"
+                  style={{ background: '#0a0e1a', color: '#FF6600', borderColor: '#FF6600', boxShadow: '0 0 10px rgba(255,102,0,0.2)' }}
+                >
+                  {([['1D', '1 Day'], ['5D', '5 Days'], ['1M', '1 Month'], ['3M', '3 Months'], ['6M', '6 Months'], ['1Y', '1 Year']] as const).map(([v, l]) => (
+                    <option key={v} value={v} style={{ background: '#0a0e1a', color: '#fff' }}>{l}</option>
+                  ))}
+                </select>
+                <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FF6600" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
               </div>
             </div>
 
@@ -25223,7 +25243,7 @@ export default function TradingViewChart({
                           style={{ background: category.color }}
                         />
                         <h2
-                          className="text-base md:text-xl font-black uppercase tracking-wider px-4 text-center w-full md:w-auto"
+                          className="text-2xl md:text-xl font-black uppercase tracking-wider px-4 text-center w-full md:w-auto"
                           style={{
                             color: '#ffffff',
                             textShadow: `0 0 20px ${category.color}80, 2px 2px 4px rgba(0,0,0,0.8)`,
@@ -25304,7 +25324,7 @@ export default function TradingViewChart({
                                   <svg
                                     viewBox="0 0 200 50"
                                     preserveAspectRatio="none"
-                                    className="w-full md:h-16 h-8"
+                                    className="w-full md:h-16 h-[45px]"
                                   >
                                     {data.sparklineData.length > 1 &&
                                       (() => {
@@ -25814,7 +25834,7 @@ export default function TradingViewChart({
                     const toLineY = (v: number) => padT + ((cumMax - v) / cumRange) * cumInnerH
                     const lineStr = points.map((p, i) => `${toLineX(i).toFixed(1)},${toLineY(p.cumFlow).toFixed(1)}`).join(' ')
                     const lastCum = cumFlows[cumFlows.length - 1]
-                    const lineColor = lastCum >= 0 ? '#00ff00' : '#ff0000'
+                    const lineColor = lastCum >= 0 ? '#10b981' : '#ef4444'
                     const xTicks = [0, Math.floor(points.length / 3), Math.floor((2 * points.length) / 3), points.length - 1]
                     const cumYLabels = [cumMax, (cumMax + cumMin) / 2, cumMin]
                     const lastPeriod = [...points.map(p => p.periodFlow)].reverse().find(v => v !== 0) ?? 0
@@ -25825,26 +25845,43 @@ export default function TradingViewChart({
                       : RANGE_OPTIONS
 
                     return (
-                      <div style={{ width: '100%', background: '#000', borderRadius: 4, border: `1px solid ${accentColor}33`, padding: isMobile ? 4 : 8, boxShadow: '0 0 12px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.04)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isMobile ? 2 : 8, gap: 4, flexWrap: 'wrap' }}>
-                          <span className="font-mono font-black tracking-widest" style={{ fontSize: isMobile ? 12 : 15, color: accentColor }}>{ticker}</span>
-                          <span className="font-mono font-black px-1 py-0.5 rounded" style={{ fontSize: isMobile ? 10 : 13, color: lastPeriod >= 0 ? '#00ff00' : '#ff0000', background: '#000', border: `1px solid ${lastPeriod >= 0 ? '#00ff00' : '#ff0000'}` }}>
+                      <div style={{ width: '100%', background: 'linear-gradient(180deg,#101010 0%,#050505 55%,#000 100%)', borderRadius: 10, border: '1px solid #232323', borderTop: `2px solid ${accentColor}`, padding: isMobile ? 8 : 12, boxShadow: '0 8px 22px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.07)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isMobile ? 6 : 10, gap: 6 }}>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                            <span style={{ fontFamily: 'system-ui, -apple-system, sans-serif', fontWeight: 800, letterSpacing: '0.08em', fontSize: isMobile ? 15 : 18, color: '#F3F4F6' }}>{ticker}</span>
+                            <span style={{ fontFamily: 'system-ui, -apple-system, sans-serif', fontWeight: 600, fontSize: isMobile ? 11 : 12, color: lineColor }}>{formatFlow(lastCum)}</span>
+                          </div>
+                          <span style={{ fontFamily: 'system-ui, -apple-system, sans-serif', fontWeight: 700, fontSize: isMobile ? 10 : 12, letterSpacing: '0.04em', padding: '3px 9px', borderRadius: 999, color: lastPeriod >= 0 ? '#34d399' : '#f87171', background: lastPeriod >= 0 ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)', border: `1px solid ${lastPeriod >= 0 ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)'}` }}>
                             {lastPeriod >= 0 ? '▲' : '▼'} {formatFlow(lastPeriod)}
                           </span>
                         </div>
-                        <svg viewBox={`0 0 ${chartW} ${totalH}`} width="100%" height={totalH} preserveAspectRatio="none" style={{ display: 'block', background: '#000' }}>
+                        <svg viewBox={`0 0 ${chartW} ${totalH}`} width="100%" height={totalH} preserveAspectRatio="none" style={{ display: 'block' }}>
+                          <defs>
+                            <linearGradient id={`flowUp-${ticker}`} x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#10b981" stopOpacity="0.45" />
+                              <stop offset="100%" stopColor="#10b981" stopOpacity="0.02" />
+                            </linearGradient>
+                            <linearGradient id={`flowDn-${ticker}`} x1="0" y1="1" x2="0" y2="0">
+                              <stop offset="0%" stopColor="#ef4444" stopOpacity="0.45" />
+                              <stop offset="100%" stopColor="#ef4444" stopOpacity="0.02" />
+                            </linearGradient>
+                          </defs>
                           {cumYLabels.map((v, i) => (
-                            <text key={`cy-${i}`} x={yLabelX} y={toLineY(v) + 5} textAnchor={yLabelAnchor} fill="#ffffff" fontSize="17" fontFamily="monospace" fontWeight="900">{formatFlow(v)}</text>
+                            <line key={`gl-${i}`} x1={padL} y1={toLineY(v)} x2={padL + innerW} y2={toLineY(v)} stroke="#ffffff" strokeOpacity="0.07" strokeWidth="1" strokeDasharray="4 6" />
                           ))}
-                          <line x1={padL} y1={clampedCumZeroY} x2={padL + innerW} y2={clampedCumZeroY} stroke="#ffffff" strokeWidth="1" strokeOpacity="0.3" />
-                          <polygon points={points.map((p, i) => `${toLineX(i).toFixed(1)},${Math.min(toLineY(p.cumFlow), clampedCumZeroY).toFixed(1)}`).join(' ') + ` ${(padL + innerW).toFixed(1)},${clampedCumZeroY.toFixed(1)} ${padL},${clampedCumZeroY.toFixed(1)}`} fill="#00ff00" fillOpacity="0.12" />
-                          <polygon points={points.map((p, i) => `${toLineX(i).toFixed(1)},${Math.max(toLineY(p.cumFlow), clampedCumZeroY).toFixed(1)}`).join(' ') + ` ${(padL + innerW).toFixed(1)},${clampedCumZeroY.toFixed(1)} ${padL},${clampedCumZeroY.toFixed(1)}`} fill="#ff0000" fillOpacity="0.12" />
-                          <polyline fill="none" stroke={lineColor} strokeWidth="3" points={lineStr} strokeLinecap="round" strokeLinejoin="round" strokeOpacity="1" />
+                          {cumYLabels.map((v, i) => (
+                            <text key={`cy-${i}`} x={yLabelX} y={toLineY(v) + 5} textAnchor={yLabelAnchor} fill="#FFFFFF" fontSize="16" fontFamily="system-ui, sans-serif" fontWeight="600">{formatFlow(v)}</text>
+                          ))}
+                          <line x1={padL} y1={clampedCumZeroY} x2={padL + innerW} y2={clampedCumZeroY} stroke="#ffffff" strokeWidth="1" strokeOpacity="0.28" />
+                          <polygon points={points.map((p, i) => `${toLineX(i).toFixed(1)},${Math.min(toLineY(p.cumFlow), clampedCumZeroY).toFixed(1)}`).join(' ') + ` ${(padL + innerW).toFixed(1)},${clampedCumZeroY.toFixed(1)} ${padL},${clampedCumZeroY.toFixed(1)}`} fill={`url(#flowUp-${ticker})`} />
+                          <polygon points={points.map((p, i) => `${toLineX(i).toFixed(1)},${Math.max(toLineY(p.cumFlow), clampedCumZeroY).toFixed(1)}`).join(' ') + ` ${(padL + innerW).toFixed(1)},${clampedCumZeroY.toFixed(1)} ${padL},${clampedCumZeroY.toFixed(1)}`} fill={`url(#flowDn-${ticker})`} />
+                          <line x1={padL} y1={toLineY(lastCum)} x2={padL + innerW} y2={toLineY(lastCum)} stroke={lineColor} strokeOpacity="0.35" strokeWidth="1" strokeDasharray="3 5" />
+                          <polyline fill="none" stroke={lineColor} strokeWidth="2.5" points={lineStr} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
                           {xTicks.map((idx, pos) => {
                             const p = points[idx]
                             if (!p) return null
                             const anchor = pos === 0 ? 'start' : pos === xTicks.length - 1 ? 'end' : 'middle'
-                            return <text key={`xt-${pos}`} x={toLineX(idx)} y={totalH - 4} textAnchor={anchor} fill="#ffffff" fontSize="16" fontFamily="monospace" fontWeight="700">{formatDate(p.date)}</text>
+                            return <text key={`xt-${pos}`} x={toLineX(idx)} y={totalH - 4} textAnchor={anchor} fill="#FFFFFF" fontSize="15" fontFamily="system-ui, sans-serif" fontWeight="600">{formatDate(p.date)}</text>
                           })}
                         </svg>
                       </div>
@@ -25897,7 +25934,7 @@ export default function TradingViewChart({
                             {/* Centered section header with colored dividers */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
                               <div style={{ flex: 1, height: 1, background: `${accentColor}55` }} />
-                              <span style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: 16, color: accentColor, letterSpacing: '5px', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                              <span style={{ fontFamily: 'system-ui, -apple-system, sans-serif', fontWeight: 800, fontSize: 17, color: '#F3F4F6', letterSpacing: '0.24em', textTransform: 'uppercase', whiteSpace: 'nowrap', padding: '6px 16px', borderRadius: 999, border: `1px solid ${accentColor}66`, background: `linear-gradient(180deg,${accentColor}22,#050505)` }}>
                                 {group.label}
                               </span>
                               <div style={{ flex: 1, height: 1, background: `${accentColor}55` }} />
@@ -30197,24 +30234,21 @@ export default function TradingViewChart({
 
  /* Elite Dark Theme Button System - Desktop */
  .btn-3d-carved {
- background:
- linear-gradient(to bottom, rgba(255,255,255,0.02) 0%, transparent 50%, rgba(0,0,0,0.3) 100%),
- #000000 !important;
- border: 1px solid rgba(50,50,50,0.6) !important;
+ background: linear-gradient(180deg, #1c1c1c 0%, #0c0c0c 52%, #000000 100%) !important;
+ border: 1px solid rgba(255,255,255,0.09) !important;
+ border-top-color: rgba(255,255,255,0.2) !important;
  position: relative !important;
- box-shadow:
- 0 1px 3px rgba(0,0,0,0.8),
- inset 0 1px 0 rgba(255,255,255,0.05),
- inset 0 -1px 0 rgba(0,0,0,0.8) !important;
- color: #ffffff !important;
+ overflow: hidden !important;
+ box-shadow: 0 2px 6px rgba(0,0,0,0.75), inset 0 1px 0 rgba(255,255,255,0.07) !important;
+ color: #f3f3f3 !important;
  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
- letter-spacing: 0.4px !important;
+ letter-spacing: 0.06em !important;
  text-transform: uppercase !important;
- font-size: 14px !important;
+ font-size: 13px !important;
  font-weight: 600 !important;
- transition: all 0.2s cubic-bezier(0.4,0,0.2,1) !important;
- border-radius: 4px !important;
- margin: 0 6px !important;
+ transition: all 0.18s cubic-bezier(0.4,0,0.2,1) !important;
+ border-radius: 7px !important;
+ margin: 0 4px !important;
  opacity: 1 !important;
  }
 
@@ -30225,80 +30259,38 @@ export default function TradingViewChart({
  .btn-3d-carved::before {
  content: '';
  position: absolute;
- top: 0; left: 0; right: 0; bottom: 0;
- border-radius: 4px;
- background:
- radial-gradient(circle at 50% 0%, rgba(255,255,255,0.03), transparent 70%),
- repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.005) 2px, rgba(255,255,255,0.005) 4px);
+ top: 0; left: 0; right: 0;
+ height: 50%;
+ border-radius: inherit;
+ background: linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.01) 100%);
  pointer-events: none;
  }
 
  .btn-3d-carved.active {
- background:
- linear-gradient(to bottom, rgba(255,133,0,0.08) 0%, transparent 50%, rgba(0,0,0,0.4) 100%),
- #000000 !important;
- border: 1px solid rgba(255,133,0,0.6) !important;
- color: #ff8500 !important;
- box-shadow:
- 0 0 0 1px rgba(255,133,0,0.3),
- 0 2px 6px rgba(0,0,0,0.8),
- inset 0 1px 0 rgba(255,133,0,0.1),
- inset 0 -1px 0 rgba(0,0,0,0.9) !important;
+ border: 1px solid rgba(255,133,0,0.65) !important;
+ color: #ff9a1f !important;
+ box-shadow: 0 0 14px rgba(255,133,0,0.16), 0 2px 6px rgba(0,0,0,0.75), inset 0 -2px 0 #ff8500, inset 0 1px 0 rgba(255,200,120,0.14) !important;
  }
 
  .btn-3d-carved.active::before {
- background:
- radial-gradient(circle at 50% 0%, rgba(255,133,0,0.05), transparent 70%),
- repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,133,0,0.008) 2px, rgba(255,133,0,0.008) 4px);
+ background: linear-gradient(180deg, rgba(255,133,0,0.12) 0%, rgba(255,133,0,0.02) 100%);
  }
 
  .btn-3d-carved:hover {
- background:
- linear-gradient(to bottom, rgba(255,255,255,0.04) 0%, transparent 50%, rgba(0,0,0,0.4) 100%),
- #000000 !important;
- border: 1px solid rgba(80,80,80,0.8) !important;
+ background: linear-gradient(180deg, #262626 0%, #121212 52%, #040404 100%) !important;
+ border-color: rgba(255,255,255,0.2) !important;
  color: #ffffff !important;
- box-shadow:
- 0 2px 6px rgba(0,0,0,0.9),
- inset 0 1px 0 rgba(255,255,255,0.08),
- inset 0 -1px 0 rgba(0,0,0,0.9) !important;
- transform: translateY(-2px) !important;
+ transform: translateY(-1px) !important;
  }
 
  .btn-3d-carved.active:hover {
- background:
- linear-gradient(to bottom, rgba(255,160,48,0.1) 0%, transparent 50%, rgba(0,0,0,0.5) 100%),
- #000000 !important;
- border: 1px solid rgba(255,160,48,0.7) !important;
- color: #ffa030 !important;
- box-shadow:
- 0 0 0 1px rgba(255,160,48,0.4),
- 0 3px 8px rgba(0,0,0,0.9),
- inset 0 1px 0 rgba(255,160,48,0.15),
- inset 0 -1px 0 rgba(0,0,0,0.95) !important;
- transform: translateY(-2px) !important;
+ border-color: rgba(255,160,48,0.85) !important;
+ color: #ffa83a !important;
+ transform: translateY(-1px) !important;
  }
 
  .btn-3d-carved:active {
- background:
- linear-gradient(to bottom, transparent, rgba(0,0,0,0.2)),
- #000000 !important;
- box-shadow:
- inset 0 2px 4px rgba(0,0,0,0.9),
- inset 0 -1px 0 rgba(255,255,255,0.02),
- 0 1px 2px rgba(0,0,0,0.7) !important;
- transform: translateY(0) !important;
- }
-
- .btn-3d-carved.active:active {
- background:
- linear-gradient(to bottom, rgba(255,133,0,0.03), rgba(0,0,0,0.3)),
- #000000 !important;
- box-shadow:
- 0 0 0 1px rgba(255,133,0,0.25),
- inset 0 2px 4px rgba(0,0,0,0.95),
- inset 0 -1px 0 rgba(255,133,0,0.02),
- 0 1px 2px rgba(0,0,0,0.7) !important;
+ transform: translateY(0) scale(0.98) !important;
  }
 
  /* Mobile-only: Glossy panel buttons */
@@ -31689,8 +31681,8 @@ export default function TradingViewChart({
                       </>,
                       document.body
                     )}
-                    {/* ── SECONDARY MOBILE BAR (above bottom nav) ── */}
-                    {createPortal(
+                    {/* ── SECONDARY MOBILE BAR (above bottom nav) ── hidden while a sidebar panel is open */}
+                    {!activeSidebarPanel && !showPATPanel && createPortal(
                       <div style={{
                         position: 'fixed',
                         top: 'calc(100dvh - 105px)',
@@ -31736,8 +31728,9 @@ export default function TradingViewChart({
                                 }}
                                 onScroll={(e) => {
                                   if (mobileScrollTimerRef.current) clearTimeout(mobileScrollTimerRef.current)
+                                  const el = e.currentTarget
                                   mobileScrollTimerRef.current = setTimeout(() => {
-                                    const el = e.currentTarget
+                                    if (!el) return
                                     const idx = Math.round(el.scrollTop / MOBILE_ITEM_H)
                                     const t = tickerList[Math.max(0, Math.min(idx, tickerList.length - 1))]
                                     if (t && t !== symbol) handleSearch(t)
@@ -31786,8 +31779,9 @@ export default function TradingViewChart({
                                 }}
                                 onScroll={(e) => {
                                   if (mobileScrollTimerRef.current) clearTimeout(mobileScrollTimerRef.current)
+                                  const el = e.currentTarget
                                   mobileScrollTimerRef.current = setTimeout(() => {
-                                    const el = e.currentTarget
+                                    if (!el) return
                                     const idx = Math.round(el.scrollTop / MOBILE_ITEM_H)
                                     const tf = mobileTfList[Math.max(0, Math.min(idx, mobileTfList.length - 1))]
                                     if (tf && tf[0] !== config.timeframe) handleTimeframeChange(tf[0])
@@ -36550,6 +36544,63 @@ export default function TradingViewChart({
                   <>
                     {/* Y-Axis Auto-Scale Toggle Button - Removed as auto-scale is always enabled by default */}
 
+                    {(() => {
+                      const indicators: { key: string; label: string; active: boolean; set: (v: boolean) => void }[] = [
+                        { key: 'vol', label: 'Vol', active: showVolume, set: setShowVolume },
+                        { key: 'er', label: 'Expected Range', active: isExpectedRangeActive, set: setIsExpectedRangeActive },
+                        { key: 'atr', label: 'ATR Range', active: isATRRangeActive, set: setIsATRRangeActive },
+                        { key: 'std', label: 'Std Dev Range', active: isStdDevRangeActive, set: setIsStdDevRangeActive },
+                        { key: 'seas', label: 'Seasonal', active: isSeasonalActive, set: setIsSeasonalActive },
+                        { key: 'gex', label: 'GEX Map', active: isGexMapActive, set: setIsGexMapActive },
+                        { key: 'dex', label: 'DEX Map', active: isDexMapActive, set: setIsDexMapActive },
+                        { key: 'iv', label: 'IV', active: showIVPanel, set: setShowIVPanel },
+                        { key: 'flow', label: 'Flow', active: isFlowChartActive, set: setIsFlowChartActive },
+                        { key: 'dp', label: 'Dark Pool', active: showDarkPoolIndicator, set: setShowDarkPoolIndicator },
+                      ]
+                      const rows = indicators.filter(i => i.active || mobileHiddenIndicators.includes(i.key))
+                      const toggle = (i: typeof indicators[number]) => {
+                        if (i.active) {
+                          i.set(false)
+                          setMobileHiddenIndicators(h => (h.includes(i.key) ? h : [...h, i.key]))
+                        } else {
+                          i.set(true)
+                          setMobileHiddenIndicators(h => h.filter(k => k !== i.key))
+                        }
+                      }
+                      return (
+                        <div className="absolute z-30" style={{ top: 6, left: 8, maxWidth: '70%', pointerEvents: 'none' }}>
+                          <div style={{ fontSize: 17, fontWeight: 700, color: '#fff', textShadow: '0 1px 3px #000', letterSpacing: '0.02em' }}>{symbol}</div>
+                          {mobileLegendOpen && rows.map(i => (
+                            <div key={i.key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2, pointerEvents: 'auto' }}>
+                              <span style={{ fontSize: 13, color: i.active ? '#E5E7EB' : '#6B7280', textShadow: '0 1px 3px #000' }}>{i.label}</span>
+                              <button
+                                onClick={() => toggle(i)}
+                                aria-label={i.active ? 'Hide ' + i.label : 'Show ' + i.label}
+                                style={{ background: 'rgba(0,0,0,0.5)', border: 'none', color: i.active ? '#9CA3AF' : '#4B5563', padding: 2, display: 'flex' }}
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                  <circle cx="12" cy="12" r="3" />
+                                  {!i.active && <path d="M3 3l18 18" />}
+                                </svg>
+                              </button>
+                            </div>
+                          ))}
+                          {rows.length > 0 && (
+                            <button
+                              onClick={() => setMobileLegendOpen(o => !o)}
+                              aria-label={mobileLegendOpen ? 'Collapse indicators' : 'Expand indicators'}
+                              style={{ pointerEvents: 'auto', marginTop: 4, width: 30, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(17,24,39,0.85)', border: '1px solid #374151', borderRadius: 4, color: '#D1D5DB' }}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <path d={mobileLegendOpen ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })()}
+
                     {/* Main Chart Canvas */}
                     <canvas
                       ref={chartCanvasRef}
@@ -36640,44 +36691,60 @@ export default function TradingViewChart({
                           }
                         }
                       }}
-                      // Touch Events — TradingView-style crosshair on mobile
+                      // Touch Events — TradingView-style: long-press shows the crosshair, drag moves it,
+                      // touching the price axis (or panning) hides it until the next long-press.
                       onTouchStart={(e: React.TouchEvent<HTMLCanvasElement>) => {
                         if (e.touches.length === 1) {
                           e.preventDefault()
                           const touch = e.touches[0]
-                          const rect = e.currentTarget.getBoundingClientRect()
+                          const canvasEl = e.currentTarget
+                          const rect = canvasEl.getBoundingClientRect()
                           const tx = touch.clientX - rect.left
-                          const ty = touch.clientY - rect.top
                           touchStartPos.current = { x: touch.clientX, y: touch.clientY }
                           touchIsTap.current = true
                           touchDraggingCrosshair.current = false
                           touchDragInitialized.current = false
-
                           if (touchLongPressTimer.current) clearTimeout(touchLongPressTimer.current)
 
-                          // Check if touch is near the crosshair (within 44px of intersection OR within 28px of either line)
-                          const crossX = crosshairPositionRef.current.x
-                          const crossY = crosshairPositionRef.current.y
-                          const distToPoint = Math.sqrt((tx - crossX) ** 2 + (ty - crossY) ** 2)
-                          const distToVLine = Math.abs(tx - crossX)  // distance to vertical line
-                          const distToHLine = Math.abs(ty - crossY)  // distance to horizontal line
-                          const nearCrosshair = distToPoint < 44 || distToVLine < 24 || distToHLine < 24
-                          if (touchCrosshairActive.current && nearCrosshair) {
-                            // Start dragging the crosshair — don't pan
+                          const onAxis = isInYAxisArea(tx, canvasEl.width / window.devicePixelRatio)
+
+                          if (touchCrosshairActive.current && !onAxis) {
+                            // Crosshair visible: finger drag moves it
                             touchDraggingCrosshair.current = true
-                          } else {
-                            // Start pan immediately so drag feels instant
-                            const downEvent = {
-                              currentTarget: e.currentTarget,
-                              button: 0,
-                              clientX: touch.clientX,
-                              clientY: touch.clientY,
-                              ctrlKey: false,
-                              metaKey: false,
-                              preventDefault: () => { },
-                            } as unknown as React.MouseEvent<HTMLCanvasElement>
-                            handleMouseDown(downEvent as unknown as React.MouseEvent)
-                            touchDragInitialized.current = true
+                            handleMouseMove({ currentTarget: canvasEl, clientX: touch.clientX, clientY: touch.clientY } as unknown as React.MouseEvent<HTMLCanvasElement>)
+                            return
+                          }
+
+                          if (touchCrosshairActive.current && onAxis) {
+                            touchCrosshairActive.current = false
+                            handleMouseLeave()
+                          }
+
+                          // Start pan / axis zoom immediately
+                          handleMouseDown({
+                            currentTarget: canvasEl,
+                            button: 0,
+                            clientX: touch.clientX,
+                            clientY: touch.clientY,
+                            ctrlKey: false,
+                            metaKey: false,
+                            preventDefault: () => { },
+                          } as unknown as React.MouseEvent)
+                          touchDragInitialized.current = true
+
+                          if (!onAxis && !activeTool) {
+                            const cx = touch.clientX
+                            const cy = touch.clientY
+                            touchLongPressTimer.current = setTimeout(() => {
+                              touchLongPressTimer.current = null
+                              if (!touchIsTap.current) return
+                              handleMouseUp(e as any)
+                              touchDragInitialized.current = false
+                              touchCrosshairActive.current = true
+                              touchDraggingCrosshair.current = true
+                              handleMouseMove({ currentTarget: canvasEl, clientX: cx, clientY: cy } as unknown as React.MouseEvent<HTMLCanvasElement>)
+                              if (navigator.vibrate) navigator.vibrate(15)
+                            }, 600)
                           }
                         } else if (e.touches.length === 2) {
                           if (touchLongPressTimer.current) clearTimeout(touchLongPressTimer.current)
@@ -36710,27 +36777,20 @@ export default function TradingViewChart({
                         } as unknown as React.MouseEvent<HTMLCanvasElement>
 
                         if (touchDraggingCrosshair.current) {
-                          // Drag crosshair with finger
                           handleMouseMove(mouseEvent)
                           touchIsTap.current = false
-                        } else {
-                          const start = touchStartPos.current
-                          if (start) {
-                            const moved = Math.sqrt((touch.clientX - start.x) ** 2 + (touch.clientY - start.y) ** 2)
-                            if (moved > 4) {
-                              touchIsTap.current = false
-                              // Cancel any crosshair on drag
-                              if (touchCrosshairActive.current) {
-                                touchCrosshairActive.current = false
-                                handleMouseLeave()
-                              }
-                              if (activeTool) handleCanvasMouseMove(mouseEvent)
-                              else if (isDraggingDrawingRef.current) {
-                                handleMouseMove(mouseEvent)
-                              } else {
-                                handleMouseMove(mouseEvent)
-                              }
-                            }
+                          return
+                        }
+                        const start = touchStartPos.current
+                        if (start) {
+                          const moved = Math.sqrt((touch.clientX - start.x) ** 2 + (touch.clientY - start.y) ** 2)
+                          if (moved > 8) {
+                            touchIsTap.current = false
+                            if (touchLongPressTimer.current) { clearTimeout(touchLongPressTimer.current); touchLongPressTimer.current = null }
+                          }
+                          if (moved > 4) {
+                            if (activeTool) handleCanvasMouseMove(mouseEvent)
+                            else handleMouseMove(mouseEvent)
                           }
                         }
                       }}
@@ -36741,51 +36801,19 @@ export default function TradingViewChart({
 
                         const wasDraggingCrosshair = touchDraggingCrosshair.current
                         const wasTap = touchIsTap.current
-                        const startPos = touchStartPos.current
-
                         touchDraggingCrosshair.current = false
                         touchIsTap.current = false
-                        touchDragInitialized.current = false
                         touchStartPos.current = null
 
-                        if (wasDraggingCrosshair) {
-                          // Keep crosshair visible after dragging — do nothing extra
-                          return
-                        }
+                        // Crosshair stays visible after dragging it
+                        if (wasDraggingCrosshair) return
 
-                        if (wasTap && startPos) {
-                          // It was a tap — handle crosshair toggle
-                          const changedTouch = e.changedTouches[0]
-                          if (!changedTouch) return
-                          const rect = e.currentTarget.getBoundingClientRect()
-                          const tx = changedTouch.clientX - rect.left
-                          const ty = changedTouch.clientY - rect.top
-                          const crossX = crosshairPositionRef.current.x
-                          const crossY = crosshairPositionRef.current.y
-                          const distToPoint = Math.sqrt((tx - crossX) ** 2 + (ty - crossY) ** 2)
-                          const nearCrosshairOnTap = distToPoint < 50 || Math.abs(tx - crossX) < 28 || Math.abs(ty - crossY) < 28
-
-                          if (touchCrosshairActive.current && !nearCrosshairOnTap) {
-                            // Tap far from crosshair — dismiss it
-                            touchCrosshairActive.current = false
-                            handleMouseLeave()
-                            handleMouseUp(e as any)
-                          } else if (!touchCrosshairActive.current) {
-                            // No crosshair — place it at tap position
-                            touchCrosshairActive.current = true
-                            const moveEvent = {
-                              currentTarget: e.currentTarget,
-                              clientX: changedTouch.clientX,
-                              clientY: changedTouch.clientY,
-                            } as unknown as React.MouseEvent<HTMLCanvasElement>
-                            handleMouseMove(moveEvent)
-                            if (navigator.vibrate) navigator.vibrate(10)
-                          }
-                          // Tap near existing crosshair → do nothing, keep it
-                        } else {
-                          // Was a pan — release drag, hide crosshair
-                          handleMouseUp(e as any)
+                        touchDragInitialized.current = false
+                        if (wasTap && touchCrosshairActive.current) {
+                          touchCrosshairActive.current = false
+                          handleMouseLeave()
                         }
+                        handleMouseUp(e as any)
                       }}
                       // Enhanced zoom support
                       onWheel={(e: React.WheelEvent<HTMLCanvasElement>) => {
@@ -38285,17 +38313,16 @@ export default function TradingViewChart({
                             style={{
                               padding: '14px 16px',
                               fontSize: '14px',
-                              color: rrgTab === tab ? '#FF6600' : '#ffffff',
-                              border: rrgTab === tab ? '2px solid #FF6600' : '2px solid rgba(255,255,255,0.15)',
-                              background: rrgTab === tab
-                                ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
-                                : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
-                              boxShadow: rrgTab === tab
-                                ? 'inset 0 1px 0 rgba(255,255,255,0.1)'
-                                : 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                              fontWeight: 700,
+                              letterSpacing: '0.22em',
+                              fontFamily: 'system-ui, -apple-system, sans-serif',
+                              color: rrgTab === tab ? '#FFFFFF' : '#6B7280',
+                              border: 'none',
+                              borderBottom: rrgTab === tab ? '2px solid #FF6600' : '2px solid transparent',
+                              background: rrgTab === tab ? 'linear-gradient(180deg,rgba(255,102,0,0.16) 0%,rgba(255,102,0,0.02) 60%,#050505 100%)' : 'linear-gradient(180deg,#121212 0%,#050505 100%)',
+                              boxShadow: rrgTab === tab ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 6px 14px -8px rgba(255,102,0,0.6)' : 'inset 0 1px 0 rgba(255,255,255,0.05)',
                             }}
                           >
-                            {rrgTab === tab && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />}
                             <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>
                               {tab === 'Screener' ? tab : `${tab} RRG`}
                             </span>
@@ -38422,17 +38449,16 @@ export default function TradingViewChart({
                               style={{
                                 padding: '14px 16px',
                                 fontSize: '14px',
-                                color: calendarTab === tab ? '#FF6600' : '#ffffff',
-                                border: calendarTab === tab ? '2px solid #FF6600' : '2px solid rgba(255,255,255,0.15)',
-                                background: calendarTab === tab
-                                  ? 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)'
-                                  : 'linear-gradient(180deg,#111111 0%,#040404 100%)',
-                                boxShadow: calendarTab === tab
-                                  ? '0 0 18px rgba(255,102,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1)'
-                                  : 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                                fontWeight: 700,
+                                letterSpacing: '0.22em',
+                                fontFamily: 'system-ui, -apple-system, sans-serif',
+                                color: calendarTab === tab ? '#FFFFFF' : '#6B7280',
+                                border: 'none',
+                                borderBottom: calendarTab === tab ? '2px solid #FF6600' : '2px solid transparent',
+                                background: calendarTab === tab ? 'linear-gradient(180deg,rgba(255,102,0,0.16) 0%,rgba(255,102,0,0.02) 60%,#050505 100%)' : 'linear-gradient(180deg,#121212 0%,#050505 100%)',
+                                boxShadow: calendarTab === tab ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 6px 14px -8px rgba(255,102,0,0.6)' : 'inset 0 1px 0 rgba(255,255,255,0.05)',
                               }}
                             >
-                              {calendarTab === tab && <div className="absolute inset-0 bg-gradient-to-b from-orange-500/15 to-transparent pointer-events-none" />}
                               <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>{tab}</span>
                             </button>
                           ))}
