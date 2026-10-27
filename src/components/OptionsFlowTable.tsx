@@ -3,6 +3,7 @@
 import { TbStar, TbStarFilled } from 'react-icons/tb'
 import * as XLSX from 'xlsx'
 
+import { createPortal } from 'react-dom'
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -992,6 +993,21 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
   )
   const showFlowSidebar = onlyAddon || (!hideAddon && !isMobileView && !isTabletView && windowWidth >= MIN_WINDOW_WIDTH_FOR_SIDEBAR)
   const showFlowDrawer = !hideAddon && !onlyAddon && !isMobileView && !showFlowSidebar
+
+  // One persistent DOM host for the Flow Tracking panel. It is portaled into once and simply
+  // re-parented into whichever layout (sidebar / drawer / mobile overlay) is active, so resizing
+  // across a breakpoint never unmounts the panel and re-triggers its API calls.
+  const [panelHost, setPanelHost] = useState<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const el = document.createElement('div')
+    setPanelHost(el)
+  }, [])
+  const attachPanelHost = useCallback((node: HTMLDivElement | null) => {
+    if (node && panelHost && panelHost.parentElement !== node) {
+      panelHost.style.height = '100%'
+      node.appendChild(panelHost)
+    }
+  }, [panelHost])
 
 
 
@@ -10943,25 +10959,31 @@ Stock Reaction: ${scores.stockReaction}/15`
             zIndex: 1002,
           }}
         >
-          <FlowTrackingPanel
-            allFlowData={data}
-            relativeStrengthData={relativeStrengthData}
-            historicalStdDevs={historicalStdDevs}
-            comboTradeMap={comboTradeMap}
-            dealerZoneCache={dealerZoneCache}
-            liveFlows={trackedFlows}
-            leapRsData={leapRsData}
-            leap52wkData={leap52wkData}
-            leapSeasonalData={leapSeasonalData}
-            parentOptionPrices={currentOptionPrices}
-            parentStockPrices={currentPrices}
-            sweepSenseData={sweepSenseDataStable}
-            sweepSenseScanning={modeLoadingStep !== null || sweepSenseSettling || (sweepSenseBgActive && !sweepSenseDataStable)}
-            sweepSenseProgress={gradingProgress}
-            trackedFlowsSweepData={trackedFlowsSweepData}
-            onRemoveTrackedFlow={removeFromFlowTracking}
-          />
+          <div ref={attachPanelHost} />
         </div>
+      )}
+      {!isSidebarPanel && panelHost && (showFlowSidebar || showFlowDrawer || (isMobileView && isFlowTrackingOpen)) && createPortal(
+        <FlowTrackingPanel
+          onClose={showFlowSidebar ? undefined : () => { setIsFlowTrackingOpen(false); setTabletPanelOpen(false) }}
+          initialTab={mobileFlowInitialTab}
+          allFlowData={data}
+          relativeStrengthData={relativeStrengthData}
+          historicalStdDevs={historicalStdDevs}
+          comboTradeMap={comboTradeMap}
+          dealerZoneCache={dealerZoneCache}
+          liveFlows={trackedFlows}
+          leapRsData={leapRsData}
+          leap52wkData={leap52wkData}
+          leapSeasonalData={leapSeasonalData}
+          parentOptionPrices={currentOptionPrices}
+          parentStockPrices={currentPrices}
+          sweepSenseData={sweepSenseDataStable}
+          sweepSenseScanning={modeLoadingStep !== null || sweepSenseSettling || (sweepSenseBgActive && !sweepSenseDataStable)}
+          sweepSenseProgress={gradingProgress}
+          trackedFlowsSweepData={trackedFlowsSweepData}
+          onRemoveTrackedFlow={removeFromFlowTracking}
+        />,
+        panelHost
       )}
       {!isSidebarPanel && isMobileView && isFlowTrackingOpen && (
         <div
@@ -10978,26 +11000,7 @@ Stock Reaction: ${scores.stockReaction}/15`
             overflow: 'hidden',
           }}
         >
-          <FlowTrackingPanel
-            onClose={() => setIsFlowTrackingOpen(false)}
-            initialTab={mobileFlowInitialTab}
-            allFlowData={data}
-            relativeStrengthData={relativeStrengthData}
-            historicalStdDevs={historicalStdDevs}
-            comboTradeMap={comboTradeMap}
-            dealerZoneCache={dealerZoneCache}
-            liveFlows={trackedFlows}
-            leapRsData={leapRsData}
-            leap52wkData={leap52wkData}
-            leapSeasonalData={leapSeasonalData}
-            parentOptionPrices={currentOptionPrices}
-            parentStockPrices={currentPrices}
-            sweepSenseData={sweepSenseDataStable}
-            sweepSenseScanning={modeLoadingStep !== null || sweepSenseSettling || (sweepSenseBgActive && !sweepSenseDataStable)}
-            sweepSenseProgress={gradingProgress}
-            trackedFlowsSweepData={trackedFlowsSweepData}
-            onRemoveTrackedFlow={removeFromFlowTracking}
-          />
+          <div ref={attachPanelHost} style={{ flex: 1, minHeight: 0 }} />
         </div>
       )}
 
@@ -11085,25 +11088,7 @@ Stock Reaction: ${scores.stockReaction}/15`
               >×</button>
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
-              <FlowTrackingPanel
-                onClose={() => setTabletPanelOpen(false)}
-                allFlowData={data}
-                relativeStrengthData={relativeStrengthData}
-                historicalStdDevs={historicalStdDevs}
-                comboTradeMap={comboTradeMap}
-                dealerZoneCache={dealerZoneCache}
-                liveFlows={trackedFlows}
-                leapRsData={leapRsData}
-                leap52wkData={leap52wkData}
-                leapSeasonalData={leapSeasonalData}
-                parentOptionPrices={currentOptionPrices}
-                parentStockPrices={currentPrices}
-                sweepSenseData={sweepSenseDataStable}
-                sweepSenseScanning={modeLoadingStep !== null || sweepSenseSettling || (sweepSenseBgActive && !sweepSenseDataStable)}
-                sweepSenseProgress={gradingProgress}
-                trackedFlowsSweepData={trackedFlowsSweepData}
-                onRemoveTrackedFlow={removeFromFlowTracking}
-              />
+              <div ref={attachPanelHost} />
             </div>
           </div>
         </>

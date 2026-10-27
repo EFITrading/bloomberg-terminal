@@ -2,7 +2,10 @@ import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
   reactStrictMode: false,
-  webpack: (config) => {
+  webpack: (config, { dev }) => {
+    // Stale persistent filesystem cache is what produces "Cannot read properties of undefined
+    // (reading 'call')" / white screens after edits; use in-memory cache in dev instead.
+    if (dev) config.cache = { type: 'memory' }
     // Required for monaco-editor font assets
     config.module.rules.push({ test: /\.ttf$/, type: 'asset/resource' })
     return config

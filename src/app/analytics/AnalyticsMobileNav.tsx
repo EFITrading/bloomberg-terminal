@@ -9,6 +9,7 @@ import { useState } from 'react'
  */
 
 const MOBILE_TABS = [
+    { id: 'royal-exchange', label: 'Royal Exchange' },
     { id: 'rrg', label: 'RRG' },
     { id: 'iv-rrg', label: 'IV RRG' },
     { id: 'rrg-screener', label: 'RRG Screener' },

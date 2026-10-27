@@ -14,6 +14,7 @@ import MarketHeatmap from '@/components/analytics/MarketHeatmap'
 import RRGAnalytics from '@/components/analytics/RRGAnalytics'
 import DealerClusterScreener from '@/components/analytics/DealerClusterScreener'
 import DealerManagementPanel from '@/components/analytics/DealerManagementPanel'
+const RoyalExchange = dynamic(() => import('@/components/analytics/RoyalExchange'), { ssr: false })
 import ScreenersPanel from '@/components/analytics/ScreenersPanel'
 import Footer from '@/components/terminal/Footer'
 
@@ -26,7 +27,7 @@ export default function Analytics() {
   const [activePanel, setActivePanel] = useState<string>('rrg')
 
   const panelLabels: Record<string, string> = {
-    'rrg': 'RRG', 'iv-rrg': 'IV RRG',
+    'royal-exchange': 'Royal Exchange', 'rrg': 'RRG', 'iv-rrg': 'IV RRG',
     'rrg-screener': 'RRG Screener', 'leadership-scan': 'Leadership',
     'hv-screener': 'HV Screener', 'heatmap': 'Heatmap', 'screeners': 'Screeners',
     'market-cycle': 'Market Cycle',
@@ -47,6 +48,12 @@ export default function Analytics() {
     }
 
     switch (id) {
+      case 'royal-exchange':
+        return (
+          <div key={id} style={{ ...panelStyle, height: 'calc(100vh - 156px)', minHeight: 520 }}>
+            <RoyalExchange />
+          </div>
+        )
       case 'rrg':
         return (
           <div key={id} className="analytics-rrg-panel" style={{ ...panelStyle, height: 'calc(var(--rrg-panel-h, 100vh) - 156px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -345,6 +352,11 @@ export default function Analytics() {
         </svg>
       ),
     }
+    icons['royal-exchange'] = (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M5 20h14M7 20l1-8h8l1 8M9 12l-1-5 3 2 1-4 1 4 3-2-1 5" stroke="#f5c451" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+      </svg>
+    )
     return icons[id] || icons['rrg']
   }
 
@@ -551,6 +563,7 @@ export default function Analytics() {
             </h2>
           </div>
 
+          <TabButton id="royal-exchange" label="Royal Exchange" />
           <TabButton id="rrg" label="RRG" />
           <TabButton id="iv-rrg" label="IV RRG" />
           <TabButton id="rrg-screener" label="RRG Screener" />
