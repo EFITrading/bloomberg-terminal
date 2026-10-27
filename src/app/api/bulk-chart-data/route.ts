@@ -184,6 +184,7 @@ function parseTimeframe(timeframe: string): { multiplier: number; timespan: stri
     '30m': { multiplier: 30, timespan: 'minute' },
     '1h': { multiplier: 1, timespan: 'hour' },
     '4h': { multiplier: 4, timespan: 'hour' },
+    '24h': { multiplier: 24, timespan: 'hour' },
     '1d': { multiplier: 1, timespan: 'day' },
     '1w': { multiplier: 1, timespan: 'week' },
     '1mo': { multiplier: 1, timespan: 'month' },
@@ -209,6 +210,7 @@ function getOptimizedDaysBack(timeframe: string, optimized: boolean): number {
       '30m': 180,
       '1h': 365,
       '4h': 730,
+      '24h': 1095,
       '1d': 2555,
       '1w': 1095,
       '1mo': 1825,
@@ -223,6 +225,7 @@ function getOptimizedDaysBack(timeframe: string, optimized: boolean): number {
     '30m': 30, // 1 month for 30min
     '1h': 7, // 7 days for 1hour (used by 1W timeframe)
     '4h': 30, // 1 month for 4hour
+    '24h': 180,
     '1d': 730, // 2 years for daily (reduced from 7 years for speed)
     '1w': 365, // 1 year for weekly
     '1mo': 730, // 2 years for monthly

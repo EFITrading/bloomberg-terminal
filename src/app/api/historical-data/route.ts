@@ -53,6 +53,8 @@ function getMaxDataPointsForTimeframe(timeframe: string): number {
       return 600 // ~12 days of 30-minute data (reduced from 1000)
     case '1h':
       return 500 // ~20 days of hourly data (reduced from 800)
+    case '24h':
+      return 400
     case '4h':
       return 400 // ~66 days of 4-hour data (reduced from 600)
     case '1d':
@@ -116,6 +118,7 @@ export async function GET(request: NextRequest) {
       '30m': { multiplier: 30, timespan: 'minute' },
       '1h': { multiplier: 1, timespan: 'hour' },
       '4h': { multiplier: 4, timespan: 'hour' },
+      '24h': { multiplier: 24, timespan: 'hour' },
       '1d': { multiplier: 1, timespan: 'day' },
       '1w': { multiplier: 1, timespan: 'week' },
       '1mo': { multiplier: 1, timespan: 'month' },

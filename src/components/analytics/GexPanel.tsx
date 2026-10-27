@@ -1866,7 +1866,6 @@ interface GexPanelProps {
   externalTicker?: string
   onGaugeMetrics?: (data: { compositeScore: number; siNorm: number }) => void
   initialShowODTRIO?: boolean
-  tradeModeOnly?: boolean
 }
 
 const LIVE_QUOTES = TRADING_QUOTES
@@ -1878,7 +1877,6 @@ const GexPanel: React.FC<GexPanelProps> = ({
   externalTicker,
   onGaugeMetrics,
   initialShowODTRIO = false,
-  tradeModeOnly = false,
 }) => {
   const [data, setData] = useState<GEXData[]>([])
   const [loading, setLoading] = useState(false)
@@ -2061,7 +2059,6 @@ const GexPanel: React.FC<GexPanelProps> = ({
   })
 
 
-  // tradeModeOnly auto-fetch is triggered in a useEffect placed after fetchODTRIOData is defined
 
   const POLYGON_API_KEY = '' || ''
 
@@ -3320,9 +3317,6 @@ const GexPanel: React.FC<GexPanelProps> = ({
     }
   }
 
-  // Auto-fetch ODTE when tradeModeOnly mounts
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  React.useEffect(() => { if (tradeModeOnly) { fetchODTRIOData() } }, [tradeModeOnly])
 
   // Fetch ODTRIO data with Live OI - Recalculate with live OI from filtered trades
   const fetchODTRIODataWithLiveOI = async (liveOIMap: Map<string, number>) => {
@@ -5328,25 +5322,12 @@ const GexPanel: React.FC<GexPanelProps> = ({
   const borderColorDivider = useBloombergTheme ? 'border-white/15' : 'border-gray-800'
   const tableBorderColor = useBloombergTheme ? 'border-white/20' : 'border-gray-700'
 
-  // ── Trade Mode Only: render just the ODTE Trio table, no controls ────────
-  // tradeModeOnly: the real render handles it via CSS (.gex-trademode class)
-  // No early return needed — CSS hides tabs/controls and shows only ODTE tables
-
   return (
     <div
       className={`${analysisSuiteMode ? '' : 'h-full '}bg-gradient-to-br from-gray-950 via-black to-gray-950 text-white`}
       style={analysisSuiteMode ? undefined : { display: 'flex', flexDirection: 'column' }}
     >
       <style>{`
-        /* Trade Mode: hide all GexPanel chrome except the ODTE trio tables */
-        .gex-trademode .gex-tabs-row,
-        .gex-trademode .gex-controls-row,
-        .gex-trademode .gex-gauge-section,
-        .gex-trademode .gex-chart-section,
-        .gex-trademode .gex-dealer-cluster-section {
-          display: none !important;
-        }
-        .gex-trademode .dealer-attraction-container { overflow: auto !important; }
         /* Custom scrollbar styling - Hidden */
         .overflow-x-auto::-webkit-scrollbar,
         .overflow-y-auto::-webkit-scrollbar,
@@ -5455,8 +5436,8 @@ const GexPanel: React.FC<GexPanelProps> = ({
             overflow: analysisSuiteMode ? 'visible' : showOI ? 'visible' : 'hidden',
           }}
         >
-          {/* Bloomberg Terminal Header - hidden in Trade Mode */}
-          {!tradeModeOnly && (<div
+          {/* Bloomberg Terminal Header */}
+          <div
             className="bg-black border border-gray-600/40 gex-tabs-row"
             style={{ flexShrink: 0, marginBottom: analysisSuiteMode ? '0' : undefined }}
           >
@@ -6471,7 +6452,6 @@ const GexPanel: React.FC<GexPanelProps> = ({
               </div>
             </div>
           </div>
-          )}
 
           <div
             style={{

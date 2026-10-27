@@ -33,18 +33,8 @@ export default function TickerScroller() {
   const [tickerData, setTickerData] = useState<TickerData[]>(
     TICKER_SYMBOLS.map((s) => ({ symbol: s, change: 0 }))
   )
-  const [isBlindMe, setIsBlindMe] = useState(false)
   const prevCloseRef = useRef<Record<string, number>>({})
 
-
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      setIsBlindMe(document.body.classList.contains('theme-toned'))
-    })
-    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] })
-    setIsBlindMe(document.body.classList.contains('theme-toned'))
-    return () => observer.disconnect()
-  }, [])
   useEffect(() => {
     // Skip bulk REST fetch on analysis-suite — no multi-stock scans needed there
     if (pathname === '/analysis-suite') return
@@ -121,12 +111,8 @@ export default function TickerScroller() {
         style={{
           width: '100%',
           maxWidth: '100vw',
-          background: isBlindMe
-            ? 'linear-gradient(180deg, #c8a878 0%, #b89660 100%)'
-            : 'linear-gradient(180deg, #0a0a0a 0%, #000000 100%)',
-          borderBottom: isBlindMe
-            ? '1px solid #8a6838'
-            : '1px solid rgba(255, 165, 0, 0.2)',
+          background: 'linear-gradient(180deg, #0a0a0a 0%, #000000 100%)',
+          borderBottom: '1px solid rgba(255, 165, 0, 0.2)',
           overflow: 'hidden',
           position: 'fixed',
           top: '90px',
@@ -165,18 +151,18 @@ export default function TickerScroller() {
               }}
             >
               <span style={{
-                color: isBlindMe ? '#ffffff' : '#FFFFFF',
-                background: isBlindMe ? 'rgba(0,0,0,0.72)' : 'none',
-                borderRadius: isBlindMe ? '3px' : '0',
-                padding: isBlindMe ? '1px 5px' : '0',
+                color: '#FFFFFF',
+                background: 'none',
+                borderRadius: '0',
+                padding: '0',
               }}>{ticker.symbol}</span>
               <span
                 style={{
-                  color: ticker.change >= 0 ? (isBlindMe ? '#00cc44' : '#00ff00') : (isBlindMe ? '#ff2222' : '#ff0000'),
+                  color: ticker.change >= 0 ? ('#00ff00') : ('#ff0000'),
                   fontWeight: '700',
-                  background: isBlindMe ? 'rgba(0,0,0,0.72)' : 'none',
-                  borderRadius: isBlindMe ? '3px' : '0',
-                  padding: isBlindMe ? '1px 5px' : '0',
+                  background: 'none',
+                  borderRadius: '0',
+                  padding: '0',
                 }}
               >
                 {ticker.change >= 0 ? '+' : ''}

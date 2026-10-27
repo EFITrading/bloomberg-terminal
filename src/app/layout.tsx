@@ -4,6 +4,7 @@ import ConditionalNavigation from '@/components/ConditionalNavigation'
 import Background from '@/components/terminal/Background'
 import ClientSessionProvider from '@/components/ClientSessionProvider'
 import AssetLoadGuard from '@/components/AssetLoadGuard'
+import TimezoneInit from '@/components/TimezoneInit'
 import { AuthGuard } from '@/components/AuthGuard'
 import { MarketRegimeProvider } from '@/contexts/MarketRegimeContext'
 
@@ -47,6 +48,7 @@ export default function RootLayout({
     return (
         <html lang="en" data-scroll-behavior="smooth" style={{ overflowX: 'clip', width: '100%' }}>
             <body className={`${inter.variable} antialiased`} style={{ overflowX: 'clip', width: '100%' }}>
+                <TimezoneInit />
                 <AssetLoadGuard />
                 <ClientSessionProvider>
                     <MarketRegimeProvider>

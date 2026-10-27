@@ -1,10 +1,11 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 
+import AccountModal from '@/components/AccountModal'
 import { useMarketRegime } from '@/contexts/MarketRegimeContext'
 
 import FearGreedGauge from './FearGreedGauge'
@@ -19,7 +20,8 @@ export default function Navigation() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [isClient, setIsClient] = useState(false)
-  const [isBlindMe, setIsBlindMe] = useState(false)
+  const [accountOpen, setAccountOpen] = useState(false)
+  const closeAccount = useCallback(() => setAccountOpen(false), [])
   const { isMobile, isSmallMobile } = useNavigationMobile()
   const pathname = usePathname()
   const router = useRouter()
@@ -28,20 +30,6 @@ export default function Navigation() {
   useEffect(() => {
     setIsClient(true)
   }, [])
-
-  // Watch for toned theme class on body
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      const val = document.body.classList.contains('theme-toned')
-      setIsBlindMe(val)
-    })
-    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] })
-    const initial = document.body.classList.contains('theme-toned')
-    setIsBlindMe(initial)
-    return () => observer.disconnect()
-  }, [])
-
-
 
   useEffect(() => {
     if (!isClient) return
@@ -103,9 +91,9 @@ export default function Navigation() {
       <nav
         className="nav"
         style={{
-          background: hideMobileNav ? 'transparent' : isBlindMe ? 'linear-gradient(180deg, #e8d4b8 0%, #d8c4a0 100%)' : 'linear-gradient(180deg, #060d1f 0%, #030810 25%, #010105 60%, #000000 100%)',
-          borderBottom: hideMobileNav ? 'none' : isBlindMe ? '1px solid #b89060' : '1px solid rgba(255, 133, 0, 0.3)',
-          boxShadow: hideMobileNav ? 'none' : isBlindMe ? '0 2px 10px rgba(80,50,20,0.2), inset 0 1px 0 rgba(255,248,220,0.6)' : '0 4px 24px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255,255,255,0.18), inset 0 2px 6px rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.8)',
+          background: hideMobileNav ? 'transparent' : 'linear-gradient(180deg, #060d1f 0%, #030810 25%, #010105 60%, #000000 100%)',
+          borderBottom: hideMobileNav ? 'none' : '1px solid rgba(255, 133, 0, 0.3)',
+          boxShadow: hideMobileNav ? 'none' : '0 4px 24px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255,255,255,0.18), inset 0 2px 6px rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.8)',
           position: 'fixed',
           top: 0,
           left: 0,
@@ -179,10 +167,10 @@ export default function Navigation() {
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '2px',
-                  background: isBlindMe ? 'rgba(0,0,0,0.07)' : 'transparent',
-                  borderRadius: isBlindMe ? '8px' : '0',
-                  padding: isBlindMe ? '6px 12px' : '0',
-                  border: isBlindMe ? '1px solid rgba(0,0,0,0.12)' : 'none',
+                  background: 'transparent',
+                  borderRadius: '0',
+                  padding: '0',
+                  border: 'none',
                 }}
               >
                 <div
@@ -197,10 +185,10 @@ export default function Navigation() {
                       fontSize: isSmallMobile ? '12px' : isMobile ? '15px' : '22px',
                       fontWeight: '800',
                       letterSpacing: isSmallMobile ? '0.5px' : '1.5px',
-                      background: isBlindMe ? 'none' : 'linear-gradient(135deg, #FFFFFF 0%, #999999 100%)',
-                      WebkitBackgroundClip: isBlindMe ? 'unset' : 'text',
-                      WebkitTextFillColor: isBlindMe ? '#1a1a1a' : 'transparent',
-                      textShadow: isBlindMe ? 'none' : '0 0 20px rgba(255, 255, 255, 0.3)',
+                      background: 'linear-gradient(135deg, #FFFFFF 0%, #999999 100%)',
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent',
+                      textShadow: '0 0 20px rgba(255, 255, 255, 0.3)',
                     }}
                   >
                     EVOLVING
@@ -233,7 +221,7 @@ export default function Navigation() {
                       fontSize: isSmallMobile ? '12px' : isMobile ? '15px' : '20px',
                       fontWeight: '800',
                       letterSpacing: isSmallMobile ? '0.5px' : '1.5px',
-                      color: isBlindMe ? '#444444' : '#999',
+                      color: '#999',
                       textAlign: 'center',
                       marginTop: '2px',
                     }}
@@ -252,10 +240,10 @@ export default function Navigation() {
               display: 'flex',
               alignItems: 'stretch',
               gap: '0',
-              borderBottom: isBlindMe ? '1px solid rgba(0,0,0,0.1)' : '1px solid rgba(255, 133, 0, 0.12)',
-              background: isBlindMe ? 'linear-gradient(135deg, #0d0d0d 0%, #1a0e04 25%, #7a4010 65%, #c4a070 100%)' : '#000000',
-              border: isBlindMe ? '2px solid #6b3010' : '2px solid #d4af37',
-              boxShadow: isBlindMe ? '0 2px 14px rgba(20,8,0,0.55), inset 0 1px 0 rgba(255,200,120,0.15)' : undefined,
+              borderBottom: '1px solid rgba(255, 133, 0, 0.12)',
+              background: '#000000',
+              border: '2px solid #d4af37',
+              boxShadow: undefined,
             }}
           >
             {navLinks.map((link, i) => {
@@ -281,34 +269,32 @@ export default function Navigation() {
                       fontSize: '15px',
                       fontWeight: '700',
                       letterSpacing: '1.8px',
-                      background: isBlindMe
-                        ? (isActive ? 'rgba(0,0,0,0.18)' : 'rgba(0,0,0,0.10)')
-                        : isActive
-                          ? `linear-gradient(180deg, rgba(255,255,255,0.13) 0%, rgba(255,255,255,0.04) 50%, rgba(0,0,0,0.15) 100%)`
-                          : 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 50%, rgba(0,0,0,0.1) 100%)',
+                      background: isActive
+                        ? `linear-gradient(180deg, rgba(255,255,255,0.13) 0%, rgba(255,255,255,0.04) 50%, rgba(0,0,0,0.15) 100%)`
+                        : 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 50%, rgba(0,0,0,0.1) 100%)',
                       borderRadius: '6px 6px 0 0',
                       textTransform: 'uppercase',
                       textDecoration: 'none',
                       display: 'flex',
                       alignItems: 'center',
                       position: 'relative',
-                      color: isActive ? '#FF8500' : isBlindMe ? '#fff8ee' : 'rgba(255,255,255,0.75)',
-                      WebkitTextFillColor: isActive ? '#FF8500' : isBlindMe ? '#fff8ee' : 'rgba(255,255,255,0.75)',
+                      color: isActive ? '#FF8500' : 'rgba(255,255,255,0.75)',
+                      WebkitTextFillColor: isActive ? '#FF8500' : 'rgba(255,255,255,0.75)',
                       borderBottom: isActive
                         ? `2px solid ${link.color}`
                         : '2px solid transparent',
                       boxShadow: isActive ? `0 2px 14px ${link.color}70` : 'none',
                       textShadow: isActive
                         ? `0 2px 4px ${link.color}CC, 0 4px 10px rgba(0,0,0,0.9), 0 0 22px ${link.color}80`
-                        : isBlindMe ? 'none' : '0 1px 0 rgba(120,120,120,0.12), 0 2px 4px rgba(0,0,0,0.7)',
+                        : '0 1px 0 rgba(120,120,120,0.12), 0 2px 4px rgba(0,0,0,0.7)',
                       transform: 'scale(1) translateY(0px)',
                       transition: 'color 0.18s ease, border-color 0.18s ease, text-shadow 0.18s ease, transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.18s ease',
                       whiteSpace: 'nowrap',
                     }}
                     onMouseEnter={(e) => {
                       if (!isActive) {
-                        e.currentTarget.style.color = isBlindMe ? '#000000' : '#FFFFFF'
-                        e.currentTarget.style.WebkitTextFillColor = isBlindMe ? '#000000' : '#FFFFFF'
+                        e.currentTarget.style.color = '#FFFFFF'
+                        e.currentTarget.style.WebkitTextFillColor = '#FFFFFF'
                         e.currentTarget.style.borderBottomColor = `${link.color}80`
                         e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 50%, rgba(0,0,0,0.1) 100%)'
                       }
@@ -318,13 +304,13 @@ export default function Navigation() {
                     }}
                     onMouseLeave={(e) => {
                       if (!isActive) {
-                        const baseColor = isBlindMe ? '#fff8ee' : 'rgba(255,255,255,0.75)'
+                        const baseColor = 'rgba(255,255,255,0.75)'
                         e.currentTarget.style.color = baseColor
                         e.currentTarget.style.WebkitTextFillColor = baseColor
                         e.currentTarget.style.borderBottomColor = 'transparent'
                         e.currentTarget.style.boxShadow = 'none'
-                        e.currentTarget.style.textShadow = isBlindMe ? 'none' : '0 1px 0 rgba(120,120,120,0.12), 0 2px 4px rgba(0,0,0,0.7)'
-                        e.currentTarget.style.background = isBlindMe ? 'transparent' : 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 50%, rgba(0,0,0,0.1) 100%)'
+                        e.currentTarget.style.textShadow = '0 1px 0 rgba(120,120,120,0.12), 0 2px 4px rgba(0,0,0,0.7)'
+                        e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 50%, rgba(0,0,0,0.1) 100%)'
                       } else {
                         e.currentTarget.style.boxShadow = `0 2px 14px ${link.color}70`
                         e.currentTarget.style.textShadow = `0 2px 4px ${link.color}CC, 0 4px 10px rgba(0,0,0,0.9), 0 0 22px ${link.color}80`
@@ -639,9 +625,10 @@ export default function Navigation() {
 
               {isClient && (
                 <>
+                  {isAuthenticated && <AccountModal open={accountOpen} onClose={closeAccount} />}
                   {isAuthenticated ? (
                     <button
-                      onClick={() => router.push('/account')}
+                      onClick={() => setAccountOpen(true)}
                       style={{
                         background: 'linear-gradient(135deg, #FF8500 0%, #FFB800 100%)',
                         border: '1px solid rgba(255, 184, 0, 0.5)',

@@ -1472,7 +1472,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
           {/* Header */}
           <div
             className="flex items-center justify-between px-9 py-6"
-            style={{ borderBottom: '2px solid #fb923c', background: '#080808' }}
+            style={{ borderBottom: '2px solid #e5e7eb', background: '#080808' }}
           >
             <div className="flex items-center gap-4">
               <div className="w-4 h-4 rounded-full bg-orange-500 animate-pulse" />
@@ -1512,7 +1512,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                 <div>
                   <label
                     className="block text-base font-black tracking-widest mb-3"
-                    style={{ color: '#fb923c' }}
+                    style={{ color: '#e5e7eb' }}
                   >
                     SYMBOL
                   </label>
@@ -1566,7 +1566,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                 <div>
                   <label
                     className="block text-base font-black tracking-widest mb-3"
-                    style={{ color: '#fb923c' }}
+                    style={{ color: '#e5e7eb' }}
                   >
                     TRADE TYPE
                   </label>
@@ -1681,7 +1681,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                       >
                         TOTAL COST
                       </div>
-                      <div className="font-mono font-bold" style={{ color: '#fb923c' }}>
+                      <div className="font-mono font-bold" style={{ color: '#e5e7eb' }}>
                         $
                         {(
                           (formData.premium || 0) *
@@ -1709,7 +1709,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                     <div>
                       <label
                         className="block text-base font-black tracking-widest mb-3"
-                        style={{ color: '#fb923c' }}
+                        style={{ color: '#e5e7eb' }}
                       >
                         PREMIUM (ENTRY)
                       </label>
@@ -1730,7 +1730,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                     <div>
                       <label
                         className="block text-base font-black tracking-widest mb-3"
-                        style={{ color: '#fb923c' }}
+                        style={{ color: '#e5e7eb' }}
                       >
                         CONTRACTS
                       </label>
@@ -1749,7 +1749,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                     <div>
                       <label
                         className="block text-base font-black tracking-widest mb-3"
-                        style={{ color: '#fb923c' }}
+                        style={{ color: '#e5e7eb' }}
                       >
                         ENTRY PRICE
                       </label>
@@ -1766,7 +1766,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                     <div>
                       <label
                         className="block text-base font-black tracking-widest mb-3"
-                        style={{ color: '#fb923c' }}
+                        style={{ color: '#e5e7eb' }}
                       >
                         QUANTITY (SHARES)
                       </label>
@@ -1905,7 +1905,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                   >
                     <div
                       className="text-xs font-black tracking-widest mb-1"
-                      style={{ color: '#fb923c' }}
+                      style={{ color: '#e5e7eb' }}
                     >
                       VAL
                     </div>
@@ -1930,7 +1930,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                   <div className="flex justify-between mb-3">
                     <label
                       className="text-base font-black tracking-widest"
-                      style={{ color: '#fb923c' }}
+                      style={{ color: '#e5e7eb' }}
                     >
                       CONFIDENCE
                     </label>
@@ -1958,7 +1958,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                 <div>
                   <label
                     className="block text-base font-black tracking-widest mb-3"
-                    style={{ color: '#fb923c' }}
+                    style={{ color: '#e5e7eb' }}
                   >
                     SENTIMENT
                   </label>
@@ -2029,7 +2029,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                 flex: 2,
                 background: '#7a1e00',
                 color: '#fff',
-                border: '2px solid #fb923c',
+                border: '2px solid #e5e7eb',
               }}
             >
               {editingTrade ? 'UPDATE POSITION' : 'ENTER POSITION'}
@@ -2284,49 +2284,19 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
     string,
     { rgb: string; hexBorder: string; hexText: string; hexBg: string; hexInactive: string }
   > = {
-    orange: {
-      rgb: '251,146,60',
-      hexBorder: '#fb923c',
-      hexText: '#fb923c',
-      hexBg: 'rgba(251,146,60,0.08)',
-      hexInactive: '#e07830',
-    },
-    blue: {
-      rgb: '59,130,246',
-      hexBorder: '#3b82f6',
-      hexText: '#3b82f6',
-      hexBg: 'rgba(59,130,246,0.08)',
-      hexInactive: '#4a90e8',
-    },
-    green: {
-      rgb: '34,197,94',
-      hexBorder: '#22c55e',
-      hexText: '#22c55e',
-      hexBg: 'rgba(34,197,94,0.08)',
-      hexInactive: '#20b356',
-    },
-    cyan: {
-      rgb: '6,182,212',
-      hexBorder: '#06b6d4',
-      hexText: '#06b6d4',
-      hexBg: 'rgba(6,182,212,0.08)',
-      hexInactive: '#0891b2',
-    },
-    purple: {
-      rgb: '168,85,247',
-      hexBorder: '#a855f7',
-      hexText: '#a855f7',
-      hexBg: 'rgba(168,85,247,0.08)',
-      hexInactive: '#9b4de0',
-    },
+    orange: {"rgb":"96,165,250","hexBorder":"#60a5fa","hexText":"#f3f4f6","hexBg":"rgba(255,255,255,0.05)","hexInactive":"#8b94a3"},
+    blue: {"rgb":"96,165,250","hexBorder":"#60a5fa","hexText":"#f3f4f6","hexBg":"rgba(255,255,255,0.05)","hexInactive":"#8b94a3"},
+    green: {"rgb":"96,165,250","hexBorder":"#60a5fa","hexText":"#f3f4f6","hexBg":"rgba(255,255,255,0.05)","hexInactive":"#8b94a3"},
+    cyan: {"rgb":"96,165,250","hexBorder":"#60a5fa","hexText":"#f3f4f6","hexBg":"rgba(255,255,255,0.05)","hexInactive":"#8b94a3"},
+    purple: {"rgb":"96,165,250","hexBorder":"#60a5fa","hexText":"#f3f4f6","hexBg":"rgba(255,255,255,0.05)","hexInactive":"#8b94a3"},
   }
 
   return (
     <div className="h-full bg-black text-white font-mono flex flex-col">
       {/* Tab Navigation - Full Width Goldman Sachs Style */}
       <div
-        className="flex w-full border-b-2 border-[#1a1a1a] bg-[#050505]"
-        style={{ minHeight: '60px' }}
+        className="flex w-full border-b border-white/10 bg-[#07090c]"
+        style={{ minHeight: '44px' }}
       >
         {[
           { id: 'journal', label: 'POSITIONS', icon: TbActivity, color: 'orange' },
@@ -2342,18 +2312,12 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className="relative flex flex-1 items-center justify-center gap-2 py-4 text-sm font-black uppercase tracking-[0.18em] transition-all duration-150 select-none outline-none"
+              className="relative flex flex-1 items-center justify-center gap-2 py-3.5 text-sm font-semibold transition-colors duration-150 select-none outline-none"
               style={{
-                background: isActive
-                  ? `linear-gradient(180deg, ${meta.hexBg} 0%, rgba(0,0,0,0.6) 100%)`
-                  : 'transparent',
+                background: isActive ? meta.hexBg : 'transparent',
                 color: isActive ? meta.hexText : meta.hexInactive,
-                borderRight: index < arr.length - 1 ? '1px solid #1a1a1a' : 'none',
-                borderBottom: isActive ? `3px solid ${meta.hexBorder}` : '3px solid transparent',
-                boxShadow: isActive
-                  ? `0 -1px 0 0 ${meta.hexBorder} inset, 0 8px 24px -8px rgba(${meta.rgb},0.25)`
-                  : 'none',
-                letterSpacing: '0.18em',
+                borderBottom: isActive ? `2px solid ${meta.hexBorder}` : '2px solid transparent',
+                letterSpacing: '0.04em',
               }}
               onMouseEnter={(e) => {
                 if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = '#ffffff'
@@ -2362,16 +2326,8 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                 if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = meta.hexInactive
               }}
             >
-              {isActive && (
-                <span
-                  className="absolute inset-0 pointer-events-none"
-                  style={{
-                    background: `radial-gradient(ellipse 80% 60% at 50% 100%, rgba(${meta.rgb},0.12), transparent)`,
-                  }}
-                />
-              )}
-              <IconComponent size={15} strokeWidth={2.5} />
-              <span style={{ fontSize: '1.25rem', fontWeight: 900 }}>{tab.label}</span>
+              <IconComponent size={22} strokeWidth={2} />
+              <span style={{ fontSize: '20px', fontWeight: 600 }}>{tab.label}</span>
             </button>
           )
         })}
@@ -2383,7 +2339,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
           <div className="p-4">
             {/* Action Bar */}
             <div
-              className="mb-0 border border-[#1e1e1e] bg-[#080808]"
+              className="mb-0 border border-white/10 bg-[#0d1117]"
               style={{ borderBottom: 'none' }}
             >
               <div
@@ -2396,11 +2352,8 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                       setEditingTrade(null)
                       setShowAddTrade(true)
                     }}
-                    className="flex items-center gap-2 px-5 py-2.5 font-black uppercase tracking-widest text-black text-sm"
-                    style={{
-                      background: 'linear-gradient(135deg, #fb923c 0%, #ea5e0b 100%)',
-                      boxShadow: '0 0 18px rgba(251,146,60,0.35)',
-                    }}
+                    className="flex items-center gap-2 px-4 py-2 font-semibold text-white text-xs rounded-md"
+                    style={{ background: '#2563eb' }}
                   >
                     <TbPlus size={16} strokeWidth={3} />
                     <span>NEW POSITION</span>
@@ -2411,12 +2364,12 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                         trades.filter((t) => t.status === 'open').map((t) => t.symbol)
                       )
                     }
-                    className="flex items-center gap-2 px-4 py-2.5 font-black uppercase tracking-widest text-sm transition-all"
+                    className="flex items-center gap-2 px-3 py-2 font-semibold text-xs transition-all"
                     style={{
-                      background: 'linear-gradient(135deg, #1d4ed8 0%, #1e3a8a 100%)',
-                      color: '#60a5fa',
-                      border: '1px solid #2563eb',
-                      boxShadow: loading ? '0 0 14px rgba(59,130,246,0.4)' : 'none',
+                      background: 'transparent',
+                      color: '#d1d5db',
+                      border: '1px solid rgba(255,255,255,0.18)',
+                      borderRadius: '6px',
                     }}
                   >
                     <TbRefresh
@@ -2428,14 +2381,12 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                   </button>
                   <button
                     onClick={() => setShowFilterPanel((v) => !v)}
-                    className="flex items-center gap-2 px-4 py-2.5 font-black uppercase tracking-widest text-sm transition-all"
+                    className="flex items-center gap-2 px-3 py-2 font-semibold text-xs transition-all"
                     style={{
-                      background: showFilterPanel
-                        ? 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)'
-                        : 'linear-gradient(135deg, #111 0%, #0a0a0a 100%)',
-                      color: showFilterPanel ? '#facc15' : '#a16207',
-                      border: showFilterPanel ? '1px solid #facc15' : '1px solid #444',
-                      boxShadow: showFilterPanel ? '0 0 14px rgba(250,204,21,0.3)' : 'none',
+                      background: showFilterPanel ? 'rgba(255,255,255,0.08)' : 'transparent',
+                      color: showFilterPanel ? '#f3f4f6' : '#d1d5db',
+                      border: '1px solid rgba(255,255,255,0.18)',
+                      borderRadius: '6px',
                     }}
                   >
                     <TbFilter size={15} strokeWidth={2.5} />
@@ -2448,7 +2399,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                   </button>
                   <button
                     onClick={exportTradesToCSV}
-                    className="flex items-center gap-2 px-4 py-2.5 font-black uppercase tracking-widest text-sm transition-all"
+                    className="flex items-center gap-2 px-3 py-2 font-semibold text-xs transition-all"
                     style={{
                       background: 'linear-gradient(135deg, #14532d 0%, #052e16 100%)',
                       color: '#4ade80',
@@ -2460,8 +2411,8 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                   </button>
                 </div>
                 <div className="flex items-center gap-3 text-sm font-black tracking-widest">
-                  <span className="text-[#fb923c]">ACCOUNT:</span>
-                  <span className="text-[#fb923c]">${accountSize.toLocaleString()}</span>
+                  <span className="text-gray-200">ACCOUNT:</span>
+                  <span className="text-gray-200">${accountSize.toLocaleString()}</span>
                   <span className="text-[#333]">|</span>
                   <span className="text-[#f87171]">RISK: {maxRiskPerTrade}%</span>
                 </div>
@@ -2474,7 +2425,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                   style={{ background: '#060606', borderBottom: '1px solid #1a1a1a' }}
                 >
                   <div>
-                    <label className="block text-xs font-black text-[#facc15] uppercase tracking-widest mb-1">
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-1">
                       SYMBOL
                     </label>
                     <input
@@ -2482,17 +2433,17 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                       value={filters.symbol}
                       onChange={(e) => setFilters((f) => ({ ...f, symbol: e.target.value }))}
                       placeholder="e.g. AAPL"
-                      className="w-full bg-[#111] border border-[#2a2a2a] text-white font-mono text-sm px-3 py-2 outline-none focus:border-yellow-500"
+                      className="w-full bg-[#111] border border-white/10 rounded text-white font-mono text-sm px-3 py-2 outline-none focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-black text-[#facc15] uppercase tracking-widest mb-1">
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-1">
                       STATUS
                     </label>
                     <select
                       value={filters.status}
                       onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
-                      className="w-full bg-[#111] border border-[#2a2a2a] text-white font-mono text-sm px-3 py-2 outline-none focus:border-yellow-500"
+                      className="w-full bg-[#111] border border-white/10 rounded text-white font-mono text-sm px-3 py-2 outline-none focus:border-blue-500"
                     >
                       <option value="">ALL</option>
                       <option value="open">OPEN</option>
@@ -2501,13 +2452,13 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-black text-[#facc15] uppercase tracking-widest mb-1">
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-1">
                       SIDE
                     </label>
                     <select
                       value={filters.type}
                       onChange={(e) => setFilters((f) => ({ ...f, type: e.target.value }))}
-                      className="w-full bg-[#111] border border-[#2a2a2a] text-white font-mono text-sm px-3 py-2 outline-none focus:border-yellow-500"
+                      className="w-full bg-[#111] border border-white/10 rounded text-white font-mono text-sm px-3 py-2 outline-none focus:border-blue-500"
                     >
                       <option value="">ALL</option>
                       <option value="long">LONG</option>
@@ -2517,7 +2468,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-black text-[#facc15] uppercase tracking-widest mb-1">
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-1">
                       STRATEGY
                     </label>
                     <input
@@ -2525,33 +2476,33 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                       value={filters.strategy}
                       onChange={(e) => setFilters((f) => ({ ...f, strategy: e.target.value }))}
                       placeholder="e.g. Breakout"
-                      className="w-full bg-[#111] border border-[#2a2a2a] text-white font-mono text-sm px-3 py-2 outline-none focus:border-yellow-500"
+                      className="w-full bg-[#111] border border-white/10 rounded text-white font-mono text-sm px-3 py-2 outline-none focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-black text-[#facc15] uppercase tracking-widest mb-1">
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-1">
                       FROM DATE
                     </label>
                     <input
                       type="date"
                       value={filters.dateFrom}
                       onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
-                      className="w-full bg-[#111] border border-[#2a2a2a] text-white font-mono text-sm px-3 py-2 outline-none focus:border-yellow-500"
+                      className="w-full bg-[#111] border border-white/10 rounded text-white font-mono text-sm px-3 py-2 outline-none focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-black text-[#facc15] uppercase tracking-widest mb-1">
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-1">
                       TO DATE
                     </label>
                     <input
                       type="date"
                       value={filters.dateTo}
                       onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
-                      className="w-full bg-[#111] border border-[#2a2a2a] text-white font-mono text-sm px-3 py-2 outline-none focus:border-yellow-500"
+                      className="w-full bg-[#111] border border-white/10 rounded text-white font-mono text-sm px-3 py-2 outline-none focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-black text-[#facc15] uppercase tracking-widest mb-1">
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-1">
                       MIN P&L ($)
                     </label>
                     <input
@@ -2559,11 +2510,11 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                       value={filters.minPnL}
                       onChange={(e) => setFilters((f) => ({ ...f, minPnL: e.target.value }))}
                       placeholder="-1000"
-                      className="w-full bg-[#111] border border-[#2a2a2a] text-white font-mono text-sm px-3 py-2 outline-none focus:border-yellow-500"
+                      className="w-full bg-[#111] border border-white/10 rounded text-white font-mono text-sm px-3 py-2 outline-none focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-black text-[#facc15] uppercase tracking-widest mb-1">
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-1">
                       MAX P&L ($)
                     </label>
                     <input
@@ -2571,7 +2522,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                       value={filters.maxPnL}
                       onChange={(e) => setFilters((f) => ({ ...f, maxPnL: e.target.value }))}
                       placeholder="5000"
-                      className="w-full bg-[#111] border border-[#2a2a2a] text-white font-mono text-sm px-3 py-2 outline-none focus:border-yellow-500"
+                      className="w-full bg-[#111] border border-white/10 rounded text-white font-mono text-sm px-3 py-2 outline-none focus:border-blue-500"
                     />
                   </div>
                   <div className="col-span-2 md:col-span-4 flex justify-end">
@@ -2588,7 +2539,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                           maxPnL: '',
                         })
                       }
-                      className="px-5 py-2 text-xs font-black uppercase tracking-widest text-[#f87171] border border-[#f87171]/40 hover:border-[#f87171] transition-all"
+                      className="px-5 py-2 text-xs font-semibold text-[#f87171] border border-[#f87171]/40 hover:border-[#f87171] transition-all"
                     >
                       CLEAR ALL FILTERS
                     </button>
@@ -2599,119 +2550,113 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
 
             {/* Bloomberg Terminal Performance Dashboard */}
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6">
-              <div className="bg-gradient-to-br from-gray-900 via-black to-gray-900 border border-orange-500/30 p-4 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-orange-500/10 to-transparent rounded-full -mr-8 -mt-8"></div>
-                <div className="text-base text-orange-400 font-bold uppercase tracking-wider mb-2">
+              <div className="bg-[#0d1117] border border-white/10 rounded-lg p-4 relative overflow-hidden">
+                                <div className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-2">
                   NET P&L
                 </div>
                 <div
-                  className={`text-4xl font-bold font-mono ${performanceMetrics.netPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                  className={`text-2xl font-semibold font-mono ${performanceMetrics.netPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}
                 >
                   {performanceMetrics.netPnL >= 0 ? '+' : ''}${performanceMetrics.netPnL.toFixed(2)}
                 </div>
-                <div className="text-base text-gray-500 mt-2">
+                <div className="text-xs text-gray-500 mt-1">
                   {((performanceMetrics.netPnL / accountSize) * 100).toFixed(2)}% Account
                 </div>
               </div>
 
-              <div className="bg-gradient-to-br from-gray-900 via-black to-gray-900 border border-blue-500/30 p-4 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-blue-500/10 to-transparent rounded-full -mr-8 -mt-8"></div>
-                <div className="text-base text-blue-400 font-bold uppercase tracking-wider mb-2">
+              <div className="bg-[#0d1117] border border-white/10 rounded-lg p-4 relative overflow-hidden">
+                                <div className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-2">
                   WIN RATE
                 </div>
-                <div className="text-4xl font-bold font-mono text-blue-400">
+                <div className="text-2xl font-semibold font-mono text-gray-100">
                   {performanceMetrics.winRate.toFixed(1)}%
                 </div>
-                <div className="text-base text-gray-500 mt-2">
+                <div className="text-xs text-gray-500 mt-1">
                   {performanceMetrics.winningTrades}W / {performanceMetrics.losingTrades}L
                 </div>
               </div>
 
-              <div className="bg-gradient-to-br from-gray-900 via-black to-gray-900 border border-purple-500/30 p-4 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-purple-500/10 to-transparent rounded-full -mr-8 -mt-8"></div>
-                <div className="text-base text-purple-400 font-bold uppercase tracking-wider mb-2">
+              <div className="bg-[#0d1117] border border-white/10 rounded-lg p-4 relative overflow-hidden">
+                                <div className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-2">
                   PROFIT FACTOR
                 </div>
-                <div className="text-4xl font-bold font-mono text-purple-400">
+                <div className="text-2xl font-semibold font-mono text-gray-100">
                   {performanceMetrics.profitFactor.toFixed(2)}
                 </div>
-                <div className="text-base text-gray-500 mt-2">Risk Adjusted</div>
+                <div className="text-xs text-gray-500 mt-1">Risk Adjusted</div>
               </div>
 
-              <div className="bg-gradient-to-br from-gray-900 via-black to-gray-900 border border-green-500/30 p-4 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-green-500/10 to-transparent rounded-full -mr-8 -mt-8"></div>
-                <div className="text-base text-green-400 font-bold uppercase tracking-wider mb-2">
+              <div className="bg-[#0d1117] border border-white/10 rounded-lg p-4 relative overflow-hidden">
+                                <div className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-2">
                   SHARPE RATIO
                 </div>
-                <div className="text-4xl font-bold font-mono text-green-400">
+                <div className="text-2xl font-semibold font-mono text-gray-100">
                   {performanceMetrics.sharpeRatio.toFixed(2)}
                 </div>
                 <div className="text-xs text-gray-500 mt-1">Risk Return</div>
               </div>
 
-              <div className="bg-gradient-to-br from-gray-900 via-black to-gray-900 border border-red-500/30 p-4 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-red-500/10 to-transparent rounded-full -mr-8 -mt-8"></div>
-                <div className="text-base text-red-400 font-bold uppercase tracking-wider mb-2">
+              <div className="bg-[#0d1117] border border-white/10 rounded-lg p-4 relative overflow-hidden">
+                                <div className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-2">
                   MAX DD
                 </div>
-                <div className="text-4xl font-bold font-mono text-red-400">
+                <div className="text-2xl font-semibold font-mono text-gray-100">
                   -{performanceMetrics.maxDrawdownPercent.toFixed(1)}%
                 </div>
-                <div className="text-base text-gray-500 mt-2">
+                <div className="text-xs text-gray-500 mt-1">
                   ${performanceMetrics.maxDrawdown.toFixed(0)}
                 </div>
               </div>
 
-              <div className="bg-gradient-to-br from-gray-900 via-black to-gray-900 border border-yellow-500/30 p-4 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-yellow-500/10 to-transparent rounded-full -mr-8 -mt-8"></div>
-                <div className="text-base text-yellow-400 font-bold uppercase tracking-wider mb-2">
+              <div className="bg-[#0d1117] border border-white/10 rounded-lg p-4 relative overflow-hidden">
+                                <div className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-2">
                   TOTAL TRADES
                 </div>
-                <div className="text-4xl font-bold font-mono text-yellow-400">
+                <div className="text-2xl font-semibold font-mono text-gray-100">
                   {performanceMetrics.totalTrades}
                 </div>
-                <div className="text-base text-gray-500 mt-2">
+                <div className="text-xs text-gray-500 mt-1">
                   {trades.filter((t) => t.status === 'open').length} Open
                 </div>
               </div>
             </div>
 
             {/* Bloomberg Terminal Trades Table */}
-            <div className="bg-black border border-orange-500/20 overflow-hidden">
+            <div className="bg-[#0d1117] border border-white/10 rounded-lg overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-xl font-mono">
-                  <thead className="bg-gradient-to-r from-gray-800 via-black to-gray-800 border-b border-orange-500/30">
+                <table className="w-full text-sm font-mono">
+                  <thead className="bg-white/[0.03] border-b border-white/10">
                     <tr>
-                      <th className="px-4 py-4 text-left text-xl font-bold text-orange-400 uppercase tracking-wider">
+                      <th className="px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">
                         TICKER
                       </th>
-                      <th className="px-4 py-4 text-left text-xl font-bold text-orange-400 uppercase tracking-wider">
+                      <th className="px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">
                         OPTION
                       </th>
-                      <th className="px-4 py-4 text-left text-xl font-bold text-orange-400 uppercase tracking-wider">
+                      <th className="px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">
                         QTY
                       </th>
-                      <th className="px-4 py-4 text-left text-xl font-bold text-orange-400 uppercase tracking-wider">
+                      <th className="px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">
                         ENTRY
                       </th>
-                      <th className="px-4 py-4 text-left text-xl font-bold text-orange-400 uppercase tracking-wider">
+                      <th className="px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">
                         CURRENT
                       </th>
-                      <th className="px-4 py-4 text-left text-xl font-bold text-orange-400 uppercase tracking-wider">
+                      <th className="px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">
                         P&amp;L
                       </th>
-                      <th className="px-4 py-4 text-left text-xl font-bold text-orange-400 uppercase tracking-wider">
+                      <th className="px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">
                         STOP
                       </th>
-                      <th className="px-4 py-4 text-left text-xl font-bold text-orange-400 uppercase tracking-wider">
+                      <th className="px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">
                         TARGETS
                       </th>
-                      <th className="px-4 py-4 text-left text-xl font-bold text-orange-400 uppercase tracking-wider">
+                      <th className="px-3 py-2.5 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">
                         ACTIONS
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-800/50">
+                  <tbody className="divide-y divide-white/5">
                     {filteredTrades.map((trade, index) => {
                       const isOpen = trade.status === 'open'
                       const currentPrice = trade.currentPrice || marketData[trade.symbol]?.price
@@ -2740,13 +2685,13 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                           key={trade.id}
                           className={`hover:bg-gray-900/50 transition-colors ${
                             isOpen
-                              ? 'bg-gradient-to-r from-blue-900/10 to-transparent border-l-2 border-blue-500'
+                              ? 'bg-white/[0.02]'
                               : ''
                           }`}
                         >
                           <td className="px-3 py-3">
                             <div className="flex items-center space-x-2">
-                              <div className="font-bold text-white text-2xl">{trade.symbol}</div>
+                              <div className="font-semibold text-gray-400 text-xs">{trade.symbol}</div>
                               {marketData[trade.symbol] && (
                                 <div
                                   className={`w-2 h-2 rounded-full ${marketData[trade.symbol].changePercent >= 0 ? 'bg-green-500' : 'bg-red-500'} animate-pulse`}
@@ -2754,14 +2699,14 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                               )}
                             </div>
                             {trade.strategy && (
-                              <div className="text-gray-500 text-base">{trade.strategy}</div>
+                              <div className="text-gray-500 text-xs">{trade.strategy}</div>
                             )}
                           </td>
                           <td className="px-3 py-3">
                             {trade.isOptions && trade.strike && trade.expiry ? (
                               <>
                                 <div
-                                  className={`font-bold text-xl ${trade.optionType === 'call' ? 'text-green-400' : 'text-red-400'}`}
+                                  className={`font-semibold text-sm ${trade.optionType === 'call' ? 'text-green-400' : 'text-red-400'}`}
                                 >
                                   ${trade.strike}{' '}
                                   {trade.optionType
@@ -2769,7 +2714,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                                       trade.optionType.slice(1)
                                     : ''}
                                 </div>
-                                <div className="text-white text-base font-semibold">
+                                <div className="text-gray-300 text-xs">
                                   {(() => {
                                     const d = new Date(trade.expiry!)
                                     return d
@@ -2783,19 +2728,19 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                                   })()}
                                 </div>
                                 {trade.delta && (
-                                  <div className="text-white text-base">
+                                  <div className="text-gray-400 text-xs">
                                     Δ {trade.delta.toFixed(2)}
                                   </div>
                                 )}
                               </>
                             ) : (
                               <span
-                                className={`text-xl font-bold ${
+                                className={`text-sm font-semibold ${
                                   trade.type === 'long'
                                     ? 'text-green-400'
                                     : trade.type === 'short'
                                       ? 'text-red-400'
-                                      : 'text-blue-400'
+                                      : 'text-gray-300'
                                 }`}
                               >
                                 {trade.type.toUpperCase()}
@@ -2803,11 +2748,11 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                             )}
                           </td>
                           <td className="px-3 py-3">
-                            <div className="text-white font-bold text-2xl">
+                            <div className="text-white font-semibold text-base">
                               {trade.quantity.toLocaleString()}
                             </div>
                           </td>
-                          <td className="px-3 py-3 text-white font-mono text-2xl font-bold">
+                          <td className="px-3 py-3 text-white font-mono text-base font-semibold">
                             ${trade.entryPrice.toFixed(2)}
                           </td>
                           <td className="px-3 py-3">
@@ -2816,20 +2761,20 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                                 {currentPrice && (
                                   <div className="text-gray-300 text-base font-semibold">
                                     Stock:{' '}
-                                    <span className="font-bold text-white">
+                                    <span className="font-semibold text-white">
                                       ${currentPrice.toFixed(2)}
                                     </span>
                                   </div>
                                 )}
                                 {trade.isOptions && trade.currentOptionPrice != null ? (
-                                  <div className="text-yellow-300 text-base font-semibold">
+                                  <div className="text-gray-300 text-base font-semibold">
                                     Premium:{' '}
-                                    <span className="font-bold">
+                                    <span className="font-semibold">
                                       ${trade.currentOptionPrice.toFixed(2)}
                                     </span>
                                   </div>
                                 ) : trade.isOptions ? (
-                                  <div className="text-gray-500 text-base">Premium: --</div>
+                                  <div className="text-gray-500 text-xs">Premium: --</div>
                                 ) : null}
                               </div>
                             ) : (
@@ -2840,11 +2785,11 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                           </td>
                           <td className="px-3 py-3">
                             {isOpen && trade.isOptions && !trade.currentOptionPrice ? (
-                              <span className="text-gray-500 font-mono text-xl">--</span>
+                              <span className="text-gray-500 font-mono text-sm">--</span>
                             ) : (
                               <>
                                 <div
-                                  className={`font-bold font-mono text-2xl ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                                  className={`font-semibold font-mono text-base ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}
                                 >
                                   {totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(2)}
                                 </div>
@@ -2861,7 +2806,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                           </td>
                           <td className="px-3 py-3">
                             {trade.stopLoss ? (
-                              <div className="text-red-400 font-mono text-xl font-bold">
+                              <div className="text-red-400 font-mono text-sm font-semibold">
                                 ${trade.stopLoss.toFixed(2)}
                               </div>
                             ) : (
@@ -2870,14 +2815,14 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                           </td>
                           <td className="px-3 py-3">
                             {trade.takeProfit ? (
-                              <div className="text-green-400 font-mono text-xl font-bold">
-                                <span className="text-gray-400 font-bold">T1 </span>$
+                              <div className="text-green-400 font-mono text-sm font-semibold">
+                                <span className="text-gray-400 font-semibold">T1 </span>$
                                 {trade.takeProfit.toFixed(2)}
                               </div>
                             ) : null}
                             {(trade as any).target2 || (trade as any).target90 ? (
-                              <div className="text-emerald-400 font-mono text-xl font-bold">
-                                <span className="text-gray-400 font-bold">T2 </span>$
+                              <div className="text-emerald-400 font-mono text-sm font-semibold">
+                                <span className="text-gray-400 font-semibold">T2 </span>$
                                 {((trade as any).target2 || (trade as any).target90).toFixed(2)}
                               </div>
                             ) : null}
@@ -2894,7 +2839,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                                   setSelectedTrade(trade)
                                   setShowTradeDetails(true)
                                 }}
-                                className="p-2 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20 border border-blue-500/30 transition-colors"
+                                className="p-2 text-gray-300 hover:text-blue-300 hover:bg-blue-900/20 border border-white/15 rounded transition-colors"
                                 title="View Details"
                               >
                                 <TbEye size={20} />
@@ -2904,7 +2849,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                                   setEditingTrade(trade)
                                   setShowAddTrade(true)
                                 }}
-                                className="p-2 text-orange-400 hover:text-orange-300 hover:bg-orange-900/20 border border-orange-500/30 transition-colors"
+                                className="p-2 text-gray-300 hover:text-gray-300 hover:bg-orange-900/20 border border-white/15 rounded transition-colors"
                                 title="Edit Trade"
                               >
                                 <TbEdit size={20} />
@@ -2917,7 +2862,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                                       : currentPrice || trade.entryPrice
                                     closeTrade(trade.id, exitPrice)
                                   }}
-                                  className="p-2 text-green-400 hover:text-green-300 hover:bg-green-900/20 border border-green-500/30 transition-colors"
+                                  className="p-2 text-green-400 hover:text-green-300 hover:bg-green-900/20 border border-white/15 rounded transition-colors"
                                   title="Close Position"
                                 >
                                   <TbCheck size={20} />
@@ -2925,7 +2870,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                               )}
                               <button
                                 onClick={() => deleteTrade(trade.id)}
-                                className="p-2 text-red-400 hover:text-red-300 hover:bg-red-900/20 border border-red-500/30 transition-colors"
+                                className="p-2 text-red-400 hover:text-red-300 hover:bg-red-900/20 border border-white/15 rounded transition-colors"
                                 title="Delete Trade"
                               >
                                 <TbTrash size={20} />
@@ -2943,11 +2888,11 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                     <TbActivity
                       size={80}
                       className="mx-auto mb-6"
-                      style={{ color: '#fb923c', opacity: 0.4 }}
+                      style={{ color: '#e5e7eb', opacity: 0.4 }}
                     />
                     <p
                       className="text-4xl font-black uppercase tracking-widest"
-                      style={{ color: '#fb923c' }}
+                      style={{ color: '#e5e7eb' }}
                     >
                       {trades.length === 0 ? 'NO POSITIONS' : 'NO MATCHES'}
                     </p>
@@ -2969,7 +2914,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
               {/* Equity Curve — full width */}
               <div className="lg:col-span-3 bg-black border border-orange-500/30 p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-xl font-bold text-orange-400 uppercase tracking-widest">
+                  <h3 className="text-xl font-bold text-gray-300 uppercase tracking-widest">
                     EQUITY CURVE
                   </h3>
                   <div
@@ -3120,7 +3065,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
 
               {/* Risk Analytics */}
               <div className="bg-black border border-blue-500/30 p-6">
-                <h3 className="text-base font-bold text-blue-400 uppercase tracking-widest mb-5">
+                <h3 className="text-base font-bold text-gray-300 uppercase tracking-widest mb-5">
                   RISK ANALYTICS
                 </h3>
                 <div className="space-y-0">
@@ -3138,7 +3083,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                     {
                       label: 'Calmar Ratio',
                       value: performanceMetrics.calmarRatio.toFixed(2),
-                      color: 'text-blue-400',
+                      color: 'text-gray-300',
                     },
                     {
                       label: 'Avg Win',
@@ -3176,7 +3121,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
 
               {/* Strategy Breakdown */}
               <div className="bg-black border border-purple-500/30 p-6">
-                <h3 className="text-base font-bold text-purple-400 uppercase tracking-widest mb-5">
+                <h3 className="text-base font-bold text-gray-300 uppercase tracking-widest mb-5">
                   STRATEGY BREAKDOWN
                 </h3>
                 <div className="space-y-3">
@@ -3218,7 +3163,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
 
               {/* Time Analysis */}
               <div className="bg-black border border-yellow-500/30 p-6">
-                <h3 className="text-base font-bold text-yellow-400 uppercase tracking-widest mb-5">
+                <h3 className="text-base font-bold text-gray-300 uppercase tracking-widest mb-5">
                   TIME ANALYSIS
                 </h3>
                 <div className="space-y-0">
@@ -3236,12 +3181,12 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                     {
                       label: 'Risk Adjusted',
                       value: `${performanceMetrics.riskAdjustedReturn.toFixed(1)}%`,
-                      color: 'text-blue-400',
+                      color: 'text-gray-300',
                     },
                     {
                       label: 'Open Positions',
                       value: `${trades.filter((t) => t.status === 'open').length}`,
-                      color: 'text-orange-400',
+                      color: 'text-gray-300',
                     },
                   ].map(({ label, value, color }) => (
                     <div
@@ -3300,7 +3245,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
 
               {/* P/L Tier Breakdown — full width */}
               <div className="lg:col-span-3 bg-black border border-orange-500/30 p-6">
-                <h3 className="text-xl font-black text-orange-400 uppercase tracking-widest mb-6">
+                <h3 className="text-xl font-black text-gray-300 uppercase tracking-widest mb-6">
                   TRADE PERFORMANCE BREAKDOWN
                 </h3>
                 {(() => {
@@ -3495,7 +3440,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
 
               {/* Trading Behavior Analysis — full width */}
               <div className="lg:col-span-3 bg-black border border-cyan-500/30 p-6">
-                <h3 className="text-xl font-black text-cyan-400 uppercase tracking-widest mb-6">
+                <h3 className="text-xl font-black text-gray-300 uppercase tracking-widest mb-6">
                   TRADING BEHAVIOR ANALYSIS
                 </h3>
                 {(() => {
@@ -3731,7 +3676,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                                     <div className="text-gray-400 text-xs">{p.desc}</div>
                                   </div>
                                   {p.label === best.label && p.count > 0 && (
-                                    <span className="text-cyan-400 text-xs font-black uppercase tracking-wide border border-cyan-500/40 px-2 py-0.5">
+                                    <span className="text-gray-300 text-xs font-black uppercase tracking-wide border border-cyan-500/40 px-2 py-0.5">
                                       BEST
                                     </span>
                                   )}
@@ -4091,7 +4036,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                       <tbody>
                         {importPreview.slice(0, 5).map((t, i) => (
                           <tr key={i} style={{ borderBottom: '1px solid #222' }}>
-                            <td style={{ padding: '7px 8px', color: '#fb923c', fontWeight: 900 }}>
+                            <td style={{ padding: '7px 8px', color: '#e5e7eb', fontWeight: 900 }}>
                               {t.symbol}
                             </td>
                             <td style={{ padding: '7px 8px', color: '#ffffff', fontWeight: 700 }}>
@@ -4549,7 +4494,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                     <div className="flex items-center space-x-3">
                       <input
                         type="checkbox"
-                        style={{ width: 18, height: 18, accentColor: '#fb923c' }}
+                        style={{ width: 18, height: 18, accentColor: '#e5e7eb' }}
                       />
                       <span style={{ fontSize: '14px', color: '#ffffff', fontWeight: 600 }}>
                         Only update during market hours
@@ -4603,7 +4548,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ optionsContent, flowContent }) =>
                 style={{
                   fontSize: '16px',
                   fontWeight: 900,
-                  color: '#fb923c',
+                  color: '#e5e7eb',
                   letterSpacing: '2px',
                   marginBottom: '16px',
                   textTransform: 'uppercase',

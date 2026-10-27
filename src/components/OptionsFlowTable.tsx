@@ -6910,7 +6910,7 @@ Stock Reaction: ${scores.stockReaction}/15`
           {/* Mobile Layout - 2 Rows (also forced on for the sidebar Flow panel, which is
               always narrow regardless of actual viewport width) */}
 
-          <div className={isSidebarPanel ? 'px-4 py-0' : 'md:hidden px-4 py-0'}>
+          <div className={isSidebarPanel ? 'hidden' : 'md:hidden px-4 py-0'}>
             {/* Row 1: Search, Highlights, Clear, Filter, Track */}
 
             <div className="flex items-center gap-px">
@@ -7015,22 +7015,22 @@ Stock Reaction: ${scores.stockReaction}/15`
                     setMobileFlowInitialTab('SWEEPSENSE')
                     setIsFlowTrackingOpen(true)
                   }}
-                  className="px-2 font-black uppercase transition-all duration-200 flex items-center gap-1 focus:outline-none"
+                  className="px-4 font-black uppercase transition-all duration-200 flex items-center gap-1 focus:outline-none"
                   style={{
-                    height: '40px',
+                    height: '48px',
                     background: isFlowTrackingOpen && mobileFlowInitialTab === 'SWEEPSENSE'
                       ? '#16a34a'
                       : 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
                     border: isFlowTrackingOpen && mobileFlowInitialTab === 'SWEEPSENSE' ? '2px solid #16a34a' : '2px solid #2a2a2a',
                     borderRadius: '4px',
-                    fontSize: '10px',
+                    fontSize: '15px',
                     letterSpacing: '0.5px',
                     fontWeight: '900',
                     color: isFlowTrackingOpen && mobileFlowInitialTab === 'SWEEPSENSE' ? '#000000' : '#16a34a',
                     boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.9)',
                   }}
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M3 12h4l3 8 4-16 3 8h4" />
                   </svg>
                   <span>SweepSense</span>
@@ -7040,20 +7040,20 @@ Stock Reaction: ${scores.stockReaction}/15`
                 {onAlgoFlowClick && (
                   <button
                     onClick={onAlgoFlowClick}
-                    className="px-2 font-black uppercase transition-all duration-200 flex items-center gap-1 focus:outline-none"
+                    className="px-4 font-black uppercase transition-all duration-200 flex items-center gap-1 focus:outline-none"
                     style={{
-                      height: '40px',
+                      height: '48px',
                       background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
                       border: '2px solid #2a2a2a',
                       borderRadius: '4px',
-                      fontSize: '10px',
+                      fontSize: '15px',
                       letterSpacing: '0.5px',
                       fontWeight: '900',
                       color: '#ffaa55',
                       boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.9)',
                     }}
                   >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
                     </svg>
                     <span>AlgoFlow</span>
@@ -7066,21 +7066,21 @@ Stock Reaction: ${scores.stockReaction}/15`
                     setMobileFlowInitialTab('TRACKER')
                     setIsFlowTrackingOpen(true)
                   }}
-                  className="px-2 text-white font-black uppercase transition-all duration-200 flex items-center gap-1 focus:outline-none"
+                  className="px-4 text-white font-black uppercase transition-all duration-200 flex items-center gap-1 focus:outline-none"
                   style={{
-                    height: '40px',
+                    height: '48px',
                     background: isFlowTrackingOpen && mobileFlowInitialTab === 'TRACKER'
                       ? 'linear-gradient(180deg, #10b981 0%, #059669 100%)'
                       : 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
                     border: isFlowTrackingOpen && mobileFlowInitialTab === 'TRACKER' ? '2px solid #10b981' : '2px solid #2a2a2a',
                     borderRadius: '4px',
-                    fontSize: '10px',
+                    fontSize: '15px',
                     letterSpacing: '0.5px',
                     fontWeight: '900',
                     boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.9)',
                   }}
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={isFlowTrackingOpen && mobileFlowInitialTab === 'TRACKER' ? '#000' : '#10b981'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isFlowTrackingOpen && mobileFlowInitialTab === 'TRACKER' ? '#000' : '#10b981'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
                   <span>A+ Tracker</span>
@@ -7115,102 +7115,6 @@ Stock Reaction: ${scores.stockReaction}/15`
                   onHistory={loadFlowHistory}
                   onClear={onClearData}
                 />
-
-                {/* Save Button */}
-
-                <button
-                  onClick={handleSaveFlow}
-                  disabled={savingFlow || !data || data.length === 0}
-                  className={`hidden md:flex px-2 text-white font-black uppercase transition-all duration-200 items-center gap-1 focus:outline-none ${savingFlow || !data || data.length === 0
-                    ? 'cursor-not-allowed opacity-40'
-                    : 'hover:scale-[1.02] active:scale-[0.98]'
-                    }`}
-                  style={{
-                    height: '40px',
-
-                    background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 50%, #000000 100%)',
-
-                    border: '2px solid #3b82f6',
-
-                    borderRadius: '4px',
-
-                    fontSize: '10px',
-
-                    letterSpacing: '0.5px',
-
-                    fontWeight: '900',
-
-                    boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.9)',
-                  }}
-                >
-                  {savingFlow ? (
-                    <svg
-                      className="w-3 h-3 text-blue-400 animate-spin"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      ></circle>
-
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                      ></path>
-                    </svg>
-                  ) : (
-                    <svg
-                      className="w-3 h-3 text-blue-400"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                      strokeWidth={2.5}
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"
-                      />
-                    </svg>
-                  )}
-
-                  <span
-                    style={{
-                      color:
-                        saveStatus === 'success'
-                          ? '#22c55e'
-                          : saveStatus === 'error'
-                            ? '#ef4444'
-                            : undefined,
-                    }}
-                  >
-                    {savingFlow
-                      ? 'Saving...'
-                      : saveStatus === 'success'
-                        ? 'Saved'
-                        : saveStatus === 'error'
-                          ? 'Error'
-                          : 'Save'}
-                  </span>
-                </button>
-                {saveStatus === 'error' && saveErrorMsg && (
-                  <span
-                    style={{
-                      fontSize: '9px',
-                      color: '#ef4444',
-                      maxWidth: '120px',
-                      lineHeight: 1.2,
-                    }}
-                  >
-                    {saveErrorMsg}
-                  </span>
-                )}
 
                 {/* History Button */}
 
@@ -7286,7 +7190,7 @@ Stock Reaction: ${scores.stockReaction}/15`
               always uses the mobile-style row above instead) */}
 
           <div
-            className={isSidebarPanel ? 'hidden' : 'hidden md:block'}
+            className={isSidebarPanel ? 'block' : 'hidden md:block'}
             style={{
               width: '100%',
 
@@ -7729,74 +7633,6 @@ Stock Reaction: ${scores.stockReaction}/15`
                     onHistory={loadFlowHistory}
                     onClear={onClearData}
                   />
-
-                  {/* Save Button - Desktop Only */}
-
-                  <button
-                    onClick={handleSaveFlow}
-                    disabled={savingFlow || !data || data.length === 0}
-                    title={savingFlow ? 'Saving...' : saveStatus === 'success' ? 'Saved!' : saveStatus === 'error' ? 'Error saving' : 'Save Flow'}
-                    className={`toolbar-btn-save${saveStatus === 'success' ? ' tb-save-success' : ''} hidden md:flex items-center gap-2 justify-center transition-all duration-150 focus:outline-none ${savingFlow || !data || data.length === 0 ? 'cursor-not-allowed opacity-40' : ''}${!isAdmin ? ' !hidden' : ''}`}
-                    style={{
-                      height: tbH || '42px',
-                      padding: tbPad || '0 12px',
-                      background: saveStatus === 'success' ? 'linear-gradient(180deg, rgba(34,197,94,0.22) 0%, rgba(34,197,94,0.06) 55%, rgba(0,0,0,0.2) 100%)' : saveStatus === 'error' ? 'linear-gradient(180deg, rgba(239,68,68,0.22) 0%, rgba(239,68,68,0.06) 55%, rgba(0,0,0,0.2) 100%)' : 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)',
-                      border: saveStatus === 'success' ? '1px solid #22c55e' : saveStatus === 'error' ? '1px solid #ef4444' : '1px solid #3b82f6',
-                      borderRadius: '7px',
-                      cursor: savingFlow || !data || data.length === 0 ? 'not-allowed' : 'pointer',
-                      transition: 'all 0.15s ease',
-                      color: saveStatus === 'success' ? '#22c55e' : saveStatus === 'error' ? '#ef4444' : '#3b82f6',
-                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.5)',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!savingFlow && data && data.length > 0) {
-                        e.currentTarget.style.borderColor = 'rgba(59,130,246,1)'
-                        e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.6), 0 0 14px rgba(59,130,246,0.35)'
-                        e.currentTarget.style.background = 'linear-gradient(180deg, rgba(59,130,246,0.28) 0%, rgba(59,130,246,0.08) 55%, rgba(0,0,0,0.15) 100%)'
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (saveStatus !== 'success' && saveStatus !== 'error') {
-                        e.currentTarget.style.borderColor = '#3b82f6'
-                        e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.6), 0 2px 6px rgba(0,0,0,0.5)'
-                        e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.3) 100%)'
-                      }
-                    }}
-                  >
-                    <span className="tb-icon" style={{ display: 'flex', alignItems: 'center' }}>
-                      {savingFlow ? (
-                        <svg className="animate-spin" width="17" height="17" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                          <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                        </svg>
-                      ) : saveStatus === 'success' ? (
-                        <svg width="17" height="17" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.8} strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M5 13l4 4L19 7" />
-                        </svg>
-                      ) : saveStatus === 'error' ? (
-                        <svg width="17" height="17" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.8} strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      ) : (
-                        <svg width="17" height="17" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-                        </svg>
-                      )}
-                    </span>
-                    <span style={{ fontWeight: 900, color: saveStatus === 'success' ? '#22c55e' : saveStatus === 'error' ? '#ef4444' : undefined }}>{savingFlow ? 'Saving' : saveStatus === 'success' ? 'Saved' : saveStatus === 'error' ? 'Error' : 'Save'}</span>
-                  </button>
-                  {saveStatus === 'error' && saveErrorMsg && (
-                    <span
-                      style={{
-                        fontSize: '9px',
-                        color: '#ef4444',
-                        maxWidth: '120px',
-                        lineHeight: 1.2,
-                      }}
-                    >
-                      {saveErrorMsg}
-                    </span>
-                  )}
 
                   {/* History Button - Desktop Only */}
 

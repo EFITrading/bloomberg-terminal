@@ -3261,32 +3261,6 @@ nav,
     overflow: hidden !important;
 }
 
-/* Toned Theme */
-body.theme-toned .nav-center {
-    background: linear-gradient(135deg, #0d0d0d 0%, #1a0e04 25%, #7a4010 65%, #c4a070 100%) !important;
-    border-color: #6b3010 !important;
-    box-shadow: 0 2px 14px rgba(20, 8, 0, 0.55), inset 0 1px 0 rgba(255, 200, 120, 0.15) !important;
-}
-
-body.theme-toned .nav-center a,
-body.theme-toned .nav-center a span {
-    color: #fff8ee !important;
-    -webkit-text-fill-color: #fff8ee !important;
-}
-
-body.theme-toned .nav-center a[style*="color: rgb(255, 133, 0)"],
-body.theme-toned .nav-center a[style*="color: rgb(255, 133, 0)"] span {
-    color: #FF8500 !important;
-    -webkit-text-fill-color: #FF8500 !important;
-}
-
-body.theme-toned .ticker-scroller-container {
-    background: linear-gradient(180deg, #c8a878 0%, #b89660 100%);
-    border-bottom-color: #8a6838 !important;
-    border-top: 1px solid #d4b880 !important;
-    box-shadow: inset 0 1px 0 rgba(255, 240, 200, 0.4) !important;
-}
-
 /* Hide ticker scroller on mobile devices, show on desktop only */
 @media (max-width: 1024px) {
     .ticker-scroller-container {

@@ -1,5 +1,9 @@
 ﻿'use client'
+import AlgoFlowScreener from '@/components/AlgoFlowScreener'
+import { getDatesList as getFlowDatesList, loadDateTrades as loadFlowDateTrades } from '@/lib/flowDataCache'
+import AlertsPanelView from './AlertsPanelView'
 
+import { getUserTimezone } from '@/lib/userTimezone'
 import { createPortal } from 'react-dom'
 import { flushSync } from 'react-dom'
 import {
@@ -69,7 +73,6 @@ import {
   TimeframeAnalysis,
 } from '../../lib/industryAnalysisService'
 import { useEFIChartingMobile } from './useEFIChartingMobile'
-import { TradeModeButton } from './TradeModeButton'
 import {
   getDaysUntilExpiration,
   getExpirationDates,
@@ -92,12 +95,10 @@ import AlmanacDailyChart from '../analytics/AlmanacDailyChart'
 import HorizontalMonthlyReturns from '../analytics/HorizontalMonthlyReturns'
 import IVRRGAnalytics from '../analytics/IVRRGAnalytics'
 import DealerClusterScreener from '../analytics/DealerClusterScreener'
-import AlgoFlowScreener from '../AlgoFlowScreener'
 import GexPanel from '../analytics/GexPanel'
 import GEXTimelineScrubber from '../analytics/GEXTimelineScrubber'
 import RRGAnalytics from '../analytics/RRGAnalytics'
 import StraddleTownScreener from '../analytics/StraddleTownScreener'
-import ScreenersPanel from '../analytics/ScreenersPanel'
 import SeasonalityChart from '../analytics/SeasonalityChart'
 import PerformanceDashboard from '../charts/PerformanceDashboard'
 import GuideChatbot from '../chatbot/GuideChatbot'
@@ -638,6 +639,7 @@ const TRADINGVIEW_TIMEFRAMES = [
   { label: '30m', value: '30m', lookback: 180 }, // 180 days for 30-minute data
   { label: '1H', value: '1h', lookback: 365 }, // 1 year for hourly data
   { label: '4H', value: '4h', lookback: 1095 }, // 3 years for 4-hour data
+  { label: '24H', value: '24h', lookback: 1095 },
   { label: '1D', value: '1d', lookback: 5475 }, // 15 years for daily data (like TradingView Pro)
   { label: '1W', value: '1w', lookback: 7300 }, // 20 years for weekly data
   { label: '1M', value: '1mo', lookback: 10950 }, // 30 years for monthly data
@@ -4505,7 +4507,6 @@ interface TradingViewChartProps {
   onTimeframeChange?: (timeframe: string) => void
   lwToolbarPosition?: 'top' | 'left'
   lwNavyButtonTheme?: boolean
-  showTradeModeButton?: boolean
   disableSidebarAutoScan?: boolean
   hideDesktopSidebar?: boolean
   compactToolbar?: boolean
@@ -6027,6 +6028,7 @@ const FlowPanel = React.memo(
     setFlowStreamError: (error: string) => void
     setActiveSidebarPanel: (panel: string | null) => void
   }) => {
+    const [showAlgoFlow, setShowAlgoFlow] = useState<boolean>(false)
     const [retryCount, setRetryCount] = useState<number>(0)
     const [isStreamComplete, setIsStreamComplete] = useState<boolean>(false)
     const isStreamCompleteRef = useRef<boolean>(false)
@@ -6046,6 +6048,49 @@ const FlowPanel = React.memo(
       requireManual: true,
     })
     // ─────────────────────────────────────────────────────────────────────────
+
+    // Off-hours: auto-load the last trading day's saved flow from the DB (same as the options-flow page)
+    useEffect(() => {
+      if (isLiveMode) return
+      let cancelled = false
+      ;(async () => {
+        try {
+          const savedDates = await getFlowDatesList()
+          if (cancelled || savedDates.length === 0) return
+          const isTrading = (ds: string) => {
+            const dow = new Date(ds + 'T12:00:00Z').getUTCDay()
+            return dow >= 1 && dow <= 5
+          }
+          const lastSavedDate = savedDates
+            .map((d: { date: string }) => new Date(d.date).toISOString().split('T')[0])
+            .sort((a: string, b: string) => b.localeCompare(a))
+            .find(isTrading)
+          if (!lastSavedDate) return
+          const trades: any[] = await loadFlowDateTrades(lastSavedDate)
+          if (cancelled || trades.length === 0) return
+          setFlowData((prev: any[]) => (prev.length > 0 ? prev : trades))
+          setFlowSummary({
+            total_trades: trades.length,
+            total_premium: trades.reduce((s: number, x: any) => s + (x.total_premium || 0), 0),
+            unique_symbols: new Set(trades.map((x: any) => x.underlying_ticker)).size,
+            trade_types: {
+              BLOCK: trades.filter((x: any) => x.trade_type === 'BLOCK').length,
+              SWEEP: trades.filter((x: any) => x.trade_type === 'SWEEP').length,
+              MINI: trades.filter((x: any) => x.trade_type === 'MINI').length,
+              'MULTI-LEG': trades.filter((x: any) => x.trade_type === 'MULTI-LEG').length,
+            },
+            call_put_ratio: {
+              calls: trades.filter((x: any) => x.type?.toLowerCase() === 'call').length,
+              puts: trades.filter((x: any) => x.type?.toLowerCase() === 'put').length,
+            },
+            processing_time_ms: 0,
+          })
+          setFlowMarketInfo({ status: 'LAST_TRADING_DAY', is_live: false, data_date: lastSavedDate, market_open: false })
+        } catch { /* leave empty; manual scan still available */ }
+      })()
+      return () => { cancelled = true }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isLiveMode])
 
     // Close the active flow EventSource when this panel unmounts
     useEffect(() => {
@@ -6320,6 +6365,14 @@ const FlowPanel = React.memo(
       })
     }, [setFlowData, setFlowSummary])
 
+    if (showAlgoFlow) {
+      return (
+        <div className="h-full flex flex-col bg-black text-white overflow-auto">
+          <AlgoFlowScreener onBack={() => setShowAlgoFlow(false)} />
+        </div>
+      )
+    }
+
     return (
       <div className="h-full flex flex-col bg-black text-white">
         {/* Panel Header */}
@@ -6344,27 +6397,6 @@ const FlowPanel = React.memo(
               >
                 {liveConnected ? `⬤ LIVE ${liveTradeCount > 0 ? liveTradeCount : ''}` : '⬤ CONNECTING'}
               </span>
-            )}
-            {!isLiveMode && (
-              <button
-                onClick={() => setManualLiveMode(true)}
-                className="absolute right-3 top-1/2 -translate-y-1/2"
-                style={{
-                  fontSize: '12px',
-                  fontWeight: '800',
-                  letterSpacing: '0.05em',
-                  padding: '5px 14px',
-                  borderRadius: '6px',
-                  border: '1px solid #00cc44',
-                  color: '#fff',
-                  background: 'linear-gradient(180deg, #00e64d 0%, #00aa33 50%, #008a28 100%)',
-                  boxShadow: '0 0 10px rgba(0,204,68,0.5), inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -1px 0 rgba(0,0,0,0.3)',
-                  textShadow: '0 1px 2px rgba(0,0,0,0.5)',
-                  cursor: 'pointer',
-                }}
-              >
-                STREAM FLOW
-              </button>
             )}
           </div>
           <button
@@ -6401,6 +6433,7 @@ const FlowPanel = React.memo(
             summary={flowSummary}
             marketInfo={flowMarketInfo}
             loading={flowLoading}
+            onAlgoFlowClick={() => setShowAlgoFlow(true)}
             onRefresh={handleRefresh}
             onClearData={handleClearData}
             onDataUpdate={setFlowData}
@@ -6490,7 +6523,6 @@ export default function TradingViewChart({
   onTimeframeChange,
   lwToolbarPosition = 'top',
   lwNavyButtonTheme = false,
-  showTradeModeButton = false,
   disableSidebarAutoScan = false,
   hideDesktopSidebar = false,
   compactToolbar = false,
@@ -6690,7 +6722,7 @@ export default function TradingViewChart({
                 hour: '2-digit',
                 minute: '2-digit',
                 hour12: false,
-                timeZone: 'America/Los_Angeles',
+                timeZone: getUserTimezone(),
               }),
             }
             return [...prev, newBar]
@@ -6826,25 +6858,6 @@ export default function TradingViewChart({
   }
   const configSnapshotRef = useRef<ChartConfig | null>(null)
   const [selectedTheme, setSelectedTheme] = useState<string>('default')
-  useEffect(() => {
-    if (selectedTheme === 'toned') {
-      document.body.classList.add('theme-toned')
-      setConfig(prev => ({
-        ...prev,
-        backgroundColor: '#f0e4cc',
-        gridLineColor: '#d8c8a8',
-        colors: {
-          bullish: { body: '#00F55A', wick: '#00F55A', border: '#00F55A' },
-          bearish: { body: '#FF0000', wick: '#FF0000', border: '#FF0000' },
-          volume: { bullish: '#00F55A', bearish: '#FF0000' },
-        },
-      }))
-    } else {
-      // Remove toned body class; other themes set their own config via onClick
-      document.body.classList.remove('theme-toned')
-    }
-    return () => { document.body.classList.remove('theme-toned') }
-  }, [selectedTheme])
   // isMounted guard for portal (avoids document access during SSR)
 
   // isMobile — true after mount if viewport < 768px. Avoids typeof window in JSX render path.
@@ -6868,8 +6881,6 @@ export default function TradingViewChart({
   const [seaxSmartSection, setSeaxSmartSection] = useState<'perf' | 'events' | null>(null)
   const [isMobileFlowsOpen, setIsMobileFlowsOpen] = useState(false)
 
-  // Trade Mode layout toggle
-  const [tradeModeActive, setTradeModeActive] = useState(false)
 
   // Dropdown positioning state
   const [dropdownPositions, setDropdownPositions] = useState({
@@ -6895,7 +6906,7 @@ export default function TradingViewChart({
 
   useEffect(() => {
     if (!isMobile || !isMounted) return
-    const mobileTfListLocal: [string, string][] = [['5m', '5M'], ['15m', '15M'], ['30m', '30M'], ['1h', '1H'], ['4h', '4H'], ['1d', 'D'], ['1w', 'W'], ['1mo', 'M'], ['1y', '1Y']]
+    const mobileTfListLocal: [string, string][] = [['5m', '5M'], ['15m', '15M'], ['30m', '30M'], ['1h', '1H'], ['4h', '4H'], ['1d', 'D'], ['1w', 'W'], ['1mo', 'M']]
     const idx = mobileTfListLocal.findIndex(([v]) => v === config.timeframe)
     if (idx >= 0) requestAnimationFrame(() => {
       if (mobileTfScrollRef.current) mobileTfScrollRef.current.scrollTop = idx * 18
@@ -8874,13 +8885,13 @@ export default function TradingViewChart({
             label = date.toLocaleTimeString([], {
               hour: '2-digit',
               minute: '2-digit',
-              timeZone: 'America/Los_Angeles',
+              timeZone: getUserTimezone(),
             })
           } else if (pdTimeframe === '1W') {
             label = date.toLocaleDateString([], {
               month: 'numeric',
               day: 'numeric',
-              timeZone: 'America/Los_Angeles',
+              timeZone: getUserTimezone(),
             })
           } else {
             label = date.toLocaleDateString([], { month: 'short', day: 'numeric' })
@@ -8931,8 +8942,8 @@ export default function TradingViewChart({
         const date = new Date(point.timestamp)
         const xText =
           pdTimeframe === '1D'
-            ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Los_Angeles' })
-            : date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' })
+            ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: getUserTimezone() })
+            : date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric', timeZone: getUserTimezone() })
         ctx.fillStyle = '#ff6600'
         ctx.textAlign = 'center'
         const xWidth = ctx.measureText(xText).width
@@ -11785,9 +11796,6 @@ export default function TradingViewChart({
   // Timeframe dropdown state
   const [isTimeframeDropdownOpen, setIsTimeframeDropdownOpen] = useState(false)
   const timeframeButtonRef = useRef<HTMLButtonElement>(null)
-  const [showCustomTimeframeInput, setShowCustomTimeframeInput] = useState(false)
-  const [customTimeframeValue, setCustomTimeframeValue] = useState('')
-  const [customTimeframeLabel, setCustomTimeframeLabel] = useState('')
 
   // Mobile secondary bar scrollers
   const mobileTickerScrollRef = useRef<HTMLDivElement>(null)
@@ -11808,7 +11816,7 @@ export default function TradingViewChart({
   const mobileScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const MOBILE_ITEM_H = 18
   const MOBILE_MAG7 = ['SPY', 'QQQ', 'AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'META', 'AMZN', 'DXY', 'VIX', 'IWM']
-  const mobileTfList: [string, string][] = [['5m', '5M'], ['15m', '15M'], ['30m', '30M'], ['1h', '1H'], ['4h', '4H'], ['1d', 'D'], ['1w', 'W'], ['1mo', 'M'], ['1y', '1Y']]
+  const mobileTfList: [string, string][] = [['5m', '5M'], ['15m', '15M'], ['30m', '30M'], ['1h', '1H'], ['4h', '4H'], ['1d', 'D'], ['1w', 'W'], ['1mo', 'M']]
 
   // Flow chart resize handlers
   const handleFlowChartDragStart = useCallback((e: React.MouseEvent) => {
@@ -16009,7 +16017,7 @@ export default function TradingViewChart({
                   hour: '2-digit',
                   minute: '2-digit',
                   hour12: false,
-                  timeZone: 'America/Los_Angeles',
+                  timeZone: getUserTimezone(),
                 }),
               }
             })
@@ -16172,7 +16180,7 @@ export default function TradingViewChart({
                   hour: '2-digit',
                   minute: '2-digit',
                   hour12: false,
-                  timeZone: 'America/Los_Angeles',
+                  timeZone: getUserTimezone(),
                 }),
               })
             }
@@ -16265,7 +16273,7 @@ export default function TradingViewChart({
                 hour: '2-digit',
                 minute: '2-digit',
                 hour12: false,
-                timeZone: 'America/Los_Angeles',
+                timeZone: getUserTimezone(),
               }),
             }
           }
@@ -16377,7 +16385,7 @@ export default function TradingViewChart({
           hour: '2-digit',
           minute: '2-digit',
           hour12: false,
-          timeZone: 'America/Los_Angeles',
+          timeZone: getUserTimezone(),
         }),
       }
 
@@ -16581,8 +16589,8 @@ export default function TradingViewChart({
         //   axisTop  = height - timeAxisHeight (timeAxisHeight = 35)
         //   labelY   = axisTop + 16  (drawTimeAxis uses default alphabetic baseline)
         //   textBaseline here = 'alphabetic' to match drawTimeAxis exactly
-        const isIntradayTimeframe = ['1m', '5m', '15m', '30m', '1h', '60m', '4h'].includes(config.timeframe)
-        const dateText = isIntradayTimeframe ? `${_ci.time}` : _ci.date
+        const isIntradayTimeframe = /^\d+[mh]$/.test(config.timeframe)
+        const dateText = isIntradayTimeframe ? `${_ci.date} ${_ci.time}` : _ci.date
         const dateTextWidth = ctx.measureText(dateText).width + 16
         const dateX = _crosshair.x
 
@@ -18591,7 +18599,7 @@ export default function TradingViewChart({
               if (tooClose) { continue }
 
               const timeLbl = pt.date.toLocaleTimeString('en-US', {
-                timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit', hour12: true,
+                timeZone: getUserTimezone(), hour: 'numeric', minute: '2-digit', hour12: true,
               })
               // Check overlap with previously placed TIME labels only
               const tw = ctx.measureText(timeLbl).width
@@ -21440,20 +21448,20 @@ export default function TradingViewChart({
             hour: 'numeric',
             minute: '2-digit',
             hour12: true,
-            timeZone: 'America/Los_Angeles',
+            timeZone: getUserTimezone(),
           })
           break
         case 'datetime':
           const dateStr = date.toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
-            timeZone: 'America/Los_Angeles',
+            timeZone: getUserTimezone(),
           })
           const timeStr = date.toLocaleTimeString('en-US', {
             hour: 'numeric',
             minute: '2-digit',
             hour12: true,
-            timeZone: 'America/Los_Angeles',
+            timeZone: getUserTimezone(),
           })
 
           // Show date + time only when day changes, otherwise just time
@@ -21468,28 +21476,28 @@ export default function TradingViewChart({
           label = date.toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
-            timeZone: 'America/Los_Angeles',
+            timeZone: getUserTimezone(),
           })
           break
         case 'monthday':
           label = date.toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
-            timeZone: 'America/Los_Angeles',
+            timeZone: getUserTimezone(),
           })
           break
         case 'monthyear':
           label = date.toLocaleDateString('en-US', {
             month: 'short',
             year: 'numeric',
-            timeZone: 'America/Los_Angeles',
+            timeZone: getUserTimezone(),
           })
           break
         case 'year':
           label = date
             .toLocaleDateString('en-US', {
               year: 'numeric',
-              timeZone: 'America/Los_Angeles',
+              timeZone: getUserTimezone(),
             })
             .split(',')[0]
           break
@@ -21497,7 +21505,7 @@ export default function TradingViewChart({
           label = date.toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
-            timeZone: 'America/Los_Angeles',
+            timeZone: getUserTimezone(),
           })
       }
 
@@ -21632,7 +21640,7 @@ export default function TradingViewChart({
         let sRunningTs = lastDataTs
         let sBarCount = 0  // actual bar count on screen (for x position)
         let sDayCount = 0  // how many trading days forward we've moved
-        let sLastDayStr = new Date(lastDataTs).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' })
+        let sLastDayStr = new Date(lastDataTs).toLocaleDateString('en-US', { timeZone: getUserTimezone(), year: 'numeric', month: '2-digit', day: '2-digit' })
         let sLastLabelX = lastDataX // track last label to avoid overlap with historical
 
         // For time labels within a day: place every N bars depending on timeframe
@@ -21659,7 +21667,7 @@ export default function TradingViewChart({
           const futureX = Math.round(lastDataX + sBarCount * candleSpacing)
           if (futureX > width - 10) break
 
-          const dayStr = new Date(sRunningTs).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' })
+          const dayStr = new Date(sRunningTs).toLocaleDateString('en-US', { timeZone: getUserTimezone(), year: 'numeric', month: '2-digit', day: '2-digit' })
           const isNewDay = dayStr !== sLastDayStr
 
           if (isNewDay) {
@@ -21670,7 +21678,7 @@ export default function TradingViewChart({
           } else if (sRunningTs >= sNextTimeLabelTs) {
             // Place a time label within the day
             const timeLabel = new Date(sRunningTs).toLocaleTimeString('en-US', {
-              timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit', hour12: true,
+              timeZone: getUserTimezone(), hour: 'numeric', minute: '2-digit', hour12: true,
             })
             addLabel(futureX, timeLabel, true)
             sNextTimeLabelTs = sRunningTs + timeIntervalMs
@@ -23059,12 +23067,13 @@ export default function TradingViewChart({
           month: 'short',
           day: 'numeric',
           year: 'numeric',
-          timeZone: 'America/Los_Angeles',
+          timeZone: getUserTimezone(),
         })
         const timeStr = date.toLocaleTimeString('en-US', {
-          hour: '2-digit',
+          hour: 'numeric',
           minute: '2-digit',
-          timeZone: 'America/Los_Angeles',
+          hour12: true,
+          timeZone: getUserTimezone(),
         })
 
         const nextCrosshairInfo = {
@@ -24277,7 +24286,7 @@ export default function TradingViewChart({
         setShowPATPanel(false)
       } else {
         setActiveSidebarPanel(null)
-        setPatPanelActiveTab(id as 'alerts' | 'plan' | 'insight' | 'screeners')
+        setPatPanelActiveTab(id as 'alerts' | 'plan')
         setShowPATPanel(true)
       }
     } else {
@@ -25527,7 +25536,7 @@ export default function TradingViewChart({
                                             return date.toLocaleDateString('en-US', {
                                               month: 'numeric',
                                               day: 'numeric',
-                                              timeZone: 'America/Los_Angeles',
+                                              timeZone: getUserTimezone(),
                                             })
                                           }
 
@@ -27125,19 +27134,19 @@ export default function TradingViewChart({
                                                 hour: 'numeric',
                                                 minute: '2-digit',
                                                 hour12: true,
-                                                timeZone: 'America/Los_Angeles',
+                                                timeZone: getUserTimezone(),
                                               })
                                             } else if (currentTimeframe === '5D') {
                                               return date.toLocaleDateString('en-US', {
                                                 month: 'numeric',
                                                 day: 'numeric',
-                                                timeZone: 'America/Los_Angeles',
+                                                timeZone: getUserTimezone(),
                                               })
                                             } else {
                                               return date.toLocaleDateString('en-US', {
                                                 month: 'short',
                                                 day: 'numeric',
-                                                timeZone: 'America/Los_Angeles',
+                                                timeZone: getUserTimezone(),
                                               })
                                             }
                                           }
@@ -27509,19 +27518,19 @@ export default function TradingViewChart({
                                                 hour: 'numeric',
                                                 minute: '2-digit',
                                                 hour12: true,
-                                                timeZone: 'America/Los_Angeles',
+                                                timeZone: getUserTimezone(),
                                               })
                                             } else if (currentTimeframe === '5D') {
                                               return date.toLocaleDateString('en-US', {
                                                 month: 'numeric',
                                                 day: 'numeric',
-                                                timeZone: 'America/Los_Angeles',
+                                                timeZone: getUserTimezone(),
                                               })
                                             } else {
                                               return date.toLocaleDateString('en-US', {
                                                 month: 'short',
                                                 day: 'numeric',
-                                                timeZone: 'America/Los_Angeles',
+                                                timeZone: getUserTimezone(),
                                               })
                                             }
                                           }
@@ -27806,19 +27815,19 @@ export default function TradingViewChart({
                                               hour: 'numeric',
                                               minute: '2-digit',
                                               hour12: true,
-                                              timeZone: 'America/Los_Angeles',
+                                              timeZone: getUserTimezone(),
                                             })
                                           } else if (currentTimeframe === '5D') {
                                             return date.toLocaleDateString('en-US', {
                                               month: 'numeric',
                                               day: 'numeric',
-                                              timeZone: 'America/Los_Angeles',
+                                              timeZone: getUserTimezone(),
                                             })
                                           } else {
                                             return date.toLocaleDateString('en-US', {
                                               month: 'short',
                                               day: 'numeric',
-                                              timeZone: 'America/Los_Angeles',
+                                              timeZone: getUserTimezone(),
                                             })
                                           }
                                         }
@@ -28151,19 +28160,19 @@ export default function TradingViewChart({
                                               hour: 'numeric',
                                               minute: '2-digit',
                                               hour12: true,
-                                              timeZone: 'America/Los_Angeles',
+                                              timeZone: getUserTimezone(),
                                             })
                                           } else if (currentTimeframe === '5D') {
                                             return date.toLocaleDateString('en-US', {
                                               month: 'numeric',
                                               day: 'numeric',
-                                              timeZone: 'America/Los_Angeles',
+                                              timeZone: getUserTimezone(),
                                             })
                                           } else {
                                             return date.toLocaleDateString('en-US', {
                                               month: 'short',
                                               day: 'numeric',
-                                              timeZone: 'America/Los_Angeles',
+                                              timeZone: getUserTimezone(),
                                             })
                                           }
                                         }
@@ -30496,122 +30505,6 @@ export default function TradingViewChart({
  clip-path: polygon(0 0, calc(100% - 4px) 0, 100% 4px, 100% 100%, 4px 100%, 0 calc(100% - 4px));
  }
 
- /* ═══════════════════════════════════════════════════
-    TONED THEME
-    Swiss Coffee — warm off-white, soft depth,
-    accent colors preserved on icons/active states.
-    ═══════════════════════════════════════════════════ */
-
- /* Top bar + nav */
- [data-theme="toned"] .navigation-bar-premium,
- body.theme-toned .navigation-bar-premium {
- background: linear-gradient(180deg, #e8d4b8 0%, #d8c4a0 100%) !important;
- border-color: #b89870 !important;
- box-shadow: 0 1px 0 #f0e4cc inset, 0 2px 8px rgba(80,50,20,0.18), 0 0 0 1px rgba(200,160,100,0.15) !important;
- }
- body.theme-toned .nav {
- background: linear-gradient(180deg, #e8d4b8 0%, #d8c4a0 100%) !important;
- border-bottom-color: #b89870 !important;
- box-shadow: 0 2px 8px rgba(80,50,20,0.15) !important;
- }
- body.theme-toned .nav a,
- body.theme-toned .nav span,
- body.theme-toned .nav button {
- color: #1e1208 !important;
- }
-
- /* Sidebar container */
- [data-theme="toned"] .sidebar-container,
- body.theme-toned .sidebar-container {
- background: linear-gradient(180deg, #ead8bc 0%, #d8c4a0 100%) !important;
- border-right: 1px solid #b89870 !important;
- box-shadow: 2px 0 10px rgba(80,50,20,0.12) !important;
- }
-
- /* Sidebar buttons */
- [data-theme="toned"] .sidebar-container button,
- body.theme-toned .sidebar-container button {
- background: linear-gradient(180deg, #f5e8d0 0%, #e8d4b8 50%, #dcc8a0 100%) !important;
- border: 1px solid #c0a880 !important;
- border-left: 4px solid #a8906a !important;
- box-shadow: 0 1px 3px rgba(80,50,20,0.14), inset 0 1px 0 rgba(255,248,235,0.9), inset 0 -1px 0 rgba(80,50,20,0.06) !important;
- }
- [data-theme="toned"] .sidebar-container button:hover,
- body.theme-toned .sidebar-container button:hover {
- background: linear-gradient(180deg, #fdf0d8 0%, #f0e0c0 100%) !important;
- border-color: #9a7848 !important;
- box-shadow: 0 3px 12px rgba(80,50,20,0.18), inset 0 1px 0 rgba(255,252,240,1), inset 0 -1px 0 rgba(80,50,20,0.05) !important;
- }
-
- /* Sidebar label text */
- [data-theme="toned"] .sidebar-container button .sidebar-label,
- body.theme-toned .sidebar-container button .sidebar-label {
- color: #1e1208 !important;
- text-shadow: none !important;
- }
- /* Icons keep accent colors — only mobile text label gets darkened */
- body.theme-toned .sidebar-container button > span.md\\:hidden {
- color: #1e1208 !important;
- }
-
- /* Toolbar btn-3d-carved */
- body.theme-toned .btn-3d-carved {
- background: linear-gradient(180deg, #f5e8d0 0%, #e8d4b8 50%, #dcc8a0 100%) !important;
- border: 1px solid #c0a880 !important;
- color: #1e1208 !important;
- box-shadow: 0 1px 4px rgba(80,50,20,0.15), inset 0 1px 0 rgba(255,248,235,0.95), inset 0 -1px 0 rgba(80,50,20,0.07) !important;
- }
- body.theme-toned .btn-3d-carved.active {
- background: linear-gradient(180deg, #fff0d8 0%, #fde4c0 50%, #f5d8a8 100%) !important;
- border: 1px solid rgba(255,133,0,0.65) !important;
- border-bottom: 1px solid rgba(200,100,0,0.5) !important;
- color: #b04800 !important;
- box-shadow: 0 0 0 1px rgba(255,133,0,0.22), 0 2px 8px rgba(80,50,20,0.12), inset 0 1px 0 rgba(255,248,235,0.9), inset 0 -1px 0 rgba(200,100,0,0.14) !important;
- }
- body.theme-toned .btn-3d-carved:hover:not(.active) {
- background: linear-gradient(180deg, #fdf4e4 0%, #f0e0c8 100%) !important;
- border: 1px solid #9a7848 !important;
- color: #0e0a04 !important;
- box-shadow: 0 2px 10px rgba(80,50,20,0.18), inset 0 1px 0 rgba(255,252,240,1) !important;
- transform: translateY(-1px) !important;
- }
- body.theme-toned .btn-3d-carved.active:hover {
- background: linear-gradient(180deg, #ffecd0 0%, #fad8b0 100%) !important;
- border: 1px solid rgba(255,133,0,0.8) !important;
- color: #963c00 !important;
- }
- body.theme-toned .btn-3d-carved:active {
- background: linear-gradient(180deg, #d0c0a0 0%, #e0ceb0 100%) !important;
- box-shadow: inset 0 2px 5px rgba(80,50,20,0.16) !important;
- transform: translateY(0) !important;
- }
-
- /* Timeframe + chart-type dropdown containers */
- body.theme-toned .timeframe-dropdown,
- body.theme-toned .chart-type-dropdown {
- background: linear-gradient(180deg, #f5e8d0 0%, #e8d4b8 100%) !important;
- border: 1px solid #c0a880 !important;
- box-shadow: 0 1px 5px rgba(80,50,20,0.12), inset 0 1px 0 rgba(255,248,235,0.9) !important;
- }
-
- /* Symbol search box */
- body.theme-toned .navigation-bar-premium input[type="text"] {
- color: #1e1208 !important;
- }
- body.theme-toned .navigation-bar-premium input[type="text"]::placeholder {
- color: #8a7458 !important;
- }
- body.theme-toned .navigation-bar-premium .relative.flex.items-center > div {
- background: linear-gradient(145deg, #f0e4cc, #e4d4b4) !important;
- border: 1px solid #c0a880 !important;
- border-top-color: #9a7848 !important;
- box-shadow: 0 2px 8px rgba(80,50,20,0.1), inset 0 1px 0 rgba(255,248,235,0.95) !important;
- }
-
- /* Price text */
- body.theme-toned .navigation-bar-premium .font-mono {
- color: #1e1208 !important;
- }
  `,
         }}
       />
@@ -30637,8 +30530,8 @@ export default function TradingViewChart({
               height: isMobile ? '48px' : '48px',
               paddingTop: 0,
               paddingBottom: 0,
-              background: selectedTheme === 'toned' ? 'linear-gradient(180deg, #e8d4b8 0%, #d8c4a0 100%)' : '#000000',
-              borderColor: selectedTheme === 'toned' ? '#c0a882' : '#333333',
+              background: '#000000',
+              borderColor: '#333333',
               boxShadow: 'inset 0 1px 0 rgba(128, 128, 128, 0.1)',
               backdropFilter: 'none',
               overflowX: (isMobile || lwToolbarPosition === 'left' || showPATPanel) ? 'auto' : 'hidden',
@@ -30886,7 +30779,7 @@ export default function TradingViewChart({
                   <span
                     className="font-mono text-xl font-bold leading-tight"
                     style={{
-                      color: selectedTheme === 'toned' ? '#111111' : '#ffffff',
+                      color: '#ffffff',
                       letterSpacing: '0.5px',
                     }}
                   >
@@ -30895,9 +30788,9 @@ export default function TradingViewChart({
                   <span
                     className="font-mono text-xs font-semibold px-2 py-0.5 rounded"
                     style={{
-                      color: priceChangePercent >= 0 ? (selectedTheme === 'toned' ? '#006600' : '#00ff00') : (selectedTheme === 'toned' ? '#cc0000' : '#ff0000'),
-                      background: selectedTheme === 'toned' ? 'transparent' : '#000000',
-                      border: priceChangePercent >= 0 ? (selectedTheme === 'toned' ? '2px solid #006600' : '2px solid #00ff00') : (selectedTheme === 'toned' ? '2px solid #cc0000' : '2px solid #ff0000'),
+                      color: priceChangePercent >= 0 ? ('#00ff00') : ('#ff0000'),
+                      background: '#000000',
+                      border: priceChangePercent >= 0 ? ('2px solid #00ff00') : ('2px solid #ff0000'),
                       letterSpacing: '0.3px',
                       fontWeight: 'bold',
                     }}
@@ -31054,7 +30947,7 @@ export default function TradingViewChart({
                         <button
                           ref={timeframeButtonRef}
                           onClick={() => { const wasOpen = isTimeframeDropdownOpen; closeAllToolbarDropdowns(); if (!wasOpen) setIsTimeframeDropdownOpen(true); }}
-                          className={`btn-3d-carved relative group ${['1m', '30m', '4h', '1w', '1mo', '1y'].includes(config.timeframe) || customTimeframeLabel ? 'active' : ''}`}
+                          className={`btn-3d-carved relative group ${['1m', '15m', '30m', '4h', '24h', '1w', '1mo'].includes(config.timeframe) ? 'active' : ''}`}
                           style={{
                             padding: '12px 12px',
                             fontWeight: '700',
@@ -31066,10 +30959,12 @@ export default function TradingViewChart({
                             gap: '4px',
                           }}
                         >
-                          {customTimeframeLabel ? (
-                            <span>{customTimeframeLabel}</span>
-                          ) : config.timeframe === '1m' ? (
+                          {config.timeframe === '1m' ? (
                             <span>1M</span>
+                          ) : config.timeframe === '15m' ? (
+                            <span>15M</span>
+                          ) : config.timeframe === '24h' ? (
+                            <span>24H</span>
                           ) : config.timeframe === '30m' ? (
                             <span>30M</span>
                           ) : config.timeframe === '4h' ? (
@@ -31078,8 +30973,6 @@ export default function TradingViewChart({
                             <span>W</span>
                           ) : config.timeframe === '1mo' ? (
                             <span>M</span>
-                          ) : config.timeframe === '1y' ? (
-                            <span>1Y</span>
                           ) : (
                             <span></span>
                           )}
@@ -31122,20 +31015,20 @@ export default function TradingViewChart({
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                 {[
                                   { label: '1 Minute (1m)', value: '1m' },
+                                  { label: '15 Minutes (15M)', value: '15m' },
                                   { label: '30 Minutes (30M)', value: '30m' },
                                   { label: '4 Hours (4H)', value: '4h' },
+                                  { label: '24 Hours (24H)', value: '24h' },
                                   { label: 'Weekly (1W)', value: '1w' },
                                   { label: 'Monthly (1M)', value: '1mo' },
-                                  { label: 'Yearly (1Y)', value: '1y' },
                                 ].map((tf) => (
                                   <button
                                     key={tf.value}
                                     onClick={() => {
-                                      setCustomTimeframeLabel('')
                                       handleTimeframeChange(tf.value)
                                       setIsTimeframeDropdownOpen(false)
                                     }}
-                                    className={`btn-3d-carved ${config.timeframe === tf.value && !customTimeframeLabel ? 'active' : ''}`}
+                                    className={`btn-3d-carved ${config.timeframe === tf.value ? 'active' : ''}`}
                                     style={{
                                       padding: '10px 16px',
                                       fontWeight: '700',
@@ -31148,101 +31041,6 @@ export default function TradingViewChart({
                                     {tf.label}
                                   </button>
                                 ))}
-
-                                {/* Divider */}
-                                <div style={{ borderTop: '1px solid rgba(255,133,0,0.2)', margin: '2px 0' }} />
-
-                                {/* Custom Timeframe */}
-                                <button
-                                  className={`btn-3d-carved ${customTimeframeLabel ? 'active' : ''}`}
-                                  onClick={() => setShowCustomTimeframeInput((v) => !v)}
-                                  style={{
-                                    padding: '10px 16px',
-                                    fontWeight: '700',
-                                    fontSize: '14px',
-                                    textAlign: 'left',
-                                    borderRadius: '4px',
-                                    width: '100%',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    color: customTimeframeLabel ? '#ff8500' : undefined,
-                                  }}
-                                >
-                                  <span>Custom{customTimeframeLabel ? ` (${customTimeframeLabel})` : ''}</span>
-                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d={showCustomTimeframeInput ? 'M18 15l-6-6-6 6' : 'M6 9l6 6 6-6'} />
-                                  </svg>
-                                </button>
-
-                                {showCustomTimeframeInput && (
-                                  <div style={{ padding: '8px 10px', background: '#0a0a0a', borderRadius: '4px', border: '1px solid rgba(255,133,0,0.3)' }}>
-                                    <div style={{ color: '#888', fontSize: '11px', marginBottom: '6px', fontFamily: 'monospace' }}>
-                                      e.g. 2m, 3m, 10m, 2h, 3h, 2d
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '6px' }}>
-                                      <input
-                                        autoFocus
-                                        type="text"
-                                        value={customTimeframeValue}
-                                        onChange={(e) => setCustomTimeframeValue(e.target.value.toLowerCase().replace(/[^0-9a-z]/g, ''))}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter') {
-                                            const v = customTimeframeValue.trim()
-                                            if (v) {
-                                              setCustomTimeframeLabel(v.toUpperCase())
-                                              handleTimeframeChange(v)
-                                              setIsTimeframeDropdownOpen(false)
-                                              setShowCustomTimeframeInput(false)
-                                            }
-                                          } else if (e.key === 'Escape') {
-                                            setShowCustomTimeframeInput(false)
-                                          }
-                                        }}
-                                        placeholder="e.g. 3m"
-                                        style={{
-                                          flex: 1,
-                                          background: '#000',
-                                          border: '1px solid rgba(255,133,0,0.5)',
-                                          borderRadius: '4px',
-                                          color: '#ff8500',
-                                          fontSize: '13px',
-                                          fontWeight: '700',
-                                          fontFamily: 'monospace',
-                                          padding: '6px 8px',
-                                          outline: 'none',
-                                        }}
-                                      />
-                                      <button
-                                        onClick={() => {
-                                          const v = customTimeframeValue.trim()
-                                          if (v) {
-                                            setCustomTimeframeLabel(v.toUpperCase())
-                                            handleTimeframeChange(v)
-                                            setIsTimeframeDropdownOpen(false)
-                                            setShowCustomTimeframeInput(false)
-                                          }
-                                        }}
-                                        className="btn-3d-carved"
-                                        style={{ padding: '6px 12px', fontWeight: '800', fontSize: '12px', borderRadius: '4px', color: customTimeframeValue ? '#ff8500' : '#555' }}
-                                      >
-                                        SET
-                                      </button>
-                                    </div>
-                                    {customTimeframeLabel && (
-                                      <button
-                                        onClick={() => {
-                                          setCustomTimeframeLabel('')
-                                          setCustomTimeframeValue('')
-                                          setShowCustomTimeframeInput(false)
-                                        }}
-                                        style={{ marginTop: '6px', background: 'none', border: 'none', color: '#ff4444', fontSize: '11px', cursor: 'pointer', fontFamily: 'monospace', padding: 0 }}
-                                      >
-                                        ✕ Clear custom
-                                      </button>
-                                    )}
-                                  </div>
-                                )}
                               </div>
                             </div>,
                             document.body
@@ -31287,12 +31085,10 @@ export default function TradingViewChart({
                   className="flex items-center chart-type-dropdown"
                   style={{
                     display: isMobile ? 'none' : undefined,
-                    background: selectedTheme === 'toned' ? 'linear-gradient(180deg, #f5e8d0 0%, #e8d4b8 100%)' : '#000000',
-                    border: selectedTheme === 'toned' ? '1px solid #c0a880' : '1px solid rgba(255,255,255,0.15)',
+                    background: '#000000',
+                    border: '1px solid rgba(255,255,255,0.15)',
                     borderRadius: '4px',
-                    boxShadow: selectedTheme === 'toned'
-                      ? '0 2px 8px rgba(80,60,40,0.13), inset 0 1px 0 rgba(255,253,250,0.9)'
-                      : '0 2px 8px rgba(0,0,0,0.95), inset 0 1px 0 rgba(255,255,255,0.05)',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.95), inset 0 1px 0 rgba(255,255,255,0.05)',
                   }}
                 >
                   {/* Desktop Chart Type Buttons - Hidden on mobile */}
@@ -32263,7 +32059,7 @@ export default function TradingViewChart({
                   >
                     {(isLoadingExpectedRange || isLoadingFutureExpiries || isLoadingPctChance) ? (
                       <>
-                        <span style={{ color: (isExpectedRangeActive || isFutureExpiriesActive || isATRRangeActive || isStdDevRangeActive) ? '#ff8500' : selectedTheme === 'toned' ? '#1e1810' : 'white' }}>{isMobile ? 'ER' : 'Expected Range'}</span>
+                        <span style={{ color: (isExpectedRangeActive || isFutureExpiriesActive || isATRRangeActive || isStdDevRangeActive) ? '#ff8500' : 'white' }}>{isMobile ? 'ER' : 'Expected Range'}</span>
                         <svg
                           className="animate-spin"
                           style={{ width: 15, height: 15, flexShrink: 0, marginLeft: 7, filter: 'drop-shadow(0 0 4px #ffaa00)' }}
@@ -32277,7 +32073,7 @@ export default function TradingViewChart({
                       </>
                     ) : (
                       <>
-                        <span style={{ color: (isExpectedRangeActive || isFutureExpiriesActive || isATRRangeActive || isStdDevRangeActive || isPctChanceActive) ? '#ff8500' : selectedTheme === 'toned' ? '#1e1810' : 'white' }}>{isMobile ? 'ER' : 'Expected Range'}</span>
+                        <span style={{ color: (isExpectedRangeActive || isFutureExpiriesActive || isATRRangeActive || isStdDevRangeActive || isPctChanceActive) ? '#ff8500' : 'white' }}>{isMobile ? 'ER' : 'Expected Range'}</span>
                         {(isExpectedRangeActive || isFutureExpiriesActive || isATRRangeActive || isStdDevRangeActive || isPctChanceActive) ? (
                           <span
                             onClick={(e) => {
@@ -33813,7 +33609,7 @@ export default function TradingViewChart({
                       color: 'white',
                     }}
                   >
-                    <span style={{ color: technalysisActive ? '#ff8500' : selectedTheme === 'toned' ? '#1e1810' : 'white' }}>TECHNALYSIS</span>
+                    <span style={{ color: technalysisActive ? '#ff8500' : 'white' }}>TECHNALYSIS</span>
                     {technalysisActive ? (
                       <button
                         onClick={(e) => {
@@ -35526,8 +35322,6 @@ export default function TradingViewChart({
                 {/* Enhanced Action Buttons */}
                 <div className="flex items-center space-x-4"></div>
 
-                {/* TRADE MODE Button — market overview only */}
-                {showTradeModeButton && !isMobile && <TradeModeButton isActive={tradeModeActive} onClick={() => setTradeModeActive(v => !v)} />}
 
                 {/* GUIDE AI Button - Matches toolbar button style */}
                 <button
@@ -35969,34 +35763,6 @@ export default function TradingViewChart({
                       <span style={{ color: '#ffffff', fontSize: '13px', fontWeight: 700, letterSpacing: '0.04em', textAlign: 'center' }}>Trade Desk</span>
                     </button>
 
-                    {/* Toned — Warm caramel, high-contrast */}
-                    <button
-                      onClick={() => { setSelectedTheme('toned'); setConfig((prev) => ({ ...prev, backgroundColor: '#ffffff', gridLineColor: '#e0e0e0', axisStyle: { xAxis: { ...prev.axisStyle.xAxis, textColor: '#000000' }, yAxis: { ...prev.axisStyle.yAxis, textColor: '#000000' } }, colors: { bullish: { body: '#4ed07e', wick: '#4ed07e', border: '#4ed07e' }, bearish: { body: '#f26969', wick: '#f26969', border: '#f26969' }, volume: { bullish: '#4ed07e', bearish: '#f26969' } } })) }}
-                      className="flex flex-col items-center gap-2 py-3 px-2 rounded-xl transition-all"
-                      style={{ background: 'linear-gradient(180deg, #f5f5f5 0%, #ebebeb 100%)', border: selectedTheme === 'toned' ? '2px solid #ffffff' : '1px solid rgba(0,0,0,0.2)', boxShadow: selectedTheme === 'toned' ? '0 0 16px rgba(255,255,255,0.5), inset 0 1px 0 rgba(255,255,255,0.6)' : '0 2px 8px rgba(0,0,0,0.4)' }}
-                    >
-                      <div className="flex gap-1">
-                        <div style={{ width: '8px', height: '20px', background: '#4ed07e', borderRadius: '2px' }} />
-                        <div style={{ width: '8px', height: '14px', background: '#f26969', borderRadius: '2px', marginTop: '6px' }} />
-                        <div style={{ width: '8px', height: '24px', background: '#4ed07e', borderRadius: '2px' }} />
-                      </div>
-                      <span style={{ color: '#111111', fontSize: '13px', fontWeight: 700, letterSpacing: '0.04em', textAlign: 'center' }}>Toned</span>
-                    </button>
-
-                    {/* Balanced — TradingView style */}
-                    <button
-                      onClick={() => { setSelectedTheme('balanced'); setConfig((prev) => ({ ...prev, backgroundColor: '#1e222d', gridLineColor: '#2a2e39', axisStyle: { xAxis: { ...prev.axisStyle.xAxis, textColor: '#b2b5be' }, yAxis: { ...prev.axisStyle.yAxis, textColor: '#b2b5be' } }, colors: { bullish: { body: '#26a69a', wick: '#26a69a', border: '#26a69a' }, bearish: { body: '#ef5350', wick: '#ef5350', border: '#ef5350' }, volume: { bullish: '#26a69a', bearish: '#ef5350' } } })) }}
-                      className="flex flex-col items-center gap-2 py-3 px-2 rounded-xl transition-all"
-                      style={{ background: 'linear-gradient(180deg, #222633 0%, #1a1e29 100%)', border: selectedTheme === 'balanced' ? '2px solid #9ca3af' : '1px solid rgba(38,166,154,0.35)', boxShadow: selectedTheme === 'balanced' ? '0 0 14px rgba(156,163,175,0.3), inset 0 1px 0 rgba(255,255,255,0.06)' : '0 2px 8px rgba(0,0,0,0.6)' }}
-                    >
-                      <div className="flex gap-1">
-                        <div style={{ width: '8px', height: '20px', background: '#26a69a', borderRadius: '2px' }} />
-                        <div style={{ width: '8px', height: '14px', background: '#ef5350', borderRadius: '2px', marginTop: '6px' }} />
-                        <div style={{ width: '8px', height: '24px', background: '#26a69a', borderRadius: '2px' }} />
-                      </div>
-                      <span style={{ color: '#b2b5be', fontSize: '13px', fontWeight: 700, letterSpacing: '0.04em', textAlign: 'center' }}>Balanced</span>
-                    </button>
-
                   </div>
                 </div>
 
@@ -36065,14 +35831,6 @@ export default function TradingViewChart({
                   {
                     id: 'plan', color: '#A855F7', title: 'Plan',
                     icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm-2 14-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z" /></svg>
-                  },
-                  {
-                    id: 'insight', color: '#C4CBD6', title: 'Insight',
-                    icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.87-3.13-7-7-7zm2 14H10v-1h4v1zm0-3H10v-1h4v1zm-1.25-4.25-.75.44V10h-1v-.81l-.75-.44A3.01 3.01 0 0 1 9 6.5 3 3 0 0 1 12 3.5a3 3 0 0 1 3 3 3.01 3.01 0 0 1-2.25 2.25z" /><rect x="9" y="19" width="6" height="1.5" rx=".75" fill="currentColor" /></svg>
-                  },
-                  {
-                    id: 'screeners', color: '#14B8A6', title: 'Screeners',
-                    icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /><path d="M8 9h3V8H8v1zm0 2h3v-1H8v1zm0 2h3v-1H8v1z" /></svg>
                   },
                 ] as const).map((tab) => {
                   const isActive = showPATPanel && patPanelActiveTab === tab.id
@@ -36592,52 +36350,13 @@ export default function TradingViewChart({
             {/* Main Chart Area — wrapper keeps flex:1 so sidebars never move */}
             <div style={{ flex: 1, position: 'relative', minWidth: 0, height: isMobile ? 'calc(100% - 45px)' : '100%', overflow: 'hidden' }}>
 
-              {/* Trade Mode panels — absolute inside this wrapper */}
-              {tradeModeActive && (
-                <>
-                  {/* Row 1 Col 2 — ODTE-Trio */}
-                  <div style={{ position: 'absolute', left: '50%', top: 0, width: '30%', height: '60%', zIndex: 60, background: '#000', borderLeft: '1px solid #1a1a1a', borderBottom: '1px solid #1a1a1a', overflow: 'hidden' }}>
-                    <GexPanel tradeModeOnly={true} />
-                  </div>
-                  {/* Row 1 Col 3 — Tracking */}
-                  <div style={{ position: 'absolute', left: '80%', top: 0, width: '20%', height: '60%', zIndex: 60, background: '#000', borderLeft: '1px solid #1a1a1a', borderBottom: '1px solid #1a1a1a', overflow: 'hidden', overflowY: 'auto' }}>
-                    <FlowTrackingPanel hideChart={true} />
-                  </div>
-                  {/* Row 2 Col 1 — AlgoFlow */}
-                  <div style={{ position: 'absolute', left: 0, top: '60%', width: '50%', height: '40%', zIndex: 60, background: '#000', borderTop: '1px solid #1a1a1a', overflow: 'hidden', overflowY: 'auto' }}>
-                    <AlgoFlowScreener />
-                  </div>
-                  {/* Row 2 Col 2+3 — OptionsFlow */}
-                  <div style={{ position: 'absolute', left: '50%', top: '40%', width: '50%', height: '60%', zIndex: 60, background: '#000', borderTop: '1px solid #1a1a1a', borderLeft: '1px solid #1a1a1a', overflow: 'hidden', overflowY: 'auto' }}>
-                    <OptionsFlowTable
-                      data={flowData}
-                      summary={flowSummary}
-                      marketInfo={flowMarketInfo}
-                      loading={flowLoading}
-                      onRefresh={() => { }}
-                      onClearData={() => setFlowData([])}
-                      onDataUpdate={setFlowData}
-                      selectedTicker={flowSelectedTicker}
-                      onTickerChange={setFlowSelectedTicker}
-                      streamingStatus={flowStreamingStatus}
-                      streamingProgress={flowStreamingProgress}
-                      streamError={flowStreamError}
-                      useDropdowns={true}
-                      hideFlowTracking={true}
-                      isSidebarPanel={true}
-                      hideCharts={true}
-                    />
-                  </div>
-                </>
-              )}
-
-              {/* Main Chart Canvas — shrinks to 50%×60% in trade mode so axes stay visible */}
+              {/* Main Chart Canvas */}
               <div ref={containerRef} className="relative" style={{
                 position: 'absolute',
                 left: 0,
                 top: 0,
-                width: tradeModeActive ? '50%' : '100%',
-                height: tradeModeActive ? '60%' : '100%',
+                width: '100%',
+                height: '100%',
                 marginRight: (showPATPanel && !isMobile && !hideDesktopSidebar) ? patPanelWidth : 0,
               }}>
                 {/* ── Animated Backgrounds ── */}
@@ -38321,10 +38040,10 @@ export default function TradingViewChart({
                   zIndex: (isMobile || hideDesktopSidebar) ? 99999 : 9999,
                   display: (activeSidebarPanel || showPATPanel) ? 'flex' : 'none',
                   left: (isMobile || hideDesktopSidebar) ? '0px' : (showPATPanel && !isMobile && !hideDesktopSidebar) ? 'auto' : (activeSidebarPanel === 'news' && newsActiveTab === 'calendar') ? '0px' : '84px',
-                  right: (showPATPanel && !isMobile && !hideDesktopSidebar) ? '40px' : (activeSidebarPanel === 'performance' && !isMobile && !hideDesktopSidebar) ? '48px' : 'auto',
+                  right: (showPATPanel && !isMobile && !hideDesktopSidebar) ? '72px' : (activeSidebarPanel === 'performance' && !isMobile && !hideDesktopSidebar) ? '48px' : 'auto',
                   borderLeft: (!isMobile && !hideDesktopSidebar && !showPATPanel) ? '1px solid rgba(255,255,255,0.07)' : undefined,
-                  width: (isMobile || hideDesktopSidebar) ? '100vw' : (showPATPanel ? `${patPanelWidth}px` : (activeSidebarPanel === 'performance' ? 'auto' : (activeSidebarPanel === 'news' && newsActiveTab === 'calendar') ? '100vw' : '1200px')),
-                  maxWidth: (isMobile || hideDesktopSidebar) ? '100vw' : (showPATPanel ? `${patPanelWidth}px` : (activeSidebarPanel === 'performance' ? 'none' : (activeSidebarPanel === 'news' && newsActiveTab === 'calendar') ? '100vw' : '1200px')),
+                  width: (isMobile || hideDesktopSidebar) ? '100vw' : (showPATPanel ? `${patPanelWidth}px` : (activeSidebarPanel === 'performance' ? 'auto' : (activeSidebarPanel === 'news' && newsActiveTab === 'calendar') ? '100vw' : activeSidebarPanel === 'flow' ? 'calc(100vw - 96px)' : '1200px')),
+                  maxWidth: (isMobile || hideDesktopSidebar) ? '100vw' : (showPATPanel ? `${patPanelWidth}px` : (activeSidebarPanel === 'performance' ? 'none' : (activeSidebarPanel === 'news' && newsActiveTab === 'calendar') ? '100vw' : activeSidebarPanel === 'flow' ? 'calc(100vw - 96px)' : '1200px')),
                   borderRadius: (isMobile || hideDesktopSidebar) ? '0px' : '8px',
                   transition: 'max-width 0.3s ease, width 0.3s ease',
                   top: (isMobile || hideDesktopSidebar)
@@ -38506,640 +38225,22 @@ export default function TradingViewChart({
                   >
                     <NewsPanel symbol={config.symbol} onClose={() => setActiveSidebarPanel(null)} onTabChange={(tab) => setNewsActiveTab(tab)} isVisible={activeSidebarPanel === 'news'} />
                   </div>
-                  {showPATPanel && patPanelActiveTab === 'screeners' && (
-                    <div className="h-full flex flex-col bg-black text-white relative">
-                      {/* Close button */}
-                      <button
-                        onClick={() => setShowPATPanel(false)}
-                        className="absolute top-3 right-3 text-gray-400 hover:text-white transition-colors z-50"
-                        aria-label="Close panel"
-                      >
-                        <svg
-                          width="24"
-                          height="24"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <line x1="18" y1="6" x2="6" y2="18"></line>
-                          <line x1="6" y1="6" x2="18" y2="18"></line>
-                        </svg>
-                      </button>
-                      <div
-                        ref={screenersPanelScrollRef}
-                        onScroll={() => {
-                          if (screenersPanelScrollRef.current) {
-                            savedScreenersScrollPos.current =
-                              screenersPanelScrollRef.current.scrollTop
-                          }
-                        }}
-                        className="flex-1 overflow-y-auto overflow-x-auto"
-                        style={{ overscrollBehavior: 'contain' }}
-                      >
-                        <ScreenersPanel />
-                      </div>
-                    </div>
-                  )}
                   {showPATPanel && patPanelActiveTab === 'alerts' && (
-                    <div className="h-full flex flex-col bg-black">
-                      {/* Header */}
-                      <div
-                        className="px-6 py-4 border-b border-yellow-900/40 bg-black relative"
-                        style={{ boxShadow: '0 1px 0 rgba(234,179,8,0.08)' }}
-                      >
-                        {/* Close button */}
-                        <button
-                          onClick={() => setShowPATPanel(false)}
-                          className="absolute top-3 right-4 flex items-center justify-center w-7 h-7 rounded-md border border-red-700 text-red-400 hover:text-white transition-all duration-150 z-50 active:scale-95"
-                          style={{
-                            background:
-                              'linear-gradient(145deg, #7f1d1d 0%, #991b1b 40%, #450a0a 100%)',
-                            boxShadow:
-                              '0 2px 0 #450a0a, 0 4px 8px rgba(239,68,68,0.25), inset 0 1px 0 rgba(255,255,255,0.1)',
-                          }}
-                          aria-label="Close panel"
-                        >
-                          <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <line x1="18" y1="6" x2="6" y2="18"></line>
-                            <line x1="6" y1="6" x2="18" y2="18"></line>
-                          </svg>
-                        </button>
-                        <div className="flex items-center gap-3">
-                          {/* Bell icon badge */}
-                          <div
-                            className="flex items-center justify-center w-9 h-9 rounded-lg shrink-0"
-                            style={{
-                              background: 'linear-gradient(135deg, #422006 0%, #1c0a00 100%)',
-                              border: '1px solid rgba(234,179,8,0.3)',
-                              boxShadow: '0 0 12px rgba(234,179,8,0.15)',
-                            }}
-                          >
-                            <TbBell className="w-5 h-5 text-yellow-400" />
-                          </div>
-                          <div className="flex flex-col leading-none">
-                            <span className="text-[10px] font-semibold tracking-[0.3em] text-yellow-500/70 uppercase mb-0.5">
-                              Watchlist
-                            </span>
-                            <h1
-                              className="text-xl md:text-2xl font-bold tracking-tight"
-                              style={{
-                                background:
-                                  'linear-gradient(90deg, #fde047 0%, #facc15 50%, #f59e0b 100%)',
-                                WebkitBackgroundClip: 'text',
-                                WebkitTextFillColor: 'transparent',
-                              }}
-                            >
-                              Alerts
-                            </h1>
-                          </div>
-                          {/* Flashing warning indicator */}
-                          <div className="ml-auto mr-8 flex items-center gap-1.5">
-                            <span className="relative flex h-2.5 w-2.5">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75" />
-                              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-500" />
-                            </span>
-                            <span className="text-[10px] font-bold text-yellow-500/60 tracking-widest uppercase">
-                              Active
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div
-                        ref={alertsPanelScrollRef}
-                        onScroll={() => {
-                          if (alertsPanelScrollRef.current) {
-                            savedAlertsScrollPos.current = alertsPanelScrollRef.current.scrollTop
-                          }
-                        }}
-                        className="p-4 space-y-4"
-                        style={{
-                          maxHeight: '100%',
-                          overflow: 'auto',
-                          background: '#000000',
-                          overscrollBehavior: 'contain',
-                        }}
-                      >
-                        <div
-                          className="flex items-center justify-between mb-5"
-                          style={{
-                            borderBottom: '1px solid rgba(255, 107, 0, 0.25)',
-                            paddingBottom: '12px',
-                          }}
-                        >
-                          <div className="flex items-center gap-2">
-                            <TbBellRinging
-                              style={{ color: '#ff6b00', fontSize: '22px', strokeWidth: 2.5 }}
-                            />
-                            <h3
-                              style={{
-                                color: '#ff6b00',
-                                fontWeight: '700',
-                                fontSize: '14px',
-                                textTransform: 'uppercase',
-                                letterSpacing: '1.5px',
-                                fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-                                WebkitFontSmoothing: 'antialiased',
-                              }}
-                            >
-                              Price Alerts
-                            </h3>
-                          </div>
-                          <button
-                            onClick={() => {
-                              setIsAlertPlacementMode(!isAlertPlacementMode)
-                              if (!isAlertPlacementMode) {
-                                setShowAlertDialog(false)
-                              }
-                            }}
-                            style={{
-                              padding: '8px 16px',
-                              borderRadius: '2px',
-                              fontSize: '11px',
-                              fontWeight: '700',
-                              textTransform: 'uppercase',
-                              letterSpacing: '1.2px',
-                              fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-                              WebkitFontSmoothing: 'antialiased',
-                              background: isAlertPlacementMode
-                                ? 'linear-gradient(135deg, #ff6b00 0%, #ff8533 100%)'
-                                : 'linear-gradient(135deg, #1a1a1a 0%, #0f0f0f 100%)',
-                              color: isAlertPlacementMode ? '#000' : '#ff6b00',
-                              border: isAlertPlacementMode
-                                ? '1px solid #ff8533'
-                                : '1px solid rgba(255, 107, 0, 0.4)',
-                              cursor: 'pointer',
-                              transition: 'all 0.2s',
-                              boxShadow: isAlertPlacementMode
-                                ? '0 4px 12px rgba(255, 107, 0, 0.4)'
-                                : '0 2px 4px rgba(0, 0, 0, 0.3)',
-                            }}
-                            onMouseEnter={(e) => {
-                              if (!isAlertPlacementMode) {
-                                e.currentTarget.style.background =
-                                  'linear-gradient(135deg, #252525 0%, #1a1a1a 100%)'
-                                e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.6)'
-                              }
-                            }}
-                            onMouseLeave={(e) => {
-                              if (!isAlertPlacementMode) {
-                                e.currentTarget.style.background =
-                                  'linear-gradient(135deg, #1a1a1a 0%, #0f0f0f 100%)'
-                                e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.4)'
-                              }
-                            }}
-                          >
-                            {isAlertPlacementMode ? '✓ Click Chart' : '+ New Alert'}
-                          </button>
-                        </div>
-
-                        {/* Alert Type Tabs */}
-                        <div className="flex gap-2 mb-5">
-                          {(['price', 'options', 'technical'] as const).map((type) => (
-                            <button
-                              key={type}
-                              onClick={() => setSelectedAlertType(type)}
-                              style={{
-                                flex: 1,
-                                padding: '10px 12px',
-                                borderRadius: '4px',
-                                fontSize: '11px',
-                                fontWeight: '700',
-                                textTransform: 'uppercase',
-                                letterSpacing: '1px',
-                                fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-                                WebkitFontSmoothing: 'antialiased',
-                                background:
-                                  selectedAlertType === type
-                                    ? 'linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%)'
-                                    : 'linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%)',
-                                color: selectedAlertType === type ? '#ff6b00' : '#ff6b00',
-                                border:
-                                  selectedAlertType === type
-                                    ? '1px solid rgba(255, 107, 0, 0.5)'
-                                    : '1px solid rgba(255, 255, 255, 0.1)',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s',
-                                boxShadow:
-                                  selectedAlertType === type
-                                    ? 'inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.1), 0 4px 12px rgba(255, 107, 0, 0.3)'
-                                    : 'inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.05)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '6px',
-                                position: 'relative',
-                                overflow: 'hidden',
-                              }}
-                              onMouseEnter={(e) => {
-                                if (selectedAlertType !== type) {
-                                  e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.3)'
-                                  e.currentTarget.style.boxShadow =
-                                    'inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 8px rgba(255, 107, 0, 0.2)'
-                                }
-                              }}
-                              onMouseLeave={(e) => {
-                                if (selectedAlertType !== type) {
-                                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)'
-                                  e.currentTarget.style.boxShadow =
-                                    'inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.05)'
-                                }
-                              }}
-                            >
-                              <span
-                                style={{
-                                  position: 'absolute',
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  height: '50%',
-                                  background:
-                                    'linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, transparent 100%)',
-                                  pointerEvents: 'none',
-                                }}
-                              />
-                              {type === 'price' && (
-                                <TbCurrencyDollar
-                                  style={{
-                                    fontSize: '16px',
-                                    strokeWidth: 2.5,
-                                    position: 'relative',
-                                    zIndex: 1,
-                                  }}
-                                />
-                              )}
-                              {type === 'options' && (
-                                <TbChartCandle
-                                  style={{
-                                    fontSize: '16px',
-                                    strokeWidth: 2.5,
-                                    position: 'relative',
-                                    zIndex: 1,
-                                  }}
-                                />
-                              )}
-                              {type === 'technical' && (
-                                <TbChartInfographic
-                                  style={{
-                                    fontSize: '16px',
-                                    strokeWidth: 2.5,
-                                    position: 'relative',
-                                    zIndex: 1,
-                                  }}
-                                />
-                              )}
-                              <span style={{ position: 'relative', zIndex: 1 }}>
-                                {type.charAt(0).toUpperCase() + type.slice(1)}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-
-                        {/* Active Alerts List */}
-                        <div className="space-y-3">
-                          {alerts.filter((a) => !a.triggered).length === 0 ? (
-                            <div
-                              className="text-center py-10"
-                              style={{
-                                background: '#0a0a0a',
-                                border: '1px solid rgba(255, 255, 255, 0.08)',
-                                borderRadius: '2px',
-                              }}
-                            >
-                              <TbBellOff
-                                style={{
-                                  width: '48px',
-                                  height: '48px',
-                                  margin: '0 auto 12px',
-                                  color: '#ff6b00',
-                                  opacity: 0.3,
-                                  strokeWidth: 1.5,
-                                }}
-                              />
-                              <p
-                                style={{
-                                  fontSize: '13px',
-                                  color: '#999',
-                                  fontWeight: '600',
-                                  fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-                                  WebkitFontSmoothing: 'antialiased',
-                                }}
-                              >
-                                No active alerts
-                              </p>
-                              <p
-                                style={{
-                                  fontSize: '11px',
-                                  marginTop: '6px',
-                                  color: '#666',
-                                  fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-                                  WebkitFontSmoothing: 'antialiased',
-                                }}
-                              >
-                                Click "New Alert" and then click on the chart to set a price level
-                              </p>
-                            </div>
-                          ) : (
-                            alerts
-                              .filter((a) => !a.triggered)
-                              .map((alert) => (
-                                <div
-                                  key={alert.id}
-                                  style={{
-                                    background: '#0a0a0a',
-                                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                                    borderRadius: '2px',
-                                    padding: '12px',
-                                    transition: 'all 0.2s',
-                                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.3)',
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.4)'
-                                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.4)'
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)'
-                                    e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.3)'
-                                  }}
-                                >
-                                  <div className="flex items-start justify-between">
-                                    <div className="flex-1">
-                                      <div className="flex items-center gap-2 mb-2">
-                                        {alert.type === 'price' && (
-                                          <TbCurrencyDollar
-                                            style={{
-                                              color: '#ff6b00',
-                                              fontSize: '18px',
-                                              strokeWidth: 2.5,
-                                            }}
-                                          />
-                                        )}
-                                        {alert.type === 'options' && (
-                                          <TbChartCandle
-                                            style={{
-                                              color: '#ff6b00',
-                                              fontSize: '18px',
-                                              strokeWidth: 2.5,
-                                            }}
-                                          />
-                                        )}
-                                        {alert.type === 'technical' && (
-                                          <TbChartInfographic
-                                            style={{
-                                              color: '#ff6b00',
-                                              fontSize: '18px',
-                                              strokeWidth: 2.5,
-                                            }}
-                                          />
-                                        )}
-                                        <span
-                                          style={{
-                                            color: '#fff',
-                                            fontWeight: '700',
-                                            fontSize: '13px',
-                                            fontFamily:
-                                              'system-ui, -apple-system, "Segoe UI", sans-serif',
-                                            WebkitFontSmoothing: 'antialiased',
-                                          }}
-                                        >
-                                          {alert.symbol}
-                                        </span>
-                                        <span
-                                          style={{
-                                            fontSize: '10px',
-                                            padding: '3px 8px',
-                                            borderRadius: '2px',
-                                            background: 'rgba(255, 107, 0, 0.15)',
-                                            color: '#ff6b00',
-                                            border: '1px solid rgba(255, 107, 0, 0.3)',
-                                            fontWeight: '600',
-                                            textTransform: 'uppercase',
-                                            letterSpacing: '0.5px',
-                                            fontFamily:
-                                              'system-ui, -apple-system, "Segoe UI", sans-serif',
-                                            WebkitFontSmoothing: 'antialiased',
-                                          }}
-                                        >
-                                          {alert.condition === 'above' && 'Above'}
-                                          {alert.condition === 'below' && 'Below'}
-                                          {alert.condition === 'crossesAbove' && 'Crosses ↑'}
-                                          {alert.condition === 'crossesBelow' && 'Crosses ↓'}
-                                        </span>
-                                      </div>
-                                      <div
-                                        style={{
-                                          fontSize: '20px',
-                                          fontFamily:
-                                            'system-ui, -apple-system, "Segoe UI", sans-serif',
-                                          fontWeight: '700',
-                                          color: '#ff6b00',
-                                          letterSpacing: '-0.5px',
-                                          textShadow: '0 0 10px rgba(255, 107, 0, 0.3)',
-                                          WebkitFontSmoothing: 'antialiased',
-                                        }}
-                                      >
-                                        ${alert.price.toFixed(2)}
-                                      </div>
-                                      {alert.message && (
-                                        <p
-                                          style={{
-                                            fontSize: '11px',
-                                            color: '#999',
-                                            marginTop: '6px',
-                                            fontFamily:
-                                              'system-ui, -apple-system, "Segoe UI", sans-serif',
-                                            WebkitFontSmoothing: 'antialiased',
-                                          }}
-                                        >
-                                          {alert.message}
-                                        </p>
-                                      )}
-                                      {alert.optionsData && (
-                                        <div
-                                          style={{
-                                            fontSize: '10px',
-                                            color: '#999',
-                                            marginTop: '6px',
-                                            padding: '6px 10px',
-                                            background: 'rgba(255, 107, 0, 0.1)',
-                                            border: '1px solid rgba(255, 107, 0, 0.2)',
-                                            borderRadius: '2px',
-                                            fontWeight: '600',
-                                            fontFamily:
-                                              'system-ui, -apple-system, "Segoe UI", sans-serif',
-                                            WebkitFontSmoothing: 'antialiased',
-                                          }}
-                                        >
-                                          {alert.optionsData.strike}{' '}
-                                          {alert.optionsData.optionType.toUpperCase()} -{' '}
-                                          {alert.optionsData.expiration}
-                                        </div>
-                                      )}
-                                      <div className="flex items-center gap-2 mt-3">
-                                        {alert.soundEnabled && (
-                                          <TbBell
-                                            style={{
-                                              fontSize: '14px',
-                                              color: '#ff6b00',
-                                              strokeWidth: 2,
-                                            }}
-                                          />
-                                        )}
-                                        {alert.emailEnabled && (
-                                          <TbMail
-                                            style={{
-                                              fontSize: '14px',
-                                              color: '#ff6b00',
-                                              strokeWidth: 2,
-                                            }}
-                                          />
-                                        )}
-                                        {alert.once && (
-                                          <span
-                                            style={{
-                                              fontSize: '10px',
-                                              color: '#666',
-                                              padding: '2px 6px',
-                                              background: 'rgba(255, 107, 0, 0.1)',
-                                              border: '1px solid rgba(255, 107, 0, 0.2)',
-                                              borderRadius: '2px',
-                                              fontWeight: '600',
-                                              fontFamily:
-                                                'system-ui, -apple-system, "Segoe UI", sans-serif',
-                                              WebkitFontSmoothing: 'antialiased',
-                                            }}
-                                          >
-                                            ONCE
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-                                    <button
-                                      onClick={() =>
-                                        setAlerts(alerts.filter((a) => a.id !== alert.id))
-                                      }
-                                      style={{
-                                        color: '#666',
-                                        fontSize: '18px',
-                                        marginLeft: '8px',
-                                        padding: '4px',
-                                        background: 'transparent',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        transition: 'color 0.2s',
-                                      }}
-                                      onMouseEnter={(e) =>
-                                        (e.currentTarget.style.color = '#ff6b00')
-                                      }
-                                      onMouseLeave={(e) => (e.currentTarget.style.color = '#666')}
-                                    >
-                                      <TbX style={{ strokeWidth: 2.5 }} />
-                                    </button>
-                                  </div>
-                                </div>
-                              ))
-                          )}
-                        </div>
-
-                        {/* Triggered Alerts History */}
-                        {alerts.filter((a) => a.triggered).length > 0 && (
-                          <div
-                            className="mt-6"
-                            style={{
-                              borderTop: '2px solid rgba(255, 107, 0, 0.2)',
-                              paddingTop: '16px',
-                            }}
-                          >
-                            <h4
-                              style={{
-                                color: '#ff6b00',
-                                fontSize: '11px',
-                                fontWeight: '700',
-                                marginBottom: '12px',
-                                textTransform: 'uppercase',
-                                letterSpacing: '1.5px',
-                                fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-                                WebkitFontSmoothing: 'antialiased',
-                              }}
-                            >
-                              Triggered Alerts
-                            </h4>
-                            <div className="space-y-2">
-                              {alerts
-                                .filter((a) => a.triggered)
-                                .slice(0, 5)
-                                .map((alert) => (
-                                  <div
-                                    key={alert.id}
-                                    style={{
-                                      background:
-                                        'linear-gradient(135deg, rgba(255, 107, 0, 0.08) 0%, rgba(255, 107, 0, 0.03) 100%)',
-                                      border: '1px solid rgba(255, 107, 0, 0.2)',
-                                      borderRadius: '2px',
-                                      padding: '10px 12px',
-                                      opacity: 0.7,
-                                    }}
-                                  >
-                                    <div className="flex items-center justify-between">
-                                      <div className="flex items-center gap-2">
-                                        <TbCheck
-                                          style={{
-                                            color: '#10b981',
-                                            fontSize: '16px',
-                                            strokeWidth: 2.5,
-                                          }}
-                                        />
-                                        <span
-                                          style={{
-                                            color: '#fff',
-                                            fontSize: '12px',
-                                            fontWeight: '600',
-                                            fontFamily:
-                                              'system-ui, -apple-system, "Segoe UI", sans-serif',
-                                            WebkitFontSmoothing: 'antialiased',
-                                          }}
-                                        >
-                                          {alert.symbol}
-                                        </span>
-                                        <span
-                                          style={{
-                                            color: '#999',
-                                            fontSize: '11px',
-                                            fontFamily:
-                                              'system-ui, -apple-system, "Segoe UI", sans-serif',
-                                            WebkitFontSmoothing: 'antialiased',
-                                          }}
-                                        >
-                                          ${alert.price.toFixed(2)}
-                                        </span>
-                                      </div>
-                                      <button
-                                        onClick={() =>
-                                          setAlerts(alerts.filter((a) => a.id !== alert.id))
-                                        }
-                                        className="text-gray-600 hover:text-gray-500 text-xs"
-                                      >
-                                        ✕
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                    <AlertsPanelView
+                      alerts={alerts as any}
+                      setAlerts={setAlerts as any}
+                      isPlacementMode={isAlertPlacementMode}
+                      onTogglePlacement={() => setIsAlertPlacementMode(!isAlertPlacementMode)}
+                      selectedType={selectedAlertType as any}
+                      onSelectType={(v) => setSelectedAlertType(v as any)}
+                      onClose={() => setShowPATPanel(false)}
+                      scrollRef={alertsPanelScrollRef}
+                      onScroll={() => {
+                        if (alertsPanelScrollRef.current) {
+                          savedAlertsScrollPos.current = alertsPanelScrollRef.current.scrollTop
+                        }
+                      }}
+                    />
                   )}
                   {mountedPanelsRef.current.has('performance') && (
                     <div className="h-full flex flex-col bg-black text-white overflow-auto" style={{ display: activeSidebarPanel === 'performance' ? 'flex' : 'none' }}>
@@ -41519,10 +40620,6 @@ export default function TradingViewChart({
                     </div>
                   )}
 
-                  {showPATPanel && patPanelActiveTab === 'insight' && (
-                    <InsightPanel onClose={() => setShowPATPanel(false)} />
-                  )}
-
                   {activeSidebarPanel === 'insight' && (
                     <InsightPanel onClose={() => setActiveSidebarPanel(null)} />
                   )}
@@ -42933,7 +42030,7 @@ export default function TradingViewChart({
                   {config.symbol}
                 </span>
                 <span className="font-mono font-semibold" style={{ color: '#10b981' }}>
-                  {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: 'America/Los_Angeles' })}
+                  {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: getUserTimezone() })}
                 </span>
               </div>
             </div>

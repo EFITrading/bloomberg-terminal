@@ -119,7 +119,7 @@ const LEVEL_TAGS = ['RESISTANCE', 'SUPPORT', 'CURRENT', 'PIVOT', 'TARGET', 'STOP
 const BRIEF_MODES = [{ id: 'daily', label: 'DAILY PULSE' }, { id: 'weekly', label: 'WEEKLY BRIEF' }, { id: 'monthly', label: 'MONTHLY OUTLOOK' }]
 const BULLET_COLORS: Record<string, string> = {
   THEME: '#FF6600', RISK: '#FF3B3B', CATALYST: '#22D3EE',
-  SETUP: '#A855F7', WATCH: '#FFD700', NOTE: 'rgba(255,255,255,0.35)',
+  SETUP: '#A855F7', WATCH: '#FFD700', NOTE: 'rgba(255,255,255,0.85)',
 }
 const LEVEL_TAG_COLORS: Record<string, string> = {
   RESISTANCE: '#FF3B3B', SUPPORT: '#00D68F', CURRENT: '#FFD700',
@@ -189,11 +189,11 @@ const goldBtn: React.CSSProperties = {
   padding: '11px 28px',
   fontSize: '17px',
   fontWeight: '900',
-  letterSpacing: '2px',
+  letterSpacing: '1px',
   fontFamily: 'monospace',
   cursor: 'pointer',
   borderRadius: '4px',
-  boxShadow: '0 4px 16px rgba(212,168,67,0.3), inset 0 1px 0 rgba(255,255,255,0.65)',
+  boxShadow: '0 4px 16px rgba(212,168,67,0.3), inset 0 1px 0 rgba(255,255,255,0.85)',
 }
 const rmBtn: React.CSSProperties = {
   background: 'rgba(255,45,85,0.07)',
@@ -291,7 +291,7 @@ const SectionTitle = ({ children }: { children: React.ReactNode }) => {
       style={{
         fontSize: '18px',
         fontWeight: '900',
-        letterSpacing: '5px',
+        letterSpacing: '1.5px',
         color: '#F1F5F9',
         paddingBottom: '10px',
         marginBottom: '20px',
@@ -328,7 +328,7 @@ const Badge = ({ label, color, bg }: { label: string; color: string; bg: string 
       color,
       fontSize: '17px',
       fontWeight: '900',
-      letterSpacing: '2px',
+      letterSpacing: '1px',
       padding: '3px 10px',
       borderRadius: '3px',
       fontFamily: 'monospace',
@@ -352,7 +352,7 @@ const EmptyState = ({ label }: { label: string }) => {
         padding: '64px 20px',
         fontSize: '18px',
         color: '#F1F5F9',
-        letterSpacing: '4px',
+        letterSpacing: '1.5px',
         background: 'linear-gradient(135deg, rgba(18,18,18,0.97), rgba(8,8,8,0.99))',
         borderRadius: '6px',
         border: '1px solid rgba(255,255,255,0.06)',
@@ -392,7 +392,7 @@ const AddFormHeader = ({ label }: { label: string }) => {
       style={{
         fontSize: '17px',
         color: accent,
-        letterSpacing: '4px',
+        letterSpacing: '1.5px',
         marginBottom: '8px',
         fontWeight: '900',
       }}
@@ -637,7 +637,7 @@ function RichBodyEditor({
           style={{
             ...btn(),
             background: colorMode === 'text' ? `${accent}22` : 'rgba(255,255,255,0.07)',
-            border: `1px solid ${colorMode === 'text' ? accent : 'rgba(255,255,255,0.65)'}`,
+            border: `1px solid ${colorMode === 'text' ? accent : 'rgba(255,255,255,0.85)'}`,
             color: colorMode === 'text' ? accent : '#F1F5F9',
             minWidth: '44px',
           }}
@@ -1029,7 +1029,7 @@ function FlowBlockView({ block, accent }: { block: BriefBlock; accent: string })
         <span
           style={{
             fontSize: '15px',
-            letterSpacing: '4px',
+            letterSpacing: '1.5px',
             color: accent,
             fontFamily: 'monospace',
             fontWeight: 700,
@@ -1194,21 +1194,21 @@ function FlowBlockView({ block, accent }: { block: BriefBlock; accent: string })
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {isCall ? <CallIcon size={16} /> : <PutIcon size={16} />}
-          <span style={{ fontSize: '10px', fontWeight: 900, letterSpacing: '3px', color: typeColor }}>{flow.type?.toUpperCase()}</span>
+          <span style={{ fontSize: '14px', fontWeight: 900, letterSpacing: '1.5px', color: typeColor }}>{flow.type?.toUpperCase()}</span>
           {fillStyle && (
             <span style={{
-              fontSize: '9px', padding: '1px 6px', letterSpacing: '2px', fontWeight: 700,
+              fontSize: '13px', padding: '1px 6px', letterSpacing: '1px', fontWeight: 700,
               border: `1px solid ${fillColor}44`, background: `${fillColor}0D`, color: fillColor,
             }}>{sideLabel} · {fillStyle}</span>
           )}
           {(flow.trade_type === 'SWEEP' || flow.trade_type === 'BLOCK') && (
             <span style={{
-              fontSize: '9px', padding: '1px 6px', letterSpacing: '2px', fontWeight: 700,
+              fontSize: '13px', padding: '1px 6px', letterSpacing: '1px', fontWeight: 700,
               border: `1px solid ${tradeTypeColor}44`, background: `${tradeTypeColor}0D`, color: tradeTypeColor,
             }}>{flow.trade_type}</span>
           )}
         </div>
-        <span style={{ fontSize: '9px', color: '#FFFFFF', letterSpacing: '1.5px' }}>
+        <span style={{ fontSize: '13px', color: '#FFFFFF', letterSpacing: '1.5px' }}>
           {flowFmtTime(flow.trade_timestamp)} · EXP {flowFmtDate(flow.expiry)}
         </span>
       </div>
@@ -1225,7 +1225,7 @@ function FlowBlockView({ block, accent }: { block: BriefBlock; accent: string })
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
             {hasPnl && (
               <span style={{
-                fontSize: '13px', fontWeight: 900,
+                fontSize: '16px', fontWeight: 900,
                 color: priceHigher ? '#00D68F' : '#FF3B3B',
               }}>
                 {priceHigher ? '▲' : '▼'} {priceHigher ? '+' : ''}{percentChange.toFixed(1)}%
@@ -1233,7 +1233,7 @@ function FlowBlockView({ block, accent }: { block: BriefBlock; accent: string })
             )}
             {gradeResult.grade !== 'N/A' && (
               <span style={{
-                fontSize: '13px', fontWeight: 900, color: gradeResult.color,
+                fontSize: '16px', fontWeight: 900, color: gradeResult.color,
                 border: `1px solid ${gradeResult.color}44`, padding: '1px 6px',
               }}>{gradeResult.grade}</span>
             )}
@@ -1253,10 +1253,10 @@ function FlowBlockView({ block, accent }: { block: BriefBlock; accent: string })
               borderRight: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
               minWidth: '80px',
             }}>
-              <div style={{ fontSize: '8px', color: '#FFFFFF', letterSpacing: '2px', marginBottom: '3px', fontWeight: 700 }}>
+              <div style={{ fontSize: '13px', color: '#FFFFFF', letterSpacing: '1px', marginBottom: '3px', fontWeight: 700 }}>
                 {item.label}
               </div>
-              <div style={{ fontSize: '13px', fontWeight: 700, color: item.color }}>
+              <div style={{ fontSize: '16px', fontWeight: 700, color: item.color }}>
                 {item.value}
               </div>
             </div>
@@ -1276,10 +1276,10 @@ function FlowBlockView({ block, accent }: { block: BriefBlock; accent: string })
               borderRight: idx < arr.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
               borderTop: '1px solid rgba(255,255,255,0.04)',
             }}>
-              <div style={{ fontSize: '8px', color: '#FFFFFF', letterSpacing: '2px', marginBottom: '3px', fontWeight: 700 }}>
+              <div style={{ fontSize: '13px', color: '#FFFFFF', letterSpacing: '1px', marginBottom: '3px', fontWeight: 700 }}>
                 {item.label}
               </div>
-              <div style={{ fontSize: '11px', fontWeight: 700, color: item.color || '#FFFFFF' }}>
+              <div style={{ fontSize: '15px', fontWeight: 700, color: item.color || '#FFFFFF' }}>
                 {item.value}
               </div>
             </div>
@@ -1307,14 +1307,14 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
           }}>
             <div>
               <div style={{
-                fontSize: '11px', fontWeight: 900, letterSpacing: '5px',
+                fontSize: '15px', fontWeight: 900, letterSpacing: '1.5px',
                 color: accent, fontFamily: 'monospace', lineHeight: 1,
                 marginBottom: '4px', textTransform: 'uppercase',
               }}>
                 {block.logoText || 'EFI TRADING DESK'}
               </div>
               <div style={{
-                fontSize: '11px', letterSpacing: '2px',
+                fontSize: '15px', letterSpacing: '1px',
                 color: '#FFFFFF', fontFamily: 'monospace',
               }}>
                 MARKET INTELLIGENCE · PROPRIETARY RESEARCH
@@ -1322,14 +1322,14 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{
-                fontSize: '11px', letterSpacing: '2px',
+                fontSize: '15px', letterSpacing: '1px',
                 color: '#FFFFFF', fontFamily: 'monospace',
                 marginBottom: '3px',
               }}>
                 {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).toUpperCase()}
               </div>
               <div style={{
-                fontSize: '11px', letterSpacing: '2px',
+                fontSize: '15px', letterSpacing: '1px',
                 color: accent, fontFamily: 'monospace', fontWeight: 700,
               }}>
                 INTERNAL USE ONLY
@@ -1366,7 +1366,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
         <div style={{ marginBottom: '24px', position: 'relative' }}>
           {/* Lede label */}
           <div style={{
-            fontSize: '9px', fontWeight: 900, letterSpacing: '4px',
+            fontSize: '13px', fontWeight: 900, letterSpacing: '1.5px',
             color: accent, fontFamily: 'monospace', marginBottom: '10px',
             paddingBottom: '6px', borderBottom: `1px solid ${accent}20`,
           }}>LEAD · SUMMARY</div>
@@ -1436,7 +1436,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
           }}>
             <div style={{ width: '3px', height: '18px', background: accent, borderRadius: '2px', flexShrink: 0 }} />
             <span style={{
-              fontSize: '10px', fontWeight: 900, letterSpacing: '5px',
+              fontSize: '14px', fontWeight: 900, letterSpacing: '1.5px',
               color: accent, fontFamily: 'monospace',
             }}>BOTTOM LINE</span>
             <div style={{ flex: 1, height: '1px', background: `${accent}25` }} />
@@ -1516,10 +1516,10 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
                     right: '14px',
                     pointerEvents: 'none',
                     zIndex: 10,
-                    fontSize: '11px',
+                    fontSize: '15px',
                     fontWeight: 900,
-                    color: '#FF6B00',
-                    letterSpacing: '4px',
+                    color: '#F3F4F6',
+                    letterSpacing: '1.5px',
                     fontFamily: 'monospace',
                     userSelect: 'none',
                   }}
@@ -1534,7 +1534,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               background: '#050505',
             }}>
-              <span style={{ fontSize: '9px', letterSpacing: '5px', color: `${accent}60`, fontFamily: 'monospace' }}>
+              <span style={{ fontSize: '13px', letterSpacing: '1.5px', color: `${accent}60`, fontFamily: 'monospace' }}>
                 SEASONALITY — ENTER TICKER IN EDIT
               </span>
             </div>
@@ -1544,7 +1544,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
               padding: '6px 12px', borderTop: '1px solid rgba(255,255,255,0.06)',
               background: '#080808',
             }}>
-              <span style={{ fontSize: '11px', color: '#E0E6F0', fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>
+              <span style={{ fontSize: '15px', color: '#E0E6F0', fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>
                 {block.caption}
               </span>
             </div>
@@ -1566,7 +1566,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               background: '#050505',
             }}>
-              <span style={{ fontSize: '9px', letterSpacing: '5px', color: `${accent}60`, fontFamily: 'monospace' }}>
+              <span style={{ fontSize: '13px', letterSpacing: '1.5px', color: `${accent}60`, fontFamily: 'monospace' }}>
                 CHART — ENTER TICKER IN EDIT
               </span>
             </div>
@@ -1576,7 +1576,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
               padding: '6px 12px', borderTop: '1px solid rgba(255,255,255,0.06)',
               background: '#080808', marginTop: '2px',
             }}>
-              <span style={{ fontSize: '11px', color: '#E0E6F0', fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>
+              <span style={{ fontSize: '15px', color: '#E0E6F0', fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>
                 {block.caption}
               </span>
             </div>
@@ -1596,7 +1596,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               background: '#050505',
             }}>
-              <span style={{ fontSize: '9px', letterSpacing: '5px', color: `${accent}60`, fontFamily: 'monospace' }}>
+              <span style={{ fontSize: '13px', letterSpacing: '1.5px', color: `${accent}60`, fontFamily: 'monospace' }}>
                 IMAGE — ADD URL IN EDIT
               </span>
             </div>
@@ -1609,7 +1609,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
               display: 'flex', alignItems: 'center', gap: '8px',
             }}>
               <div style={{ width: '2px', height: '12px', background: accent, flexShrink: 0 }} />
-              <span style={{ fontSize: '11px', color: '#E0E6F0', fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>
+              <span style={{ fontSize: '15px', color: '#E0E6F0', fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>
                 {block.caption}
               </span>
             </div>
@@ -1664,10 +1664,10 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
               borderBottom: '1px solid rgba(255,255,255,0.06)',
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             }}>
-              <span style={{ fontSize: '16px', fontWeight: 900, letterSpacing: '2px', color: '#FFFFFF' }}>
+              <span style={{ fontSize: '16px', fontWeight: 900, letterSpacing: '1px', color: '#FFFFFF' }}>
                 {ticker || 'TICKER'}
               </span>
-              <span style={{ fontSize: '9px', letterSpacing: '3px', color: accent, fontWeight: 700 }}>MARKET ZONES</span>
+              <span style={{ fontSize: '13px', letterSpacing: '1.5px', color: accent, fontWeight: 700 }}>MARKET ZONES</span>
             </div>
             {/* Zone rows */}
             {zoneRows.map((r, i) => (
@@ -1683,10 +1683,10 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
                   gap: '4px',
                 }}>
                   <r.Icon size={28} />
-                  <span style={{ fontSize: '9px', fontWeight: 900, color: r.color, letterSpacing: '2px' }}>{r.label}</span>
+                  <span style={{ fontSize: '13px', fontWeight: 900, color: r.color, letterSpacing: '1px' }}>{r.label}</span>
                 </div>
                 <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center' }}>
-                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'rgba(232,237,242,0.85)', lineHeight: 1.7 }}>
+                  <span style={{ fontSize: '16px', fontWeight: 600, color: 'rgba(232,237,242,0.85)', lineHeight: 1.7 }}>
                     {r.value}
                   </span>
                 </div>
@@ -1744,16 +1744,16 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
               borderBottom: '1px solid rgba(255,255,255,0.06)',
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             }}>
-              <span style={{ fontSize: '16px', fontWeight: 900, letterSpacing: '2px', color: '#FFFFFF' }}>
+              <span style={{ fontSize: '16px', fontWeight: 900, letterSpacing: '1px', color: '#FFFFFF' }}>
                 {ticker || 'TICKER'}
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <DirectionalBadgeIcon size={10} color="#22D3EE" />
-                <span style={{ fontSize: '9px', letterSpacing: '3px', color: '#22D3EE', fontWeight: 700 }}>DIRECTIONAL</span>
+                <span style={{ fontSize: '13px', letterSpacing: '1.5px', color: '#22D3EE', fontWeight: 700 }}>DIRECTIONAL</span>
               </div>
             </div>
             {note && (
-              <div style={{ padding: '8px 14px', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '12px', color: '#FFFFFF', lineHeight: 1.6 }}>
+              <div style={{ padding: '8px 14px', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '16px', color: '#FFFFFF', lineHeight: 1.6 }}>
                 {note}
               </div>
             )}
@@ -1770,11 +1770,11 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <r.Icon size={22} />
                     <div>
-                      <div style={{ fontSize: '9px', fontWeight: 900, color: r.color, letterSpacing: '2px', lineHeight: 1 }}>{r.label}</div>
-                      <div style={{ fontSize: '8px', color: `${r.color}88`, letterSpacing: '2px', marginTop: '2px' }}>{r.sub}</div>
+                      <div style={{ fontSize: '13px', fontWeight: 900, color: r.color, letterSpacing: '1px', lineHeight: 1 }}>{r.label}</div>
+                      <div style={{ fontSize: '13px', color: `${r.color}88`, letterSpacing: '1px', marginTop: '2px' }}>{r.sub}</div>
                     </div>
                   </div>
-                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#FFFFFF', lineHeight: 1.5 }}>{r.value}</div>
+                  <div style={{ fontSize: '16px', fontWeight: 700, color: '#FFFFFF', lineHeight: 1.5 }}>{r.value}</div>
                 </div>
               ))}
             </div>
@@ -1816,16 +1816,16 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
             borderBottom: '1px solid rgba(255,255,255,0.06)',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           }}>
-            <span style={{ fontSize: '16px', fontWeight: 900, letterSpacing: '2px', color: '#FFFFFF' }}>
+            <span style={{ fontSize: '16px', fontWeight: 900, letterSpacing: '1px', color: '#FFFFFF' }}>
               {ticker || 'TICKER'}
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <LevelsGridIcon size={10} color="#22D3EE" />
-              <span style={{ fontSize: '9px', letterSpacing: '3px', color: '#22D3EE', fontWeight: 700 }}>STRADDLE</span>
+              <span style={{ fontSize: '13px', letterSpacing: '1.5px', color: '#22D3EE', fontWeight: 700 }}>STRADDLE</span>
             </div>
           </div>
           {note && (
-            <div style={{ padding: '8px 14px', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '12px', color: '#FFFFFF', lineHeight: 1.6 }}>
+            <div style={{ padding: '8px 14px', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '16px', color: '#FFFFFF', lineHeight: 1.6 }}>
               {note}
             </div>
           )}
@@ -1838,10 +1838,10 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <CallIcon size={18} />
-                <span style={{ fontSize: '9px', fontWeight: 900, color: GS.green, letterSpacing: '3px' }}>CALL</span>
+                <span style={{ fontSize: '13px', fontWeight: 900, color: GS.green, letterSpacing: '1.5px' }}>CALL</span>
               </div>
-              <div style={{ fontSize: '13px', fontWeight: 700, color: '#E8EDF2', lineHeight: 1.6 }}>{callVal}</div>
-              {callT && callT !== '—' && <div style={{ fontSize: '11px', color: GS.green, fontWeight: 700 }}>TARGET: {callT}</div>}
+              <div style={{ fontSize: '16px', fontWeight: 700, color: '#E8EDF2', lineHeight: 1.6 }}>{callVal}</div>
+              {callT && callT !== '—' && <div style={{ fontSize: '15px', color: GS.green, fontWeight: 700 }}>TARGET: {callT}</div>}
             </div>
             <div style={{
               borderTop: `2px solid ${GS.red}`,
@@ -1850,10 +1850,10 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <PutIcon size={18} />
-                <span style={{ fontSize: '9px', fontWeight: 900, color: GS.red, letterSpacing: '3px' }}>PUT</span>
+                <span style={{ fontSize: '13px', fontWeight: 900, color: GS.red, letterSpacing: '1.5px' }}>PUT</span>
               </div>
-              <div style={{ fontSize: '13px', fontWeight: 700, color: '#E8EDF2', lineHeight: 1.6 }}>{putVal}</div>
-              {putT && putT !== '—' && <div style={{ fontSize: '11px', color: GS.red, fontWeight: 700 }}>TARGET: {putT}</div>}
+              <div style={{ fontSize: '16px', fontWeight: 700, color: '#E8EDF2', lineHeight: 1.6 }}>{putVal}</div>
+              {putT && putT !== '—' && <div style={{ fontSize: '15px', color: GS.red, fontWeight: 700 }}>TARGET: {putT}</div>}
             </div>
           </div>
           {block.url && (
@@ -1879,7 +1879,7 @@ function viewBriefBlock(block: BriefBlock, accent: string, editMode: boolean): R
               padding: '0 16px',
             }}>
               <span style={{
-                fontSize: '9px', fontWeight: 900, letterSpacing: '5px',
+                fontSize: '13px', fontWeight: 900, letterSpacing: '1.5px',
                 color: accent, fontFamily: 'monospace',
                 whiteSpace: 'nowrap', textTransform: 'uppercase',
               }}>
@@ -2298,7 +2298,7 @@ function FlowEditRow({
                   </span>
                   <span
                     style={{
-                      fontSize: '13px',
+                      fontSize: '16px',
                       color: '#ffffff',
                       fontWeight: 'bold',
                       fontFamily: 'monospace',
@@ -2497,7 +2497,7 @@ function FlowEditRow({
         >
           <div
             style={{
-              fontSize: '10px',
+              fontSize: '14px',
               fontFamily: 'monospace',
               color: '#ff8800',
               fontWeight: 700,
@@ -2523,7 +2523,7 @@ function FlowEditRow({
         >
           <div
             style={{
-              fontSize: '10px',
+              fontSize: '14px',
               fontFamily: 'monospace',
               color: '#ff8800',
               fontWeight: 700,
@@ -2550,7 +2550,7 @@ function FlowEditRow({
           >
             <div
               style={{
-                fontSize: '10px',
+                fontSize: '14px',
                 fontFamily: 'monospace',
                 color: '#ff8800',
                 fontWeight: 700,
@@ -2561,7 +2561,7 @@ function FlowEditRow({
             </div>
             <div
               style={{
-                fontSize: '13px',
+                fontSize: '16px',
                 fontFamily: 'monospace',
                 fontWeight: 700,
                 color: '#00ff88',
@@ -2585,7 +2585,7 @@ function FlowEditRow({
           >
             <div
               style={{
-                fontSize: '10px',
+                fontSize: '14px',
                 fontFamily: 'monospace',
                 color: '#ff8800',
                 fontWeight: 700,
@@ -2596,7 +2596,7 @@ function FlowEditRow({
             </div>
             <div
               style={{
-                fontSize: '13px',
+                fontSize: '16px',
                 fontFamily: 'monospace',
                 fontWeight: 700,
                 color: '#00ffcc',
@@ -2620,7 +2620,7 @@ function FlowEditRow({
           >
             <div
               style={{
-                fontSize: '10px',
+                fontSize: '14px',
                 fontFamily: 'monospace',
                 color: '#ff8800',
                 fontWeight: 700,
@@ -2647,7 +2647,7 @@ function FlowEditRow({
           >
             <div
               style={{
-                fontSize: '10px',
+                fontSize: '14px',
                 fontFamily: 'monospace',
                 color: '#ff8800',
                 fontWeight: 700,
@@ -2706,8 +2706,8 @@ function FlowBlockEdit({
           textAlign: 'center',
           color: '#ffffff',
           fontFamily: 'monospace',
-          fontSize: '13px',
-          letterSpacing: '3px',
+          fontSize: '16px',
+          letterSpacing: '1.5px',
           border: `1px solid ${accent}`,
           borderRadius: '4px',
         }}
@@ -2810,10 +2810,10 @@ function SeasonalityBlockEdit({
   const toggleStyle = (on: boolean): React.CSSProperties => ({
     flex: 1,
     padding: '10px 14px',
-    fontSize: '13px',
+    fontSize: '16px',
     fontWeight: 900,
     fontFamily: 'monospace',
-    letterSpacing: '3px',
+    letterSpacing: '1.5px',
     cursor: 'pointer',
     border: `1px solid ${on ? accent : accent + '44'}`,
     background: on ? accent + '22' : 'transparent',
@@ -2958,9 +2958,9 @@ function ImageBlockEdit({
         <span style={{ fontSize: '28px' }}>ðŸ“‹</span>
         <span
           style={{
-            fontSize: '13px',
+            fontSize: '16px',
             fontFamily: 'monospace',
-            letterSpacing: '3px',
+            letterSpacing: '1.5px',
             color: focused ? accent : '#888',
             fontWeight: 700,
           }}
@@ -2968,7 +2968,7 @@ function ImageBlockEdit({
           {focused ? 'PASTE NOW (CTRL+V)' : 'CLICK THEN CTRL+V'}
         </span>
         <span
-          style={{ fontSize: '11px', fontFamily: 'monospace', letterSpacing: '2px', color: '#555' }}
+          style={{ fontSize: '15px', fontFamily: 'monospace', letterSpacing: '1px', color: '#B4BCC8' }}
         >
           OR DROP IMAGE HERE
         </span>
@@ -2979,8 +2979,8 @@ function ImageBlockEdit({
         style={{
           ...ghostBtn(accent),
           padding: '9px',
-          fontSize: '13px',
-          letterSpacing: '2px',
+          fontSize: '16px',
+          letterSpacing: '1px',
           cursor: 'pointer',
           textAlign: 'center' as const,
         }}
@@ -3015,7 +3015,7 @@ function ImageBlockEdit({
               cursor: 'pointer',
               padding: '3px 8px',
               borderRadius: '2px',
-              fontSize: '13px',
+              fontSize: '16px',
               fontWeight: 900,
             }}
           >
@@ -3048,7 +3048,7 @@ function MetricsBlockEdit({
     border: `1px solid ${accent}33`,
     color: '#F1F5F9',
     padding: '8px 10px',
-    fontSize: '13px',
+    fontSize: '16px',
     fontFamily: 'monospace',
     letterSpacing: '1px',
     borderRadius: '3px',
@@ -3117,9 +3117,9 @@ function MetricsBlockEdit({
       onClick={() => switchMode(m)}
       style={{
         padding: '7px 14px',
-        fontSize: '12px',
+        fontSize: '16px',
         fontWeight: 900,
-        letterSpacing: '2px',
+        letterSpacing: '1px',
         fontFamily: 'monospace',
         cursor: 'pointer',
         borderRadius: '3px',
@@ -3143,10 +3143,10 @@ function MetricsBlockEdit({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
           <div
             style={{
-              fontSize: '10px',
+              fontSize: '14px',
               fontWeight: 900,
               color: accent,
-              letterSpacing: '3px',
+              letterSpacing: '1.5px',
               fontFamily: 'monospace',
             }}
           >
@@ -3203,9 +3203,9 @@ function MetricsBlockEdit({
               style={{
                 flex: 1,
                 padding: '7px 0',
-                fontSize: '12px',
+                fontSize: '16px',
                 fontWeight: 900,
-                letterSpacing: '2px',
+                letterSpacing: '1px',
                 fontFamily: 'monospace',
                 cursor: 'pointer',
                 borderRadius: '3px',
@@ -3225,9 +3225,9 @@ function MetricsBlockEdit({
               style={{
                 flex: 1,
                 padding: '7px 0',
-                fontSize: '12px',
+                fontSize: '16px',
                 fontWeight: 900,
-                letterSpacing: '2px',
+                letterSpacing: '1px',
                 fontFamily: 'monospace',
                 cursor: 'pointer',
                 borderRadius: '3px',
@@ -3267,10 +3267,10 @@ function MetricsBlockEdit({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <div
             style={{
-              fontSize: '10px',
+              fontSize: '14px',
               fontWeight: 900,
               color: accent,
-              letterSpacing: '3px',
+              letterSpacing: '1.5px',
               fontFamily: 'monospace',
             }}
           >
@@ -3316,9 +3316,9 @@ function MetricsBlockEdit({
             <span style={{ fontSize: '20px' }}>ðŸ“‹</span>
             <span
               style={{
-                fontSize: '11px',
+                fontSize: '15px',
                 fontFamily: 'monospace',
-                letterSpacing: '2px',
+                letterSpacing: '1px',
                 color: imgFocused ? accent : '#888',
                 fontWeight: 700,
               }}
@@ -3331,8 +3331,8 @@ function MetricsBlockEdit({
             style={{
               ...ghostBtn(accent),
               padding: '7px',
-              fontSize: '12px',
-              letterSpacing: '2px',
+              fontSize: '16px',
+              letterSpacing: '1px',
               cursor: 'pointer',
               textAlign: 'center' as const,
             }}
@@ -3366,7 +3366,7 @@ function MetricsBlockEdit({
                   cursor: 'pointer',
                   padding: '2px 7px',
                   borderRadius: '2px',
-                  fontSize: '12px',
+                  fontSize: '16px',
                   fontWeight: 900,
                 }}
               >
@@ -3392,10 +3392,10 @@ function MetricsBlockEdit({
             >
               <div
                 style={{
-                  fontSize: '11px',
+                  fontSize: '15px',
                   fontWeight: 900,
                   color: GS.green,
-                  letterSpacing: '3px',
+                  letterSpacing: '1.5px',
                   marginBottom: '2px',
                 }}
               >
@@ -3427,10 +3427,10 @@ function MetricsBlockEdit({
             >
               <div
                 style={{
-                  fontSize: '11px',
+                  fontSize: '15px',
                   fontWeight: 900,
                   color: GS.red,
-                  letterSpacing: '3px',
+                  letterSpacing: '1.5px',
                   marginBottom: '2px',
                 }}
               >
@@ -3480,13 +3480,13 @@ function QuickSection({
   const updTrade = (id: string, upd: Partial<TradeRow>) => save({ trades: trades.map(t => t.id === id ? { ...t, ...upd } : t) })
   const delTrade = (id: string) => save({ trades: trades.filter(t => t.id !== id) })
 
-  const inp: React.CSSProperties = { ...iBase, padding: '7px 10px', fontSize: '12px' }
+  const inp: React.CSSProperties = { ...iBase, padding: '7px 10px', fontSize: '16px' }
   const TRADE_TYPES = ['call', 'put', 'straddle', 'spread', 'stock']
   const DIRECTIONS: FocusItem['direction'][] = ['hot', 'bull', 'bear', 'straddle', 'neutral']
   const secLabel = (txt: string, icon?: React.ReactElement) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', paddingBottom: '8px', borderBottom: `1px solid ${accent}25` }}>
       {icon}
-      <span style={{ fontSize: '11px', fontWeight: 900, letterSpacing: '4px', color: accent, fontFamily: 'monospace' }}>{txt}</span>
+      <span style={{ fontSize: '15px', fontWeight: 900, letterSpacing: '1.5px', color: accent, fontFamily: 'monospace' }}>{txt}</span>
     </div>
   )
 
@@ -3496,18 +3496,18 @@ function QuickSection({
       {/* Config row: mode + layout */}
       <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
         <div>
-          <div style={{ fontSize: '9px', letterSpacing: '4px', color: accent, marginBottom: '6px', fontWeight: 900 }}>BRIEFING MODE</div>
+          <div style={{ fontSize: '13px', letterSpacing: '1.5px', color: accent, marginBottom: '6px', fontWeight: 900 }}>BRIEFING MODE</div>
           <div style={{ display: 'flex', gap: '4px' }}>
             {BRIEF_MODES.map(m => (
-              <button key={m.id} onClick={() => save({ mode: m.id as QuickBrief['mode'] })} style={{ padding: '5px 12px', fontSize: '9px', fontWeight: 900, letterSpacing: '2px', fontFamily: 'monospace', cursor: 'pointer', border: `1px solid ${quick.mode === m.id ? accent : 'rgba(255,255,255,0.1)'}`, background: quick.mode === m.id ? `${accent}18` : 'transparent', color: quick.mode === m.id ? accent : 'rgba(255,255,255,0.35)' }}>{m.label}</button>
+              <button key={m.id} onClick={() => save({ mode: m.id as QuickBrief['mode'] })} style={{ padding: '5px 12px', fontSize: '13px', fontWeight: 900, letterSpacing: '1px', fontFamily: 'monospace', cursor: 'pointer', border: `1px solid ${quick.mode === m.id ? accent : 'rgba(255,255,255,0.1)'}`, background: quick.mode === m.id ? `${accent}18` : 'transparent', color: quick.mode === m.id ? accent : 'rgba(255,255,255,0.85)' }}>{m.label}</button>
             ))}
           </div>
         </div>
         <div>
-          <div style={{ fontSize: '9px', letterSpacing: '4px', color: accent, marginBottom: '6px', fontWeight: 900 }}>LAYOUT</div>
+          <div style={{ fontSize: '13px', letterSpacing: '1.5px', color: accent, marginBottom: '6px', fontWeight: 900 }}>LAYOUT</div>
           <div style={{ display: 'flex', gap: '4px' }}>
             {(['single', 'double'] as const).map(l => (
-              <button key={l} onClick={() => save({ layout: l })} style={{ padding: '5px 12px', fontSize: '9px', fontWeight: 900, letterSpacing: '2px', fontFamily: 'monospace', cursor: 'pointer', border: `1px solid ${(quick.layout || 'single') === l ? accent : 'rgba(255,255,255,0.1)'}`, background: (quick.layout || 'single') === l ? `${accent}18` : 'transparent', color: (quick.layout || 'single') === l ? accent : 'rgba(255,255,255,0.35)' }}>{l === 'single' ? '① SINGLE COL' : '② DOUBLE COL'}</button>
+              <button key={l} onClick={() => save({ layout: l })} style={{ padding: '5px 12px', fontSize: '13px', fontWeight: 900, letterSpacing: '1px', fontFamily: 'monospace', cursor: 'pointer', border: `1px solid ${(quick.layout || 'single') === l ? accent : 'rgba(255,255,255,0.1)'}`, background: (quick.layout || 'single') === l ? `${accent}18` : 'transparent', color: (quick.layout || 'single') === l ? accent : 'rgba(255,255,255,0.85)' }}>{l === 'single' ? '① SINGLE COL' : '② DOUBLE COL'}</button>
             ))}
           </div>
         </div>
@@ -3516,20 +3516,20 @@ function QuickSection({
       {/* Headline + Summary */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
         <div>
-          <div style={{ fontSize: '9px', letterSpacing: '4px', color: accent, marginBottom: '6px', fontWeight: 900 }}>HEADLINE</div>
-          <textarea value={quick.headline} onChange={e => save({ headline: e.target.value })} placeholder="Main market takeaway..." style={{ ...iBase, padding: '10px 12px', fontSize: '13px', resize: 'vertical', minHeight: '48px', lineHeight: '1.6', fontFamily: 'Georgia, serif', width: '100%' }} />
+          <div style={{ fontSize: '13px', letterSpacing: '1.5px', color: accent, marginBottom: '6px', fontWeight: 900 }}>HEADLINE</div>
+          <textarea value={quick.headline} onChange={e => save({ headline: e.target.value })} placeholder="Main market takeaway..." style={{ ...iBase, padding: '10px 12px', fontSize: '16px', resize: 'vertical', minHeight: '48px', lineHeight: '1.6', fontFamily: 'Georgia, serif', width: '100%' }} />
         </div>
         <div>
-          <div style={{ fontSize: '9px', letterSpacing: '4px', color: accent, marginBottom: '6px', fontWeight: 900 }}>MARKET SUMMARY</div>
-          <textarea value={quick.summary || ''} onChange={e => save({ summary: e.target.value })} placeholder="Context paragraph — macro drivers, overnight news..." style={{ ...iBase, padding: '10px 12px', fontSize: '12px', resize: 'vertical', minHeight: '48px', lineHeight: '1.65', fontFamily: 'Georgia, serif', width: '100%' }} />
+          <div style={{ fontSize: '13px', letterSpacing: '1.5px', color: accent, marginBottom: '6px', fontWeight: 900 }}>MARKET SUMMARY</div>
+          <textarea value={quick.summary || ''} onChange={e => save({ summary: e.target.value })} placeholder="Context paragraph — macro drivers, overnight news..." style={{ ...iBase, padding: '10px 12px', fontSize: '16px', resize: 'vertical', minHeight: '48px', lineHeight: '1.65', fontFamily: 'Georgia, serif', width: '100%' }} />
         </div>
       </div>
 
       {/* Market Data */}
       <div>
-        <div style={{ fontSize: '9px', letterSpacing: '4px', color: accent, marginBottom: '8px', fontWeight: 900 }}>MARKET DATA</div>
+        <div style={{ fontSize: '13px', letterSpacing: '1.5px', color: accent, marginBottom: '8px', fontWeight: 900 }}>MARKET DATA</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 55px 1fr 95px 42px)', gap: '4px 6px', alignItems: 'center', marginBottom: '4px' }}>
-          {[0, 1, 2].map(col => ['LABEL', 'VALUE', 'CHG', 'DIR'].map(h => <div key={`${col}-${h}`} style={{ fontSize: '8px', color: '#FFFFFF', letterSpacing: '2px' }}>{h}</div>))}
+          {[0, 1, 2].map(col => ['LABEL', 'VALUE', 'CHG', 'DIR'].map(h => <div key={`${col}-${h}`} style={{ fontSize: '13px', color: '#FFFFFF', letterSpacing: '1px' }}>{h}</div>))}
         </div>
         {[0, 1].map(row => (
           <div key={row} style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 55px 1fr 95px 42px)', gap: '4px 6px', marginBottom: '4px', alignItems: 'center' }}>
@@ -3539,7 +3539,7 @@ function QuickSection({
               if (!d) return null
               return (
                 <React.Fragment key={i}>
-                  <input value={d.label} onChange={e => updMkt(i, 'label', e.target.value)} style={{ ...inp, textAlign: 'center', fontWeight: 900, letterSpacing: '2px' }} />
+                  <input value={d.label} onChange={e => updMkt(i, 'label', e.target.value)} style={{ ...inp, textAlign: 'center', fontWeight: 900, letterSpacing: '1px' }} />
                   <input value={d.value} onChange={e => updMkt(i, 'value', e.target.value)} placeholder="5,612" style={inp} />
                   <input value={d.change} onChange={e => updMkt(i, 'change', e.target.value)} placeholder="+1.2%" style={inp} />
                   <button onClick={() => updMkt(i, 'up', !d.up)} style={{ ...inp, cursor: 'pointer', textAlign: 'center', color: d.up ? '#00D68F' : '#FF3B3B', fontWeight: 900, background: 'transparent', border: `1px solid ${d.up ? '#00D68F44' : '#FF3B3B44'}` }}>{d.up ? '▲' : '▼'}</button>
@@ -3553,28 +3553,28 @@ function QuickSection({
       {/* Focus Items */}
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-          <div style={{ fontSize: '9px', letterSpacing: '4px', color: accent, fontWeight: 900 }}>TOP FOCUS ITEMS</div>
-          <button onClick={addFocus} style={{ ...ghostBtn(accent), padding: '4px 12px', fontSize: '9px', letterSpacing: '2px', cursor: 'pointer' }}>+ ADD TICKER</button>
+          <div style={{ fontSize: '13px', letterSpacing: '1.5px', color: accent, fontWeight: 900 }}>TOP FOCUS ITEMS</div>
+          <button onClick={addFocus} style={{ ...ghostBtn(accent), padding: '4px 12px', fontSize: '13px', letterSpacing: '1px', cursor: 'pointer' }}>+ ADD TICKER</button>
         </div>
-        {focusItems.length === 0 && <div style={{ fontSize: '10px', color: '#FFFFFF', letterSpacing: '2px', padding: '4px 0' }}>No focus items — click + ADD TICKER</div>}
+        {focusItems.length === 0 && <div style={{ fontSize: '14px', color: '#FFFFFF', letterSpacing: '1px', padding: '4px 0' }}>No focus items — click + ADD TICKER</div>}
         {focusItems.map((fi) => (
           <div key={fi.id} style={{ border: `1px solid ${QD_COLOR[fi.direction] || accent}30`, marginBottom: '10px', background: '#040404' }}>
             <div style={{ display: 'grid', gridTemplateColumns: '110px 140px 1fr 32px', gap: '6px', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)', alignItems: 'center' }}>
-              <input value={fi.ticker} onChange={e => updFocus(fi.id, { ticker: e.target.value.toUpperCase() })} placeholder="TICKER" style={{ ...inp, fontWeight: 900, letterSpacing: '3px', fontSize: '13px', textAlign: 'center' }} />
-              <select value={fi.direction} onChange={e => updFocus(fi.id, { direction: e.target.value as FocusItem['direction'] })} style={{ ...iSm, padding: '7px 8px', fontSize: '10px', letterSpacing: '2px', color: QD_COLOR[fi.direction] || accent }}>
+              <input value={fi.ticker} onChange={e => updFocus(fi.id, { ticker: e.target.value.toUpperCase() })} placeholder="TICKER" style={{ ...inp, fontWeight: 900, letterSpacing: '1.5px', fontSize: '16px', textAlign: 'center' }} />
+              <select value={fi.direction} onChange={e => updFocus(fi.id, { direction: e.target.value as FocusItem['direction'] })} style={{ ...iSm, padding: '7px 8px', fontSize: '14px', letterSpacing: '1px', color: QD_COLOR[fi.direction] || accent }}>
                 {DIRECTIONS.map(d => <option key={d} value={d}>{QD_LABEL[d]}</option>)}
               </select>
-              <input value={fi.trade} onChange={e => updFocus(fi.id, { trade: e.target.value })} placeholder="Trade note (e.g. $212.5 Puts & $220 Calls 6/26)" style={{ ...inp, fontSize: '11px' }} />
-              <button onClick={() => delFocus(fi.id)} style={{ ...rmBtn, padding: '5px 7px', cursor: 'pointer', fontSize: '13px' }}>✕</button>
+              <input value={fi.trade} onChange={e => updFocus(fi.id, { trade: e.target.value })} placeholder="Trade note (e.g. $212.5 Puts & $220 Calls 6/26)" style={{ ...inp, fontSize: '15px' }} />
+              <button onClick={() => delFocus(fi.id)} style={{ ...rmBtn, padding: '5px 7px', cursor: 'pointer', fontSize: '16px' }}>✕</button>
             </div>
             <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
               {fi.bullets.map((b, bi) => (
                 <div key={bi} style={{ display: 'grid', gridTemplateColumns: '1fr 30px', gap: '4px', alignItems: 'center' }}>
-                  <input value={b} onChange={e => updFocusBullet(fi.id, fi.bullets, bi, e.target.value)} placeholder={`Bullet ${bi + 1} — thesis, setup, risk...`} style={{ ...inp, fontSize: '12px' }} />
-                  <button onClick={() => delFocusBullet(fi.id, fi.bullets, bi)} style={{ ...rmBtn, padding: '5px 6px', cursor: 'pointer', fontSize: '11px' }}>✕</button>
+                  <input value={b} onChange={e => updFocusBullet(fi.id, fi.bullets, bi, e.target.value)} placeholder={`Bullet ${bi + 1} — thesis, setup, risk...`} style={{ ...inp, fontSize: '16px' }} />
+                  <button onClick={() => delFocusBullet(fi.id, fi.bullets, bi)} style={{ ...rmBtn, padding: '5px 6px', cursor: 'pointer', fontSize: '15px' }}>✕</button>
                 </div>
               ))}
-              <button onClick={() => addFocusBullet(fi.id, fi.bullets)} style={{ ...ghostBtn(accent), padding: '3px 10px', fontSize: '9px', letterSpacing: '2px', cursor: 'pointer', alignSelf: 'flex-start', marginTop: '2px' }}>+ BULLET</button>
+              <button onClick={() => addFocusBullet(fi.id, fi.bullets)} style={{ ...ghostBtn(accent), padding: '3px 10px', fontSize: '13px', letterSpacing: '1px', cursor: 'pointer', alignSelf: 'flex-start', marginTop: '2px' }}>+ BULLET</button>
             </div>
           </div>
         ))}
@@ -3583,26 +3583,26 @@ function QuickSection({
       {/* Trade Setups */}
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-          <div style={{ fontSize: '9px', letterSpacing: '4px', color: accent, fontWeight: 900 }}>TRADE SETUPS</div>
-          <button onClick={addTrade} style={{ ...ghostBtn(accent), padding: '4px 12px', fontSize: '9px', letterSpacing: '2px', cursor: 'pointer' }}>+ ADD TRADE</button>
+          <div style={{ fontSize: '13px', letterSpacing: '1.5px', color: accent, fontWeight: 900 }}>TRADE SETUPS</div>
+          <button onClick={addTrade} style={{ ...ghostBtn(accent), padding: '4px 12px', fontSize: '13px', letterSpacing: '1px', cursor: 'pointer' }}>+ ADD TRADE</button>
         </div>
-        {trades.length === 0 && <div style={{ fontSize: '10px', color: '#FFFFFF', letterSpacing: '2px', padding: '4px 0' }}>No trades — click + ADD TRADE</div>}
+        {trades.length === 0 && <div style={{ fontSize: '14px', color: '#FFFFFF', letterSpacing: '1px', padding: '4px 0' }}>No trades — click + ADD TRADE</div>}
         <div style={{ display: 'grid', gridTemplateColumns: '70px 66px 1fr 70px 70px 70px 72px 1fr 30px', gap: '4px', marginBottom: '4px' }}>
-          {['TICKER', 'TYPE', 'CONTRACT', 'ENTRY', 'T1', 'T2', 'STOP', 'NOTES', ''].map(h => <div key={h} style={{ fontSize: '8px', color: '#FFFFFF', letterSpacing: '2px' }}>{h}</div>)}
+          {['TICKER', 'TYPE', 'CONTRACT', 'ENTRY', 'T1', 'T2', 'STOP', 'NOTES', ''].map(h => <div key={h} style={{ fontSize: '13px', color: '#FFFFFF', letterSpacing: '1px' }}>{h}</div>)}
         </div>
         {trades.map(tr => (
           <div key={tr.id} style={{ display: 'grid', gridTemplateColumns: '70px 66px 1fr 70px 70px 70px 72px 1fr 30px', gap: '4px', marginBottom: '5px', alignItems: 'center' }}>
-            <input value={tr.ticker} onChange={e => updTrade(tr.id, { ticker: e.target.value.toUpperCase() })} placeholder="TICK" style={{ ...inp, fontWeight: 900, letterSpacing: '2px', textAlign: 'center' }} />
-            <select value={tr.type} onChange={e => updTrade(tr.id, { type: e.target.value as TradeRow['type'] })} style={{ ...iSm, padding: '7px 4px', fontSize: '10px', color: QD_TRADE_CLR[tr.type] || '#fff' }}>
+            <input value={tr.ticker} onChange={e => updTrade(tr.id, { ticker: e.target.value.toUpperCase() })} placeholder="TICK" style={{ ...inp, fontWeight: 900, letterSpacing: '1px', textAlign: 'center' }} />
+            <select value={tr.type} onChange={e => updTrade(tr.id, { type: e.target.value as TradeRow['type'] })} style={{ ...iSm, padding: '7px 4px', fontSize: '14px', color: QD_TRADE_CLR[tr.type] || '#fff' }}>
               {TRADE_TYPES.map(t => <option key={t} value={t}>{t.toUpperCase()}</option>)}
             </select>
-            <input value={tr.contract} onChange={e => updTrade(tr.id, { contract: e.target.value })} placeholder="6/27 $580C" style={{ ...inp, fontSize: '11px' }} />
+            <input value={tr.contract} onChange={e => updTrade(tr.id, { contract: e.target.value })} placeholder="6/27 $580C" style={{ ...inp, fontSize: '15px' }} />
             <input value={tr.entry} onChange={e => updTrade(tr.id, { entry: e.target.value })} placeholder="ENTRY" style={{ ...inp, textAlign: 'center' }} />
             <input value={tr.t1} onChange={e => updTrade(tr.id, { t1: e.target.value })} placeholder="T1" style={{ ...inp, textAlign: 'center' }} />
             <input value={tr.t2} onChange={e => updTrade(tr.id, { t2: e.target.value })} placeholder="T2" style={{ ...inp, textAlign: 'center' }} />
             <input value={tr.stop} onChange={e => updTrade(tr.id, { stop: e.target.value })} placeholder="STOP" style={{ ...inp, textAlign: 'center', color: '#FF3B3B' }} />
-            <input value={tr.notes} onChange={e => updTrade(tr.id, { notes: e.target.value })} placeholder="Notes..." style={{ ...inp, fontSize: '11px' }} />
-            <button onClick={() => delTrade(tr.id)} style={{ ...rmBtn, padding: '5px 6px', cursor: 'pointer', fontSize: '11px' }}>✕</button>
+            <input value={tr.notes} onChange={e => updTrade(tr.id, { notes: e.target.value })} placeholder="Notes..." style={{ ...inp, fontSize: '15px' }} />
+            <button onClick={() => delTrade(tr.id)} style={{ ...rmBtn, padding: '5px 6px', cursor: 'pointer', fontSize: '15px' }}>✕</button>
           </div>
         ))}
       </div>
@@ -3610,20 +3610,20 @@ function QuickSection({
       {/* Key Levels */}
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-          <div style={{ fontSize: '9px', letterSpacing: '4px', color: accent, fontWeight: 900 }}>KEY LEVELS</div>
-          <button onClick={() => save({ keyLevels: [...quick.keyLevels, { price: '', tag: 'KEY', note: '' }] })} style={{ ...ghostBtn(accent), padding: '3px 10px', fontSize: '10px', letterSpacing: '2px', cursor: 'pointer' }}>+ ADD</button>
+          <div style={{ fontSize: '13px', letterSpacing: '1.5px', color: accent, fontWeight: 900 }}>KEY LEVELS</div>
+          <button onClick={() => save({ keyLevels: [...quick.keyLevels, { price: '', tag: 'KEY', note: '' }] })} style={{ ...ghostBtn(accent), padding: '3px 10px', fontSize: '14px', letterSpacing: '1px', cursor: 'pointer' }}>+ ADD</button>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '75px 100px 1fr 30px', gap: '4px 6px', alignItems: 'center', marginBottom: '4px' }}>
-          {['PRICE', 'TAG', 'NOTE', ''].map(h => <div key={h} style={{ fontSize: '8px', color: '#FFFFFF', letterSpacing: '2px' }}>{h}</div>)}
+          {['PRICE', 'TAG', 'NOTE', ''].map(h => <div key={h} style={{ fontSize: '13px', color: '#FFFFFF', letterSpacing: '1px' }}>{h}</div>)}
         </div>
         {quick.keyLevels.map((l, i) => (
           <div key={i} style={{ display: 'grid', gridTemplateColumns: '75px 100px 1fr 30px', gap: '4px 6px', marginBottom: '4px', alignItems: 'center' }}>
             <input value={l.price} onChange={e => updLvl(i, 'price', e.target.value)} placeholder="5,612" style={{ ...inp, textAlign: 'right', fontWeight: 700 }} />
-            <select value={l.tag} onChange={e => updLvl(i, 'tag', e.target.value)} style={{ ...iSm, padding: '7px 8px', fontSize: '10px', letterSpacing: '2px' }}>
+            <select value={l.tag} onChange={e => updLvl(i, 'tag', e.target.value)} style={{ ...iSm, padding: '7px 8px', fontSize: '14px', letterSpacing: '1px' }}>
               {LEVEL_TAGS.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
             <input value={l.note} onChange={e => updLvl(i, 'note', e.target.value)} placeholder="Note..." style={inp} />
-            <button onClick={() => save({ keyLevels: quick.keyLevels.filter((_, j) => j !== i) })} style={{ ...rmBtn, padding: '5px 7px', fontSize: '13px', cursor: 'pointer' }}>✕</button>
+            <button onClick={() => save({ keyLevels: quick.keyLevels.filter((_, j) => j !== i) })} style={{ ...rmBtn, padding: '5px 7px', fontSize: '16px', cursor: 'pointer' }}>✕</button>
           </div>
         ))}
       </div>
@@ -3636,10 +3636,10 @@ function QuickSection({
     <div style={{ padding: '52px 0', textAlign: 'center' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '12px', justifyContent: 'center' }}>
         <div style={{ flex: 1, height: '1px', background: 'rgba(255,107,0,0.2)' }} />
-        <span style={{ fontSize: '10px', letterSpacing: '5px', color: '#FF8C00', fontFamily: 'monospace', fontWeight: 900 }}>NO BRIEF PUBLISHED</span>
+        <span style={{ fontSize: '14px', letterSpacing: '1.5px', color: '#F3F4F6', fontFamily: 'monospace', fontWeight: 900 }}>NO BRIEF PUBLISHED</span>
         <div style={{ flex: 1, height: '1px', background: 'rgba(255,107,0,0.2)' }} />
       </div>
-      <div style={{ fontSize: '11px', color: '#FFFFFF', letterSpacing: '3px', fontFamily: 'monospace' }}>
+      <div style={{ fontSize: '15px', color: '#FFFFFF', letterSpacing: '1.5px', fontFamily: 'monospace' }}>
         SWITCH TO EDIT MODE TO CREATE A BRIEF
       </div>
     </div>
@@ -3651,41 +3651,41 @@ function QuickSection({
   const mastheadEl = (
     <div style={{ borderBottom: `2px solid ${accent}`, paddingBottom: '10px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
       <div>
-        <div style={{ fontSize: '9px', letterSpacing: '5px', color: accent, fontWeight: 900, marginBottom: '4px' }}>EFI CAPITAL · MARKET INTELLIGENCE</div>
-        <div style={{ fontSize: '20px', fontWeight: 900, letterSpacing: '5px', color: accent }}>{modeLabel}</div>
+        <div style={{ fontSize: '13px', letterSpacing: '1.5px', color: accent, fontWeight: 900, marginBottom: '4px' }}>EFI CAPITAL · MARKET INTELLIGENCE</div>
+        <div style={{ fontSize: '20px', fontWeight: 900, letterSpacing: '1.5px', color: accent }}>{modeLabel}</div>
       </div>
       <div style={{ textAlign: 'right' }}>
-        <div style={{ fontSize: '10px', color: '#FFFFFF', letterSpacing: '2px' }}>
+        <div style={{ fontSize: '14px', color: '#FFFFFF', letterSpacing: '1px' }}>
           {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase()}
         </div>
-        {quick.updatedAt && <div style={{ fontSize: '9px', color: '#E0E6F0', letterSpacing: '1px', marginTop: '2px' }}>UPDATED {fmtTs(quick.updatedAt).toUpperCase()}</div>}
+        {quick.updatedAt && <div style={{ fontSize: '13px', color: '#E0E6F0', letterSpacing: '1px', marginTop: '2px' }}>UPDATED {fmtTs(quick.updatedAt).toUpperCase()}</div>}
       </div>
     </div>
   )
 
   const headlineEl = quick.headline ? (
     <div style={{ paddingBottom: '4px' }}>
-      <div style={{ fontSize: '9px', letterSpacing: '4px', color: '#FFFFFF', marginBottom: '6px', fontWeight: 900 }}>HEADLINE</div>
+      <div style={{ fontSize: '13px', letterSpacing: '1.5px', color: '#FFFFFF', marginBottom: '6px', fontWeight: 900 }}>HEADLINE</div>
       <div style={{ fontSize: '17px', fontWeight: 600, color: '#FFFFFF', fontFamily: '"Times New Roman", Georgia, serif', lineHeight: 1.45 }}>{quick.headline}</div>
     </div>
   ) : null
 
   const summaryEl = quick.summary ? (
     <div>
-      <div style={{ fontSize: '9px', letterSpacing: '4px', color: '#FFFFFF', marginBottom: '8px', fontWeight: 900 }}>MARKET OVERVIEW</div>
-      <div style={{ fontSize: '13px', color: '#D8E0EC', fontFamily: 'Georgia, "Times New Roman", serif', lineHeight: 1.75 }}>{quick.summary}</div>
+      <div style={{ fontSize: '13px', letterSpacing: '1.5px', color: '#FFFFFF', marginBottom: '8px', fontWeight: 900 }}>MARKET OVERVIEW</div>
+      <div style={{ fontSize: '16px', color: '#D8E0EC', fontFamily: 'Georgia, "Times New Roman", serif', lineHeight: 1.75 }}>{quick.summary}</div>
     </div>
   ) : null
 
   const snapshotEl = activeMktData.length > 0 ? (
     <div>
-      <div style={{ fontSize: '9px', letterSpacing: '4px', color: '#FFFFFF', marginBottom: '8px', fontWeight: 900 }}>MARKET SNAPSHOT</div>
+      <div style={{ fontSize: '13px', letterSpacing: '1.5px', color: '#FFFFFF', marginBottom: '8px', fontWeight: 900 }}>MARKET SNAPSHOT</div>
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(activeMktData.length, 6)}, 1fr)`, border: '1px solid rgba(255,255,255,0.07)' }}>
         {activeMktData.map((d, i) => (
           <div key={i} style={{ padding: '10px', borderRight: i < activeMktData.length - 1 ? '1px solid rgba(255,255,255,0.07)' : 'none', borderTop: `2px solid ${d.up ? '#00D68F' : '#FF3B3B'}` }}>
-            <div style={{ fontSize: '8px', letterSpacing: '2px', color: '#FFFFFF', marginBottom: '5px', fontWeight: 700 }}>{d.label}</div>
-            <div style={{ fontSize: '13px', fontWeight: 900, color: '#FFFFFF', marginBottom: '3px' }}>{d.value}</div>
-            {d.change && <div style={{ fontSize: '11px', fontWeight: 700, color: d.up ? '#00D68F' : '#FF3B3B' }}>{d.change}</div>}
+            <div style={{ fontSize: '13px', letterSpacing: '1px', color: '#FFFFFF', marginBottom: '5px', fontWeight: 700 }}>{d.label}</div>
+            <div style={{ fontSize: '16px', fontWeight: 900, color: '#FFFFFF', marginBottom: '3px' }}>{d.value}</div>
+            {d.change && <div style={{ fontSize: '15px', fontWeight: 700, color: d.up ? '#00D68F' : '#FF3B3B' }}>{d.change}</div>}
           </div>
         ))}
       </div>
@@ -3710,18 +3710,18 @@ function QuickSection({
           <div key={fi.id} style={{ marginBottom: '18px', borderLeft: `3px solid ${dc}`, paddingLeft: '14px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
               {renderDirIcon(fi.direction, 20)}
-              <span style={{ fontSize: '16px', fontWeight: 900, color: '#FFFFFF', letterSpacing: '3px', fontFamily: 'monospace' }}>{fi.ticker}</span>
-              <span style={{ fontSize: '8px', fontWeight: 900, color: dc, letterSpacing: '2px', padding: '2px 7px', border: `1px solid ${dc}44`, background: `${dc}0D`, fontFamily: 'monospace' }}>{QD_LABEL[fi.direction] || fi.direction.toUpperCase()}</span>
+              <span style={{ fontSize: '16px', fontWeight: 900, color: '#FFFFFF', letterSpacing: '1.5px', fontFamily: 'monospace' }}>{fi.ticker}</span>
+              <span style={{ fontSize: '13px', fontWeight: 900, color: dc, letterSpacing: '1px', padding: '2px 7px', border: `1px solid ${dc}44`, background: `${dc}0D`, fontFamily: 'monospace' }}>{QD_LABEL[fi.direction] || fi.direction.toUpperCase()}</span>
             </div>
             {fi.bullets.filter(b => b.trim()).map((b, bi) => (
               <div key={bi} style={{ display: 'flex', gap: '8px', marginBottom: '5px' }}>
-                <span style={{ color: dc, fontSize: '12px', flexShrink: 0, marginTop: '1px' }}>•</span>
-                <span style={{ fontSize: '13px', color: '#D8E0EC', lineHeight: 1.65, fontFamily: 'Georgia, serif' }}>{b}</span>
+                <span style={{ color: dc, fontSize: '16px', flexShrink: 0, marginTop: '1px' }}>•</span>
+                <span style={{ fontSize: '16px', color: '#D8E0EC', lineHeight: 1.65, fontFamily: 'Georgia, serif' }}>{b}</span>
               </div>
             ))}
             {fi.trade && (
               <div style={{ marginTop: '9px', padding: '7px 12px', background: `${dc}0F`, border: `1px solid ${dc}28`, borderRadius: '2px' }}>
-                <span style={{ fontSize: '12px', fontWeight: 900, color: dc, fontFamily: 'monospace', letterSpacing: '1px' }}>{fi.trade}</span>
+                <span style={{ fontSize: '16px', fontWeight: 900, color: dc, fontFamily: 'monospace', letterSpacing: '1px' }}>{fi.trade}</span>
               </div>
             )}
           </div>
@@ -3733,17 +3733,17 @@ function QuickSection({
   // Legacy bullets (shown only when no focus items, backward compat)
   const legacyBulletsEl = quick.bullets.some(b => b.text) && focusItems.length === 0 ? (
     <div>
-      <div style={{ fontSize: '9px', letterSpacing: '4px', color: '#FFFFFF', marginBottom: '8px', fontWeight: 900 }}>KEY INSIGHTS</div>
+      <div style={{ fontSize: '13px', letterSpacing: '1.5px', color: '#FFFFFF', marginBottom: '8px', fontWeight: 900 }}>KEY INSIGHTS</div>
       <div style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
         {quick.bullets.filter(b => b.text).map((b, i, arr) => {
           const col = BULLET_COLORS[b.category] || BULLET_COLORS.NOTE
           return (
             <div key={i} style={{ display: 'grid', gridTemplateColumns: '76px 1fr', borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
               <div style={{ padding: '10px', background: `${col}0A`, borderRight: `1px solid ${col}1A`, display: 'flex', alignItems: 'center' }}>
-                <span style={{ fontSize: '9px', fontWeight: 900, color: col, letterSpacing: '2px' }}>{b.category}</span>
+                <span style={{ fontSize: '13px', fontWeight: 900, color: col, letterSpacing: '1px' }}>{b.category}</span>
               </div>
               <div style={{ padding: '10px 14px', display: 'flex', alignItems: 'center' }}>
-                <span style={{ fontSize: '12px', color: '#E8EDF2', lineHeight: 1.55 }}>{b.text}</span>
+                <span style={{ fontSize: '16px', color: '#E8EDF2', lineHeight: 1.55 }}>{b.text}</span>
               </div>
             </div>
           )
@@ -3764,7 +3764,7 @@ function QuickSection({
       <div style={{ border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '80px 58px 1fr 72px 72px 72px 72px', background: '#0A0A0A', borderBottom: '1px solid rgba(255,255,255,0.07)', padding: '6px 10px', gap: '6px' }}>
           {['TICKER', 'TYPE', 'CONTRACT', 'ENTRY', 'T1', 'T2', 'STOP'].map(h => (
-            <div key={h} style={{ fontSize: '8px', letterSpacing: '2px', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>{h}</div>
+            <div key={h} style={{ fontSize: '13px', letterSpacing: '1px', color: 'rgba(255,255,255,0.85)', fontWeight: 700 }}>{h}</div>
           ))}
         </div>
         {trades.filter(t => t.ticker).map((tr) => {
@@ -3772,17 +3772,17 @@ function QuickSection({
           return (
             <div key={tr.id}>
               <div style={{ display: 'grid', gridTemplateColumns: '80px 58px 1fr 72px 72px 72px 72px', padding: '10px', gap: '6px', borderBottom: '1px solid rgba(255,255,255,0.04)', borderLeft: `3px solid ${tc}`, alignItems: 'center' }}>
-                <div style={{ fontSize: '13px', fontWeight: 900, color: '#FFFFFF', letterSpacing: '1px' }}>{tr.ticker}</div>
-                <div style={{ fontSize: '9px', fontWeight: 900, color: tc, letterSpacing: '1px', padding: '2px 4px', border: `1px solid ${tc}44`, background: `${tc}0F`, textAlign: 'center' }}>{tr.type.toUpperCase()}</div>
-                <div style={{ fontSize: '12px', color: '#E8EDF2', fontFamily: 'monospace', fontWeight: 600 }}>{tr.contract}</div>
-                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.8)', textAlign: 'center', fontFamily: 'monospace' }}>{tr.entry}</div>
-                <div style={{ fontSize: '12px', color: '#00D68F', fontWeight: 700, textAlign: 'center', fontFamily: 'monospace' }}>{tr.t1}</div>
-                <div style={{ fontSize: '12px', color: '#00D68F', fontWeight: 700, textAlign: 'center', fontFamily: 'monospace' }}>{tr.t2}</div>
-                <div style={{ fontSize: '12px', color: '#FF3B3B', fontWeight: 700, textAlign: 'center', fontFamily: 'monospace' }}>{tr.stop}</div>
+                <div style={{ fontSize: '16px', fontWeight: 900, color: '#FFFFFF', letterSpacing: '1px' }}>{tr.ticker}</div>
+                <div style={{ fontSize: '13px', fontWeight: 900, color: tc, letterSpacing: '1px', padding: '2px 4px', border: `1px solid ${tc}44`, background: `${tc}0F`, textAlign: 'center' }}>{tr.type.toUpperCase()}</div>
+                <div style={{ fontSize: '16px', color: '#E8EDF2', fontFamily: 'monospace', fontWeight: 600 }}>{tr.contract}</div>
+                <div style={{ fontSize: '16px', color: 'rgba(255,255,255,0.8)', textAlign: 'center', fontFamily: 'monospace' }}>{tr.entry}</div>
+                <div style={{ fontSize: '16px', color: '#00D68F', fontWeight: 700, textAlign: 'center', fontFamily: 'monospace' }}>{tr.t1}</div>
+                <div style={{ fontSize: '16px', color: '#00D68F', fontWeight: 700, textAlign: 'center', fontFamily: 'monospace' }}>{tr.t2}</div>
+                <div style={{ fontSize: '16px', color: '#FF3B3B', fontWeight: 700, textAlign: 'center', fontFamily: 'monospace' }}>{tr.stop}</div>
               </div>
               {tr.notes && (
                 <div style={{ padding: '5px 14px 8px', background: '#030303', borderBottom: '1px solid rgba(255,255,255,0.03)', borderLeft: `3px solid ${tc}44` }}>
-                  <span style={{ fontSize: '11px', color: '#FFFFFF', fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>{tr.notes}</span>
+                  <span style={{ fontSize: '15px', color: '#FFFFFF', fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>{tr.notes}</span>
                 </div>
               )}
             </div>
@@ -3804,15 +3804,15 @@ function QuickSection({
       )}
       <div style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '80px 100px 1fr', padding: '5px 10px', background: '#060606', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          {['PRICE', 'TAG', 'NOTE'].map(h => <span key={h} style={{ fontSize: '8px', letterSpacing: '2px', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>{h}</span>)}
+          {['PRICE', 'TAG', 'NOTE'].map(h => <span key={h} style={{ fontSize: '13px', letterSpacing: '1px', color: 'rgba(255,255,255,0.85)', fontWeight: 700 }}>{h}</span>)}
         </div>
         {quick.keyLevels.filter(l => l.price).map((l, i, arr) => {
           const col = LEVEL_TAG_COLORS[l.tag] || accent
           return (
             <div key={i} style={{ display: 'grid', gridTemplateColumns: '80px 100px 1fr', padding: '9px 10px', borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none', borderLeft: `3px solid ${col}` }}>
-              <div style={{ fontSize: '13px', fontWeight: 900, color: '#FFFFFF', letterSpacing: '0.5px', fontFamily: 'monospace' }}>{l.price}</div>
-              <div><span style={{ fontSize: '9px', fontWeight: 900, color: col, letterSpacing: '2px', padding: '1px 5px', border: `1px solid ${col}30`, background: `${col}0D`, fontFamily: 'monospace' }}>{l.tag}</span></div>
-              <div style={{ fontSize: '11px', color: '#FFFFFF', fontStyle: 'italic', fontFamily: 'Georgia, serif' }}>{l.note}</div>
+              <div style={{ fontSize: '16px', fontWeight: 900, color: '#FFFFFF', letterSpacing: '0.5px', fontFamily: 'monospace' }}>{l.price}</div>
+              <div><span style={{ fontSize: '13px', fontWeight: 900, color: col, letterSpacing: '1px', padding: '1px 5px', border: `1px solid ${col}30`, background: `${col}0D`, fontFamily: 'monospace' }}>{l.tag}</span></div>
+              <div style={{ fontSize: '15px', color: '#FFFFFF', fontStyle: 'italic', fontFamily: 'Georgia, serif' }}>{l.note}</div>
             </div>
           )
         })}
@@ -3838,7 +3838,7 @@ function QuickSection({
       {mastheadEl}{headlineEl}{summaryEl}{snapshotEl}{focusEl}{legacyBulletsEl}{tradesEl}{levelsEl}
       {quick.updatedAt && (
         <div style={{ paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.04)', display: 'flex', justifyContent: 'flex-end' }}>
-          <span style={{ fontSize: '8px', color: '#E0E6F0', letterSpacing: '2px' }}>END OF BRIEF · EFI CAPITAL</span>
+          <span style={{ fontSize: '13px', color: '#E0E6F0', letterSpacing: '1px' }}>END OF BRIEF · EFI CAPITAL</span>
         </div>
       )}
     </div>
@@ -3915,10 +3915,10 @@ function BriefSection({
         <div style={{ padding: '60px 24px', textAlign: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '28px', justifyContent: 'center' }}>
             <div style={{ flex: 1, height: '1px', background: 'rgba(255,107,0,0.2)' }} />
-            <span style={{ fontSize: '9px', letterSpacing: '5px', color: 'rgba(255,107,0,0.6)', fontFamily: 'monospace', fontWeight: 900 }}>NO WIRE PUBLISHED</span>
+            <span style={{ fontSize: '13px', letterSpacing: '1.5px', color: 'rgba(255,107,0,0.6)', fontFamily: 'monospace', fontWeight: 900 }}>NO WIRE PUBLISHED</span>
             <div style={{ flex: 1, height: '1px', background: 'rgba(255,107,0,0.2)' }} />
           </div>
-          <div style={{ fontSize: '12px', color: '#FFFFFF', letterSpacing: '3px', fontFamily: 'monospace' }}>
+          <div style={{ fontSize: '16px', color: '#FFFFFF', letterSpacing: '1.5px', fontFamily: 'monospace' }}>
             Open Options menu · Enable Edit Mode · Select a layout
           </div>
         </div>
@@ -3944,7 +3944,7 @@ function BriefSection({
                     onChange={(e) =>
                       updateBlock(block.id, { type: e.target.value as BriefBlockType })
                     }
-                    style={{ ...iSm, padding: '4px 10px', fontSize: '17px', letterSpacing: '2px' }}
+                    style={{ ...iSm, padding: '4px 10px', fontSize: '17px', letterSpacing: '1px' }}
                   >
                     {BLOCK_TYPE_LIST.map(({ type, label }) => (
                       <option key={type} value={type}>
@@ -4029,7 +4029,7 @@ function BriefSection({
                   ...ghostBtn(accent),
                   padding: '8px 14px',
                   fontSize: '17px',
-                  letterSpacing: '2px',
+                  letterSpacing: '1px',
                   fontFamily: 'monospace',
                   cursor: 'pointer',
                 }}
@@ -4049,7 +4049,7 @@ function BriefSection({
           }}>
             <div style={{ flex: 1, height: '1px', background: 'rgba(255,107,0,0.2)' }} />
             <span style={{
-              fontSize: '9px', fontWeight: 900, letterSpacing: '4px', color: '#FF8C00', fontFamily: 'monospace',
+              fontSize: '13px', fontWeight: 900, letterSpacing: '1.5px', color: '#F3F4F6', fontFamily: 'monospace',
               padding: '3px 10px',
               border: `1px solid rgba(255,140,0,0.3)`,
             }}>
@@ -4068,7 +4068,7 @@ function BriefSection({
           }}>
             <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.04)' }} />
             <span style={{
-              fontSize: '9px', letterSpacing: '4px', color: '#FFFFFF',
+              fontSize: '13px', letterSpacing: '1.5px', color: '#FFFFFF',
               fontFamily: 'monospace',
             }}>END OF WIRE · EFI CAPITAL</span>
             <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.04)' }} />
@@ -4145,7 +4145,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
       }}
     >
       {/* ── Wire masthead top rules ── */}
-      <div style={{ height: '3px', background: '#FF6B00', flexShrink: 0 }} />
+      <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />
       <div style={{ height: '1px', background: 'rgba(255,107,0,0.25)', flexShrink: 0 }} />
 
       {/* ── Header ── */}
@@ -4162,12 +4162,12 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px', position: 'relative' }}>
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '2px' }}>
             <div style={{
-              fontSize: '9px', fontWeight: 900, letterSpacing: '5px',
+              fontSize: '13px', fontWeight: 900, letterSpacing: '1.5px',
               color: 'rgba(255,107,0,0.7)', fontFamily: 'monospace',
             }}>EFI CAPITAL</div>
             <div style={{
-              fontSize: '17px', fontWeight: 900, letterSpacing: '4px',
-              color: '#FF6B00', fontFamily: 'monospace', lineHeight: 1,
+              fontSize: '17px', fontWeight: 900, letterSpacing: '1.5px',
+              color: '#F3F4F6', fontFamily: 'monospace', lineHeight: 1,
             }}>MARKET INSIGHT</div>
           </div>
           <div style={{
@@ -4176,8 +4176,8 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
           }} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
             <span style={{
-              fontSize: '11px', color: 'rgba(255,255,255,0.5)',
-              letterSpacing: '3px', fontWeight: 600, fontFamily: 'monospace',
+              fontSize: '15px', color: 'rgba(255,255,255,0.85)',
+              letterSpacing: '1.5px', fontWeight: 600, fontFamily: 'monospace',
             }}>
               INTELLIGENCE WIRE
             </span>
@@ -4188,9 +4188,9 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
                 placeholder="e.g. March 22nd Weekly Snapshot"
                 style={{
                   ...iBase,
-                  fontSize: '13px',
+                  fontSize: '16px',
                   padding: '4px 10px',
-                  color: '#FFE000',
+                  color: '#F3F4F6',
                   letterSpacing: '1.5px',
                   width: '280px',
                   fontWeight: '700',
@@ -4199,9 +4199,9 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
             ) : (
               <span
                 style={{
-                  fontSize: '13px',
-                  color: '#FFE000',
-                  letterSpacing: '2px',
+                  fontSize: '16px',
+                  color: '#F3F4F6',
+                  letterSpacing: '1px',
                   fontWeight: '800',
                   minHeight: '18px',
                 }}
@@ -4256,7 +4256,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
                     background: 'transparent',
                     border: 'none', borderBottom: '1px solid rgba(255,255,255,0.06)',
                     color: '#FFFFFF',
-                    padding: '11px 16px', fontSize: '13px', fontWeight: '700',
+                    padding: '11px 16px', fontSize: '16px', fontWeight: '700',
                     letterSpacing: '1.5px', cursor: 'pointer', fontFamily: 'monospace',
                     textAlign: 'left', transition: 'background 0.1s',
                   }}
@@ -4272,7 +4272,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
                     background: 'transparent',
                     border: 'none', borderBottom: '1px solid rgba(255,255,255,0.06)',
                     color: '#22C55E',
-                    padding: '11px 16px', fontSize: '13px', fontWeight: '700',
+                    padding: '11px 16px', fontSize: '16px', fontWeight: '700',
                     letterSpacing: '1.5px', cursor: 'pointer', fontFamily: 'monospace',
                     textAlign: 'left', transition: 'background 0.1s',
                   }}
@@ -4288,7 +4288,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
                     background: 'transparent',
                     border: 'none',
                     color: '#06B6D4',
-                    padding: '11px 16px', fontSize: '13px', fontWeight: '700',
+                    padding: '11px 16px', fontSize: '16px', fontWeight: '700',
                     letterSpacing: '1.5px', cursor: 'pointer', fontFamily: 'monospace',
                     textAlign: 'left', transition: 'background 0.1s',
                   }}
@@ -4331,12 +4331,12 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
           <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
             flex: 1, padding: '9px 12px', cursor: 'pointer',
             background: 'transparent', border: 'none',
-            borderBottom: activeTab === t.id ? `2px solid #FF6B00` : '2px solid transparent',
+            borderBottom: activeTab === t.id ? `2px solid #60A5FA` : '2px solid transparent',
             borderRight: '1px solid rgba(255,107,0,0.1)',
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
           }}>
-            <span style={{ fontSize: '10px', fontWeight: 900, letterSpacing: '3px', color: activeTab === t.id ? '#FF6B00' : 'rgba(255,255,255,0.65)', fontFamily: 'monospace' }}>{t.label}</span>
-            <span style={{ fontSize: '8px', letterSpacing: '2px', color: activeTab === t.id ? '#FF8C00' : 'rgba(255,255,255,0.45)', fontFamily: 'monospace' }}>{t.sub}</span>
+            <span style={{ fontSize: '14px', fontWeight: 900, letterSpacing: '1.5px', color: activeTab === t.id ? '#FF6B00' : 'rgba(255,255,255,0.85)', fontFamily: 'monospace' }}>{t.label}</span>
+            <span style={{ fontSize: '13px', letterSpacing: '1px', color: activeTab === t.id ? '#FF8C00' : 'rgba(255,255,255,0.85)', fontFamily: 'monospace' }}>{t.sub}</span>
           </button>
         ))}
       </div>
@@ -4384,7 +4384,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
               style={{
                 fontSize: '15px',
                 color: '#22D3EE',
-                letterSpacing: '3px',
+                letterSpacing: '1.5px',
                 fontWeight: '700',
               }}
             >
@@ -4451,7 +4451,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
                 </div>
                 <div
                   style={{
-                    fontSize: '12px',
+                    fontSize: '16px',
                     color: '#9AAAB8',
                     marginBottom: '10px',
                     letterSpacing: '1px',
@@ -4468,7 +4468,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
                       border: '1px solid rgba(34,211,238,0.3)',
                       color: '#22D3EE',
                       padding: '6px 10px',
-                      fontSize: '12px',
+                      fontSize: '16px',
                       fontWeight: '700',
                       letterSpacing: '1.5px',
                       cursor: 'pointer',
@@ -4485,7 +4485,7 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
                       border: '1px solid rgba(255,45,85,0.3)',
                       color: '#FF2D55',
                       padding: '6px 10px',
-                      fontSize: '12px',
+                      fontSize: '16px',
                       fontWeight: '700',
                       letterSpacing: '1.5px',
                       cursor: 'pointer',
@@ -4512,11 +4512,11 @@ export default function InsightPanel({ onClose }: { onClose: () => void }) {
         flexShrink: 0,
         background: '#030303',
       }}>
-        <span style={{ fontSize: '9px', color: '#E0E6F0', letterSpacing: '3px', fontFamily: 'monospace' }}>
+        <span style={{ fontSize: '13px', color: '#E0E6F0', letterSpacing: '1.5px', fontFamily: 'monospace' }}>
           EFI CAPITAL · MARKET INTELLIGENCE · INTERNAL USE ONLY
         </span>
         {editMode && (
-          <span style={{ fontSize: '9px', color: GS.amber, letterSpacing: '3px', fontWeight: 900, fontFamily: 'monospace' }}>
+          <span style={{ fontSize: '13px', color: GS.amber, letterSpacing: '1.5px', fontWeight: 900, fontFamily: 'monospace' }}>
             ● LIVE EDIT
           </span>
         )}
