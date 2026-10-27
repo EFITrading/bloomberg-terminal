@@ -760,7 +760,8 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
  display: none;
  }
  @media (max-width: 768px) {
-   .seasonax-container { margin-top: 0 !important; }
+   .seasonax-container { margin-top: 0 !important; padding: 0 !important; justify-content: flex-start !important; height: auto !important; min-height: 0 !important; }
+   .seasonax-container > * { flex-shrink: 0; margin-top: 0 !important; }
    .results-grid-split {
      display: grid !important;
      grid-template-columns: 1fr !important;
@@ -779,6 +780,45 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
    .section-title svg { width: 11px !important; height: 11px !important; }
    .section-title .count { font-size: 9px !important; }
    .pro-results { padding: 0 !important; }
+   .sx-sector-bar { display: none !important; }
+   .sx-sector-bar-old {
+     flex-wrap: nowrap !important;
+     overflow-x: auto !important;
+     -webkit-overflow-scrolling: touch;
+     scrollbar-width: none;
+     gap: 6px !important;
+     padding: 8px 10px !important;
+   }
+   .sx-sector-bar::-webkit-scrollbar { display: none; }
+   .sx-sector-bar > span { display: none !important; }
+   .sx-sector-bar .sector-toggle-btn {
+     flex: 0 0 auto !important;
+     height: 30px !important;
+     padding: 0 12px !important;
+     border-radius: 15px !important;
+     font-size: 11px !important;
+   }
+   .sx-filter-bar {
+     display: grid !important;
+     grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(0,1.2fr) !important;
+     gap: 4px !important;
+     padding: 4px 6px !important;
+   }
+   .sx-filter-bar > span { display: none !important; }
+   .sx-filter-bar > select,
+   .sx-filter-bar > button {
+     width: 100% !important;
+     min-width: 0 !important;
+     height: 32px !important;
+     box-sizing: border-box !important;
+     padding: 0 4px !important;
+     border-radius: 8px !important;
+     font-size: 10px !important;
+     text-overflow: ellipsis;
+     overflow: hidden;
+     text-align: left;
+   }
+   .sx-filter-bar > button { text-align: center; }
  }
  /* seasonality.css has a "body * { color: #fff !important }" nuclear rule — beat it with a class selector */
  .sector-toggle-btn { color: var(--sector-toggle-color) !important; }
@@ -825,6 +865,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
             {/* Sector toggle bar — one button per sector ETF actually present among the found trades */}
             {availableSectors.length > 1 && (
               <div
+                className="sx-sector-bar"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -898,11 +939,13 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
 
             {/* Filter bar - inside the yellow results box, between the two columns above */}
             <div
+              className="sx-filter-bar"
               style={{
-                display: 'flex',
+                display: isMobileView ? 'grid' : 'flex',
+                gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr) minmax(0,1.2fr)',
                 alignItems: 'center',
-                gap: isMobileView ? 6 : 10,
-                padding: isMobileView ? '8px 10px' : '8px 14px',
+                gap: isMobileView ? 4 : 10,
+                padding: isMobileView ? '4px 6px' : '8px 14px',
                 borderBottom: '1px solid rgba(255,215,0,0.35)',
                 background: 'rgba(255,215,0,0.05)',
                 flexShrink: 0,
@@ -918,6 +961,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                   textTransform: 'uppercase',
                   fontFamily: '"Roboto Mono", monospace',
                   flexShrink: 0,
+                  display: isMobileView ? 'none' : undefined,
                 }}
               >
                 Filters
@@ -930,7 +974,10 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                   color: filters.startingSoon ? '#FFFFFF' : 'rgba(255,255,255,0.55)',
                   border: '1px solid #2e2e2e',
                   borderRadius: isMobileView ? 6 : 0,
-                  padding: isMobileView ? '6px 6px' : '6px 12px',
+                  padding: isMobileView ? '0 2px' : '6px 12px',
+                  height: isMobileView ? 32 : undefined,
+                  boxSizing: 'border-box',
+                  width: isMobileView ? '100%' : undefined,
                   fontSize: isMobileView ? 9.5 : 12,
                   fontWeight: 700,
                   fontFamily: '"Roboto Mono", monospace',
@@ -953,7 +1000,10 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                   color: filters.correlation ? '#FFFFFF' : 'rgba(255,255,255,0.55)',
                   border: '1px solid #2e2e2e',
                   borderRadius: isMobileView ? 6 : 0,
-                  padding: isMobileView ? '6px 6px' : '6px 12px',
+                  padding: isMobileView ? '0 2px' : '6px 12px',
+                  height: isMobileView ? 32 : undefined,
+                  boxSizing: 'border-box',
+                  width: isMobileView ? '100%' : undefined,
                   fontSize: isMobileView ? 9.5 : 12,
                   fontWeight: 700,
                   fontFamily: '"Roboto Mono", monospace',
@@ -968,7 +1018,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                 <option value="70" style={{ background: '#0d0d0d' }}>70%+</option>
                 <option value="90" style={{ background: '#0d0d0d' }}>90%+</option>
               </select>
-              <select
+              {!isMobileView && (<select
                 value={filters.mover}
                 onChange={(e) => handleFilterChange({ ...filters, mover: e.target.value })}
                 style={{
@@ -976,7 +1026,10 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                   color: filters.mover ? '#FFFFFF' : 'rgba(255,255,255,0.55)',
                   border: '1px solid #2e2e2e',
                   borderRadius: isMobileView ? 6 : 0,
-                  padding: isMobileView ? '6px 6px' : '6px 12px',
+                  padding: isMobileView ? '0 2px' : '6px 12px',
+                  height: isMobileView ? 32 : undefined,
+                  boxSizing: 'border-box',
+                  width: isMobileView ? '100%' : undefined,
                   fontSize: isMobileView ? 9.5 : 12,
                   fontWeight: 700,
                   fontFamily: '"Roboto Mono", monospace',
@@ -990,7 +1043,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                 <option value="5" style={{ background: '#0d0d0d' }}>5%+</option>
                 <option value="10" style={{ background: '#0d0d0d' }}>10%+</option>
                 <option value="15" style={{ background: '#0d0d0d' }}>15%+</option>
-              </select>
+              </select>)}
               <button
                 onClick={() => {
                   if (!fiftyTwoWeekReady) return
@@ -1005,7 +1058,12 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                   color: filters.fiftyTwoWeek ? '#FFD700' : '#FFFFFF',
                   border: filters.fiftyTwoWeek ? '1px solid #FFD700' : '1px solid #2e2e2e',
                   borderRadius: isMobileView ? 6 : 0,
-                  padding: isMobileView ? '6px 8px' : '6px 14px',
+                  padding: isMobileView ? '0 2px' : '6px 14px',
+                  height: isMobileView ? 32 : undefined,
+                  boxSizing: 'border-box',
+                  width: isMobileView ? '100%' : undefined,
+                  minWidth: 0,
+                  minHeight: 0,
                   fontSize: isMobileView ? 9 : 12,
                   fontWeight: 700,
                   fontFamily: '"Roboto Mono", monospace',
@@ -1024,53 +1082,31 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
 
             {/* Mobile-only sentiment switcher — replaces the side-by-side bullish/bearish columns with one full-width section at a time */}
             {isMobileView && (
-              <div
-                style={{
-                  display: 'flex',
-                  flexShrink: 0,
-                  borderBottom: '1px solid rgba(255,215,0,0.35)',
-                }}
-              >
-                <button
-                  onClick={() => setMobileSentiment('bullish')}
-                  style={{
-                    flex: 1,
-                    padding: '10px 0',
-                    background: mobileSentiment === 'bullish' ? 'rgba(0,255,136,0.12)' : 'transparent',
-                    border: 'none',
-                    borderBottom: mobileSentiment === 'bullish' ? '2px solid #00FF88' : '2px solid transparent',
-                    color: mobileSentiment === 'bullish' ? '#00FF88' : 'rgba(255,255,255,0.5)',
-                    fontSize: 11,
-                    fontWeight: 800,
-                    letterSpacing: '0.8px',
-                    textTransform: 'uppercase',
-                    fontFamily: '"Roboto Mono", monospace',
-                    cursor: 'pointer',
-                    outline: 'none',
-                  }}
-                >
-                  Bullish
-                </button>
-                <button
-                  onClick={() => setMobileSentiment('bearish')}
-                  style={{
-                    flex: 1,
-                    padding: '10px 0',
-                    background: mobileSentiment === 'bearish' ? 'rgba(255,68,68,0.12)' : 'transparent',
-                    border: 'none',
-                    borderBottom: mobileSentiment === 'bearish' ? '2px solid #FF4444' : '2px solid transparent',
-                    color: mobileSentiment === 'bearish' ? '#FF4444' : 'rgba(255,255,255,0.5)',
-                    fontSize: 11,
-                    fontWeight: 800,
-                    letterSpacing: '0.8px',
-                    textTransform: 'uppercase',
-                    fontFamily: '"Roboto Mono", monospace',
-                    cursor: 'pointer',
-                    outline: 'none',
-                  }}
-                >
-                  Bearish
-                </button>
+              <div style={{ flexShrink: 0, padding: '5px 6px', background: '#000' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3, padding: 3, borderRadius: 10, background: 'linear-gradient(180deg, #0a0a0a 0%, #000 100%)', border: '1px solid #1f1f1f' }}>
+                  {([['bullish', 'BULLISH', '#00FF88'], ['bearish', 'BEARISH', '#FF4444']] as const).map(([key, label, color]) => {
+                    const on = mobileSentiment === key
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => setMobileSentiment(key)}
+                        style={{
+                          height: 30, minHeight: 0, boxSizing: 'border-box', padding: 0, borderRadius: 8,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                          fontSize: 11, fontWeight: 800, letterSpacing: '1px',
+                          fontFamily: '"Roboto Mono", monospace', cursor: 'pointer', outline: 'none',
+                          color: on ? color : 'rgba(255,255,255,0.55)',
+                          background: on ? 'linear-gradient(180deg, #1f1f1f 0%, #0d0d0d 100%)' : 'transparent',
+                          border: on ? `1px solid ${color}55` : '1px solid transparent',
+                          boxShadow: on ? `inset 0 -2px 0 ${color}` : 'none',
+                        }}
+                      >
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, opacity: on ? 1 : 0.4 }} />
+                        {label}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
             )}
 
@@ -1307,7 +1343,6 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
                       style={{
                         display: isMobileView && mobileSentiment !== 'bullish' ? 'none' : 'flex',
                         flex: 1,
-                        display: 'flex',
                         flexDirection: 'column',
                         height: '100%',
                         minHeight: 0,

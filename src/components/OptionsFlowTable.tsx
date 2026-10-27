@@ -7003,7 +7003,7 @@ Stock Reaction: ${scores.stockReaction}/15`
 
               {/* Right side buttons - order: PICKS, ALGO, TRACK, FILTER, ? */}
 
-              <div className="flex items-center gap-px">
+              <div className="flex items-center" style={{ gap: 4, flex: 1, minWidth: 0 }}>
                 {/* SweepSense Button removed - scan now runs automatically once flow data loads */}
 
                 {/* Notable Button removed - SweepSense activates it automatically */}
@@ -7015,24 +7015,21 @@ Stock Reaction: ${scores.stockReaction}/15`
                     setMobileFlowInitialTab('SWEEPSENSE')
                     setIsFlowTrackingOpen(true)
                   }}
-                  className="px-4 font-black uppercase transition-all duration-200 flex items-center gap-1 focus:outline-none"
+                  className="font-black uppercase transition-all duration-200 flex items-center justify-center focus:outline-none"
                   style={{
-                    height: '48px',
+                    height: '40px', flex: '1 1 0', minWidth: 0, padding: '0 4px', whiteSpace: 'nowrap', overflow: 'hidden',
                     background: isFlowTrackingOpen && mobileFlowInitialTab === 'SWEEPSENSE'
                       ? '#16a34a'
                       : 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
                     border: isFlowTrackingOpen && mobileFlowInitialTab === 'SWEEPSENSE' ? '2px solid #16a34a' : '2px solid #2a2a2a',
                     borderRadius: '4px',
-                    fontSize: '15px',
-                    letterSpacing: '0.5px',
+                    fontSize: '11px',
+                    letterSpacing: '0.2px',
                     fontWeight: '900',
                     color: isFlowTrackingOpen && mobileFlowInitialTab === 'SWEEPSENSE' ? '#000000' : '#16a34a',
                     boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.9)',
                   }}
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 12h4l3 8 4-16 3 8h4" />
-                  </svg>
                   <span>SweepSense</span>
                 </button>
 
@@ -7040,22 +7037,19 @@ Stock Reaction: ${scores.stockReaction}/15`
                 {onAlgoFlowClick && (
                   <button
                     onClick={onAlgoFlowClick}
-                    className="px-4 font-black uppercase transition-all duration-200 flex items-center gap-1 focus:outline-none"
+                    className="font-black uppercase transition-all duration-200 flex items-center justify-center focus:outline-none"
                     style={{
-                      height: '48px',
+                      height: '40px', flex: '1 1 0', minWidth: 0, padding: '0 4px', whiteSpace: 'nowrap', overflow: 'hidden',
                       background: 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
                       border: '2px solid #2a2a2a',
                       borderRadius: '4px',
-                      fontSize: '15px',
-                      letterSpacing: '0.5px',
+                      fontSize: '11px',
+                      letterSpacing: '0.2px',
                       fontWeight: '900',
                       color: '#ffaa55',
                       boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.9)',
                     }}
                   >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-                    </svg>
                     <span>AlgoFlow</span>
                   </button>
                 )}
@@ -7066,23 +7060,20 @@ Stock Reaction: ${scores.stockReaction}/15`
                     setMobileFlowInitialTab('TRACKER')
                     setIsFlowTrackingOpen(true)
                   }}
-                  className="px-4 text-white font-black uppercase transition-all duration-200 flex items-center gap-1 focus:outline-none"
+                  className="text-white font-black uppercase transition-all duration-200 flex items-center justify-center focus:outline-none"
                   style={{
-                    height: '48px',
+                    height: '40px', flex: '1 1 0', minWidth: 0, padding: '0 4px', whiteSpace: 'nowrap', overflow: 'hidden',
                     background: isFlowTrackingOpen && mobileFlowInitialTab === 'TRACKER'
                       ? 'linear-gradient(180deg, #10b981 0%, #059669 100%)'
                       : 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)',
                     border: isFlowTrackingOpen && mobileFlowInitialTab === 'TRACKER' ? '2px solid #10b981' : '2px solid #2a2a2a',
                     borderRadius: '4px',
-                    fontSize: '15px',
-                    letterSpacing: '0.5px',
+                    fontSize: '11px',
+                    letterSpacing: '0.2px',
                     fontWeight: '900',
                     boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.9)',
                   }}
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isFlowTrackingOpen && mobileFlowInitialTab === 'TRACKER' ? '#000' : '#10b981'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                  </svg>
                   <span>A+ Tracker</span>
                 </button>
 

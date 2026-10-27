@@ -213,7 +213,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
     appearance: 'none',
     WebkitAppearance: 'none',
     minWidth: 0,
-    height: 30,
+    height: 32,
     boxSizing: 'border-box',
     padding: '0 15px 0 6px',
     fontSize: 9,
@@ -283,7 +283,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
           }}
         >
           {/* Row 1: Index + Year + Scan mode (triggers scan on select) */}
-          <div style={{ display: 'flex', alignItems: 'stretch', gap: 5, flexWrap: 'nowrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'nowrap' }}>
             <select
               value={selectedMarket}
               onChange={(e) => setSelectedMarket(e.target.value)}
@@ -304,7 +304,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
               onChange={(e) => onTimePeriodChange?.(e.target.value)}
               className="hs-select-mobile"
               disabled={loading}
-              style={{ ...selectMobile, flex: 0.6, padding: '0 16px 0 6px', opacity: loading ? 0.5 : 1 }}
+              style={{ ...selectMobile, flex: '0 0 58px', padding: '0 14px 0 6px', opacity: loading ? 0.5 : 1 }}
             >
               {timePeriodOptions.map((option) => (
                 <option key={option.id} value={option.id} style={{ background: '#0d0d0d' }}>{option.id}</option>
@@ -313,19 +313,27 @@ const HeroSection: React.FC<HeroSectionProps> = ({
 
             <select
               value={scanMode}
-              onChange={(e) => {
-                const mode = e.target.value as 'normal' | 'leaps' | 'multiframe'
-                setScanMode(mode)
-                handleStartScreener(mode)
-              }}
+              onChange={(e) => setScanMode(e.target.value as 'normal' | 'leaps' | 'multiframe')}
               className="hs-select-mobile"
               disabled={loading}
-              style={{ ...selectMobile, flex: 1, padding: '0 16px 0 6px', opacity: loading ? 0.5 : 1 }}
+              style={{ ...selectMobile, flex: '0 0 76px', padding: '0 14px 0 6px', opacity: loading ? 0.5 : 1 }}
             >
-              <option value="normal" style={{ background: '#0d0d0d' }}>⌕ Scan Normal</option>
-              <option value="leaps" style={{ background: '#0d0d0d' }}>⌕ Scan Leaps</option>
-              <option value="multiframe" style={{ background: '#0d0d0d' }}>⌕ Scan MultiFrame</option>
+              <option value="normal" style={{ background: '#0d0d0d' }}>Normal</option>
+              <option value="leaps" style={{ background: '#0d0d0d' }}>Leaps</option>
+              <option value="multiframe" style={{ background: '#0d0d0d' }}>Multi</option>
             </select>
+            <button
+              disabled={loading}
+              onClick={() => handleStartScreener(scanMode)}
+              style={{
+                flex: '0 0 62px', height: 32, minHeight: 0, boxSizing: 'border-box', padding: 0, borderRadius: 6,
+                fontSize: 11, fontWeight: 800, letterSpacing: '0.5px',
+                fontFamily: '"Roboto Mono", monospace',
+                background: 'linear-gradient(180deg, #2a1a08 0%, #120a03 100%)',
+                color: '#FF6B00', border: '1px solid #FF6B00',
+                opacity: loading ? 0.5 : 1, cursor: 'pointer',
+              }}
+            >SCAN</button>
           </div>
         </div>
       ) : (

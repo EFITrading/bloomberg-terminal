@@ -1683,3 +1683,6 @@
     grid-template-columns: repeat(2, 1fr);
   }
 }
+@media (max-width: 768px) {
+  .almanac-calendar .calendar-nav-back { display: none !important; }
+}

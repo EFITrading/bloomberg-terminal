@@ -265,6 +265,17 @@ const WindowCard: React.FC<{ bearish: boolean; win: WindowRef; daily: DiveDay[] 
   )
 }
 
+function useIsMobilePanel() {
+  const [m, setM] = useState(false)
+  useEffect(() => {
+    const u = () => setM(window.innerWidth <= 768)
+    u()
+    window.addEventListener('resize', u)
+    return () => window.removeEventListener('resize', u)
+  }, [])
+  return m
+}
+
 const DivePanelBody: React.FC<SeasonalDivePanelProps> = ({
   symbol,
   daily,
@@ -275,6 +286,8 @@ const DivePanelBody: React.FC<SeasonalDivePanelProps> = ({
   onOptionsChange,
   onClose,
 }) => {
+  const mobile = useIsMobilePanel()
+  const [showStats, setShowStats] = useState(false)
   const set = (patch: Partial<DiveOptions>) => onOptionsChange({ ...options, ...patch })
 
   return (
@@ -285,21 +298,21 @@ const DivePanelBody: React.FC<SeasonalDivePanelProps> = ({
         all: 'initial',
         display: 'flex',
         boxSizing: 'border-box',
-        width: 360,
-        maxHeight: 'calc(100vh - 170px)',
+        width: mobile ? '100%' : 360,
+        maxHeight: mobile ? '42dvh' : 'calc(100vh - 170px)',
         overflowY: 'auto',
         overflowX: 'hidden',
         background: 'linear-gradient(180deg, rgba(14,18,24,0.97), rgba(5,7,10,0.97))',
         border: '1px solid rgba(0,229,255,0.35)',
         boxShadow: '0 10px 32px rgba(0,0,0,0.75), 0 0 16px rgba(0,229,255,0.12)',
         borderRadius: 10,
-        padding: 12,
+        padding: mobile ? 8 : 12,
         fontFamily: mono,
         fontVariantNumeric: 'tabular-nums',
         color: '#fff',
         display: 'flex',
         flexDirection: 'column',
-        gap: 12,
+        gap: mobile ? 8 : 12,
         scrollbarWidth: 'thin',
       }}
     >
@@ -333,14 +346,20 @@ const DivePanelBody: React.FC<SeasonalDivePanelProps> = ({
         </div>
       </div>
 
-      {sweetSpot && <WindowCard bearish={false} win={sweetSpot} daily={daily} />}
-      {painPoint && <WindowCard bearish win={painPoint} daily={daily} />}
+      {mobile && (sweetSpot || painPoint) && (
+        <button onClick={() => setShowStats((v) => !v)} style={{ background: 'rgba(0,229,255,0.08)', border: '1px solid rgba(0,229,255,0.35)', color: CYAN, borderRadius: 8, height: 30, fontFamily: mono, fontSize: 11, fontWeight: 900, letterSpacing: 1, cursor: 'pointer' }}>
+          {showStats ? 'HIDE STATS ▴' : 'SHOW STATS ▾'}
+        </button>
+      )}
+      {(!mobile || showStats) && sweetSpot && <WindowCard bearish={false} win={sweetSpot} daily={daily} />}
+      {(!mobile || showStats) && painPoint && <WindowCard bearish win={painPoint} daily={daily} />}
     </div>
   )
 }
 
 // Rendered inside a shadow root so the app's global CSS (forced font sizes etc.) cannot restyle it
 const SeasonalDivePanel: React.FC<SeasonalDivePanelProps> = (props) => {
+  const mobile = useIsMobilePanel()
   const hostRef = useRef<HTMLDivElement>(null)
   const [root, setRoot] = useState<ShadowRoot | null>(null)
   useEffect(() => {
@@ -352,7 +371,9 @@ const SeasonalDivePanel: React.FC<SeasonalDivePanelProps> = (props) => {
       ref={hostRef}
       onMouseDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
-      style={{ position: 'absolute', top: 48, right: 8, zIndex: 10002, maxHeight: 'calc(100% - 110px)', display: 'flex' }}
+      style={mobile
+        ? { position: 'absolute', bottom: 30, left: 6, right: 6, zIndex: 10002, display: 'flex' }
+        : { position: 'absolute', top: 48, right: 8, zIndex: 10002, maxHeight: 'calc(100% - 110px)', display: 'flex' }}
     >
       {root && createPortal(<DivePanelBody {...props} />, root as unknown as Element)}
     </div>

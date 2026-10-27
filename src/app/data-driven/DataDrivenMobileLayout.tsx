@@ -35,48 +35,49 @@ export default function DataDrivenMobileLayout() {
   return (
     <div className="mobile-view">
       {/* Tab bar (fixed height, never scrolls) */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(4, 1fr)',
-        background: '#000000',
-        borderBottom: '1px solid rgba(255,255,255,0.08)',
-        flexShrink: 0,
-        zIndex: 20,
-        padding: '6px 6px 0',
-        gap: '4px',
-      }}>
-        {TABS.map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => setActive(key)}
-            data-active={active === key ? 'true' : 'false'}
-            style={{
-              padding: '10px 4px',
-              background: active === key
-                ? 'linear-gradient(180deg, #1a1a1a 0%, #000000 100%)'
-                : 'transparent',
-              border: active === key
-                ? '1px solid rgba(255,255,255,0.22)'
-                : '1px solid transparent',
-              borderBottom: active === key ? '2px solid #ff6600' : '2px solid transparent',
-              borderRadius: '6px 6px 0 0',
-              color: active === key ? '#ff6600' : '#ffffff',
-              fontSize: 11,
-              fontWeight: 800,
-              cursor: 'pointer',
-              fontFamily: '"JetBrains Mono", monospace',
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-              transition: 'color 0.15s, border-color 0.15s, background 0.15s',
-              boxShadow: active === key
-                ? 'inset 0 1px 0 rgba(255,255,255,0.1)'
-                : 'none',
-              WebkitFontSmoothing: 'antialiased',
-            } as React.CSSProperties}
-          >
-            {label}
-          </button>
-        ))}
+      <div style={{ flexShrink: 0, zIndex: 20, background: '#000', padding: '4px 8px 4px' }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+          background: '#0a0a0a',
+          border: '1px solid rgba(255,255,255,0.14)',
+          borderRadius: 12,
+          padding: 3,
+          gap: 3,
+          boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.9)',
+        }}>
+          {TABS.map(({ key, label }) => {
+            const on = active === key
+            return (
+              <button
+                key={key}
+                onClick={() => setActive(key)}
+                data-active={on ? 'true' : 'false'}
+                style={{
+                  height: 30,
+                  minWidth: 0,
+                  padding: '0 2px',
+                  whiteSpace: 'nowrap',
+                  background: on ? 'linear-gradient(180deg, #262626 0%, #0f0f0f 100%)' : 'transparent',
+                  border: on ? '1px solid rgba(255,255,255,0.22)' : '1px solid transparent',
+                  borderRadius: 8,
+                  color: on ? '#ff8a1f' : '#ffffff',
+                  fontSize: 11,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  fontFamily: '"JetBrains Mono", monospace',
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                  transition: 'color 0.15s, background 0.15s',
+                  boxShadow: on ? 'inset 0 -2px 0 #ff6600, 0 2px 8px rgba(0,0,0,0.7)' : 'none',
+                  WebkitFontSmoothing: 'antialiased',
+                } as React.CSSProperties}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {/* Panel content */}
