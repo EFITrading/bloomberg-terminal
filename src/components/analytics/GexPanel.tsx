@@ -23,15 +23,16 @@ import DealerOpenInterestChart from './DealerOpenInterestChart'
 import GEXTimelineScrubber from './GEXTimelineScrubber'
 
 // Unified OI/GEX Tab Component - now delegates to mobile/desktop specific components
-const OIGEXTab: React.FC<{ selectedTicker: string; activeTableCount?: number }> = ({
+const OIGEXTab: React.FC<{ selectedTicker: string; activeTableCount?: number; controlsSlot?: HTMLElement | null }> = ({
   selectedTicker,
   activeTableCount = 0,
+  controlsSlot,
 }) => {
   const { isMobile } = useOIGEXTabMobile()
 
   // Render mobile or desktop component based on screen size
   if (isMobile) {
-    return <DealerAttractionOIMobile selectedTicker={selectedTicker} />
+    return <DealerAttractionOIMobile selectedTicker={selectedTicker} controlsSlot={controlsSlot} />
   }
 
   return (
@@ -1084,8 +1085,7 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
             <div className="relative w-full" style={{ aspectRatio: '4/3.84' }}>
               {!hasEnoughGreeks && (
                 <div className="absolute inset-0 z-20 flex flex-col items-center justify-center" style={{ background: 'rgba(10,10,10,0.82)', backdropFilter: 'blur(2px)' }}>
-                  <span style={{ color: '#ff4444', fontWeight: 900, fontSize: 13, letterSpacing: 2 }}>NO GREEK DATA</span>
-                  <span style={{ color: '#666', fontSize: 10, marginTop: 4 }}>Insufficient API data for this ticker</span>
+                  <span style={{ color: '#ffffff', fontWeight: 800, fontSize: 14, letterSpacing: 1.5, textTransform: 'uppercase' }}>Search a ticker</span>
                 </div>
               )}
               <svg viewBox="0 -8 400 288" className="w-full h-full">
@@ -1339,8 +1339,7 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
             <div className="relative w-full" style={{ aspectRatio: '4/3.84' }}>
               {!hasEnoughGreeks && (
                 <div className="absolute inset-0 z-20 flex flex-col items-center justify-center" style={{ background: 'rgba(10,10,10,0.82)', backdropFilter: 'blur(2px)' }}>
-                  <span style={{ color: '#ff4444', fontWeight: 900, fontSize: 13, letterSpacing: 2 }}>NO GREEK DATA</span>
-                  <span style={{ color: '#666', fontSize: 10, marginTop: 4 }}>Insufficient API data for this ticker</span>
+                  <span style={{ color: '#ffffff', fontWeight: 800, fontSize: 14, letterSpacing: 1.5, textTransform: 'uppercase' }}>Search a ticker</span>
                 </div>
               )}
               <svg viewBox="0 -8 400 288" className="w-full h-full">
@@ -1564,8 +1563,7 @@ const GaugeTrio: React.FC<GaugeTrioProps> = ({
             <div className="relative w-full" style={{ aspectRatio: '4/3.84' }}>
               {!hasEnoughGreeks && (
                 <div className="absolute inset-0 z-20 flex flex-col items-center justify-center" style={{ background: 'rgba(10,10,10,0.82)', backdropFilter: 'blur(2px)' }}>
-                  <span style={{ color: '#ff4444', fontWeight: 900, fontSize: 13, letterSpacing: 2 }}>NO GREEK DATA</span>
-                  <span style={{ color: '#666', fontSize: 10, marginTop: 4 }}>Insufficient API data for this ticker</span>
+                  <span style={{ color: '#ffffff', fontWeight: 800, fontSize: 14, letterSpacing: 1.5, textTransform: 'uppercase' }}>Search a ticker</span>
                 </div>
               )}
               <svg viewBox="0 -8 400 288" className="w-full h-full">
@@ -2020,6 +2018,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
   }>({})
 
   const [showOI, setShowOI] = useState(false)
+  const [oiControlsSlot, setOiControlsSlot] = useState<HTMLDivElement | null>(null)
   const [mobileDropdownOpen, setMobileDropdownOpen] = useState(false)
   const [liveMode, setLiveMode] = useState(false) // Single live mode toggle for all metrics
   const [liveOIData, setLiveOIData] = useState<Map<string, number>>(new Map())
@@ -2066,42 +2065,6 @@ const GexPanel: React.FC<GexPanelProps> = ({
   const activeTableCount = [showGEX, showDealer, showFlowGEX, showGexMap].filter(Boolean).length
   // Duo mode is automatic: always active when exactly 2 tables are showing (no OI) on desktop
   const duoMode = !isMobilePanel && activeTableCount === 2
-
-  // DEBUG: log strike column actual rendered dimensions when OI is on
-  useEffect(() => {
-    if (!showOI) return
-    setTimeout(() => {
-      const allContainers = document.querySelectorAll('.table-scroll-container')
-      console.log('[STRIKE DEBUG] --- found', allContainers.length, 'table-scroll-containers ---')
-      allContainers.forEach((container, ci) => {
-        const table = container.querySelector('table') as HTMLElement
-        if (!table) return
-        const tableCS = window.getComputedStyle(table)
-        console.log(`[STRIKE DEBUG] container[${ci}] table — tableLayout: ${tableCS.tableLayout} | width: ${tableCS.width} | offsetWidth: ${table.offsetWidth}`)
-        const ths = container.querySelectorAll('thead th')
-        ths.forEach((th, i) => {
-          const el = th as HTMLElement
-          const cs = window.getComputedStyle(el)
-          console.log(`  th[${i}] offsetWidth:${el.offsetWidth} computed:${cs.width} paddingL:${cs.paddingLeft} paddingR:${cs.paddingRight} styleWidth:${el.style.width} styleMinW:${el.style.minWidth} styleMaxW:${el.style.maxWidth}`)
-        })
-        const firstTds = container.querySelectorAll('tbody tr:first-child td')
-        firstTds.forEach((td, i) => {
-          const el = td as HTMLElement
-          const cs = window.getComputedStyle(el)
-          console.log(`  td[${i}] offsetWidth:${el.offsetWidth} computed:${cs.width} paddingL:${cs.paddingLeft} paddingR:${cs.paddingRight} styleWidth:${el.style.width}`)
-        })
-      })
-      // Check if EFICharting sidebar CSS is overriding
-      const sidebarPanel = document.querySelector('[data-sidebar-panel]')
-      if (sidebarPanel) {
-        const tables = sidebarPanel.querySelectorAll('table')
-        tables.forEach((t, i) => {
-          const cs = window.getComputedStyle(t)
-          console.log(`[STRIKE DEBUG] sidebar table[${i}] tableLayout: ${cs.tableLayout}`)
-        })
-      }
-    }, 800)
-  }, [showOI, duoMode, activeTableCount])
 
   // Dynamic strike column width based on data
   const strikeColWidth = useMemo(() => {
@@ -5540,6 +5503,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
                         </div>
                       )}
 
+                      <div style={{ display: showOI && !analysisSuiteMode ? 'none' : 'contents' }}>
                       {/* LIVE */}
                       {liveOIFromFlowCache ? (
                         // Cache loaded from OptionsFlow scan — show indicator, hide button
@@ -5940,6 +5904,10 @@ const GexPanel: React.FC<GexPanelProps> = ({
                         </option>
                       </select>
 
+                      </div>
+                      {/* Expiry + Premium controls portaled from the OI tab */}
+                      <div ref={setOiControlsSlot} style={{ display: showOI && !analysisSuiteMode ? 'contents' : 'none' }} />
+
                       {/* OI */}
                       {!analysisSuiteMode && (
                         <button
@@ -5962,17 +5930,22 @@ const GexPanel: React.FC<GexPanelProps> = ({
                               : 'inset 0 1px 0 rgba(255,255,255,0.08)',
                           }}
                         >
-                          <span
-                            style={{
-                              width: 5,
-                              height: 5,
-                              borderRadius: '50%',
-                              background: showOI ? '#3b82f6' : '#444',
-                              display: 'inline-block',
-                              boxShadow: showOI ? '0 0 5px #3b82f6' : 'none',
-                            }}
-                          />
-                          OI
+                          {showOI ? (
+                            <span style={{ fontSize: '16px', lineHeight: 1, fontWeight: 900 }}>✕</span>
+                          ) : (
+                            <>
+                              <span
+                                style={{
+                                  width: 5,
+                                  height: 5,
+                                  borderRadius: '50%',
+                                  background: '#444',
+                                  display: 'inline-block',
+                                }}
+                              />
+                              OI
+                            </>
+                          )}
                         </button>
                       )}
 
@@ -7633,7 +7606,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
                               minWidth: activeTableCount === 2 ? '1100px' : '1200px',
                             }}
                           >
-                            <OIGEXTab selectedTicker={selectedTicker} activeTableCount={activeTableCount} />
+                            <OIGEXTab selectedTicker={selectedTicker} activeTableCount={activeTableCount} controlsSlot={oiControlsSlot} />
                           </div>
                         )}
                         {(() => {

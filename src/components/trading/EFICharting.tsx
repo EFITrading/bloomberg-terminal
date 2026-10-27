@@ -30293,6 +30293,78 @@ export default function TradingViewChart({
  transform: translateY(0) scale(0.98) !important;
  }
 
+ /* Neon glass controls */
+ @media (min-width: 768px) {
+ .sidebar-container button.group {
+ border-radius: 16px !important;
+ background: linear-gradient(160deg, rgba(255,255,255,0.07) 0%, rgba(10,12,20,0.75) 100%) !important;
+ backdrop-filter: blur(16px) saturate(170%) !important;
+ -webkit-backdrop-filter: blur(16px) saturate(170%) !important;
+ border: 1px solid rgba(255,255,255,0.14) !important;
+ }
+ .sidebar-container button.group:hover {
+ border-color: rgba(56,189,248,0.6) !important;
+ box-shadow: 0 0 18px rgba(56,189,248,0.25), inset 0 0 14px rgba(56,189,248,0.08) !important;
+ }
+ .btn-3d-carved {
+ border-radius: 12px !important;
+ background: linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.015) 100%) !important;
+ backdrop-filter: blur(14px) saturate(170%) !important;
+ -webkit-backdrop-filter: blur(14px) saturate(170%) !important;
+ border: 1px solid rgba(255,255,255,0.14) !important;
+ box-shadow: inset 0 1px 0 rgba(255,255,255,0.12) !important;
+ color: #F3F4F6 !important;
+ font-size: 14px !important;
+ font-weight: 800 !important;
+ letter-spacing: 0.06em !important;
+ transition: all 0.2s ease !important;
+ }
+ .btn-3d-carved:hover {
+ border-color: rgba(56,189,248,0.7) !important;
+ box-shadow: 0 0 18px rgba(56,189,248,0.3), inset 0 -2px 0 #38BDF8 !important;
+ color: #FFFFFF !important;
+ }
+ }
+
+ /* Desktop timeframe: filled active segment */
+ .timeframe-dropdown .btn-3d-carved.active {
+ background: linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.015) 100%) !important;
+ border-color: rgba(255,255,255,0.14) !important;
+ color: #FF8A1F !important;
+ text-shadow: 0 0 10px rgba(255,138,31,0.6);
+ box-shadow: inset 0 -2px 0 #FF8A1F, inset 0 1px 0 rgba(255,255,255,0.12) !important;
+ }
+ .timeframe-dropdown .btn-3d-carved.active::before {
+ display: none;
+ }
+
+ /* Desktop sidebar: calm graphite buttons */
+ .sidebar-container button.group {
+ backdrop-filter: none !important;
+ border-radius: 10px !important;
+ transform: none !important;
+ box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 1px 3px rgba(0,0,0,0.6) !important;
+ }
+ .sidebar-container button.group:hover {
+ transform: none !important;
+ background: rgba(255,255,255,0.05) !important;
+ }
+ .sidebar-container button.group > span.relative {
+ filter: none !important;
+ }
+ .sidebar-container button.group .sidebar-label {
+ text-shadow: none !important;
+ letter-spacing: 0.14em !important;
+ }
+ .sidebar-container button.group > div.absolute.top-0 {
+ height: 2px !important;
+ box-shadow: none !important;
+ }
+ .sidebar-container button.group > div.absolute.bottom-0 {
+ box-shadow: none !important;
+ opacity: 0.25 !important;
+ }
+
  /* Mobile-only: Glossy panel buttons */
  @media (max-width: 767px) {
  .btn-3d-carved {
@@ -30601,17 +30673,16 @@ export default function TradingViewChart({
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',
-                        background: 'linear-gradient(145deg, #2a2a2a, #0a0a0a)',
-                        borderTop: '1px solid rgba(255, 255, 255, 0.4)',
-                        borderRight: '1px solid rgba(255, 255, 255, 0.2)',
-                        borderBottom: '1px solid rgba(255, 255, 255, 0.2)',
-                        borderLeft: '1px solid rgba(255, 255, 255, 0.2)',
-                        borderRadius: '6px',
+                        background: 'linear-gradient(180deg, #1a1a1a 0%, #0a0a0a 100%)',
+                        borderTop: '1px solid rgba(255, 255, 255, 0.22)',
+                        borderRight: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderLeft: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: '8px',
                         padding: isMobile ? '3px 5px' : '8px 14px',
                         gap: isMobile ? '2px' : '8px',
                         maxWidth: isMobile ? '52px' : undefined,
-                        boxShadow:
-                          '0 4px 15px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.15), inset 0 -1px 0 rgba(0, 0, 0, 0.5)',
+                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 -2px 0 #FF8500',
                         position: 'relative',
                         overflow: 'hidden',
                       }}
@@ -30780,9 +30851,9 @@ export default function TradingViewChart({
                   <span
                     className="font-mono text-xs font-semibold px-2 py-0.5 rounded"
                     style={{
-                      color: priceChangePercent >= 0 ? ('#00ff00') : ('#ff0000'),
-                      background: '#000000',
-                      border: priceChangePercent >= 0 ? ('2px solid #00ff00') : ('2px solid #ff0000'),
+                      color: priceChangePercent >= 0 ? '#34d399' : '#f87171',
+                      background: priceChangePercent >= 0 ? 'rgba(16,185,129,0.10)' : 'rgba(239,68,68,0.10)',
+                      border: priceChangePercent >= 0 ? '1px solid rgba(16,185,129,0.45)' : '1px solid rgba(239,68,68,0.45)',
                       letterSpacing: '0.3px',
                       fontWeight: 'bold',
                     }}
@@ -35858,7 +35929,7 @@ export default function TradingViewChart({
                             : 'linear-gradient(135deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 50%, rgba(0,0,0,0.2) 100%)',
                           border: isActive ? `1px solid ${tab.color}88` : '1px solid rgba(255,255,255,0.08)',
                           boxShadow: isActive
-                            ? `0 2px 12px ${tab.color}40, inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(0,0,0,0.3)`
+                            ? `inset 0 -2px 0 ${tab.color}, inset 0 1px 0 rgba(255,255,255,0.15)`
                             : 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.2), 0 2px 4px rgba(0,0,0,0.4)',
                           color: isActive ? tab.color : `${tab.color}99`,
                           display: 'flex',
@@ -36209,19 +36280,10 @@ export default function TradingViewChart({
 
                         {/* Icon with dynamic color and glow */}
                         <span
-                          className="relative transition-all duration-500 group-hover:scale-115 group-hover:rotate-6"
-                          style={{
-                            fontSize: 'clamp(1.2rem, 2.5vh, 2rem)',
-                            color: isActive
-                              ? accentColors[item.accent]
-                              : `${accentColors[item.accent]}B3`,
-                            filter: isActive
-                              ? `drop-shadow(0 0 16px ${accentColors[item.accent]}A0) drop-shadow(0 0 8px ${accentColors[item.accent]}) brightness(1.3)`
-                              : `drop-shadow(0 0 8px ${accentColors[item.accent]}60) brightness(1.1)`,
-                            transition: 'all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
-                          }}
+                          className="relative transition-all duration-200"
+                          style={sidebarTileStyle(accentColors[item.accent], isActive)}
                         >
-                          <IconComponent strokeWidth={isActive ? 3 : 2.5} />
+                          <IconComponent strokeWidth={isActive ? 2.6 : 2.2} />
                         </span>
                         {/* Label with premium typography */}
                         <span
@@ -36259,9 +36321,10 @@ export default function TradingViewChart({
                 })}
 
                 {/* TRADES separator */}
-                <div style={{ width: '100%', padding: '6px 8px 4px', flexShrink: 0 }}>
-                  <div style={{ height: '1px', background: 'rgba(255,102,0,0.6)', marginBottom: '6px' }} />
-                  <div style={{ textAlign: 'center', fontSize: '13px', fontWeight: '900', color: '#FF6600', letterSpacing: '0.18em', fontFamily: 'monospace', lineHeight: '1.1', textShadow: '0 0 12px rgba(255,102,0,0.7)' }}>TRADES</div>
+                <div style={{ width: '100%', padding: '10px 8px 6px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ flex: 1, height: '1px', background: 'linear-gradient(90deg, transparent, rgba(255,102,0,0.55))' }} />
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#FF8A33', letterSpacing: '0.24em', fontFamily: 'system-ui, -apple-system, sans-serif', lineHeight: '1' }}>TRADES</div>
+                  <div style={{ flex: 1, height: '1px', background: 'linear-gradient(270deg, transparent, rgba(255,102,0,0.55))' }} />
                 </div>
 
                 {/* Trades buttons */}
@@ -36309,8 +36372,8 @@ export default function TradingViewChart({
                             <div className="absolute inset-0 pointer-events-none rounded-lg" style={{ background: `radial-gradient(circle at 50% 0%, ${accentColors[item.accent]}12 0%, transparent 60%)` }} />
                           </>
                         )}
-                        <span className="relative transition-all duration-500 group-hover:scale-115 group-hover:rotate-6" style={{ fontSize: 'clamp(1.2rem, 2.5vh, 2rem)', color: isActive ? accentColors[item.accent] : `${accentColors[item.accent]}B3`, filter: isActive ? `drop-shadow(0 0 16px ${accentColors[item.accent]}A0) brightness(1.3)` : `drop-shadow(0 0 8px ${accentColors[item.accent]}60) brightness(1.1)`, transition: 'all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)' }}>
-                          <IconComponent strokeWidth={isActive ? 3 : 2.5} />
+                        <span className="relative transition-all duration-200" style={sidebarTileStyle(accentColors[item.accent], isActive)}>
+                          <IconComponent strokeWidth={isActive ? 2.6 : 2.2} />
                         </span>
                         <span className="sidebar-label relative text-[10px] font-bold uppercase tracking-[0.15em] transition-all duration-500 hidden md:block" style={{ color: '#FFFFFF', opacity: 1, fontFamily: 'system-ui, -apple-system, sans-serif', fontWeight: isActive ? 700 : 600, letterSpacing: '0.12em', textShadow: isActive ? `0 0 25px ${accentColors[item.accent]}70, 0 2px 6px rgba(0,0,0,0.95)` : `0 2px 4px rgba(0,0,0,0.9)` }}>{item.label}</span>
                         <div className="absolute bottom-0 left-0 right-0 h-px opacity-60" style={{ background: isActive ? `linear-gradient(90deg, transparent 0%, ${accentColors[item.accent]}80 50%, transparent 100%)` : `linear-gradient(90deg, transparent 0%, ${accentColors[item.accent]}30 50%, transparent 100%)` }} />
@@ -36590,9 +36653,9 @@ export default function TradingViewChart({
                             <button
                               onClick={() => setMobileLegendOpen(o => !o)}
                               aria-label={mobileLegendOpen ? 'Collapse indicators' : 'Expand indicators'}
-                              style={{ pointerEvents: 'auto', marginTop: 4, width: 30, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(17,24,39,0.85)', border: '1px solid #374151', borderRadius: 4, color: '#D1D5DB' }}
+                              style={{ pointerEvents: 'auto', marginTop: 3, width: 20, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.16)', borderRadius: 7, color: '#FFFFFF', padding: 0 }}
                             >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                                 <path d={mobileLegendOpen ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} />
                               </svg>
                             </button>
@@ -42067,3 +42130,24 @@ export default function TradingViewChart({
   )
 }
 
+function sidebarTileStyle(c: string, isActive: boolean): React.CSSProperties {
+  return {
+    fontSize: 'clamp(1.5rem, 3.1vh, 2.3rem)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 'clamp(0.35rem, 0.8vh, 0.6rem)',
+    borderRadius: '16px',
+    position: 'relative',
+    color: isActive ? '#FFFFFF' : c,
+    filter: `drop-shadow(0 0 ${isActive ? 7 : 4}px ${c}${isActive ? 'FF' : '99'})`,
+    background: isActive
+      ? `radial-gradient(circle at 30% 18%, ${c}EE 0%, ${c}66 45%, ${c}22 100%), linear-gradient(160deg, ${c}55, #07090f)`
+      : `radial-gradient(circle at 30% 18%, ${c}40 0%, transparent 62%), linear-gradient(160deg, #1b1f2b 0%, #080a10 100%)`,
+    border: `1px solid ${c}${isActive ? 'FF' : '70'}`,
+    boxShadow: isActive
+      ? `0 0 0 2px ${c}33, 0 0 28px ${c}99, inset 0 1px 0 rgba(255,255,255,0.55), inset 0 -6px 12px ${c}55`
+      : `0 0 0 1px ${c}1F, 0 4px 14px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -5px 10px ${c}26`,
+    transition: 'all 0.2s ease',
+  }
+}

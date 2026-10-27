@@ -91,9 +91,9 @@ export default function Navigation() {
       <nav
         className="nav"
         style={{
-          background: hideMobileNav ? 'transparent' : 'linear-gradient(180deg, #060d1f 0%, #030810 25%, #010105 60%, #000000 100%)',
-          borderBottom: hideMobileNav ? 'none' : '1px solid rgba(255, 133, 0, 0.3)',
-          boxShadow: hideMobileNav ? 'none' : '0 4px 24px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255,255,255,0.18), inset 0 2px 6px rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.8)',
+          background: hideMobileNav ? 'transparent' : 'linear-gradient(180deg, #101012 0%, #070708 55%, #030303 100%)',
+          borderBottom: hideMobileNav ? 'none' : '1px solid rgba(255, 255, 255, 0.07)',
+          boxShadow: hideMobileNav ? 'none' : '0 10px 30px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255,255,255,0.07)',
           position: 'fixed',
           top: 0,
           left: 0,
@@ -111,8 +111,8 @@ export default function Navigation() {
             left: 0,
             right: 0,
             height: '55%',
-            background: 'linear-gradient(180deg, rgba(10,30,80,0.55) 0%, rgba(5,15,45,0.25) 70%, transparent 100%)',
-            borderRadius: '0 0 60% 60% / 0 0 30px 30px',
+            background: 'transparent',
+            borderRadius: '0',
             pointerEvents: 'none',
             zIndex: 1,
           }}
@@ -125,7 +125,7 @@ export default function Navigation() {
             left: 0,
             right: 0,
             height: '1px',
-            background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.35) 30%, rgba(255,255,255,0.55) 50%, rgba(255,255,255,0.35) 70%, transparent 100%)',
+            background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.12) 30%, rgba(255,255,255,0.22) 50%, rgba(255,255,255,0.12) 70%, transparent 100%)',
             pointerEvents: 'none',
             zIndex: 2,
           }}
@@ -137,10 +137,11 @@ export default function Navigation() {
             top: 0,
             left: 0,
             right: 0,
-            height: '2px',
-            background: 'linear-gradient(90deg, transparent, #FF8500, transparent)',
-            animation: 'shimmer 3s infinite',
-            opacity: 0.6,
+            top: 'auto',
+            bottom: 0,
+            height: '1px',
+            background: 'linear-gradient(90deg, transparent 0%, rgba(255,133,0,0.55) 50%, transparent 100%)',
+            opacity: 1,
           }}
         />
 
@@ -239,11 +240,12 @@ export default function Navigation() {
             style={{
               display: 'flex',
               alignItems: 'stretch',
-              gap: '0',
-              borderBottom: '1px solid rgba(255, 133, 0, 0.12)',
-              background: '#000000',
-              border: '2px solid #d4af37',
-              boxShadow: undefined,
+              gap: '4px',
+              padding: '5px',
+              background: 'linear-gradient(180deg, #0d0d0f 0%, #060607 100%)',
+              border: '1px solid rgba(255, 255, 255, 0.09)',
+              borderRadius: '14px',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 4px 16px rgba(0,0,0,0.5)',
             }}
           >
             {navLinks.map((link, i) => {
@@ -253,9 +255,9 @@ export default function Navigation() {
                   {i > 0 && (
                     <span
                       style={{
-                        width: '1px',
-                        margin: '12px 0',
-                        background: 'rgba(255, 133, 0, 0.15)',
+                        width: '0px',
+                        margin: '0',
+                        background: 'transparent',
                         flexShrink: 0,
                       }}
                     />
@@ -264,59 +266,46 @@ export default function Navigation() {
                     href={link.path}
                     onClick={(!isAdmin && LOCKED_PATHS.has(link.path)) ? (e) => e.preventDefault() : undefined}
                     style={{
-                      padding: '0 22px',
-                      height: '48px',
+                      padding: '0 20px',
+                      height: '42px',
                       fontSize: '15px',
-                      fontWeight: '700',
-                      letterSpacing: '1.8px',
+                      fontWeight: '800',
+                      letterSpacing: '0.1em',
                       background: isActive
-                        ? `linear-gradient(180deg, rgba(255,255,255,0.13) 0%, rgba(255,255,255,0.04) 50%, rgba(0,0,0,0.15) 100%)`
-                        : 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 50%, rgba(0,0,0,0.1) 100%)',
-                      borderRadius: '6px 6px 0 0',
+                        ? `linear-gradient(180deg, ${'#38BDF8'}33 0%, ${'#38BDF8'}0D 100%)`
+                        : 'linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.015) 100%)',
+                      borderRadius: '14px', backdropFilter: 'blur(14px) saturate(160%)', WebkitBackdropFilter: 'blur(14px) saturate(160%)',
                       textTransform: 'uppercase',
                       textDecoration: 'none',
                       display: 'flex',
                       alignItems: 'center',
                       position: 'relative',
-                      color: isActive ? '#FF8500' : 'rgba(255,255,255,0.75)',
-                      WebkitTextFillColor: isActive ? '#FF8500' : 'rgba(255,255,255,0.75)',
-                      borderBottom: isActive
-                        ? `2px solid ${link.color}`
-                        : '2px solid transparent',
-                      boxShadow: isActive ? `0 2px 14px ${link.color}70` : 'none',
-                      textShadow: isActive
-                        ? `0 2px 4px ${link.color}CC, 0 4px 10px rgba(0,0,0,0.9), 0 0 22px ${link.color}80`
-                        : '0 1px 0 rgba(120,120,120,0.12), 0 2px 4px rgba(0,0,0,0.7)',
-                      transform: 'scale(1) translateY(0px)',
-                      transition: 'color 0.18s ease, border-color 0.18s ease, text-shadow 0.18s ease, transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.18s ease',
+                      color: isActive ? '#FFFFFF' : 'rgba(255,255,255,0.78)',
+                      WebkitTextFillColor: isActive ? '#FFFFFF' : 'rgba(255,255,255,0.78)',
+                      border: isActive ? '1px solid #38BDF8' : '1px solid rgba(255,255,255,0.12)',
+                      boxShadow: isActive ? '0 0 20px rgba(56,189,248,0.4), inset 0 -2px 0 #38BDF8, inset 0 0 16px rgba(56,189,248,0.15), inset 0 1px 0 rgba(255,255,255,0.2)' : `inset 0 1px 0 rgba(255,255,255,0.08)`,
+                      textShadow: isActive ? '0 0 10px rgba(56,189,248,0.8)' : 'none',
+                      transform: 'none',
+                      transition: 'color 0.18s ease, background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease',
                       whiteSpace: 'nowrap',
                     }}
                     onMouseEnter={(e) => {
                       if (!isActive) {
                         e.currentTarget.style.color = '#FFFFFF'
                         e.currentTarget.style.WebkitTextFillColor = '#FFFFFF'
-                        e.currentTarget.style.borderBottomColor = `${link.color}80`
-                        e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 50%, rgba(0,0,0,0.1) 100%)'
+                        e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.11) 0%, rgba(255,255,255,0.03) 100%)'
+                        e.currentTarget.style.borderColor = 'rgba(56,189,248,0.6)'
+                        e.currentTarget.style.boxShadow = '0 0 14px rgba(56,189,248,0.25)'
                       }
-                      e.currentTarget.style.transform = 'scale(1.1) translateY(-2px)'
-                      e.currentTarget.style.boxShadow = `0 6px 22px ${link.color}55`
-                      e.currentTarget.style.textShadow = `0 2px 4px ${link.color}CC, 0 0 24px ${link.color}99, 0 4px 10px rgba(0,0,0,0.9)`
                     }}
                     onMouseLeave={(e) => {
                       if (!isActive) {
-                        const baseColor = 'rgba(255,255,255,0.75)'
-                        e.currentTarget.style.color = baseColor
-                        e.currentTarget.style.WebkitTextFillColor = baseColor
-                        e.currentTarget.style.borderBottomColor = 'transparent'
-                        e.currentTarget.style.boxShadow = 'none'
-                        e.currentTarget.style.textShadow = '0 1px 0 rgba(120,120,120,0.12), 0 2px 4px rgba(0,0,0,0.7)'
-                        e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 50%, rgba(0,0,0,0.1) 100%)'
-                      } else {
-                        e.currentTarget.style.boxShadow = `0 2px 14px ${link.color}70`
-                        e.currentTarget.style.textShadow = `0 2px 4px ${link.color}CC, 0 4px 10px rgba(0,0,0,0.9), 0 0 22px ${link.color}80`
-                        e.currentTarget.style.background = `linear-gradient(180deg, rgba(255,255,255,0.13) 0%, rgba(255,255,255,0.04) 50%, rgba(0,0,0,0.15) 100%)`
+                        e.currentTarget.style.color = 'rgba(255,255,255,0.78)'
+                        e.currentTarget.style.WebkitTextFillColor = 'rgba(255,255,255,0.78)'
+                        e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.015) 100%)'
+                        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'
+                        e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.08)'
                       }
-                      e.currentTarget.style.transform = 'scale(1) translateY(0px)'
                     }}
                   >
                     {link.name}

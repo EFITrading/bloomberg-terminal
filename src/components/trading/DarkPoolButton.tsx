@@ -33,18 +33,17 @@ export default function DarkPoolButton({
               position: 'absolute',
               inset: 0,
               width: `${progress}%`,
-              background: 'rgba(0,229,255,0.12)',
+              background: 'rgba(255,255,255,0.14)',
               transition: 'width 0.3s ease',
               pointerEvents: 'none',
             }}
           />
         )}
-        <span style={{ color: '#00E5FF', position: 'relative' }}>Pivot Point</span>
+        <span style={{ position: 'relative' }}>Pivot Point</span>
         {isLoading && (
           <span
             style={{
-              color: '#00E5FF',
-              fontSize: '11px',
+                            fontSize: '11px',
               fontWeight: 700,
               marginLeft: '5px',
               position: 'relative',
