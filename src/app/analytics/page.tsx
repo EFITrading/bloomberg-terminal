@@ -360,11 +360,11 @@ export default function Analytics() {
     return icons[id] || icons['rrg']
   }
 
-  const TabButton = ({ id, label }: { id: string; label: string }) => {
-    const isActive = activePanel === id
+  const TabButton = ({ id, label, href }: { id: string; label: string; href?: string }) => {
+    const isActive = !href && activePanel === id
     return (
       <button
-        onClick={() => togglePanel(id)}
+        onClick={() => (href ? (window.location.href = href) : togglePanel(id))}
         className="analytics-tab-btn"
         style={{
           background: isActive
@@ -574,6 +574,10 @@ export default function Analytics() {
           <TabButton id="market-cycle" label="Market Cycle" />
           <TabButton id="dealer-cluster" label="Dealer Cluster" />
           <TabButton id="dealer-management" label="Dealer Mangment" />
+          <TabButton id="straddle" label="Straddle" href="/market-overview?panel=straddle" />
+          <TabButton id="markets" label="Markets" href="/market-overview?panel=markets" />
+          <TabButton id="attraction" label="Attraction" href="/market-overview?panel=attraction" />
+          <TabButton id="performance" label="Lineview" href="/market-overview?panel=performance" />
         </div>
 
         {/* Full Page Content Area - With left margin for fixed sidebar */}

@@ -2,44 +2,42 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import {
-    SeasonalityVisualization,
-    OptionsFlowVisualization,
-    ChartingVisualization,
-    RegimeVisualization,
-    ScreenerVisualization,
-    AlertsVisualization,
-} from './ToolVisualizations';
 
 interface LiveData {
     regimeLabel: string | null;
     regimeScore: number | null;
+    spxPrice: number | null;
+}
+
+async function getJson(url: string) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    try {
+        const r = await fetch(url, { signal: ctrl.signal });
+        return r.ok ? await r.json() : null;
+    } catch {
+        return null;
+    } finally {
+        clearTimeout(timer);
+    }
 }
 
 export default function ToolsSection() {
     const [hoveredTool, setHoveredTool] = useState<number | null>(null);
-    const [live, setLive] = useState<LiveData>({ regimeLabel: null, regimeScore: null });
+    const [live, setLive] = useState<LiveData>({ regimeLabel: null, regimeScore: null, spxPrice: null });
 
     useEffect(() => {
-        const fetchRegime = async () => {
-            try {
-                const ctrl = new AbortController();
-                const timer = setTimeout(() => ctrl.abort(), 6000);
-                const r = await fetch('/api/composite-history', { signal: ctrl.signal });
-                clearTimeout(timer);
-                if (!r.ok) return;
-                const d = await r.json();
-                if (d.history?.length) {
-                    const latest = d.history[d.history.length - 1];
-                    setLive(p => ({ ...p, regimeLabel: latest.label ?? null, regimeScore: latest.compositeScore ?? null }));
-                }
-            } catch { /* silent fallback */ }
-        };
-
-        fetchRegime();
+        getJson('/api/composite-history').then(d => {
+            if (!d?.history?.length) return;
+            const latest = d.history[d.history.length - 1];
+            setLive(p => ({ ...p, regimeLabel: latest.label ?? null, regimeScore: latest.compositeScore ?? null }));
+        });
+        getJson('/api/live-prices?symbols=SPY').then(d => {
+            if (d?.success && d.prices?.SPY) setLive(p => ({ ...p, spxPrice: d.prices.SPY }));
+        });
     }, []);
 
-    const regimeName = live.regimeLabel ? live.regimeLabel.split('•')[0].trim() : 'SCANNING';
+    const regimeName = live.regimeLabel ? live.regimeLabel.split('\u2022')[0].trim() : 'SCANNING';
 
     const tools = [
         {
@@ -48,12 +46,13 @@ export default function ToolsSection() {
             badge: 'LIVE DATA',
             badgeType: 'green',
             name: '20-Year Seasonality Engine',
-            description: 'Statistical edge from 20 years of market data. Monthly win rates, election cycles, earnings seasonality, and proprietary backtesting across 4,000+ instruments.',
-            features: ['Monthly Win Rates', 'Election Cycles', 'Earnings Seasonality', 'Custom Backtesting'],
-            stat1: { val: '94.7%', lbl: 'Avg Accuracy' },
-            stat2: { val: '20 Yrs', lbl: 'Data History' },
+            description: 'Seasonal charts built from up to 23 years of price history. Monthly average returns, Sweet Spot and Pain Point windows, bullish and bearish 30-day periods, and election-cycle modes for any symbol.',
+            features: ['Sweet Spot', 'Pain Point', 'Election Modes', 'Compare'],
+            stat1: { val: '23 Yrs', lbl: 'Data History' },
+            stat2: { val: 'Any Symbol', lbl: 'Coverage' },
             href: '/data-driven',
-            viz: <SeasonalityVisualization />,
+            img: '/tools/seasonal.png',
+            alt: 'Seasonality chart for SPY with monthly returns and bullish and bearish windows',
         },
         {
             id: 2,
@@ -61,12 +60,13 @@ export default function ToolsSection() {
             badge: 'REAL-TIME',
             badgeType: 'orange',
             name: 'Derivative Flow Scanner',
-            description: 'Real-time sweep and block detection across all US exchanges. Track institutional positioning, unusual activity, and dark pool prints as they hit the tape.',
-            features: ['Sweep Detection', 'Dark Pool Prints', 'Institutional Tracking', 'All Exchanges'],
-            stat1: { val: '<50ms', lbl: 'Latency' },
-            stat2: { val: '15+ Exch.', lbl: 'Coverage' },
+            description: 'Market-wide options flow tape with time, symbol, strike, size and premium, spot vs. current price, Vol/OI, and trade type tags for sweeps, blocks, and multi-leg. Includes Algo Flow, SpamAlert, and Historical modes.',
+            features: ['Sweeps & Blocks', 'Algo Flow', 'SpamAlert', 'Historical'],
+            stat1: { val: 'Market-Wide', lbl: 'Scan' },
+            stat2: { val: 'SweepSense', lbl: 'Flow Summary' },
             href: '/options-flow',
-            viz: <OptionsFlowVisualization />,
+            img: '/tools/options-flow.png',
+            alt: 'Options flow table showing live sweeps, blocks and multi-leg trades',
         },
         {
             id: 3,
@@ -74,51 +74,55 @@ export default function ToolsSection() {
             badge: 'LIVE PRICE',
             badgeType: 'cyan',
             name: 'Professional Charting Suite',
-            description: 'Institutional-grade charting with GEX overlays, dealer zones, EFI momentum indicators, and multi-timeframe layouts. No watermarks, no limitations.',
-            features: ['GEX Overlays', 'Dealer Zones', 'EFI Indicators', 'Multi-Timeframe'],
-            stat1: { val: '200+', lbl: 'Indicators' },
-            stat2: { val: 'Pro', lbl: 'Grade' },
+            description: 'Full charting workspace with 5M, 1H and daily timeframes, Expected Range, Seasonality, Gamma Exposure (GEX), Implied Volatility and Technalysis overlays, option chain, news, and a complete drawing toolbar.',
+            features: ['Gamma Exposure', 'Expected Range', 'Option Chain', 'Drawing Tools'],
+            stat1: { val: live.spxPrice ? live.spxPrice.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '--', lbl: 'SPY Last' },
+            stat2: { val: 'GEX', lbl: 'Overlays' },
             href: '/market-overview',
-            viz: <ChartingVisualization spxPrice={null} />,
+            img: '/tools/charting.png',
+            alt: 'SPY candlestick chart with volume, sidebar tools and overlay menus',
         },
         {
             id: 4,
             category: 'REGIME DETECTION',
-            badge: 'AI POWERED',
+            badge: 'LIVE SCORE',
             badgeType: 'purple',
             name: 'Market Regime Engine',
-            description: 'Composite scoring across 20 sector ETFs to classify bull/bear/neutral regimes before they become obvious. VIX-adjusted signals refreshed every 30 minutes.',
-            features: ['20-ETF Composite', 'VIX Integration', 'Live Scoring', 'Regime History'],
+            description: 'Composite defensive-to-growth gauge plus Today, Week, 13D, Month, Quarter and YTD regime readings, with a watchlist of leaders and laggards scored across sector and industry ETFs.',
+            features: ['Composite Gauge', 'Multi-Timeframe', 'Money Flow', 'Watchlist Scores'],
             stat1: { val: regimeName, lbl: 'Current Regime' },
-            stat2: { val: '91.3%', lbl: 'Detection Rate' },
-            href: '/analysis-suite',
-            viz: <RegimeVisualization regimeLabel={live.regimeLabel} regimeScore={live.regimeScore} />,
+            stat2: { val: live.regimeScore !== null ? live.regimeScore.toFixed(2) : '--', lbl: 'Composite Score' },
+            href: '/market-overview',
+            img: '/tools/regime.png',
+            alt: 'Market regime composite gauge with six timeframe gauges and watchlist table',
         },
         {
             id: 5,
             category: 'STOCK SCREENING',
             badge: 'MULTI-FACTOR',
             badgeType: 'green',
-            name: 'Multi-Factor Screener Suite',
-            description: 'Screen 10,000+ securities using RS rankings, HV percentiles, RRG momentum quadrants, leadership scoring, and live market heatmaps to surface setups ahead of the crowd.',
-            features: ['RS Rankings', 'HV Percentile', 'RRG Momentum', 'Leadership Scan'],
-            stat1: { val: '10,847', lbl: 'Securities' },
-            stat2: { val: '200+', lbl: 'Metrics' },
+            name: 'Analytics & Screener Suite',
+            description: 'Relative Rotation Graphs (RRG) for sectors and stocks with tails and historical lookback, plus IV RRG, RRG Screener, Leadership, HV Screener, Heatmap, Market Cycle, and Dealer Cluster tools.',
+            features: ['RRG', 'HV Screener', 'Leadership', 'Heatmap'],
+            stat1: { val: 'RRG', lbl: 'Rotation' },
+            stat2: { val: '11', lbl: 'Analytics Tools' },
             href: '/analytics',
-            viz: <ScreenerVisualization />,
+            img: '/tools/screener.png',
+            alt: 'Relative Rotation Graph of sector ETFs with analytics tool menu',
         },
         {
             id: 6,
-            category: 'AI + ALERTS',
-            badge: 'AI GRADED',
+            category: 'AI SUITE',
+            badge: 'AI ASSISTED',
             badgeType: 'gold',
-            name: 'AI Trade Intelligence',
-            description: 'AI-graded setups combining options flow signals, seasonality triggers, and live regime context. Alerts fire the moment high-probability setups materialize.',
-            features: ['AI Trade Scoring', 'Flow + Season Sync', 'Regime Context', 'Instant Alerts'],
-            stat1: { val: 'INSTANT', lbl: 'Alert Speed' },
-            stat2: { val: 'All Events', lbl: 'Coverage' },
+            name: 'EFI Studio & AI Assistant',
+            description: 'Script environment with templates, saved and community scripts, a live code editor, output console, and an AI assistant that writes or reviews your scripts against the terminal data API.',
+            features: ['Script Editor', 'Templates', 'Community Scripts', 'AI Assistant'],
+            stat1: { val: 'Custom', lbl: 'Scripts' },
+            stat2: { val: 'AI', lbl: 'Assistant' },
             href: '/ai-suite',
-            viz: <AlertsVisualization />,
+            img: '/tools/ai-suite.png',
+            alt: 'EFI Studio script editor with templates list and AI assistant panel',
         },
     ];
 
@@ -153,7 +157,8 @@ export default function ToolsSection() {
                             </div>
 
                             <div className="tsv2-viz">
-                                {tool.viz}
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img className="tsv2-viz-img" src={tool.img} alt={tool.alt} loading="lazy" />
                             </div>
 
                             <div className="tsv2-stats-row">
@@ -177,23 +182,12 @@ export default function ToolsSection() {
                                 ))}
                             </div>
 
-                            {tool.href !== '/options-flow' && tool.href !== '/account' ? (
-                                <span className="tsv2-cta" style={{ opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' }}>
-                                    <svg width="11" height="13" viewBox="0 0 12 15" fill="none" style={{ flexShrink: 0 }}>
-                                        <rect x="1" y="6" width="10" height="8" rx="1.5" fill="rgba(255,133,0,0.2)" stroke="rgba(255,133,0,0.85)" strokeWidth="1.2" />
-                                        <path d="M3 6V4.5C3 2.57 4.34 1.5 6 1.5C7.66 1.5 9 2.57 9 4.5V6" stroke="rgba(255,133,0,0.85)" strokeWidth="1.2" strokeLinecap="round" fill="none" />
-                                        <circle cx="6" cy="9.8" r="1.2" fill="rgba(255,133,0,0.9)" />
-                                    </svg>
-                                    <span>Locked</span>
-                                </span>
-                            ) : (
-                                <Link href={tool.href} className="tsv2-cta">
-                                    <span>Access Tool</span>
-                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                                        <path d="M7 17L17 7M17 7H7M17 7V17" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                                    </svg>
-                                </Link>
-                            )}
+                            <Link href="/login" className="tsv2-cta">
+                                <span>Log in to Access</span>
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                                    <path d="M7 17L17 7M17 7H7M17 7V17" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                            </Link>
                         </div>
                     ))}
                 </div>

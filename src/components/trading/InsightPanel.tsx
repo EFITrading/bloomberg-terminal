@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -2955,7 +2955,7 @@ function ImageBlockEdit({
           boxSizing: 'border-box',
         }}
       >
-        <span style={{ fontSize: '28px' }}>ðŸ“‹</span>
+        <span style={{ fontSize: '28px' }}>📋</span>
         <span
           style={{
             fontSize: '16px',
@@ -2985,7 +2985,7 @@ function ImageBlockEdit({
           textAlign: 'center' as const,
         }}
       >
-        ðŸ“ PICK FILE INSTEAD
+        📁 PICK FILE INSTEAD
       </button>
 
       {block.url && (
@@ -3313,7 +3313,7 @@ function MetricsBlockEdit({
               outline: 'none',
             }}
           >
-            <span style={{ fontSize: '20px' }}>ðŸ“‹</span>
+            <span style={{ fontSize: '20px' }}>📋</span>
             <span
               style={{
                 fontSize: '15px',
@@ -3337,7 +3337,7 @@ function MetricsBlockEdit({
               textAlign: 'center' as const,
             }}
           >
-            ðŸ“ PICK FILE
+            📁 PICK FILE
           </button>
           {block.url && (
             <div style={{ position: 'relative' }}>

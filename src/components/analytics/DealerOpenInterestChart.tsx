@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import * as d3 from 'd3'
 import { getDealerOIMobileConfig } from './DealerOpenInterestChartMobile'
@@ -2064,7 +2064,7 @@ export default function DealerOpenInterestChart({
               .style('z-index', '10000')
               .html(
                 `
-                <div style="margin-bottom: 4px;">ðŸ‘‘ <strong>TOWER STRUCTURE</strong></div>
+                <div style="margin-bottom: 4px;">👑 <strong>TOWER STRUCTURE</strong></div>
                 <div style="color: #ffffff;">Strike: <span style="color: #ffd700;">${tower.strike}</span></div>
                 <div style="color: #ffffff;">Type: <span style="color: ${lineColor};">${tower.type.toUpperCase()}</span></div>
                 <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #ffd700;">
@@ -2523,7 +2523,7 @@ export default function DealerOpenInterestChart({
                       textTransform: 'uppercase' as const,
                     }}
                   >
-                    ðŸ‘‘ Towers ({towerStructures.length})
+                    👑 Towers ({towerStructures.length})
                   </button>
                 )}
                 <select

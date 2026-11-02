@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { TbStar } from 'react-icons/tb'
 
@@ -1189,8 +1189,13 @@ function SweepSenseTab({
   progress,
   summaryMode,
   onRemove,
+  onAddToTracker,
+  isTracked,
 }: {
   summaryMode: boolean
+  // SweepSense tab: renders an '+ A+' button on each card that adds the trade to the A+ Tracker.
+  onAddToTracker?: (trade: OptionsFlowData) => void
+  isTracked?: (trade: OptionsFlowData) => boolean
   // When provided, each card renders a small remove ('x') button (top-right) that calls this -
   // used by the A+ Tracker tab (user-tracked flows) so a card can be untracked; SweepSense's own
   // qualifying-trade cards never pass this since there's nothing to "remove" there.
@@ -2142,7 +2147,6 @@ function SweepSenseTab({
     { key: 'DIRECTIONAL', label: 'Directional', icon: 'directional' },
     { key: 'SWEEP', label: 'Sweep', icon: 'sweep' },
     { key: 'GAMMA', label: 'Gamma Attack', icon: 'gamma' },
-    { key: 'SPAM', label: 'Spam', icon: 'spam' },
   ]
 
   const ORANGE = '#ff8c1a'
@@ -2193,7 +2197,7 @@ function SweepSenseTab({
             [
               { key: 'TIMING' as const, label: 'Timing', items: quickFilterButtons.filter((b) => b.key === 'READY') },
               { key: 'BIAS' as const, label: 'Bias', items: quickFilterButtons.filter((b) => b.key === 'HEDGE' || b.key === 'DIRECTIONAL' || b.key === 'SWEEP') },
-              { key: 'SPECIALS' as const, label: 'Specials', items: quickFilterButtons.filter((b) => b.key === 'GAMMA' || b.key === 'SPAM') },
+              { key: 'SPECIALS' as const, label: 'Specials', items: quickFilterButtons.filter((b) => b.key === 'GAMMA') },
             ].map((group) => {
               const groupActive = group.items.some((b) => mobileFilters.has(b.key))
               const isOpen = openFilterDropdown === group.key
@@ -2628,12 +2632,14 @@ function SweepSenseTab({
             probabilityTrade: builtTrade,
           })
 
+          const cardExpired = !!onRemove && trade.expiry < new Date().toLocaleDateString('en-CA')
           return (
             <div
               key={flowId}
               data-flow-id={flowId}
               data-flow-payload={flowAlertPayload}
               style={{
+                ...(cardExpired ? { filter: 'grayscale(1)', opacity: 0.5 } : {}),
                 position: 'relative', overflow: 'hidden',
                 background: '#000',
                 border: `1px solid ${convColor}44`,
@@ -2643,6 +2649,9 @@ function SweepSenseTab({
                 alignItems: summaryMode ? 'start' : 'stretch',
               }}
             >
+              {cardExpired && (
+                <div style={{ position: 'absolute', top: '8px', right: '40px', zIndex: 20, padding: '3px 10px', borderRadius: '4px', background: 'rgba(120,120,120,0.9)', color: '#fff', fontSize: '11px', fontWeight: 900, letterSpacing: '0.12em' }}>EXPIRED</div>
+              )}
               {onRemove && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onRemove(trade) }}
@@ -2656,6 +2665,29 @@ function SweepSenseTab({
                   }}
                 >×</button>
               )}
+              {onAddToTracker && !onRemove && (() => {
+                const added = isTracked?.(trade) ?? false
+                return (
+                  <button
+                    disabled={added}
+                    onClick={(e) => { e.stopPropagation(); onAddToTracker(trade) }}
+                    title={added ? 'Already in A+ Tracker' : 'Add to A+ Tracker'}
+                    style={{
+                      position: 'absolute', bottom: '12px', right: isMobileCard ? '12px' : '30px', zIndex: 20,
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      padding: '6px 14px', borderRadius: '6px',
+                      background: added ? 'rgba(34,197,94,0.12)' : 'linear-gradient(180deg, rgba(56,189,248,0.22), rgba(14,116,144,0.22))',
+                      border: `1px solid ${added ? 'rgba(34,197,94,0.5)' : 'rgba(56,189,248,0.6)'}`,
+                      color: added ? '#4ade80' : '#7dd3fc', fontSize: '11px', fontWeight: 700,
+                      letterSpacing: '0.06em', textTransform: 'uppercase', cursor: added ? 'default' : 'pointer', lineHeight: 1,
+                      boxShadow: added ? 'none' : '0 0 12px rgba(56,189,248,0.18)',
+                    }}
+                  >
+                    <span style={{ fontSize: '13px', fontWeight: 900 }}>{added ? '✓' : '+'}</span>
+                    {added ? 'Tracked' : 'Add to Tracker'}
+                  </button>
+                )
+              })()}
               {/* ── LEFT RAIL: conviction dial + direction + duration, stacked vertically ── */}
               <div style={{
                 position: 'relative', display: 'flex',
@@ -3440,8 +3472,12 @@ export default function FlowTrackingPanel({
   sweepSenseProgress,
   trackedFlowsSweepData,
   onRemoveTrackedFlow,
+  onAddTrackedFlow,
+  isTrackedFlow,
   initialTab,
 }: {
+  onAddTrackedFlow?: (trade: OptionsFlowData) => void
+  isTrackedFlow?: (trade: OptionsFlowData) => boolean
   onClose?: () => void
   initialTab?: 'TRACKER' | 'SWEEPSENSE'
   relativeStrengthData?: Map<string, number>
@@ -3641,18 +3677,7 @@ export default function FlowTrackingPanel({
   // Remove expired flows + fetch prices when trackedFlows change
   useEffect(() => {
     if (trackedFlows.length === 0) return
-    const now = new Date()
-    now.setHours(0, 0, 0, 0)
-    const active = trackedFlows.filter((flow) => {
-      const exp = new Date(flow.expiry)
-      exp.setHours(0, 0, 0, 0)
-      return now <= exp
-    })
-    if (active.length !== trackedFlows.length) {
-      localStorage.setItem('flowTrackingWatchlist', JSON.stringify(active))
-      setTrackedFlows(active)
-      return
-    }
+    // Expired flows are kept (shown greyed out as EXPIRED) until the user removes them.
     if (trackedFlows.length > prevTrackedFlowsLength.current) {
       fetchCurrentOptionPrices(trackedFlows)
     }
@@ -4034,7 +4059,7 @@ export default function FlowTrackingPanel({
           earningsMonthCache state, forcing every per-ticker FlowBias/Earnings fetch to redo
           itself from scratch on every tab switch. */}
       <div style={{ flex: 1, display: panelTab === 'SWEEPSENSE' ? 'flex' : 'none', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
-        <SweepSenseTab data={sweepSenseData ?? null} allFlowData={allFlowData} isScanning={sweepSenseScanning} progress={sweepSenseProgress} summaryMode={sweepSenseSummaryMode} />
+        <SweepSenseTab data={sweepSenseData ?? null} allFlowData={allFlowData} isScanning={sweepSenseScanning} progress={sweepSenseProgress} summaryMode={sweepSenseSummaryMode} onAddToTracker={onAddTrackedFlow} isTracked={isTrackedFlow} />
       </div>
 
       {/* ── TRACKING TAB ── */}

@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { createPortal } from 'react-dom'
 import {
@@ -85,7 +85,7 @@ const fetchVolumeAndOpenInterest = async (
           }
         }
       } catch (error) {
-        // spot price fetch failed "-- continue
+        // spot price fetch failed — continue
       }
 
       // Get unique expiration dates for this underlying to fetch specific expirations
@@ -506,8 +506,8 @@ const computeFillStyle = (fillPrice: number, bid: number, ask: number): string =
 const analyzeBidAskExecutionLightning = async (trades: any[]): Promise<any[]> => {
   if (trades.length === 0) return trades
 
-  // Build deduplicated batch payload "-- unique by contract+second bucket
-  // Use trade.ticker directly "-- it's the correct OCC ticker from Polygon (e.g. O:SPXW260325C...)
+  // Build deduplicated batch payload — unique by contract+second bucket
+  // Use trade.ticker directly — it's the correct OCC ticker from Polygon (e.g. O:SPXW260325C...)
   // buildOptionTicker() produces wrong format for SPX (missing W in SPXW), so never use it for quote lookups
   type QuoteKey = string
   const uniqueQuotes = new Map<QuoteKey, { contract: string; timestamp_ns: number }>()
@@ -522,7 +522,7 @@ const analyzeBidAskExecutionLightning = async (trades: any[]): Promise<any[]> =>
     if (!uniqueQuotes.has(key)) uniqueQuotes.set(key, { contract, timestamp_ns: timestampNs })
   }
 
-  // Single POST "-- server fans out all Polygon calls simultaneously
+  // Single POST — server fans out all Polygon calls simultaneously
   const batchPayload = Array.from(uniqueQuotes.entries()).map(([id, v]) => ({ id, ...v }))
   const quoteResultMap = new Map<QuoteKey, { bid: number; ask: number } | null>()
   try {
@@ -905,6 +905,9 @@ const CHART_VIEW_OPTIONS = [
   { label: '1Y', days: 252 },
 ]
 
+// Soft neon glow + round joins for the main AlgoFlow chart lines
+const flowLineStyle = (color: string): React.CSSProperties => ({ filter: `drop-shadow(0 0 5px ${color}99)`, strokeLinejoin: 'round', strokeLinecap: 'round' })
+
 const MAG7_TICKERS = ['AAPL', 'NVDA', 'MSFT', 'TSLA', 'AMZN', 'META', 'GOOGL', 'GOOG']
 const ETF_TICKERS = [
   'SPY', 'QQQ', 'DIA', 'IWM', 'XLK', 'SMH', 'XLE', 'XLF', 'XLV', 'XLI',
@@ -931,7 +934,7 @@ function getAlgoTradingDays(timeframe: string): string[] {
         : timeframe === '1W' ? 5
           : Math.max(1, parseInt(timeframe) || 1)
   const cur = new Date(pstNow)
-  // Before market open (6:30 AM PST) today has no data yet --” step back to previous session
+  // Before market open (6:30 AM PST) today has no data yet — step back to previous session
   const hourPST = cur.getHours() + cur.getMinutes() / 60
   if (hourPST < 6.5) cur.setDate(cur.getDate() - 1)
   while (days.length < daysNeeded) {
@@ -1231,7 +1234,7 @@ function RrgTickerPopup({
             {/* Chart border */}
             <rect x={PL} y={PT} width={CW2} height={CH2} fill="none" stroke="rgba(255,255,255,0.09)" strokeWidth={1} />
 
-            {/* Lines --” clipped to chart area */}
+            {/* Lines — clipped to chart area */}
             <g clipPath="url(#rpop-lines-clip)">
               {KEYS.map(k => {
                 const color = FCLR[k]
@@ -1251,7 +1254,7 @@ function RrgTickerPopup({
               const hv = visible[hoverIdx]
               return (
                 <g>
-                  {/* Vertical bar --” clipped */}
+                  {/* Vertical bar — clipped */}
                   <g clipPath="url(#rpop-lines-clip)">
                     <line x1={cx} y1={PT} x2={cx} y2={PT + CH2} stroke="rgba(255,255,255,0.55)" strokeWidth={1} strokeDasharray="4,3" />
                     {/* Horizontal guides for each line */}
@@ -1269,7 +1272,7 @@ function RrgTickerPopup({
                     })}
                     {showNet && <circle cx={cx} cy={toY(hv.netPct)} r={4.5} fill="#ffffff" stroke="#000" strokeWidth={1.2} />}
                   </g>
-                  {/* Value labels right of crosshair --” outside clip */}
+                  {/* Value labels right of crosshair — outside clip */}
                   {KEYS.map(k => {
                     const pKey = PKEY[k] as keyof typeof visible[0]
                     const val = hv[pKey] as number
@@ -1284,7 +1287,7 @@ function RrgTickerPopup({
               )
             })()}
 
-            {/* Static right-edge labels --” shown only when not hovering */}
+            {/* Static right-edge labels — shown only when not hovering */}
             {hoverIdx === null && (<>
               {KEYS.map(k => {
                 const pKey = PKEY[k] as keyof typeof visible[0]
@@ -1445,7 +1448,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   useEffect(() => {
     const el = rrgSvgRef.current
     if (!el) return
-    // SVG viewBox is always 1755x875 --” use these constants everywhere
+    // SVG viewBox is always 1755x875 — use these constants everywhere
     const RRG_W = 1755, RRG_H = 875
     const RRG_PL = 52, RRG_PT = 32, RRG_CW = 1671, RRG_CH = 799
     const clamp = (tx: number, ty: number, k: number) => {
@@ -1632,7 +1635,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const [brushIndices, setBrushIndices] = useState<{ start: number; end: number } | null>(null)
   const chartDragRef = useRef<{ dragging: boolean; startX: number; startIndices: { start: number; end: number } }>({ dragging: false, startX: 0, startIndices: { start: 0, end: 0 } })
   const dragMoveRafRef = useRef<number | null>(null)   // RAF handle for drag throttle
-  const analysisRef = useRef<AlgoFlowAnalysis | null>(null) // sync ref "-- avoids setAnalysis in wheel handler
+  const analysisRef = useRef<AlgoFlowAnalysis | null>(null) // sync ref — avoids setAnalysis in wheel handler
   const chartDivRef = useRef<HTMLDivElement>(null)
   const mainChartWrapRef = useRef<HTMLDivElement>(null)
   const pcPanelRef = useRef<HTMLDivElement>(null)
@@ -1709,7 +1712,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
 
   const ETF_SET = new Set(['SPY', 'QQQ', 'IWM', 'DIA', 'SMH', 'VXX', 'UVXY', 'EFA', 'EEM', 'VTI', 'IEFA', 'AGG', 'LQD', 'HYG', 'XLF', 'XLE', 'XLK', 'XLV', 'XLI', 'XLU', 'XLP', 'XLY', 'XLB', 'XLRE', 'XLC', 'GLD', 'SLV', 'TLT', 'IEF', 'SHY', 'VTEB', 'VXUS', 'BND', 'BNDX', 'SQQQ', 'TQQQ', 'SPXL', 'SPXS', 'SPYG', 'SPYV', 'IVV', 'VOO', 'VEA', 'VWO', 'ARKK', 'ARKG', 'ARKW', 'ARKF', 'ARKQ', 'RSP', 'MDY', 'IJH', 'IJR', 'IWF', 'IWD', 'IWB', 'IWO', 'IWN', 'XBI', 'IBB', 'SOXX', 'HACK', 'BOTZ', 'ROBO', 'SKYY', 'CLOU', 'GDX', 'GDXJ', 'SIL', 'SILJ', 'IAU', 'SGOL', 'USO', 'UNG', 'PDBC', 'DBO', 'DBB', 'DBC', 'TBT', 'TMF', 'TMV', 'TLH', 'IEI', 'GOVT', 'FXI', 'KWEB', 'MCHI', 'ASHR', 'VGK', 'EWJ', 'EWZ', 'EWC', 'EWG', 'EWU', 'EURL', 'HEDJ', 'DBJP', 'DBEF'])
 
-  // Fast analysis built directly from already-classified saved trades "-- no re-processing
+  // Fast analysis built directly from already-classified saved trades — no re-processing
   const buildFastAnalysisFromSaved = (allTrades: OptionsFlowData[], displayLabel?: string): AlgoFlowAnalysis | null => {
     if (!allTrades.length) return null
     const trades = allTrades.filter((t) => String(t.trade_type) !== 'MULTI-LEG')
@@ -1717,7 +1720,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     const ticker = displayLabel ?? trades[0].underlying_ticker
     const currentPrice = displayLabel ? 0 : (trades[0].spot_price ?? 0)
 
-    // Compute PST/PDT offset once "-- avoids 601k Intl calls in the loop
+    // Compute PST/PDT offset once — avoids 601k Intl calls in the loop
     const sampleTs = new Date(trades[0].trade_timestamp)
     const pstOffsetMs = sampleTs.getTime() - new Date(sampleTs.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTime()
     const FIVE_MIN = 5 * 60 * 1000
@@ -1754,7 +1757,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       else if (tt === 'BLOCK') blockCount++
       else if (tt === 'MINI') miniCount++
 
-      // Bucket by 5-min using pure math "-- no Intl calls per trade
+      // Bucket by 5-min using pure math — no Intl calls per trade
       if (t.trade_timestamp) {
         const tsUtc = new Date(t.trade_timestamp).getTime()
         const tsPst = tsUtc - pstOffsetMs
@@ -1774,7 +1777,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     const algoFlowScore = (aggressiveCalls - aggressivePuts) / total
     const flowTrend: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = algoFlowScore > 0.25 ? 'BULLISH' : algoFlowScore < -0.25 ? 'BEARISH' : 'NEUTRAL'
 
-    // Build cumulative chart data --” filter to regular market hours: 6:30 AM --“ 1:00 PM PST
+    // Build cumulative chart data — filter to regular market hours: 6:30 AM – 1:00 PM PST
     // Use Intl to get PST hours reliably regardless of browser timezone
     const sortedBuckets = Array.from(buckets.entries())
       .sort((a, b) => a[0] - b[0])
@@ -1860,7 +1863,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0 })
 
-  // Derived analysis that respects expiryFilter "-- re-aggregates from filtered trades without re-running async analysis
+  // Derived analysis that respects expiryFilter — re-aggregates from filtered trades without re-running async analysis
   const displayAnalysis = useMemo(() => {
     if (!analysis || (expiryFilter === 'all' && !excludeMag7 && !excludeEtf && !excludeIndex)) return analysis
 
@@ -1937,7 +1940,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     }
   }, [analysis, expiryFilter])
 
-  // Details toggle "-- shows the expiry-breakdown boxes (Weekly/Monthly/Quarterly/Leap)
+  // Details toggle — shows the expiry-breakdown boxes (Weekly/Monthly/Quarterly/Leap)
   const [showExpiryDetails, setShowExpiryDetails] = useState(false)
 
   // Expiry breakdown counts: Weekly (<=7d), Monthly (8-28d), Quarterly (29-112d), Leap (113d+)
@@ -1959,7 +1962,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
   const allScanCacheRef = useRef<{ flowData: OptionsFlowData[]; analysis: AlgoFlowAnalysis } | null>(null)
   const [drilledTicker, setDrilledTicker] = useState<string | null>(null)
 
-  // Build analysis directly from already-classified trades "-- no re-processing
+  // Build analysis directly from already-classified trades — no re-processing
   const performAnalysis = (tradesData: any[], displayLabel?: string) => {
     const result = buildFastAnalysisFromSaved(tradesData, displayLabel)
     setAnalysis(result)
@@ -1997,7 +2000,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     setStreamStatus(`LIVE ${targetTicker === 'ALL' ? '· ALL TICKERS' : `· ${targetTicker}`}`)
 
     // Subscribe via Railway DB poll instead of WebSocket
-    // (Railway holds the single Polygon WS connection "-- browser polls every 30s)
+    // (Railway holds the single Polygon WS connection — browser polls every 30s)
     const getTodayDS = () => {
       const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -2034,15 +2037,15 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     }, 10000)
   }, [convertAlgoTrade, performAnalysis])
 
-  // Sync chart view window when scan timeframe changes (no auto re-analyze "-- user must click ANALYZE)
+  // Sync chart view window when scan timeframe changes (no auto re-analyze — user must click ANALYZE)
   useEffect(() => {
     setChartDisplayDays(getScanDays(scanTimeframe))
     setBrushIndices(null)
   }, [scanTimeframe])
 
-  // Reset brush when chartDisplayDays changes "-- merged into button click handler, no separate effect needed
+  // Reset brush when chartDisplayDays changes — merged into button click handler, no separate effect needed
 
-  // Memoize trades-table OI computation "-- prevents rerunning 36k-trade loop on every render
+  // Memoize trades-table OI computation — prevents rerunning 36k-trade loop on every render
   const tradeOIMemo = useMemo(() => {
     const allTrades: any[] = analysis?.trades || flowData || []
     const isMultiDay = getScanDays(scanTimeframe) > 1
@@ -2247,7 +2250,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     const bStart = brushIndices ? Math.max(0, Math.min(brushIndices.start, len - 1)) : 0
     const bEnd = brushIndices ? Math.max(bStart + 1, Math.min(brushIndices.end, len - 1)) : len - 1
     const sliced = baseData.slice(bStart, bEnd + 1)
-    // Downsample to max 400 pts "-- SVG renders 600x4 lines in ~50ms, 400x4 in ~10ms
+    // Downsample to max 400 pts — SVG renders 600x4 lines in ~50ms, 400x4 in ~10ms
     const MAX_PTS = 400
     const visibleData = (sliced.length > MAX_PTS
       ? sliced.filter((_: any, i: number) =>
@@ -2290,12 +2293,12 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
         const range = current.end - current.start
         const step = Math.max(2, Math.floor(range * 0.1))
         if (e.deltaY < 0) {
-          // zoom in "-- shrink window
+          // zoom in — shrink window
           const mid = Math.round((current.start + current.end) / 2)
           const half = Math.max(4, Math.floor((range - step * 2) / 2))
           return { start: Math.max(0, mid - half), end: Math.min(len - 1, mid + half) }
         } else {
-          // zoom out "-- expand window
+          // zoom out — expand window
           return { start: Math.max(0, current.start - step), end: Math.min(len - 1, current.end + step) }
         }
       })
@@ -2408,7 +2411,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             const combinedTrades: OptionsFlowData[] = await loadMultiDateTrades(rowsToLoad, tickersQS)
             // Determine which required trading days are actually present.
             // FIXED: compute PST offset ONCE from a sample trade (1 Intl call), then
-            // use pure UTC math per-trade "-- avoids 601k Intl calls that blocked for 21s.
+            // use pure UTC math per-trade — avoids 601k Intl calls that blocked for 21s.
             const _pstSample = combinedTrades.length > 0 ? new Date(combinedTrades[0].trade_timestamp) : new Date()
             const _pstOffsetMs = _pstSample.getTime() - new Date(_pstSample.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTime()
             const tradeDaySet = new Set<string>()
@@ -2420,7 +2423,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             const coveredDays = allRequiredDays.filter((d) => tradeDaySet.has(d))
             const missingDays = allRequiredDays.filter((d) => !tradeDaySet.has(d))
 
-            // When scanning ALL (or MAG7), skip the ticker filter "-- return every trade
+            // When scanning ALL (or MAG7), skip the ticker filter — return every trade
             // in the saved data. The DB was saved from a broader scan so filtering
             // to a hardcoded 33-ticker set throws away legitimate data.
             // FIXED: hoist Set construction outside the filter callback (was creating 601k Sets)
@@ -2432,13 +2435,13 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               )
 
             if (saved.length > 0 && missingDays.length === 0) {
-              // Full coverage and ticker data found "-- use saved
+              // Full coverage and ticker data found — use saved
               setFlowData(saved)
               accumulatedTradesRef.current = saved
               liveOICache.clear()
               setIsStreamComplete(true)
               setLoading(false)
-              // Trades are already classified "-- build analysis directly from saved fields, skip re-processing
+              // Trades are already classified — build analysis directly from saved fields, skip re-processing
               const fastAnalysis = buildFastAnalysisFromSaved(saved, displayLabel)
               if (fastAnalysis) {
                 setAnalysis(fastAnalysis)
@@ -2447,7 +2450,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               setOverlayActive(false)
               return
             } else if (saved.length > 0 && coveredDays.length > 0) {
-              // Partial coverage but have some ticker data "-- show missing days dialog
+              // Partial coverage but have some ticker data — show missing days dialog
               setLoading(false)
               setStreamStatus('')
               setMissingDaysDialog({ missingDays, savedTrades: saved, originalSearch: tickerToSearch, tf, displayLabel })
@@ -2539,7 +2542,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                     accumulatedTradesRef.current = tradesWithVolOI
                     liveOICache.clear()
                     setIsStreamComplete(true)
-                    setStreamStatus(`Complete "-- ${tradesWithVolOI.length} trades loaded`)
+                    setStreamStatus(`Complete — ${tradesWithVolOI.length} trades loaded`)
                     setLoading(false)
                     performAnalysis(tradesWithVolOI, displayLabel)
                   })
@@ -2567,7 +2570,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               break
           }
         } catch (parseError) {
-          // parse error "-- skip
+          // parse error — skip
         }
       }
 
@@ -2596,7 +2599,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     if (!trades.length || !underlyingTicker) return
     setGammaLoading(true)
     try {
-      // Single call "-- options-chain without expiration returns all contracts up to 3 months
+      // Single call — options-chain without expiration returns all contracts up to 3 months
       const res = await fetch(`/api/options-chain?ticker=${underlyingTicker}`)
       const json = await res.json()
       if (!json.success || !json.data) return
@@ -2630,7 +2633,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analysis?.ticker])
 
-  // Build cumulative gamma line from real Polygon greeks "-- per trade, chronological
+  // Build cumulative gamma line from real Polygon greeks — per trade, chronological
   const gammaLineData = useMemo(() => {
     if (!gammaMap.size || !flowData.length) return [] as Array<{ time: number; timeLabel: string; cumGamma: number }>
     const sorted = [...flowData].sort(
@@ -2716,7 +2719,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
         return
       }
     }
-    // No ALL cache --” fetch flow for ETF holdings
+    // No ALL cache — fetch flow for ETF holdings
     fetchTickerFlow(etf + '100')
   }
 
@@ -2783,7 +2786,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     return { template, slotTimes }
   }
 
-  // Build one aggregate net-flow line per sector/industry basket "-- requires an ALL scan
+  // Build one aggregate net-flow line per sector/industry basket — requires an ALL scan
   // already cached so we can filter its trades by each basket's holdings (or, in "-etfs" modes,
   // the basket ETF's own trades) without re-scanning.
   const runCompareScan = async (mode: 'sectors' | 'industries' | 'sector-etfs' | 'industry-etfs') => {
@@ -2976,7 +2979,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     }
   }
 
-  // Flow Quadrant Gauge "-- 4 liquid-filled quadrants (Bull/Bear Calls & Puts) + center neutral
+  // Flow Quadrant Gauge — 4 liquid-filled quadrants (Bull/Bear Calls & Puts) + center neutral
   const FlowQuadrantGauge = ({
     bullCall, bearCall, bullPut, bearPut, score, label,
   }: {
@@ -3041,7 +3044,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               </g>
             )
           })}
-          {/* Center score circle "-- mobile only */}
+          {/* Center score circle — mobile only */}
           {isMobile && (() => {
             const cx = 151, cy = 35, r = 24, rt = 32
             const fillColor = score >= 0 ? '#10b981' : '#ef4444'
@@ -3094,7 +3097,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     )
   }
 
-  // Expiry Quadrant Gauge "-- same liquid-box style as FlowQuadrantGauge, but for
+  // Expiry Quadrant Gauge — same liquid-box style as FlowQuadrantGauge, but for
   // Weekly/Monthly/Quarterly/Leap expiry-bucket breakdown (percentage of trade count)
   const ExpiryQuadrantGauge = ({
     weekly, monthly, quarterly, leap,
@@ -3169,7 +3172,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     )
   }
 
-  // Legacy gauge (unused "-- kept for reference)
+  // Legacy gauge (unused — kept for reference)
   const _GaugeChart = ({
     value,
     max,
@@ -3244,7 +3247,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             return <line key={i} x1={p0.x} y1={p0.y} x2={p1.x} y2={p1.y} stroke={isMaj ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.18)'} strokeWidth={isMaj ? 1.5 : 0.8} />
           })}
 
-          {/* Single-color fill "-- 0° to needle, one solid color based on current zone */}
+          {/* Single-color fill — 0° to needle, one solid color based on current zone */}
           {gaugeAngle > 0.5 && (
             <path d={arc(0, gaugeAngle, innerR, outerR)} fill={color} opacity={0.85} filter={`url(#${glowId})`} />
           )}
@@ -3357,9 +3360,9 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       setBiasDataStatus(`Using cached scan (${allScanCacheRef.current.flowData.length} trades)`)
       return allScanCacheRef.current.flowData
     }
-    // 2. Load from DB --” same exact "smart" multi-day logic AlgoFlow's ALL scan uses
+    // 2. Load from DB — same exact "smart" multi-day logic AlgoFlow's ALL scan uses
     //    (getAlgoTradingDays + shared getDatesList/loadMultiDateTrades cache), but purely
-    //    data-only --” does NOT touch searchTicker/isAllScan/analysis, so it never changes
+    //    data-only — does NOT touch searchTicker/isAllScan/analysis, so it never changes
     //    what's shown on the left AlgoFlow chart. This is what lets RRG be triggered
     //    independently from AlgoFlow while still reading the identical DB data.
     console.debug('[RRG] getBiasFlowData: no cache, loading from DB. tfOverride=', tfOverride)
@@ -3387,7 +3390,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
       return combined
     } catch (e) {
       console.debug('[RRG] getBiasFlowData FAILED:', e)
-      setBiasDataStatus('No cached data --” run an ALL scan first')
+      setBiasDataStatus('No cached data — run an ALL scan first')
       return []
     }
   }
@@ -3404,11 +3407,11 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
     console.debug('[RRG] runRRGScan START. rrgTicker=', rrgTicker, 'rrgTickerMode=', rrgTickerMode, 'rrgExpiryFilter=', rrgExpiryFilter, 'rrgScanDays=', rrgScanDays)
     setBiasRRGLoading(true); setBiasRRGData(null)
     // Same DB / same smart multi-day logic as the AlgoFlow ALL scan, but triggered
-    // independently --” does not touch the left AlgoFlow chart's state.
+    // independently — does not touch the left AlgoFlow chart's state.
     let trades = await getBiasFlowData(rrgScanDays)
     console.debug('[RRG] after getBiasFlowData: trades=', trades.length)
     if (!trades.length) { console.debug('[RRG] ABORT: 0 trades returned from getBiasFlowData'); setBiasRRGLoading(false); return }
-    // Apply own ticker search --” "ALL" (or blank) means no filter, exactly like the AlgoFlow search box
+    // Apply own ticker search — "ALL" (or blank) means no filter, exactly like the AlgoFlow search box
     if (rrgTicker.trim() && rrgTicker.trim().toUpperCase() !== 'ALL') {
       const q = rrgTicker.trim().toUpperCase()
       trades = trades.filter(t => t.underlying_ticker.toUpperCase() === q)
@@ -3627,7 +3630,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                 </button>
               </>
             )}
-            {/* GO 2 RRG --” only visible when NOT already in RRG */}
+            {/* GO 2 RRG — only visible when NOT already in RRG */}
             {activeTab !== 'flowbias' && (
               <button
                 onClick={() => setActiveTab('flowbias')}
@@ -3667,7 +3670,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                 )}
               </div>
             )}
-            {/* FILTER popup --” consolidates TICKER + TIME + UNIQUENESS */}
+            {/* FILTER popup — consolidates TICKER + TIME + UNIQUENESS */}
             {rrgDropdownOpen === 'filter' && <div onClick={() => setRrgDropdownOpen(null)} style={{ position: 'fixed', inset: 0, zIndex: 298 }} />}
             <div style={{ position: 'relative', zIndex: rrgDropdownOpen === 'filter' ? 300 : 99, flexShrink: 0, marginLeft: 'auto' }}>
               {(() => {
@@ -3707,7 +3710,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             </div>
           </div>
 
-          {/* Row 2: Ticker + Timeframe + Analyze "-- hidden on mobile (use filter pills in Row 3) */}
+          {/* Row 2: Ticker + Timeframe + Analyze — hidden on mobile (use filter pills in Row 3) */}
           {!isMobile && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 14px 4px' }}>
               <input
@@ -3751,11 +3754,11 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             </div>
           )}
 
-          {/* Row 3: Filter pills --” desktop only on mobile, mobile has everything in Row 1 */}
+          {/* Row 3: Filter pills — desktop only on mobile, mobile has everything in Row 1 */}
           {!isMobile ? (
             <div style={{ padding: '6px 14px 8px', display: 'flex', gap: 8, position: 'relative' }}>
               {rrgDropdownOpen && <div onClick={() => setRrgDropdownOpen(null)} style={{ position: 'fixed', inset: 0, zIndex: 98 }} />}
-              {/* 1. TICKER FILTER --” desktop only (mobile has it in Row 1) */}
+              {/* 1. TICKER FILTER — desktop only (mobile has it in Row 1) */}
               {!isMobile && (() => {
                 const isActive = rrgTickerMode !== 'all'
                 const items: { id: 'mag7only' | 'exmag7' | 'etfonly' | 'exetf' | 'stockonly', label: string }[] = [
@@ -3780,7 +3783,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                   </div>
                 )
               })()}
-              {/* 2. TIME FILTER --” desktop only */}
+              {/* 2. TIME FILTER — desktop only */}
               {!isMobile && (() => {
                 const isActive = expiryFilter !== 'all'
                 const items = [{ id: '45d' as const, label: '45D OUT' }, { id: 'weekly' as const, label: 'WEEKLIES' }, { id: '0dte' as const, label: '0DTE' }]
@@ -3805,7 +3808,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                 )
               })()}
 
-              {/* RRG button --” desktop only in Row 3, mobile has it in Row 1 */}
+              {/* RRG button — desktop only in Row 3, mobile has it in Row 1 */}
               {!isMobile && (
                 <button
                   onClick={() => setActiveTab(activeTab === 'flowbias' ? 'algoflow' : 'flowbias')}
@@ -3989,7 +3992,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             .af-sep { width: 1px; height: 24px; background: rgba(255,255,255,0.1); flex-shrink: 0; margin: 0 2px; }
           `}</style>
 
-          {/* ============ ALGOFLOW controls --” left column, width matches the left chart column below ============ */}
+          {/* ============ ALGOFLOW controls — left column, width matches the left chart column below ============ */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, overflowX: 'auto' }}>
 
             {/* BACK */}
@@ -4077,7 +4080,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
 
             <div className="af-sep" />
 
-            {/* TIME dropdown --” 45D / WEEKLIES / 0DTE */}
+            {/* TIME dropdown — 45D / WEEKLIES / 0DTE */}
             {afTimeOpen && <div onClick={() => setAfTimeOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />}
             <div style={{ position: 'relative', flexShrink: 0 }}>
               <button
@@ -4113,7 +4116,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               )}
             </div>
 
-            {/* TICKER FILTER dropdown --” EXCL MAG7 / EXCL ETFs / EXCL INDEX / STOCKS ONLY */}
+            {/* TICKER FILTER dropdown — EXCL MAG7 / EXCL ETFs / EXCL INDEX / STOCKS ONLY */}
             {afExcludeOpen && <div onClick={() => setAfExcludeOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />}
             <div style={{ position: 'relative', flexShrink: 0 }}>
               <button
@@ -4152,7 +4155,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
 
             <div className="af-sep" />
 
-            {/* Chart overlays --” single ticker only */}
+            {/* Chart overlays — single ticker only */}
             {analysis && !isAllScan && (<>
               <button className={`af-btn${showGammaLine ? ' af-active-orange' : ''}`} onClick={() => setShowGammaLine(v => !v)} title="Cumulative gamma from flow">GAMMA</button>
               <button className={`af-btn${showBullBear ? ' af-active-violet' : ''}`} onClick={() => setShowBullBear(v => !v)} title="Bull/Bear ratio">BULL/BEAR</button>
@@ -4213,15 +4216,15 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
 
           </div>{/* end AlgoFlow controls column */}
 
-          {/* ============ RRG / FLOW MATRIX --” its own independent toolbar, aligned to start where the Flow Matrix panel starts below ============ */}
+          {/* ============ RRG / FLOW MATRIX — its own independent toolbar, aligned to start where the Flow Matrix panel starts below ============ */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '40%', padding: '4px 12px 4px 12px', marginLeft: -16, marginTop: -7, marginBottom: -7, borderLeft: '1px solid rgba(255,255,255,0.14)', flexShrink: 0, flexWrap: 'nowrap', overflowX: 'auto', boxSizing: 'border-box', height: '100%', background: 'linear-gradient(180deg,#1c2a4a 0%,#101c33 55%,#0a1122 100%)' }}>
             <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 14, color: '#ff8500', letterSpacing: '0.16em', fontWeight: 900, whiteSpace: 'nowrap' }}>RRG CONTROLS:</span>
 
-            {/* RRG ticker search --” own input, mirrors AlgoFlow ticker box */}
+            {/* RRG ticker search — own input, mirrors AlgoFlow ticker box */}
             <input type="text" value={rrgTicker} onChange={e => setRrgTicker(e.target.value.toUpperCase())} onKeyDown={e => e.key === 'Enter' && runRRGScan()} placeholder="TICKER"
               style={{ height: 32, width: 90, padding: '0 10px', background: 'linear-gradient(180deg,#111 0%,#080808 100%)', border: '1px solid rgba(255,255,255,0.2)', borderTop: '1px solid rgba(255,255,255,0.3)', borderRadius: 6, color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, letterSpacing: '0.12em', outline: 'none', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.8)', flexShrink: 0 }} />
 
-            {/* RRG historical range --” own timeframe select, mirrors AlgoFlow TODAY/N DAYS select */}
+            {/* RRG historical range — own timeframe select, mirrors AlgoFlow TODAY/N DAYS select */}
             <select value={rrgScanDays} onChange={e => setRrgScanDays(e.target.value)}
               style={{ height: 32, padding: '0 8px', background: 'linear-gradient(180deg,#1c1c1c 0%,#0a0a0a 100%)', border: '1px solid rgba(255,255,255,0.14)', borderTop: '1px solid rgba(255,255,255,0.28)', borderRadius: 6, color: '#ccc', fontFamily: 'JetBrains Mono,monospace', fontSize: 14, fontWeight: 700, outline: 'none', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06),inset 0 -1px 0 rgba(0,0,0,0.6)', flexShrink: 0, colorScheme: 'dark' }}>
               <option value="1" style={{ background: '#0a0a0a', color: '#ccc' }}>TODAY</option>
@@ -4240,7 +4243,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               {biasRRGLoading ? 'SCANNING' : 'SCAN'}
             </button>
 
-            {/* RRG TICKERS dropdown --” own ticker mode filter (mirrors rrgTickerMode) */}
+            {/* RRG TICKERS dropdown — own ticker mode filter (mirrors rrgTickerMode) */}
             {rrgDropdownOpen === 'ticker' && <div onClick={() => setRrgDropdownOpen(null)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />}
             <div style={{ position: 'relative', flexShrink: 0 }}>
               <button ref={rrgTickersBtnRef} onClick={() => {
@@ -4273,7 +4276,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
               )}
             </div>
 
-            {/* RRG TIME dropdown --” own expiry filter (mirrors rrgExpiryFilter) */}
+            {/* RRG TIME dropdown — own expiry filter (mirrors rrgExpiryFilter) */}
             {rrgDropdownOpen === 'time' && <div onClick={() => setRrgDropdownOpen(null)} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />}
             <div style={{ position: 'relative', flexShrink: 0 }}>
               <button ref={rrgTimeBtnRef} onClick={() => {
@@ -4318,10 +4321,10 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
 
       {/* Tablet Flow Matrix side drawer removed */}
 
-      {/* Main content: flex row --” left scrollable content | right RRG panel */}
+      {/* Main content: flex row — left scrollable content | right RRG panel */}
       <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: 0, overflow: 'hidden', alignItems: 'stretch', position: 'relative' }}>
 
-        {/* LEFT: scrollable content --” hidden on mobile when RRG tab is active */}
+        {/* LEFT: scrollable content — hidden on mobile when RRG tab is active */}
         <div className="flex-1 overflow-y-auto min-h-0" style={{ padding: isMobile ? '8px 10px 80px' : '12px 20px 20px', flex: 1, minWidth: 0, display: (isMobile && activeTab === 'flowbias') ? 'none' : undefined }}>
 
           {/* Drill-down re-analysis overlay */}
@@ -4335,7 +4338,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
             </div>
           )}
 
-          {/* Main analysis layout --” RRG stretches full height alongside scrollable left */}
+          {/* Main analysis layout — RRG stretches full height alongside scrollable left */}
           {analysis && (
             <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 0 }}>
               {/* LEFT: scrollable chart + table */}
@@ -4352,7 +4355,9 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                     background: 'linear-gradient(170deg, rgba(12,12,22,0.98) 0%, rgba(6,6,14,0.99) 60%, rgba(8,8,18,0.98) 100%)',
                     boxShadow: 'inset -1px 0 0 rgba(255,255,255,0.04), inset 0 0 40px rgba(0,0,0,0.6)',
                   }}>
-                    {/* AlgoFlow gauge */}
+                    {/* Gauges are hidden while DETAILS is open so the detail metrics take their place */}
+                    {(isMobile || !showExpiryDetails) && (
+                    <>
                     <div className="algo-sidebar-gauge" style={{
                       gridColumn: isMobile ? '1 / -1' : undefined,
                       padding: '0 0 8px',
@@ -4374,7 +4379,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       />
                     </div>
 
-                    {/* Expiry breakdown gauge --” Weekly/Monthly/Quarterly/Leap, always visible, same style as above */}
+                    {/* Expiry breakdown gauge — Weekly/Monthly/Quarterly/Leap, always visible, same style as above */}
                     <div className="algo-sidebar-gauge" style={{
                       gridColumn: isMobile ? '1 / -1' : undefined,
                       padding: '0 0 8px',
@@ -4393,7 +4398,10 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       />
                     </div>
 
-                    {/* Details toggle button --” reveals Bull/Bear ratio, Execution Type, and premium metrics below */}
+                    </>
+                    )}
+
+                    {/* Details toggle button — reveals Bull/Bear ratio, Execution Type, and premium metrics below */}
                     <div style={{ padding: '8px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                       <button
                         onClick={() => setShowExpiryDetails(s => !s)}
@@ -4414,8 +4422,8 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       >{showExpiryDetails ? 'HIDE DETAILS ▲' : 'DETAILS ▾'}</button>
                     </div>
 
-                    {/* P/C + Execution "-- compact single row on mobile, full panels on desktop */}
-                    {/* P/C + Execution --” desktop only, removed from mobile */}
+                    {/* P/C + Execution — compact single row on mobile, full panels on desktop */}
+                    {/* P/C + Execution — desktop only, removed from mobile */}
                     {null /* DEBUG: B/B row removed for mobile */}
                     {!isMobile && showExpiryDetails && (
                       <>
@@ -4508,7 +4516,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       </>
                     )}
 
-                    {/* Stacked metrics "-- desktop only, gated behind DETAILS toggle */}
+                    {/* Stacked metrics — desktop only, gated behind DETAILS toggle */}
                     {!isMobile && showExpiryDetails && [{ label: 'CALLS PREM', value: formatCurrency(displayAnalysis?.totalCallPremium ?? 0), color: '#10b981', glow: 'rgba(16,185,129,0.35)', bg: 'rgba(16,185,129,0.04)' },
                     { label: 'PUTS PREM', value: formatCurrency(displayAnalysis?.totalPutPremium ?? 0), color: '#ef4444', glow: 'rgba(239,68,68,0.35)', bg: 'rgba(239,68,68,0.04)' },
                     { label: 'NET FLOW', value: formatCurrency(analysis.netFlow), color: analysis.netFlow >= 0 ? '#10b981' : '#ef4444', glow: analysis.netFlow >= 0 ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)', bg: analysis.netFlow >= 0 ? 'rgba(16,185,129,0.04)' : 'rgba(239,68,68,0.04)' },
@@ -4529,9 +4537,9 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                     ))}
                   </div>
 
-                  {/* RIGHT: Chart --” fills remaining left column */}
+                  {/* RIGHT: Chart — fills remaining left column */}
                   <div style={{ flex: isMobile ? 'none' : 1, minWidth: 0, width: isMobile ? '100%' : undefined }}>
-                    {/* Chart toolbar "-- desktop only; mobile controls overlaid inside chart */}
+                    {/* Chart toolbar — desktop only; mobile controls overlaid inside chart */}
                     <div className="algo-chart-toolbar" style={{ padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: isMobile ? 'none' : 'flex', alignItems: 'center', position: 'relative', minHeight: 36, gap: 0 }}>
                       {/* LEFT: ticker + FLOW + timeframe buttons */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
@@ -4559,7 +4567,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                         <span style={{ color: '#fff', fontFamily: 'JetBrains Mono,monospace', fontSize: isMobile ? 14 : 21, fontWeight: 900, letterSpacing: '0.1em', marginRight: 2 }}>{analysis.ticker}</span>
                         {analysis.currentPrice > 0 && !isMobile && <span style={{ color: '#aaa', fontFamily: 'JetBrains Mono,monospace', fontSize: 16, fontWeight: 700, marginRight: 4 }}>${analysis.currentPrice.toFixed(2)}</span>}
                         {!isMobile && <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 13, fontWeight: 800, letterSpacing: '0.12em', padding: '1px 6px', borderRadius: 2, marginRight: 10, background: displayAnalysis?.flowTrend === 'BULLISH' ? 'rgba(16,185,129,0.15)' : displayAnalysis?.flowTrend === 'BEARISH' ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.15)', color: displayAnalysis?.flowTrend === 'BULLISH' ? '#10b981' : displayAnalysis?.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308', border: `1px solid ${displayAnalysis?.flowTrend === 'BULLISH' ? '#10b981' : displayAnalysis?.flowTrend === 'BEARISH' ? '#ef4444' : '#eab308'}` }}>{displayAnalysis?.flowTrend}</span>}
-                        {/* Interval buttons "-- context-aware based on scan days */}
+                        {/* Interval buttons — context-aware based on scan days */}
                         {(() => {
                           // Always offer the full ladder of relevant timeframes for the scanned
                           // range (instead of hiding 1D on 2-5 day scans, or hiding 30MIN/1H on
@@ -4620,7 +4628,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                         ))}
                       </div>
                     </div>
-                    {/* Chart body "-- height auto-sizes to content: main chart + visible sub-panels */}
+                    {/* Chart body — height auto-sizes to content: main chart + visible sub-panels */}
                     <div ref={chartDivRef} style={{
                       padding: 0,
                       background: 'linear-gradient(180deg, #0e0e0e 0%, #070707 4%, #000 100%)',
@@ -4643,7 +4651,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       onMouseMove={(e) => {
                         if (!chartDragRef.current.dragging) return
                         const clientX = e.clientX
-                        // RAF throttle "-- only compute once per frame
+                        // RAF throttle — only compute once per frame
                         if (dragMoveRafRef.current) cancelAnimationFrame(dragMoveRafRef.current)
                         dragMoveRafRef.current = requestAnimationFrame(() => {
                           dragMoveRafRef.current = null
@@ -4664,7 +4672,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       onMouseUp={() => { chartDragRef.current.dragging = false; if (dragMoveRafRef.current) { cancelAnimationFrame(dragMoveRafRef.current); dragMoveRafRef.current = null } }}
                       onMouseLeave={() => { chartDragRef.current.dragging = false; if (dragMoveRafRef.current) { cancelAnimationFrame(dragMoveRafRef.current); dragMoveRafRef.current = null } }}
                     >
-                      {/* Mobile overlay controls --” Ticker | Timeframe dropdown | Line dropdown | Gamma | Bull/Bear */}
+                      {/* Mobile overlay controls — Ticker | Timeframe dropdown | Line dropdown | Gamma | Bull/Bear */}
                       {isMobile && (
                         <div style={{ position: 'absolute', top: 6, left: 6, right: 6, zIndex: 10, display: 'flex', alignItems: 'center', gap: 4, pointerEvents: 'auto' }}>
                           {/* Back to ALL drill-down */}
@@ -4712,7 +4720,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       {/* Glossy top-edge sheen */}
                       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 32, background: 'linear-gradient(180deg, rgba(255,255,255,0.035) 0%, transparent 100%)', pointerEvents: 'none', zIndex: 2 }} />
 
-                      {/* SECTOR/INDUSTRY COMPARE chart "-- one net-flow line per basket */}
+                      {/* SECTOR/INDUSTRY COMPARE chart — one net-flow line per basket */}
                       {compareMode !== 'off' && (
                         <div style={{ height: isMobile ? 494 : (embeddedMode ? 440 : 569), flexShrink: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', padding: '8px 82px 6px 30px', flexShrink: 0 }}>
@@ -4812,10 +4820,12 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                                 return `${sign}$${absValue}`
                               }}
                             />
+                            <CartesianGrid yAxisId="flow" stroke="rgba(255,255,255,0.06)" strokeDasharray="2 6" vertical={false} />
+                            <ReferenceLine yAxisId="flow" y={0} stroke="rgba(255,255,255,0.35)" strokeDasharray="4 4" />
                             <YAxis yAxisId="price" orientation="right" hide={true}
                               domain={[chartMemo.priceMin, chartMemo.priceMax]}
                             />
-                            <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.2)', fontWeight: 'bold', fontSize: '13px' }} labelStyle={{ color: '#fff', fontWeight: 'bold' }}
+                            <Tooltip cursor={{ stroke: 'rgba(255,255,255,0.35)', strokeDasharray: '3 3' }} contentStyle={{ backgroundColor: 'rgba(8,10,16,0.95)', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.7)', fontWeight: 'bold', fontSize: '13px' }} labelStyle={{ color: '#ff8500', fontWeight: 'bold' }}
                               formatter={(value: any) => {
                                 const num = Number(value); const absNum = Math.abs(num); const sign = num < 0 ? '-' : ''
                                 if (absNum >= 1_000_000_000) return `${sign}$${(absNum / 1_000_000_000).toFixed(2)}B`
@@ -4824,14 +4834,27 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                                 return `${sign}$${absNum.toLocaleString()}`
                               }}
                             />
-                            {chartViewMode === 'detailed' ? (<>
-                              <Line type="linear" yAxisId="flow" dataKey="callsPlus" stroke="#00ff7f" strokeWidth={3} name="BULLISH CALLS" dot={false} hide={hiddenLines.has('callsPlus')} />
-                              <Line type="linear" yAxisId="flow" dataKey="callsMinus" stroke="#4da6ff" strokeWidth={3} name="BEARISH CALLS" dot={false} hide={hiddenLines.has('callsMinus')} />
-                              <Line type="linear" yAxisId="flow" dataKey="putsPlus" stroke="#ffcc00" strokeWidth={3} name="BULLISH PUTS" dot={false} hide={hiddenLines.has('putsPlus')} />
-                              <Line type="linear" yAxisId="flow" dataKey="putsMinus" stroke="#ff2222" strokeWidth={3} name="BEARISH PUTS" dot={false} hide={hiddenLines.has('putsMinus')} />
+                            <defs>
+                              {[['callsPlus', '#00ff7f'], ['callsMinus', '#4da6ff'], ['putsPlus', '#ffcc00'], ['putsMinus', '#ff2222'], ['bullishTotal', '#00ff7f'], ['bearishTotal', '#ff2222']].map(([k, col]) => (
+                                <linearGradient key={k} id={`afFill-${k}`} x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="0%" stopColor={col} stopOpacity={0.22} />
+                                  <stop offset="100%" stopColor={col} stopOpacity={0} />
+                                </linearGradient>
+                              ))}
+                            </defs>                            {chartViewMode === 'detailed' ? (<>
+                              <Area type="monotone" yAxisId="flow" dataKey="callsPlus" stroke="none" fill="url(#afFill-callsPlus)" isAnimationActive={false} legendType="none" tooltipType="none" activeDot={false} hide={hiddenLines.has('callsPlus')} />
+                              <Line type="monotone" yAxisId="flow" dataKey="callsPlus" stroke="#00ff7f" strokeWidth={3} style={flowLineStyle('#00ff7f')} isAnimationActive={false} activeDot={{ r: 4, stroke: '#000', strokeWidth: 1 }} name="BULLISH CALLS" dot={false} hide={hiddenLines.has('callsPlus')} />
+                              <Area type="monotone" yAxisId="flow" dataKey="callsMinus" stroke="none" fill="url(#afFill-callsMinus)" isAnimationActive={false} legendType="none" tooltipType="none" activeDot={false} hide={hiddenLines.has('callsMinus')} />
+                              <Line type="monotone" yAxisId="flow" dataKey="callsMinus" stroke="#4da6ff" strokeWidth={2.5} style={flowLineStyle('#4da6ff')} isAnimationActive={false} activeDot={{ r: 4, stroke: '#000', strokeWidth: 1 }} name="BEARISH CALLS" dot={false} hide={hiddenLines.has('callsMinus')} />
+                              <Area type="monotone" yAxisId="flow" dataKey="putsPlus" stroke="none" fill="url(#afFill-putsPlus)" isAnimationActive={false} legendType="none" tooltipType="none" activeDot={false} hide={hiddenLines.has('putsPlus')} />
+                              <Line type="monotone" yAxisId="flow" dataKey="putsPlus" stroke="#ffcc00" strokeWidth={2.5} style={flowLineStyle('#ffcc00')} isAnimationActive={false} activeDot={{ r: 4, stroke: '#000', strokeWidth: 1 }} name="BULLISH PUTS" dot={false} hide={hiddenLines.has('putsPlus')} />
+                              <Area type="monotone" yAxisId="flow" dataKey="putsMinus" stroke="none" fill="url(#afFill-putsMinus)" isAnimationActive={false} legendType="none" tooltipType="none" activeDot={false} hide={hiddenLines.has('putsMinus')} />
+                              <Line type="monotone" yAxisId="flow" dataKey="putsMinus" stroke="#ff2222" strokeWidth={2.5} style={flowLineStyle('#ff2222')} isAnimationActive={false} activeDot={{ r: 4, stroke: '#000', strokeWidth: 1 }} name="BEARISH PUTS" dot={false} hide={hiddenLines.has('putsMinus')} />
                             </>) : chartViewMode === 'simplified' ? (<>
-                              <Line type="linear" yAxisId="flow" dataKey="bullishTotal" stroke="#00ff7f" strokeWidth={3} name="BULLISH FLOW" dot={false} hide={hiddenLines.has('bullishTotal')} />
-                              <Line type="linear" yAxisId="flow" dataKey="bearishTotal" stroke="#ff2222" strokeWidth={3} name="BEARISH FLOW" dot={false} hide={hiddenLines.has('bearishTotal')} />
+                              <Area type="monotone" yAxisId="flow" dataKey="bullishTotal" stroke="none" fill="url(#afFill-bullishTotal)" isAnimationActive={false} legendType="none" tooltipType="none" activeDot={false} hide={hiddenLines.has('bullishTotal')} />
+                              <Line type="monotone" yAxisId="flow" dataKey="bullishTotal" stroke="#00ff7f" strokeWidth={2.5} style={flowLineStyle('#00ff7f')} isAnimationActive={false} activeDot={{ r: 4, stroke: '#000', strokeWidth: 1 }} name="BULLISH FLOW" dot={false} hide={hiddenLines.has('bullishTotal')} />
+                              <Area type="monotone" yAxisId="flow" dataKey="bearishTotal" stroke="none" fill="url(#afFill-bearishTotal)" isAnimationActive={false} legendType="none" tooltipType="none" activeDot={false} hide={hiddenLines.has('bearishTotal')} />
+                              <Line type="monotone" yAxisId="flow" dataKey="bearishTotal" stroke="#ff2222" strokeWidth={2.5} style={flowLineStyle('#ff2222')} isAnimationActive={false} activeDot={{ r: 4, stroke: '#000', strokeWidth: 1 }} name="BEARISH FLOW" dot={false} hide={hiddenLines.has('bearishTotal')} />
                             </>) : (() => {
                               const nfVals = chartMemo.visibleData.map((d: any) => d.netFlow ?? 0)
                               const nfMax = nfVals.length ? Math.max(...nfVals) : 1
@@ -4847,7 +4870,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                                     <stop offset={zeroStop} stopColor="#ff2222" />
                                   </linearGradient>
                                 </defs>
-                                <Line type="linear" yAxisId="flow" dataKey="netFlow" stroke="url(#netFlowColorGrad)" strokeWidth={3} name="NET FLOW" dot={false} hide={hiddenLines.has('netFlow')} />
+                                <Line type="monotone" yAxisId="flow" dataKey="netFlow" stroke="url(#netFlowColorGrad)" strokeWidth={2.5} style={{ strokeLinejoin: 'round', strokeLinecap: 'round', filter: 'drop-shadow(0 0 5px rgba(255,255,255,0.25))' }} isAnimationActive={false} activeDot={{ r: 4, stroke: '#000', strokeWidth: 1 }} name="NET FLOW" dot={false} hide={hiddenLines.has('netFlow')} />
                               </>)
                             })()}
                             <Line type="monotone" yAxisId="price" dataKey="stockClose" stroke="transparent" strokeWidth={0} name="PRICE" dot={false} legendType="none" />
@@ -4856,7 +4879,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                         </ResponsiveContainer>
                       </div>
 
-                      {/* P/C Ratio sub-panel "-- toggleable */}
+                      {/* P/C Ratio sub-panel — toggleable */}
                       {showBullBear && (() => {
                         const pcData = chartMemo.visibleData
                         const pcVals = pcData.map((d: any) => d.pcRatio ?? 1)
@@ -4865,13 +4888,29 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                         const pcPad = (pcMax - pcMin) * 0.1 || 0.1
                         const lastPc = pcVals.length ? pcVals[pcVals.length - 1] : 1
                         const pcCol = lastPc > 1.1 ? '#ef4444' : lastPc < 0.9 ? '#10b981' : '#eab308'
+                        const pcLo = Math.max(0, pcMin - pcPad), pcHi = pcMax + pcPad
+                        const pcOneStop = `%`
                         return (
                           <div ref={pcPanelRef} style={{ borderTop: '2px solid rgba(167,139,250,0.55)', background: '#06040f', flexShrink: 0, overflow: 'hidden' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 82px 0 30px' }}>
                               <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 700, color: '#a78bfa', letterSpacing: '0.18em' }}>BULL/BEAR RATIO</span>
+                              <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10, fontWeight: 800, color: pcCol, border: `1px solid ${pcCol}66`, background: `18`, borderRadius: 3, padding: '0 6px', letterSpacing: '0.08em' }}>{lastPc.toFixed(2)}</span>
                             </div>
-                            <ResponsiveContainer width="100%" height={isMobile ? 70 : 100} debounce={50}>
-                              <LineChart data={pcData} margin={{ top: 6, right: 0, bottom: 0, left: 30 }}>
+                            <ResponsiveContainer width="100%" height={isMobile ? 80 : 120} debounce={50}>
+                              <ComposedChart data={pcData} margin={{ top: 6, right: 0, bottom: 2, left: 30 }}>
+                                <defs>
+                                  <linearGradient id="pcStroke" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset={pcOneStop} stopColor="#f87171" />
+                                    <stop offset={pcOneStop} stopColor="#34d399" />
+                                  </linearGradient>
+                                  <linearGradient id="pcFill" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="#ef4444" stopOpacity={0.4} />
+                                    <stop offset={pcOneStop} stopColor="#ef4444" stopOpacity={0.02} />
+                                    <stop offset={pcOneStop} stopColor="#10b981" stopOpacity={0.02} />
+                                    <stop offset="100%" stopColor="#10b981" stopOpacity={0.4} />
+                                  </linearGradient>
+                                </defs>
+                                <CartesianGrid stroke="rgba(255,255,255,0.05)" strokeDasharray="2 6" vertical={false} />
                                 <XAxis dataKey="timeLabel" hide />
                                 <YAxis orientation="right" stroke="#ffffff" width={82}
                                   domain={[Math.max(0, parseFloat((pcMin - pcPad).toFixed(3))), parseFloat((pcMax + pcPad).toFixed(3))]}
@@ -4898,11 +4937,13 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                                 <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(255,255,255,0.2)', fontSize: 12 }} labelStyle={{ color: '#fff' }}
                                   formatter={(v: any) => [Number(v).toFixed(3), 'BULL/BEAR']}
                                 />
-                                <ReferenceLine y={1} stroke="rgba(167,139,250,0.35)" strokeDasharray="4 4" />
-                                <Line type="monotone" dataKey="pcRatio" stroke="#a78bfa" strokeWidth={2} dot={false} name="BULL/BEAR"
-                                  activeDot={{ r: 4, fill: '#a78bfa', stroke: '#fff', strokeWidth: 1 }}
+                                <ReferenceLine y={1} stroke="rgba(255,255,255,0.4)" strokeDasharray="4 4" />
+                                <Area type="monotone" dataKey="pcRatio" baseValue={1} stroke="none" fill="url(#pcFill)" isAnimationActive={false} legendType="none" tooltipType="none" activeDot={false} />
+                                <Line type="monotone" dataKey="pcRatio" stroke="url(#pcStroke)" strokeWidth={2.5} dot={false} name="BULL/BEAR" isAnimationActive={false}
+                                  style={{ strokeLinejoin: 'round', strokeLinecap: 'round', filter: 'drop-shadow(0 0 4px rgba(167,139,250,0.55))' }}
+                                  activeDot={{ r: 4, fill: '#fff', stroke: '#a78bfa', strokeWidth: 2 }}
                                 />
-                              </LineChart>
+                              </ComposedChart>
                             </ResponsiveContainer>
                           </div>
                         )
@@ -4910,7 +4951,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
 
                     </div>{/* end chart body */}
 
-                    {/* Gamma Line panel "-- outside fixed-height chart body so it's never clipped */}
+                    {/* Gamma Line panel — outside fixed-height chart body so it's never clipped */}
                     {showGammaLine && !isAllScan && (() => {
                       const lastGamma = gammaLineData.length ? gammaLineData[gammaLineData.length - 1].cumGamma : 0
                       const gammaColor = lastGamma > 0 ? '#10b981' : lastGamma < 0 ? '#ef4444' : '#888'
@@ -4926,13 +4967,13 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       const gRange = gMax - gMin || Math.abs(gMax) * 0.2 || 1
                       const gDomMin = gMin - gRange * 0.1
                       const gDomMax = gMax + gRange * 0.1
-                      // Gradient: green above 0, red below 0 "-- hard stop at zero fraction
+                      // Gradient: green above 0, red below 0 — hard stop at zero fraction
                       const totalRange = gDomMax - gDomMin
                       const zeroFrac = totalRange > 0 ? ((gDomMax - 0) / totalRange) * 100 : 50
                       const zeroStop = `${Math.max(0, Math.min(100, zeroFrac)).toFixed(1)}%`
                       return (
                         <div style={{ borderTop: '2px solid rgba(16,185,129,0.4)', background: 'linear-gradient(180deg, rgba(16,185,129,0.012) 0%, transparent 100%)', flexShrink: 0, overflow: 'hidden' }}>
-                          {/* Header "-- title + spinner only, value lives on the Y axis */}
+                          {/* Header — title + spinner only, value lives on the Y axis */}
                           <div style={{ padding: '6px 14px 4px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#ff8500', letterSpacing: '0.22em', fontWeight: 700 }}>GAMMA EXPOSURE</div>
@@ -4988,7 +5029,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                               </LineChart>
                             </ResponsiveContainer>
                           ) : !gammaLoading ? (
-                            <div style={{ height: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: 'rgba(255,133,0,0.5)', letterSpacing: '0.1em' }}>NO GAMMA DATA "-- CONTRACT NOT IN SNAPSHOT</div>
+                            <div style={{ height: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: 'rgba(255,133,0,0.5)', letterSpacing: '0.1em' }}>NO GAMMA DATA — CONTRACT NOT IN SNAPSHOT</div>
                           ) : null}
                         </div>
                       )
@@ -4997,10 +5038,10 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                   </div>{/* end chart column */}
                 </div>{/* end ROW 2 */}
 
-                {/* -- ROW 3: TRADES TABLE + EFI CHART "-- hidden in embedded mode -- */}
+                {/* -- ROW 3: TRADES TABLE + EFI CHART — hidden in embedded mode -- */}
                 <div style={{ borderTop: '1px solid rgba(255,255,255,0.15)', display: embeddedMode ? 'none' : 'flex', marginTop: 0 }}>
 
-                  {/* Left: Trades table --” fills remaining left column */}
+                  {/* Left: Trades table — fills remaining left column */}
                   <div style={{ flex: 1, minWidth: 0, width: isMobile ? '100%' : undefined }}>
                     <div style={{ padding: '5px 14px', background: 'linear-gradient(90deg,#0a0a0a,#111)', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: '#fff', letterSpacing: '0.15em' }}></span>
@@ -5028,7 +5069,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                                   onClick={key ? () => { if (sortColumn === key) { setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc') } else { setSortColumn(key); setSortDirection('desc') } } : undefined}
                                   style={{ textAlign: 'left', padding: '4px 5px', fontFamily: 'JetBrains Mono,monospace', fontSize: 13, color: sortColumn === key ? '#fff' : '#ff8500', letterSpacing: '0.08em', fontWeight: 800, cursor: key ? 'pointer' : 'default', whiteSpace: 'nowrap' }}
                                 >
-                                  {label}{key && sortColumn === key ? (sortDirection === 'asc' ? ' ←--˜' : ' ←"') : ''}
+                                  {label}{key && sortColumn === key ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ''}
                                 </th>
                               ))
                             ) : (
@@ -5049,7 +5090,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                                   onClick={key ? () => { if (sortColumn === key) { setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc') } else { setSortColumn(key); setSortDirection('desc') } } : undefined}
                                   style={{ textAlign: 'left', padding: '6px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 22, color: sortColumn === key ? '#fff' : '#ff8500', letterSpacing: '0.12em', fontWeight: 800, cursor: key ? 'pointer' : 'default', whiteSpace: 'nowrap' }}
                                 >
-                                  {label}{key && sortColumn === key ? (sortDirection === 'asc' ? ' ←--˜' : ' ←"') : ''}
+                                  {label}{key && sortColumn === key ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ''}
                                 </th>
                               ))
                             )}
@@ -5123,7 +5164,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                             const fillColors: Record<string, string> = { A: '#10b981', B: '#ef4444', AA: '#6ee7b7', BB: '#fca5a5', 'N/A': 'rgba(255,255,255,0.2)' }
                             const styleColors: Record<string, string> = { SWEEP: 'rgb(255,215,0)', BLOCK: 'rgb(0,153,255)', MINI: 'rgb(0,255,94)', 'MULTI-LEG': 'rgb(168,85,247)' }
 
-                            // Use memoized OI computation (tradeOIMemo) "-- avoids rerunning on every render
+                            // Use memoized OI computation (tradeOIMemo) — avoids rerunning on every render
                             const { isMultiDay, liveOIMap, baseOIMap, multiDayOIChange, lastDayVolumeMap, lastDayOISnapshotMap } = tradeOIMemo
 
                             return paginatedTrades.map((trade, idx) => {
@@ -5244,7 +5285,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                                   <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, color: '#00cc00', fontWeight: 700 }}>${trade.total_premium.toLocaleString()}</td>
                                   <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 21, color: '#fff', whiteSpace: 'nowrap' }}>
                                     ${trade.spot_price != null ? Number(trade.spot_price).toFixed(2) : 'N/A'}
-                                    {analysis?.currentPrice && <span style={{ color: 'rgba(255,255,255,0.4)', margin: '0 5px' }}>"º</span>}
+                                    {analysis?.currentPrice && <span style={{ color: 'rgba(255,255,255,0.4)', margin: '0 5px' }}>→</span>}
                                     {analysis?.currentPrice && <span style={{ color: '#22d3ee' }}>${analysis.currentPrice.toFixed(2)}</span>}
                                   </td>
                                   <td style={{ padding: '5px 10px' }}>
@@ -5391,7 +5432,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect()
                       const cx2 = (e.clientX - rect.left) * W / rect.width, cy2 = (e.clientY - rect.top) * H / rect.height
                       const dx = cx2 - rrgDragRef.current.lastSvgX, dy = cy2 - rrgDragRef.current.lastSvgY
-                      // Only start dragging after moving >4px --” prevents double-click from drifting
+                      // Only start dragging after moving >4px — prevents double-click from drifting
                       if (!rrgDragRef.current.dragging && Math.sqrt(dx * dx + dy * dy) < 4) return
                       rrgDragRef.current.dragging = true
                       rrgDragRef.current.lastSvgX = cx2; rrgDragRef.current.lastSvgY = cy2
@@ -5411,7 +5452,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       <linearGradient id="rrg-gloss2" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="rgba(255,255,255,0.04)" /><stop offset="45%" stopColor="rgba(255,255,255,0.01)" /><stop offset="100%" stopColor="rgba(0,0,0,0.08)" />
                       </linearGradient>
-                      {/* Quadrant diagonal gradients --” same style as market overview RRG */}
+                      {/* Quadrant diagonal gradients — same style as market overview RRG */}
                       <linearGradient id="rrg-q-bp" x1="0%" y1="0%" x2="100%" y2="100%">
                         <stop offset="0%" stopColor="#000000" stopOpacity="1" />
                         <stop offset="50%" stopColor="#004a4a" stopOpacity="1" />
@@ -5492,11 +5533,11 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                               const classifiedTotal = (agg.bullCall + agg.bearCall + agg.bullPut + agg.bearPut) || 1
                               const bc = agg.bullCall / classifiedTotal, cc = agg.bearCall / classifiedTotal
                               const bp = agg.bullPut / classifiedTotal, rp = agg.bearPut / classifiedTotal
-                              // GRAY: same instrument, opposing sentiment --” Bull Calls+Bear Calls OR Bull Puts+Bear Puts
+                              // GRAY: same instrument, opposing sentiment — Bull Calls+Bear Calls OR Bull Puts+Bear Puts
                               // combined >=60%, min of either >=25%
                               const callsNeutral = (bc + cc >= 0.60) && Math.min(bc, cc) >= 0.25
                               const putsNeutral = (bp + rp >= 0.60) && Math.min(bp, rp) >= 0.25
-                              // HIGHLIGHTED: opposing instruments, same direction --” Bull Calls+Bull Puts OR Bear Calls+Bear Puts
+                              // HIGHLIGHTED: opposing instruments, same direction — Bull Calls+Bull Puts OR Bear Calls+Bear Puts
                               // combined >=65%, min of either >=25%
                               const bullHighlight = (bc + bp >= 0.65) && Math.min(bc, bp) >= 0.25
                               const bearHighlight = (cc + rp >= 0.65) && Math.min(cc, rp) >= 0.25
@@ -5636,7 +5677,7 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                         })()}
                       </g>
                     </g>
-                    {/* Quadrant labels --” rendered as a SIBLING of the clipped/transformed
+                    {/* Quadrant labels — rendered as a SIBLING of the clipped/transformed
                         group (NOT nested inside it), so they're never chopped by the
                         rrg-bias-clip2 clipPath. Positioned in fixed screen-space pixels,
                         anchored to whichever part of the quadrant is currently on-screen: the
@@ -5650,13 +5691,13 @@ export default function AlgoFlowScreener({ onBack, embeddedMode = false, embedde
                       const sPADt = PAD.t * k + ty, sPADb = (PAD.t + CH) * k + ty
                       const sCX = CX * k + tx, sCY = CY * k + ty
                       const tw = 150, th = 24, fs = 17
-                      // Chart frame bounds (not the full canvas) --” labels should stay
+                      // Chart frame bounds (not the full canvas) — labels should stay
                       // within the actual plot area, matching what rrg-bias-clip2 clips to.
                       const frameL = PAD.l, frameR = PAD.l + CW, frameT = PAD.t, frameB = PAD.t + CH
                       // Returns the on-screen overlap of [qMin,qMax] with [visMin,visMax],
                       // or null if there's no overlap at all (quadrant fully off-frame).
                       // `pref` is where we'd ideally like the label (near the top for top
-                      // quadrants, near the bottom for bottom quadrants, etc.) --” we clamp
+                      // quadrants, near the bottom for bottom quadrants, etc.) — we clamp
                       // that preference into whatever sliver is actually visible, shrinking
                       // the usable half-width/height instead of hiding the label outright.
                       const solveAxis = (qMin: number, qMax: number, visMin: number, visMax: number, pref: number, half: number) => {

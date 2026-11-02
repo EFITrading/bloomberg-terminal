@@ -12,6 +12,10 @@ function LoginForm() {
   const [visible, setVisible] = useState(false)
   const [inputFocused, setInputFocused] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [capsLock, setCapsLock] = useState(false)
+  const [shakeKey, setShakeKey] = useState(0)
+  const [authStep, setAuthStep] = useState(0)
+  const cardRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const searchParams = useSearchParams()
   const rawRedirect = searchParams.get('redirect') || ''
@@ -298,6 +302,8 @@ function LoginForm() {
     e.preventDefault()
     setIsLoading(true)
     setError('')
+    setAuthStep(0)
+    const stepTimer = setInterval(() => setAuthStep(s => Math.min(s + 1, 2)), 600)
 
     try {
       const response = await fetch('/api/auth', {
@@ -312,10 +318,13 @@ function LoginForm() {
         window.location.href = redirectTo
       } else {
         setError('INVALID ACCESS CODE — AUTHORIZATION DENIED')
+        setShakeKey(k => k + 1)
       }
     } catch {
       setError('CONNECTION FAILED — PLEASE RETRY')
+      setShakeKey(k => k + 1)
     } finally {
+      clearInterval(stepTimer)
       setIsLoading(false)
     }
   }
@@ -335,6 +344,27 @@ function LoginForm() {
       day: '2-digit',
       year: 'numeric',
     }).toUpperCase()
+  }
+
+  // US equity session in Pacific time (regular hours 6:30-13:00 PT, weekdays)
+  const getSession = (date: Date) => {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(date)
+    const wd = parts.find(x => x.type === 'weekday')?.value ?? ''
+    const mins = parseInt(parts.find(x => x.type === 'hour')?.value ?? '0') % 24 * 60 + parseInt(parts.find(x => x.type === 'minute')?.value ?? '0')
+    if (wd === 'Sat' || wd === 'Sun') return { label: 'MARKET CLOSED', color: '#9ca3af' }
+    if (mins >= 390 && mins < 780) return { label: 'MARKET OPEN', color: '#22c55e' }
+    if (mins >= 60 && mins < 390) return { label: 'PRE-MARKET', color: '#facc15' }
+    if (mins >= 780 && mins < 1020) return { label: 'AFTER-HOURS', color: '#facc15' }
+    return { label: 'MARKET CLOSED', color: '#9ca3af' }
+  }
+  const session = getSession(currentTime)
+  const authLabels = ['VERIFYING ACCESS CODE...', 'ESTABLISHING SESSION...', 'LOADING TERMINAL...']
+  const handleCardMove = (e: React.MouseEvent) => {
+    const el = cardRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    el.style.setProperty('--mx', `px`)
+    el.style.setProperty('--my', `px`)
   }
 
   if (!mounted) return null
@@ -374,6 +404,12 @@ function LoginForm() {
           transform:translateX(-50%); transition: width 0.3s ease;
         }
         .efi-input-wrap.focused::after { width:100%; }
+        @keyframes efi-shake { 0%,100%{transform:translateX(0)} 15%{transform:translateX(-9px)} 30%{transform:translateX(8px)} 45%{transform:translateX(-6px)} 60%{transform:translateX(5px)} 75%{transform:translateX(-2px)} }
+        .efi-shake { animation: efi-shake 0.45s ease; }
+        .efi-spot { position:absolute; inset:0; pointer-events:none; opacity:0; transition:opacity .3s; background: radial-gradient(420px circle at var(--mx,50%) var(--my,50%), rgba(255,102,0,0.10), transparent 60%); }
+        .efi-card:hover .efi-spot { opacity:1; }
+        .efi-chip { font-size:11px; letter-spacing:0.14em; font-weight:700; color:rgba(255,255,255,0.75); padding:6px 12px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.03); transition:all .2s; }
+        .efi-chip:hover { color:#FF8533; border-color:rgba(255,102,0,0.5); background:rgba(255,102,0,0.08); }
         .efi-corner { position:absolute; width:16px; height:16px; }
         .efi-corner-tl { top:-1px; left:-1px; border-top:2px solid #FF6600; border-left:2px solid #FF6600; }
         .efi-corner-tr { top:-1px; right:-1px; border-top:2px solid #FF6600; border-right:2px solid #FF6600; }
@@ -427,8 +463,12 @@ function LoginForm() {
             <span style={{ fontSize: '12px', color: '#FF6600', letterSpacing: '0.15em', fontWeight: 700 }}>
               EFI TRADING
             </span>
+            <a href="/" style={{ marginLeft: 18, fontSize: '11px', color: 'rgba(255,255,255,0.6)', letterSpacing: '0.14em', fontWeight: 600, textDecoration: 'none' }}>&larr; BACK TO SITE</a>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '18px' }}>
+            <span style={{ fontSize: '11px', color: session.color, letterSpacing: '0.14em', fontWeight: 800, border: `1px solid ${session.color}55`, background: `14`, padding: '3px 10px' }}>
+              {session.label}
+            </span>
             <span style={{ fontSize: '12px', color: '#FFFFFF', letterSpacing: '0.1em', fontWeight: 600 }}>
               {formatDate(currentTime)}
             </span>
@@ -481,12 +521,13 @@ function LoginForm() {
           </div>
 
           {/* Card */}
-          <div className="efi-card" style={{
+          <div key={shakeKey} ref={cardRef} onMouseMove={handleCardMove} className={`efi-card${shakeKey > 0 ? ' efi-shake' : ''}`} style={{
             position: 'relative',
             border: '1px solid rgba(255,102,0,0.35)',
             padding: '60px',
             borderRadius: '2px',
           }}>
+            <div className="efi-spot" />
             {/* Gloss highlight — top edge */}
             <div style={{
               position: 'absolute', top: 0, left: 0, right: 0, height: '1px',
@@ -533,11 +574,14 @@ function LoginForm() {
                     onChange={(e) => setPassword(e.target.value)}
                     onFocus={() => setInputFocused(true)}
                     onBlur={() => setInputFocused(false)}
+                    onKeyUp={(e) => setCapsLock(e.getModifierState('CapsLock'))}
+                    onKeyDown={(e) => setCapsLock(e.getModifierState('CapsLock'))}
+                    autoFocus
                     className="efi-input-field"
                     style={{
                       width: '100%',
                       padding: '18px 56px 18px 20px',
-                      border: `1px solid ${inputFocused ? 'rgba(255,102,0,0.7)' : 'rgba(255,255,255,0.15)'}`,
+                      border: `1px solid ${error ? 'rgba(239,68,68,0.7)' : inputFocused ? 'rgba(255,102,0,0.7)' : 'rgba(255,255,255,0.15)'}`,
                       color: '#FFFFFF',
                       fontSize: '22px',
                       fontFamily: "'JetBrains Mono', monospace",
@@ -579,6 +623,10 @@ function LoginForm() {
                   </button>
                 </div>
               </div>
+
+              {capsLock && (
+                <div style={{ marginTop: '-15px', marginBottom: '20px', fontSize: '12px', color: '#facc15', letterSpacing: '0.12em', fontWeight: 700 }}>&#9888; CAPS LOCK IS ON</div>
+              )}
 
               {/* Error message */}
               {error && (
@@ -642,7 +690,7 @@ function LoginForm() {
                     <svg style={{ animation: 'spin 1s linear infinite' }} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                       <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
                     </svg>
-                    <span>AUTHENTICATING...</span>
+                    <span>{authLabels[authStep]}</span>
                   </>
                 ) : (
                   <>
@@ -681,10 +729,17 @@ function LoginForm() {
             </div>
           </div>
 
+          {/* Platform modules */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px', marginTop: '22px' }}>
+            {['OPTIONS FLOW', 'SWEEPSENSE', 'ALGOFLOW', 'SEASONALITY', 'MARKET REGIME', 'CHARTING', 'AI SUITE'].map(m => (
+              <span key={m} className="efi-chip">{m}</span>
+            ))}
+          </div>
+
           {/* Footer */}
           <div style={{ textAlign: 'center', marginTop: '24px' }}>
             <span style={{ fontSize: '12px', color: '#ffffff', letterSpacing: '0.2em', fontWeight: 700 }}>
-              © 2025 EFI TRADING INTELLIGENCE — ALL RIGHTS RESERVED
+              © {new Date().getFullYear()} EFI TRADING INTELLIGENCE — ALL RIGHTS RESERVED
             </span>
           </div>
         </div>

@@ -106,6 +106,9 @@ import NewsPanel from '../news/NewsPanelV2'
 import SeasonaxLanding from '../seasonax/SeasonaxLanding'
 import EnhancedRegimeDisplay, { prefetchCompositeHistory } from '../terminal/EnhancedRegimeDisplay'
 import ChainPanel from './ChainPanel'
+import TrackingCard, { type TrackingChartType } from './TrackingCard'
+import TrackingToolbar, { useTrackingScan, type TrackingScan } from './TrackingToolbar'
+import MarketDataLoader from '../loading/MarketDataLoader'
 import DarkPoolButton from './DarkPoolButton'
 import InsightPanel from './InsightPanel'
 import LWChartDrawingTools from './LWChartDrawingTools'
@@ -6937,6 +6940,9 @@ export default function TradingViewChart({
     }
   }>({})
   const [trackingLoading, setTrackingLoading] = useState(false)
+  const [trackingChartType, setTrackingChartType] = useState<TrackingChartType>('line')
+  const [trackingResetKey, setTrackingResetKey] = useState(0)
+  const [trackingScan, setTrackingScan] = useState<TrackingScan>({ kind: 'off' })
   const trackingFetchedRef = useRef(false)
   const trackingScrollRef = useRef<HTMLDivElement>(null)
 
@@ -7055,6 +7061,7 @@ export default function TradingViewChart({
     ],
     []
   )
+  const trackingScanResult = useTrackingScan(trackingCategories, trackingScan)
 
   // Options Trades state
   const [optionsPremiumData, setOptionsPremiumData] = useState<
@@ -8023,6 +8030,10 @@ export default function TradingViewChart({
 
   // Sidebar panel state
   const [activeSidebarPanel, setActiveSidebarPanel] = useState<string | null>(null)
+  useEffect(() => {
+    const panel = new URLSearchParams(window.location.search).get('panel')
+    if (panel) setActiveSidebarPanel(panel)
+  }, [])
   // Tracks which panels have been opened at least once — lazy-mount pattern so
   // panels stay in the DOM (and keep scanning) after being closed, but never
   // mount until the user opens them the first time.
@@ -16324,7 +16335,7 @@ export default function TradingViewChart({
           setError(`Ticker does not exist`)
         } else {
           console.error(`❌ FETCH FAILED: ${sym} ${timeframe}:`, errorMessage)
-          setError(`Failed to load ${timeframe} data for ${sym}: ${errorMessage}`)
+          setError('Failed to Load Data')
         }
 
         setData([])
@@ -24390,16 +24401,7 @@ export default function TradingViewChart({
 
     if (watchlistLoading || !hasWatchlistData) {
       // Show loading state instead of error
-      return (
-        <div className="bg-gray-900 border border-gray-700 rounded-lg p-4 h-96">
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mx-auto mb-2"></div>
-              <p className="text-gray-400 text-sm">Loading market data...</p>
-            </div>
-          </div>
-        </div>
-      )
+      return <MarketDataLoader />
     }
 
     // Calculate regime score (0-100) based on strength and consistency
@@ -25172,49 +25174,25 @@ export default function TradingViewChart({
         {/* Tracking Tab Content */}
         {activeTab === 'Tracking' && (
           <div className="flex-1 flex flex-col overflow-hidden bg-black">
-            {/* Timeframe Selector */}
-            <div className="px-6 pt-6 pb-4 border-b border-gray-800">
-              <div className="hidden md:flex items-center gap-2">
-                {(['1D', '5D', '1M', '3M', '6M', '1Y'] as const).map((tf) => (
-                  <button
-                    key={tf}
-                    onClick={() => {
-                      setTrackingTimeframe(tf)
-                      setTrackingData({})
-                    }}
-                    className={`px-3 py-1.5 md:px-5 md:py-2.5 text-xs md:text-sm font-bold rounded-md transition-all border ${trackingTimeframe === tf
-                      ? 'bg-[#0a0e1a] text-[#FF6600] border-[#FF6600] shadow-lg shadow-[#FF6600]/20'
-                      : 'bg-[#0a0e1a] text-white border-gray-700 hover:border-gray-500 hover:shadow-md'
-                      }`}
-                  >
-                    {tf}
-                  </button>
-                ))}
-              </div>
-              <div className="md:hidden relative inline-block">
-                <select
-                  value={trackingTimeframe}
-                  onChange={(e) => {
-                    setTrackingTimeframe(e.target.value as typeof trackingTimeframe)
-                    setTrackingData({})
-                  }}
-                  className="appearance-none font-bold text-sm rounded-md pl-4 pr-10 py-2 border outline-none"
-                  style={{ background: '#0a0e1a', color: '#FF6600', borderColor: '#FF6600', boxShadow: '0 0 10px rgba(255,102,0,0.2)' }}
-                >
-                  {([['1D', '1 Day'], ['5D', '5 Days'], ['1M', '1 Month'], ['3M', '3 Months'], ['6M', '6 Months'], ['1Y', '1 Year']] as const).map(([v, l]) => (
-                    <option key={v} value={v} style={{ background: '#0a0e1a', color: '#fff' }}>{l}</option>
-                  ))}
-                </select>
-                <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FF6600" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
-              </div>
-            </div>
+            <TrackingToolbar
+              tf={trackingTimeframe}
+              onTf={(t) => {
+                setTrackingTimeframe(t)
+                setTrackingResetKey((k) => k + 1)
+              }}
+              type={trackingChartType}
+              onType={(t) => {
+                setTrackingChartType(t)
+                setTrackingResetKey((k) => k + 1)
+              }}
+              scan={trackingScan}
+              onScan={setTrackingScan}
+              status={{ loading: trackingScanResult.loading, loaded: trackingScanResult.loaded, total: trackingScanResult.total, matches: trackingScanResult.matches }}
+            />
 
             {trackingLoading ? (
-              <div className="flex items-center justify-center h-64">
-                <div className="text-center">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#FF6600] mx-auto mb-4"></div>
-                  <p className="text-gray-400 text-sm">Loading market data...</p>
-                </div>
+              <div className="p-6">
+                <MarketDataLoader height={320} />
               </div>
             ) : (
               <div
@@ -25226,7 +25204,7 @@ export default function TradingViewChart({
                   scrollbarColor: '#FF6600 #1a1a1a',
                 }}
               >
-                {trackingCategories.map((category) => (
+                {trackingScanResult.categories.map((category) => (
                   <div key={category.title} className="relative">
                     {/* Category Header - Goldman Sachs Style */}
                     <div
@@ -25265,333 +25243,23 @@ export default function TradingViewChart({
                     </div>
 
                     {/* Cards Grid */}
-                    <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                      {category.symbols.map((symbol) => {
-                        const data = trackingData[symbol]
-                        if (!data) return null
-
-                        return (
-                          <div
-                            key={symbol}
-                            className="group relative overflow-hidden rounded-lg transition-all duration-300 hover:scale-[1.02] cursor-pointer"
-                            style={{
-                              background: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%)',
-                              border: `1px solid ${category.color}40`,
-                              boxShadow: `0 4px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.03)`,
-                            }}
-                            onClick={() => {
-                              if (onSymbolChange) {
-                                onSymbolChange(data.symbol)
-                              }
-                              setConfig((prev) => ({ ...prev, symbol: data.symbol }))
-                            }}
-                          >
-                            {/* Hover glow effect */}
-                            <div
-                              className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
-                              style={{
-                                background: `radial-gradient(circle at center, ${category.color}20 0%, transparent 70%)`,
-                              }}
-                            />
-
-                            <div className="relative md:p-6 p-2">
-                              <div className="md:flex md:items-center md:justify-between md:gap-4">
-                                {/* Left: Ticker and Price (all horizontal on mobile) */}
-                                <div className="md:flex-shrink-0 md:w-20">
-                                  {/* Desktop layout */}
-                                  <div className="hidden md:block font-black text-white text-base tracking-tight">
-                                    {data.symbol}
-                                  </div>
-                                  {/* Mobile layout - all in one row */}
-                                  <div className="md:hidden flex flex-row items-center gap-1.5">
-                                    <div className="font-black text-white text-[10px] tracking-tight">
-                                      {data.symbol}
-                                    </div>
-                                    <div className="font-bold text-white text-[9px]">
-                                      ${data.price.toFixed(2)}
-                                    </div>
-                                    <div
-                                      className={`text-[8px] font-bold ${data.change >= 0 ? 'text-green-400' : 'text-red-400'}`}
-                                    >
-                                      {data.change >= 0 ? '+' : ''}
-                                      {data.change.toFixed(2)}%
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Center: Sparkline */}
-                                <div className="md:flex-1 flex flex-col mt-2 md:mt-0">
-                                  <svg
-                                    viewBox="0 0 200 50"
-                                    preserveAspectRatio="none"
-                                    className="w-full md:h-16 h-[45px]"
-                                  >
-                                    {data.sparklineData.length > 1 &&
-                                      (() => {
-                                        const prices = data.sparklineData.map((p) => p.price)
-                                        const minPrice = Math.min(...prices)
-                                        const maxPrice = Math.max(...prices)
-                                        const priceRange = maxPrice - minPrice || 1
-                                        const padding = 8
-                                        const chartHeight = 50 - padding * 2
-
-                                        const points = data.sparklineData
-                                          .map((point, i) => {
-                                            const x = (i / (data.sparklineData.length - 1)) * 200
-                                            const y =
-                                              padding +
-                                              ((maxPrice - point.price) / priceRange) * chartHeight
-                                            return `${x.toFixed(1)},${y.toFixed(1)}`
-                                          })
-                                          .join(' ')
-
-                                        const prevDayY = data.previousDayClose
-                                          ? padding +
-                                          ((maxPrice - data.previousDayClose) / priceRange) *
-                                          chartHeight
-                                          : null
-
-                                        // Only show shading for 1D timeframe (intraday data)
-                                        const showShading = trackingTimeframe === '1D'
-
-                                        // Pre-calculate shading zones to avoid creating hundreds of rect elements
-                                        const shadingZones: Array<{
-                                          x: number
-                                          width: number
-                                          color: string
-                                        }> = []
-                                        if (showShading) {
-                                          let currentZone: { start: number; color: string } | null =
-                                            null
-
-                                          data.sparklineData.forEach((point: any, i: number) => {
-                                            // Use pre-calculated PST minutes for performance
-                                            const totalMinutes = point.etMinutes || 0
-
-                                            const marketStart = 6 * 60 + 30 // 6:30 AM PST
-                                            const marketEnd = 13 * 60 // 1:00 PM PST
-                                            const preMarketStart = 1 * 60 // 1:00 AM PST
-                                            const afterHoursEnd = 17 * 60 // 5:00 PM PST
-                                            let fillColor: string | null = null
-                                            if (
-                                              totalMinutes >= preMarketStart &&
-                                              totalMinutes < marketStart
-                                            ) {
-                                              fillColor = 'rgba(255, 165, 0, 0.12)'
-                                            } else if (
-                                              totalMinutes >= marketEnd &&
-                                              totalMinutes < afterHoursEnd
-                                            ) {
-                                              fillColor = 'rgba(0, 174, 239, 0.12)'
-                                            }
-
-                                            if (fillColor) {
-                                              if (!currentZone || currentZone.color !== fillColor) {
-                                                if (currentZone !== null) {
-                                                  const x =
-                                                    (currentZone.start /
-                                                      (data.sparklineData.length - 1)) *
-                                                    200
-                                                  const endX =
-                                                    (i / (data.sparklineData.length - 1)) * 200
-                                                  shadingZones.push({
-                                                    x,
-                                                    width: endX - x,
-                                                    color: currentZone.color,
-                                                  })
-                                                }
-                                                currentZone = { start: i, color: fillColor }
-                                              }
-                                            } else if (currentZone !== null) {
-                                              const x =
-                                                (currentZone.start /
-                                                  (data.sparklineData.length - 1)) *
-                                                200
-                                              const endX =
-                                                (i / (data.sparklineData.length - 1)) * 200
-                                              shadingZones.push({
-                                                x,
-                                                width: endX - x,
-                                                color: currentZone.color,
-                                              })
-                                              currentZone = null
-                                            }
-                                          })
-
-                                          // Finalize any remaining zone
-                                          if (currentZone !== null) {
-                                            const zone = currentZone as unknown as {
-                                              start: number
-                                              color: string
-                                            }
-                                            const x =
-                                              (zone.start / (data.sparklineData.length - 1)) * 200
-                                            shadingZones.push({
-                                              x,
-                                              width: 200 - x,
-                                              color: zone.color,
-                                            })
-                                          }
-                                        }
-
-                                        return (
-                                          <>
-                                            {/* Market hours background shading - optimized */}
-                                            {shadingZones.map((zone, idx) => (
-                                              <rect
-                                                key={`shade-${idx}`}
-                                                x={zone.x}
-                                                y="0"
-                                                width={zone.width}
-                                                height="50"
-                                                fill={zone.color}
-                                              />
-                                            ))}
-
-                                            {/* Previous day close line */}
-                                            {prevDayY !== null && (
-                                              <line
-                                                x1="0"
-                                                y1={prevDayY.toFixed(1)}
-                                                x2="200"
-                                                y2={prevDayY.toFixed(1)}
-                                                stroke="#444444"
-                                                strokeWidth="1"
-                                                strokeDasharray="3,2"
-                                                opacity="0.4"
-                                                vectorEffect="non-scaling-stroke"
-                                              />
-                                            )}
-
-                                            {/* Price line */}
-                                            <polyline
-                                              fill="none"
-                                              stroke={data.change >= 0 ? '#00ff00' : '#ff0000'}
-                                              strokeWidth="1.5"
-                                              points={points}
-                                              strokeLinecap="round"
-                                              strokeLinejoin="round"
-                                              vectorEffect="non-scaling-stroke"
-                                            />
-                                          </>
-                                        )
-                                      })()}
-                                  </svg>
-
-                                  {/* X-Axis Time Labels */}
-                                  <div className="relative mt-2 px-1" style={{ height: '14px' }}>
-                                    {data.sparklineData.length > 0 &&
-                                      (() => {
-                                        if (trackingTimeframe === '1D') {
-                                          // For 1D intraday, position labels at actual market open (6:30 AM PST) and close (1:00 PM PST)
-                                          // Find the data points closest to 6:30 AM and 1:00 PM using pre-calculated PST minutes
-                                          let marketOpenIndex = -1
-                                          let marketCloseIndex = -1
-
-                                          data.sparklineData.forEach((point: any, i: number) => {
-                                            const totalMinutes = point.etMinutes || 0
-
-                                            // Market open: 6:30 AM PST (390 minutes)
-                                            if (
-                                              marketOpenIndex === -1 &&
-                                              totalMinutes >= 6 * 60 + 30
-                                            ) {
-                                              marketOpenIndex = i
-                                            }
-                                            // Market close: 1:00 PM PST (780 minutes) - find FIRST point at or after close
-                                            if (
-                                              marketCloseIndex === -1 &&
-                                              totalMinutes >= 13 * 60
-                                            ) {
-                                              marketCloseIndex = i
-                                            }
-                                          })
-
-                                          // Calculate positions as percentage
-                                          const openPercent =
-                                            marketOpenIndex >= 0
-                                              ? (marketOpenIndex /
-                                                (data.sparklineData.length - 1)) *
-                                              100
-                                              : 0
-                                          const closePercent =
-                                            marketCloseIndex >= 0
-                                              ? (marketCloseIndex /
-                                                (data.sparklineData.length - 1)) *
-                                              100
-                                              : 100
-
-                                          return (
-                                            <>
-                                              {marketOpenIndex >= 0 && (
-                                                <span
-                                                  className="absolute md:text-[10px] text-[8px] text-yellow-400 font-mono font-semibold"
-                                                  style={{
-                                                    left: `${openPercent}%`,
-                                                    transform: 'translateX(-50%)',
-                                                  }}
-                                                >
-                                                  6:30 AM
-                                                </span>
-                                              )}
-                                              {marketCloseIndex >= 0 && (
-                                                <span
-                                                  className="absolute md:text-[10px] text-[8px] text-yellow-400 font-mono font-semibold"
-                                                  style={{
-                                                    left: `${closePercent}%`,
-                                                    transform: 'translateX(-50%)',
-                                                  }}
-                                                >
-                                                  1:00 PM
-                                                </span>
-                                              )}
-                                            </>
-                                          )
-                                        } else {
-                                          const firstPoint = data.sparklineData[0]
-                                          const lastPoint =
-                                            data.sparklineData[data.sparklineData.length - 1]
-                                          const formatDate = (timestamp: number) => {
-                                            const date = new Date(timestamp)
-                                            return date.toLocaleDateString('en-US', {
-                                              month: 'numeric',
-                                              day: 'numeric',
-                                              timeZone: getUserTimezone(),
-                                            })
-                                          }
-
-                                          return (
-                                            <>
-                                              <span className="absolute left-0 md:text-[10px] text-[8px] text-yellow-400 font-mono font-semibold">
-                                                {formatDate(firstPoint.time)}
-                                              </span>
-                                              <span className="absolute right-0 md:text-[10px] text-[8px] text-yellow-400 font-mono font-semibold">
-                                                {formatDate(lastPoint.time)}
-                                              </span>
-                                            </>
-                                          )
-                                        }
-                                      })()}
-                                  </div>
-                                </div>
-
-                                {/* Right: Price and Change - desktop only */}
-                                <div className="hidden md:block flex-shrink-0 text-right w-20">
-                                  <div className="font-bold text-white text-sm">
-                                    ${data.price.toFixed(2)}
-                                  </div>
-                                  <div
-                                    className={`text-xs font-bold ${data.change >= 0 ? 'text-green-400' : 'text-red-400'}`}
-                                  >
-                                    {data.change >= 0 ? '+' : ''}
-                                    {data.change.toFixed(2)}%
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {category.symbols.map((symbol) => (
+                        <TrackingCard
+                          key={symbol}
+                          symbol={symbol}
+                          accent={category.color}
+                          globalTf={trackingTimeframe}
+                          globalType={trackingChartType}
+                          resetKey={trackingResetKey}
+                          livePrice={trackingData[symbol]?.price}
+                          badge={trackingScanResult.badges[symbol]}
+                          onOpen={() => {
+                            if (onSymbolChange) onSymbolChange(symbol)
+                            setConfig((prev) => ({ ...prev, symbol }))
+                          }}
+                        />
+                      ))}
                     </div>
                   </div>
                 ))}
@@ -36108,275 +35776,90 @@ export default function TradingViewChart({
               <div className="relative z-10 flex flex-col items-center w-full gap-0" style={{ paddingTop: isMobile && activeSidebarPanel ? '16px' : '4px', paddingBottom: '4px' }}>
                 {/* Sidebar Buttons */}
                 {[
-                  { id: 'insight', icon: TbBulb, label: 'INSIGHT', accent: 'amber' },
-                  { id: 'gex', icon: TbBoxMultiple, label: 'GEX', accent: 'orange' },
-                  { id: 'flow', icon: TbArrowsShuffle, label: 'FLOW', accent: 'lime' },
-                  { id: 'chain', icon: TbLink, label: 'CHAIN', accent: 'cyan' },
-                  { id: 'watch', icon: TbChartLine, label: 'WATCH', accent: 'blue' },
-                  { id: 'performance', icon: TbChartInfographic, label: 'LINEVIEW', accent: 'teal' },
-                  { id: 'news', icon: TbNews, label: 'NEWS', accent: 'amber' },
-                  { id: 'seasonality', icon: TbCalendar, label: 'SEASONAL', accent: 'pink' },
-                  { id: 'screen', icon: TbActivity, label: 'SCREEN', accent: 'cyan' },
-                ].map((item, index) => {
+                  { id: 'insight', icon: TbBulb, label: 'INSIGHT', color: '#FBBF24' },
+                  { id: 'watch', icon: TbChartLine, label: 'WATCH', color: '#60A5FA' },
+                  { id: 'flow', icon: TbArrowsShuffle, label: 'FLOW', color: '#A3E635' },
+                  { id: 'seasonality', icon: TbCalendar, label: 'SEASONALS', color: '#F472B6' },
+                  { id: 'gex', icon: () => <span style={{ fontWeight: 800, fontFamily: 'Georgia, serif' }}>{'\u0394'}</span>, label: 'GREEKS', color: '#FB923C' },
+                  { id: 'news', icon: TbNews, label: 'NEWS', color: '#FCD34D' },
+                  { id: 'screen', icon: TbActivity, label: 'SCREEN', color: '#22D3EE' },
+                  { id: 'chain', icon: TbLink, label: 'CHAIN', color: '#2DD4BF' },
+                ].map((item) => {
                   const IconComponent = item.icon
-
-                  // Determine if this button is loading
-                  const isLoading = false // Loading animations removed
-                  const accentColors: { [key: string]: string } = {
-                    blue: '#3B82F6',
-                    emerald: '#10B981',
-                    amber: '#F59E0B',
-                    red: '#EF4444',
-                    violet: '#8B5CF6',
-                    platinum: '#C4CBD6',
-                    cyan: '#06B6D4',
-                    purple: '#A855F7',
-                    orange: '#F97316',
-                    green: '#22C55E',
-                    indigo: '#6366F1',
-                    pink: '#EC4899',
-                    lime: '#84CC16',
-                    teal: '#14B8A6',
-                    rose: '#F43F5E',
-                    slate: '#94A3B8',
-                  }
-
-                  const patTabs = ['alerts', 'plan', 'screeners']
-                  const isActive = patTabs.includes(item.id)
-                    ? (showPATPanel && patPanelActiveTab === item.id)
-                    : activeSidebarPanel === item.id
-
+                  const isActive = activeSidebarPanel === item.id
                   return (
-                    <div
-                      key={item.id}
-                      className="flex flex-col items-center w-full px-1"
-                      style={{
-                        marginBottom: '0',
-                      }}
-                    >
+                    <div key={item.id} className="w-full" style={{ padding: '3px 6px' }}>
                       <button
-                        className="group relative w-full flex flex-col items-center justify-center transition-all duration-500 ease-out active:scale-95 rounded-lg overflow-hidden backdrop-blur-xl"
+                        className="group relative w-full flex flex-col items-center justify-center overflow-hidden active:scale-95"
                         style={{
-                          padding:
-                            isMobile
-                              ? '0.38rem 0'
-                              : 'clamp(0.35rem, 0.9vh, 0.75rem) 0',
-                          gap:
-                            isMobile
-                              ? '0.25rem'
-                              : 'clamp(0.15rem, 0.4vh, 0.35rem)',
+                          padding: 'clamp(0.4rem, 1vh, 0.7rem) 0 clamp(0.35rem, 0.9vh, 0.6rem)',
+                          gap: 'clamp(0.2rem, 0.5vh, 0.4rem)',
+                          borderRadius: 10,
                           background: isActive
-                            ? `linear-gradient(135deg, 
-                                ${accentColors[item.accent]}18 0%, 
-                                rgba(15, 15, 15, 0.98) 40%, 
-                                rgba(10, 10, 10, 0.98) 60%,
-                                ${accentColors[item.accent]}15 100%)`
-                            : `linear-gradient(135deg, 
-                                rgba(20, 20, 20, 0.85) 0%, 
-                                rgba(15, 15, 15, 0.9) 50%, 
-                                rgba(10, 10, 10, 0.95) 100%)`,
+                            ? `linear-gradient(180deg, ${item.color}26 0%, ${item.color}0D 100%)`
+                            : 'linear-gradient(180deg, #14151a 0%, #0c0d10 100%)',
+                          border: `1px solid ${isActive ? item.color + '99' : 'rgba(255,255,255,0.07)'}`,
                           boxShadow: isActive
-                            ? `
-                              0 0 40px ${accentColors[item.accent]}50,
-                              0 0 80px ${accentColors[item.accent]}25,
-                              inset 0 1px 2px rgba(255, 255, 255, 0.2),
-                              inset 0 -1px 2px rgba(0, 0, 0, 0.8),
-                              0 10px 40px rgba(0, 0, 0, 0.9),
-                              0 4px 12px rgba(0, 0, 0, 0.95)
-                            `
-                            : `
-                              0 6px 20px rgba(0, 0, 0, 0.8),
-                              inset 0 1px 1px rgba(255, 255, 255, 0.1),
-                              inset 0 -1px 1px rgba(0, 0, 0, 0.9)
-                            `,
-                          border: isActive
-                            ? `1px solid ${accentColors[item.accent]}90`
-                            : '1px solid rgba(50, 50, 50, 0.6)',
-                          borderLeft: isActive
-                            ? `4px solid ${accentColors[item.accent]}`
-                            : `4px solid ${accentColors[item.accent]}30`,
-                          position: 'relative',
-                          transform: isActive ? 'translateX(3px) scale(1.02)' : 'translateX(0)',
+                            ? `0 0 16px ${item.color}33, inset 0 1px 0 rgba(255,255,255,0.12)`
+                            : 'inset 0 1px 0 rgba(255,255,255,0.05)',
+                          transition: 'all 0.18s ease',
                         }}
                         onMouseEnter={(e) => {
                           if (!isActive) {
-                            e.currentTarget.style.background = `
-                              linear-gradient(135deg, 
-                                ${accentColors[item.accent]}12 0%, 
-                                rgba(20, 20, 20, 0.95) 40%, 
-                                rgba(15, 15, 15, 0.95) 60%,
-                                ${accentColors[item.accent]}10 100%)
-                            `
-                            e.currentTarget.style.boxShadow = `
-                              0 0 30px ${accentColors[item.accent]}35,
-                              0 8px 30px rgba(0, 0, 0, 0.85),
-                              inset 0 1px 2px rgba(255, 255, 255, 0.15),
-                              inset 0 -1px 2px rgba(0, 0, 0, 0.9)
-                            `
-                            e.currentTarget.style.borderLeft = `4px solid ${accentColors[item.accent]}70`
-                            e.currentTarget.style.transform = 'translateX(2px) scale(1.01)'
+                            e.currentTarget.style.borderColor = item.color + '66'
+                            e.currentTarget.style.background = `linear-gradient(180deg, ${item.color}14 0%, #0c0d10 100%)`
                           }
                         }}
                         onMouseLeave={(e) => {
                           if (!isActive) {
-                            e.currentTarget.style.background = `
-                              linear-gradient(135deg, 
-                                rgba(20, 20, 20, 0.85) 0%, 
-                                rgba(15, 15, 15, 0.9) 50%, 
-                                rgba(10, 10, 10, 0.95) 100%)
-                            `
-                            e.currentTarget.style.boxShadow = `
-                              0 6px 20px rgba(0, 0, 0, 0.8),
-                              inset 0 1px 1px rgba(255, 255, 255, 0.1),
-                              inset 0 -1px 1px rgba(0, 0, 0, 0.9)
-                            `
-                            e.currentTarget.style.borderLeft = `4px solid ${accentColors[item.accent]}30`
-                            e.currentTarget.style.transform = 'translateX(0)'
+                            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'
+                            e.currentTarget.style.background = 'linear-gradient(180deg, #14151a 0%, #0c0d10 100%)'
                           }
                         }}
                         onClick={() => handleSidebarClick(item.id)}
                       >
-                        {/* Mobile label above icon */}
                         <span
-                          className="md:hidden text-[7px] font-bold uppercase tracking-tight relative z-10"
-                          style={{ color: isActive ? accentColors[item.accent] : '#FFFFFF' }}
-                        >
-                          {item.label}
-                        </span>
-                        {/* Premium glass overlay with color tint */}
-                        <div
-                          className="absolute inset-0 pointer-events-none rounded-lg"
                           style={{
-                            background: `linear-gradient(180deg, 
-                              rgba(255, 255, 255, 0.12) 0%, 
-                              ${accentColors[item.accent]}08 20%,
-                              transparent 50%, 
-                              transparent 80%, 
-                              rgba(0, 0, 0, 0.4) 100%)`,
+                            position: 'absolute',
+                            left: 0,
+                            top: 8,
+                            bottom: 8,
+                            width: 3,
+                            borderRadius: 2,
+                            background: isActive ? item.color : 'transparent',
+                            boxShadow: isActive ? `0 0 8px ${item.color}` : 'none',
                           }}
-                        ></div>
-
-                        {/* Accent glow bar - active state */}
-                        {isActive && (
-                          <>
-                            <div
-                              className="absolute top-0 left-0 right-0 h-1 opacity-90"
-                              style={{
-                                background: `linear-gradient(90deg, 
-                                  transparent 0%, 
-                                  ${accentColors[item.accent]} 50%, 
-                                  transparent 100%)`,
-                                boxShadow: `0 0 15px ${accentColors[item.accent]}, 0 0 30px ${accentColors[item.accent]}70`,
-                              }}
-                            ></div>
-                            <div
-                              className="absolute inset-0 pointer-events-none rounded-lg"
-                              style={{
-                                background: `radial-gradient(circle at 50% 0%, ${accentColors[item.accent]}12 0%, transparent 60%)`,
-                              }}
-                            ></div>
-                          </>
-                        )}
-
-                        {/* Icon with dynamic color and glow */}
+                        />
                         <span
-                          className="relative transition-all duration-200"
-                          style={sidebarTileStyle(accentColors[item.accent], isActive)}
-                        >
-                          <IconComponent strokeWidth={isActive ? 2.6 : 2.2} />
-                        </span>
-                        {/* Label with premium typography */}
-                        <span
-                          className="sidebar-label relative font-bold uppercase transition-all duration-500 hidden md:block"
                           style={{
-                            fontSize: 'clamp(7px, 1vh, 10px)',
-                            color: '#FFFFFF',
-                            opacity: 1,
-                            fontFamily: 'system-ui, -apple-system, sans-serif',
-                            fontWeight: isActive ? 700 : 600,
-                            letterSpacing: '0.10em',
-                            textShadow: isActive
-                              ? `0 0 25px ${accentColors[item.accent]}70, 0 2px 6px rgba(0, 0, 0, 0.95), 0 0 10px ${accentColors[item.accent]}40`
-                              : `0 2px 4px rgba(0, 0, 0, 0.9), 0 0 8px ${accentColors[item.accent]}30`,
-                            textRendering: 'optimizeLegibility',
-                            WebkitFontSmoothing: 'antialiased',
-                          }}
-                        >
-                          {item.label}
-                        </span>
-
-                        {/* Bottom accent line with glow */}
-                        <div
-                          className="absolute bottom-0 left-0 right-0 h-px opacity-60"
-                          style={{
+                            fontSize: 'clamp(1.35rem, 2.8vh, 2rem)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: 'clamp(2.3rem, 4.8vh, 3.2rem)',
+                            height: 'clamp(2.3rem, 4.8vh, 3.2rem)',
+                            borderRadius: 10,
+                            color: isActive ? '#FFFFFF' : item.color,
                             background: isActive
-                              ? `linear-gradient(90deg, transparent 0%, ${accentColors[item.accent]}80 50%, transparent 100%)`
-                              : `linear-gradient(90deg, transparent 0%, ${accentColors[item.accent]}30 50%, transparent 100%)`,
-                            boxShadow: isActive ? `0 0 8px ${accentColors[item.accent]}60` : 'none',
+                              ? `linear-gradient(160deg, ${item.color} 0%, ${item.color}88 100%)`
+                              : `linear-gradient(160deg, ${item.color}22 0%, ${item.color}08 100%)`,
+                            border: `1px solid ${item.color}${isActive ? 'CC' : '44'}`,
+                            transition: 'all 0.18s ease',
                           }}
-                        ></div>
-                      </button>
-                    </div>
-                  )
-                })}
-
-                {/* TRADES separator */}
-                <div style={{ width: '100%', padding: '10px 8px 6px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div style={{ flex: 1, height: '1px', background: 'linear-gradient(90deg, transparent, rgba(255,102,0,0.55))' }} />
-                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#FF8A33', letterSpacing: '0.24em', fontFamily: 'system-ui, -apple-system, sans-serif', lineHeight: '1' }}>TRADES</div>
-                  <div style={{ flex: 1, height: '1px', background: 'linear-gradient(270deg, transparent, rgba(255,102,0,0.55))' }} />
-                </div>
-
-                {/* Trades buttons */}
-                {[
-                  { id: 'straddle', icon: TbArrowsVertical, label: 'STRADDLE', accent: 'violet' },
-                  { id: 'markets', icon: TbTrendingUp, label: 'MARKETS', accent: 'emerald' },
-                  { id: 'rrg', icon: TbChartDots, label: 'RRG', accent: 'rose' },
-                  { id: 'cluster', icon: TbDna, label: 'CLUSTER', accent: 'purple' },
-                  { id: 'histvol', icon: TbChartHistogram, label: 'HIST VOL', accent: 'blue' },
-                  { id: 'leadership', icon: TbCrown, label: 'LEADERSHIP', accent: 'amber' },
-                  { id: 'attraction', icon: TbMagnet, label: 'ATTRACTION', accent: 'green' },
-                ].map((item) => {
-                  const IconComponent = item.icon
-                  const accentColors: { [key: string]: string } = {
-                    blue: '#3B82F6', emerald: '#10B981', amber: '#F59E0B', red: '#EF4444',
-                    violet: '#8B5CF6', cyan: '#06B6D4', purple: '#A855F7', orange: '#F97316',
-                    green: '#22C55E', indigo: '#6366F1', pink: '#EC4899', lime: '#84CC16',
-                    teal: '#14B8A6', rose: '#F43F5E', slate: '#94A3B8',
-                  }
-                  const isActive = activeSidebarPanel === item.id
-                  return (
-                    <div key={item.id} className="flex flex-col items-center w-full px-1" style={{ marginBottom: '0' }}>
-                      <button
-                        className="group relative w-full flex flex-col items-center justify-center transition-all duration-500 ease-out active:scale-95 rounded-lg overflow-hidden backdrop-blur-xl"
-                        style={{
-                          padding: 'clamp(0.35rem, 0.9vh, 0.75rem) 0', gap: 'clamp(0.15rem, 0.4vh, 0.35rem)',
-                          background: isActive
-                            ? `linear-gradient(135deg, ${accentColors[item.accent]}18 0%, rgba(15,15,15,0.98) 40%, rgba(10,10,10,0.98) 60%, ${accentColors[item.accent]}15 100%)`
-                            : `linear-gradient(135deg, rgba(20,20,20,0.85) 0%, rgba(15,15,15,0.9) 50%, rgba(10,10,10,0.95) 100%)`,
-                          boxShadow: isActive
-                            ? `0 0 40px ${accentColors[item.accent]}50, 0 0 80px ${accentColors[item.accent]}25, inset 0 1px 2px rgba(255,255,255,0.2), inset 0 -1px 2px rgba(0,0,0,0.8), 0 10px 40px rgba(0,0,0,0.9)`
-                            : `0 6px 20px rgba(0,0,0,0.8), inset 0 1px 1px rgba(255,255,255,0.1), inset 0 -1px 1px rgba(0,0,0,0.9)`,
-                          border: isActive ? `1px solid ${accentColors[item.accent]}90` : '1px solid rgba(50,50,50,0.6)',
-                          borderLeft: isActive ? `4px solid ${accentColors[item.accent]}` : `4px solid ${accentColors[item.accent]}30`,
-                          transform: isActive ? 'translateX(3px) scale(1.02)' : 'translateX(0)',
-                        }}
-                        onMouseEnter={(e) => { if (!isActive) { e.currentTarget.style.background = `linear-gradient(135deg, ${accentColors[item.accent]}12 0%, rgba(20,20,20,0.95) 40%, rgba(15,15,15,0.95) 60%, ${accentColors[item.accent]}10 100%)`; e.currentTarget.style.borderLeft = `4px solid ${accentColors[item.accent]}70`; e.currentTarget.style.transform = 'translateX(2px) scale(1.01)' } }}
-                        onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.background = `linear-gradient(135deg, rgba(20,20,20,0.85) 0%, rgba(15,15,15,0.9) 50%, rgba(10,10,10,0.95) 100%)`; e.currentTarget.style.borderLeft = `4px solid ${accentColors[item.accent]}30`; e.currentTarget.style.transform = 'translateX(0)' } }}
-                        onClick={() => handleSidebarClick(item.id)}
-                      >
-                        <div className="absolute inset-0 pointer-events-none rounded-lg" style={{ background: `linear-gradient(180deg, rgba(255,255,255,0.12) 0%, ${accentColors[item.accent]}08 20%, transparent 50%, transparent 80%, rgba(0,0,0,0.4) 100%)` }} />
-                        {isActive && (
-                          <>
-                            <div className="absolute top-0 left-0 right-0 h-1 opacity-90" style={{ background: `linear-gradient(90deg, transparent 0%, ${accentColors[item.accent]} 50%, transparent 100%)`, boxShadow: `0 0 15px ${accentColors[item.accent]}, 0 0 30px ${accentColors[item.accent]}70` }} />
-                            <div className="absolute inset-0 pointer-events-none rounded-lg" style={{ background: `radial-gradient(circle at 50% 0%, ${accentColors[item.accent]}12 0%, transparent 60%)` }} />
-                          </>
-                        )}
-                        <span className="relative transition-all duration-200" style={sidebarTileStyle(accentColors[item.accent], isActive)}>
-                          <IconComponent strokeWidth={isActive ? 2.6 : 2.2} />
+                        >
+                          <IconComponent strokeWidth={2.2} />
                         </span>
-                        <span className="sidebar-label relative text-[10px] font-bold uppercase tracking-[0.15em] transition-all duration-500 hidden md:block" style={{ color: '#FFFFFF', opacity: 1, fontFamily: 'system-ui, -apple-system, sans-serif', fontWeight: isActive ? 700 : 600, letterSpacing: '0.12em', textShadow: isActive ? `0 0 25px ${accentColors[item.accent]}70, 0 2px 6px rgba(0,0,0,0.95)` : `0 2px 4px rgba(0,0,0,0.9)` }}>{item.label}</span>
-                        <div className="absolute bottom-0 left-0 right-0 h-px opacity-60" style={{ background: isActive ? `linear-gradient(90deg, transparent 0%, ${accentColors[item.accent]}80 50%, transparent 100%)` : `linear-gradient(90deg, transparent 0%, ${accentColors[item.accent]}30 50%, transparent 100%)` }} />
+                        <span
+                          style={{
+                            fontSize: 'clamp(8px, 1.05vh, 10.5px)',
+                            fontWeight: 800,
+                            letterSpacing: '0.04em',
+                            color: isActive ? item.color : '#FFFFFF',
+                            fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+                          }}
+                        >
+                          {item.label}
+                        </span>
                       </button>
                     </div>
                   )
@@ -36527,8 +36010,31 @@ export default function TradingViewChart({
                 {/* Error Message */}
                 {error && (
                   <div className="absolute inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center">
-                    <div className="bg-[#1e222d] border border-red-500 rounded-lg p-6">
-                      <span className="text-red-400">Error: {error}</span>
+                    <div className="bg-[#14161d] border border-white/10 rounded-lg p-7 text-center" style={{ minWidth: 280, boxShadow: '0 20px 60px rgba(0,0,0,0.7)' }}>
+                      <div className="text-2xl mb-2" style={{ color: '#FF6600' }}>&#9888;</div>
+                      <div className="text-white font-bold text-base mb-1">
+                        {error === 'Ticker does not exist' ? 'Ticker Not Found' : 'Failed to Load Data'}
+                      </div>
+                      <div className="text-gray-400 text-xs mb-5">
+                        {error === 'Ticker does not exist' ? 'Check the symbol and try again.' : 'Something went wrong. Please try again.'}
+                      </div>
+                      <div className="flex gap-3 justify-center">
+                        {error !== 'Ticker does not exist' && (
+                          <button
+                            onClick={() => fetchData(symbol, config.timeframe)}
+                            className="px-5 py-2 rounded text-xs font-bold text-black"
+                            style={{ background: 'linear-gradient(180deg,#FF8533,#FF6600)' }}
+                          >
+                            Retry
+                          </button>
+                        )}
+                        <button
+                          onClick={() => window.history.back()}
+                          className="px-5 py-2 rounded text-xs font-bold text-white border border-white/20 hover:bg-white/10"
+                        >
+                          Go Back
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -36803,11 +36309,12 @@ export default function TradingViewChart({
                               if (!touchIsTap.current) return
                               handleMouseUp(e as any)
                               touchDragInitialized.current = false
+                              touchIsTap.current = false
                               touchCrosshairActive.current = true
                               touchDraggingCrosshair.current = true
                               handleMouseMove({ currentTarget: canvasEl, clientX: cx, clientY: cy } as unknown as React.MouseEvent<HTMLCanvasElement>)
                               if (navigator.vibrate) navigator.vibrate(15)
-                            }, 600)
+                            }, 380)
                           }
                         } else if (e.touches.length === 2) {
                           if (touchLongPressTimer.current) clearTimeout(touchLongPressTimer.current)
@@ -36868,8 +36375,8 @@ export default function TradingViewChart({
                         touchIsTap.current = false
                         touchStartPos.current = null
 
-                        // Crosshair stays visible after dragging it
-                        if (wasDraggingCrosshair) return
+                        // Crosshair stays visible after dragging it; a plain tap while it is showing removes it
+                        if (wasDraggingCrosshair && !(wasTap && touchCrosshairActive.current)) return
 
                         touchDragInitialized.current = false
                         if (wasTap && touchCrosshairActive.current) {

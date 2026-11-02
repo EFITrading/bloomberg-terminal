@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { createPortal } from 'react-dom'
 
@@ -2162,7 +2162,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
               fontWeight: '700',
             }}
           >
-            <div style={{ fontSize: '40px', marginBottom: '16px', opacity: 0.4 }}>ðŸ“Š</div>
+            <div style={{ fontSize: '40px', marginBottom: '16px', opacity: 0.4 }}>📊</div>
             <div>SELECT SYMBOLS TO VIEW PERFORMANCE</div>
           </div>
         )}

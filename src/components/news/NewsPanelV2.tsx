@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import {
   TbActivity,
@@ -551,6 +551,43 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
     Record<string, { price: number; timestamp: number; etMinutes: number }[]>
   >({})
   const [moverPrevClose, setMoverPrevClose] = useState<Record<string, number>>({})
+  type MarketMover = { ticker: string; price: number; chg: number; pct: number; vol: number }
+  const [bigMovers, setBigMovers] = useState<{ gainers: MarketMover[]; losers: MarketMover[] } | null>(null)
+  const [bigMoversError, setBigMoversError] = useState(false)
+  useEffect(() => {
+    if (activeTab !== 'movers') return
+    let cancelled = false
+    const parse = (j: any): MarketMover[] =>
+      (j?.tickers ?? [])
+        .map((t: any) => ({
+          ticker: t.ticker as string,
+          price: (t.lastTrade?.p || t.day?.c || t.prevDay?.c || 0) as number,
+          chg: (t.todaysChange ?? 0) as number,
+          pct: (t.todaysChangePerc ?? 0) as number,
+          vol: (t.day?.v || t.prevDay?.v || 0) as number,
+        }))
+        .filter((m: MarketMover) => m.price >= 3 && m.vol >= 300000)
+        .slice(0, 10)
+    const load = async () => {
+      try {
+        const [g, l] = await Promise.all([
+          fetch('/api/polygon/v2/snapshot/locale/us/markets/stocks/gainers').then((r) => r.json()),
+          fetch('/api/polygon/v2/snapshot/locale/us/markets/stocks/losers').then((r) => r.json()),
+        ])
+        if (cancelled) return
+        setBigMovers({ gainers: parse(g), losers: parse(l) })
+        setBigMoversError(false)
+      } catch {
+        if (!cancelled) setBigMoversError(true)
+      }
+    }
+    load()
+    const id = setInterval(load, 60000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [activeTab])
   const moverChartsFetchedRef = useRef<Set<string>>(new Set())
   const [historicalBreaking, setHistoricalBreaking] = useState<NewsArticle[]>([])
   const [historicalLoading, setHistoricalLoading] = useState(false)
@@ -1032,7 +1069,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
   const fetchMoverChart = useCallback(
     async (ticker: string) => {
       if (moverChartsFetchedRef.current.has(ticker)) return
-      if (!ticker || !POLYGON_KEY) return
+      if (!ticker) return
 
       moverChartsFetchedRef.current.add(ticker)
       try {
@@ -1488,191 +1525,151 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
   // TAB: BREAKING
   // ══════════════════════════════════════════════════════════════════════════
   const renderBreaking = () => {
-    const { border } = leadStory ? sentStyle(leadStory.sentiment) : { border: '' }
+    const sentDot = (s?: string) =>
+      s === 'positive' ? 'bg-emerald-400' : s === 'negative' ? 'bg-red-400' : 'bg-amber-300'
+    const pst = (iso: string) =>
+      new Date(iso).toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: 'America/Los_Angeles',
+      })
+    const SectionTitle = ({ icon: Icon, title, meta }: { icon: any; title: string; meta?: string }) => (
+      <div className="flex items-center gap-3 mb-4">
+        <span className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ background: '#FF4D4D26' }}>
+          <Icon className="w-[20px] h-[20px]" style={{ color: '#FF4D4D' }} />
+        </span>
+        <h3 className="text-white font-extrabold text-lg tracking-[0.12em] uppercase">{title}</h3>
+        {meta && <span className="ml-auto text-sm font-bold text-white/55">{meta}</span>}
+      </div>
+    )
+
     return (
-      <div className="px-5 pb-6 space-y-6">
+      <div className="p-5 space-y-8">
         {!leadStory && (
-          <div className="flex items-center justify-center p-12">
-            <p className="text-orange-300 font-black text-2xl uppercase">
-              No breaking news at this time.
-            </p>
+          <div className="flex flex-col items-center justify-center py-16 rounded-2xl border border-white/10 bg-white/[0.02]">
+            <TbNews className="w-12 h-12 text-white/25 mb-3" />
+            <p className="text-white font-extrabold text-xl">No breaking news right now</p>
+            <p className="text-white/55 text-sm mt-1">New stories appear here the moment they hit.</p>
           </div>
         )}
-        {leadStory && (
-          <>
-            <div style={{ height: '20px' }} />
 
-            {/* LEAD STORY — 30%+ taller, no overflow-hidden, wide padding */}
+        {leadStory && (
+          <div className="grid grid-cols-1 xl:grid-cols-5 gap-5">
+            {/* LEAD STORY */}
             <a
               href={leadStory.article_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="block group"
+              className="group xl:col-span-3 relative rounded-2xl border border-white/10 hover:border-orange-500/50 overflow-hidden transition-all"
+              style={{ background: 'linear-gradient(160deg, #161616 0%, #0a0a0a 70%)' }}
             >
-              <div
-                className="relative rounded-2xl border border-red-500/35 hover:border-red-400/50 transition-all duration-200"
-                style={{
-                  background: 'linear-gradient(135deg, #1a0505 0%, #0e0202 50%, #080808 100%)',
-                }}
-              >
-                <div className="absolute top-0 left-0 right-0 h-[2px] rounded-t-2xl bg-gradient-to-r from-transparent via-red-500/60 to-transparent" />
-                <div className="absolute inset-y-0 left-0 w-[3px] rounded-l-2xl bg-gradient-to-b from-red-400/70 via-red-600/70 to-red-900/70" />
-                <div className="pl-9 pr-8 pt-9 pb-9">
-                  <div className="flex items-center gap-3 mb-7 flex-wrap">
-                    <span className="flex items-center gap-2 px-4 py-2.5 bg-red-600 text-white text-sm font-black tracking-widest rounded-lg uppercase animate-pulse shadow-lg shadow-red-900/60">
-                      <TbFlame className="w-5 h-5" /> BREAKING NEWS
+              <div className="h-1 bg-gradient-to-r from-red-600 via-orange-500 to-transparent" />
+              <div className="p-7">
+                <div className="flex items-center gap-2.5 mb-5 flex-wrap">
+                  <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-red-600 text-white text-[12px] font-black tracking-[0.18em] uppercase">
+                    <TbFlame className="w-4 h-4" /> Breaking
+                  </span>
+                  {leadStory.tickers.slice(0, 4).map((t) => (
+                    <span key={t} className="px-2.5 py-1 rounded-md bg-white/10 text-white text-sm font-extrabold tracking-wider">
+                      {t}
                     </span>
-                    <span className="flex items-center gap-2 px-3 py-2 bg-orange-500/20 border border-orange-400/50 text-orange-300 text-sm font-black rounded-lg uppercase tracking-widest">
-                      <TbBroadcast className="w-4 h-4" /> LIVE
-                    </span>
-                    {leadStory.tickers.slice(0, 3).map((t) => (
-                      <span
-                        key={t}
-                        className="px-3 py-2 bg-orange-500/20 border border-orange-500/50 text-orange-200 text-base font-black rounded-lg tracking-widest"
-                      >
-                        {t}
-                      </span>
-                    ))}
-                    <span className="ml-auto text-base font-black text-orange-300">
-                      {leadStory.time_ago}
-                    </span>
-                  </div>
-                  <h2 className="text-white font-black text-3xl leading-tight mb-5 group-hover:text-orange-50 transition-colors">
-                    {leadStory.title}
-                  </h2>
-                  {leadStory.description && (
-                    <p className="text-white/85 text-xl leading-relaxed line-clamp-3 mb-7 font-medium">
-                      {leadStory.description}
-                    </p>
-                  )}
-                  <div className="flex items-center justify-between pt-5 border-t border-white/10">
-                    <div className="flex items-center gap-4">
-                      <span className="text-white/60 text-base font-bold">
-                        {leadStory.publisher?.name}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 text-orange-400 font-black text-base uppercase tracking-wider group-hover:text-orange-300">
-                      Full Story <TbArrowUpRight className="w-6 h-6" />
-                    </div>
-                  </div>
+                  ))}
+                  <span className="ml-auto text-sm font-bold text-white/65">{leadStory.time_ago}</span>
+                </div>
+                <h2 className="text-white font-extrabold text-[28px] leading-[1.2] tracking-tight group-hover:text-orange-100 transition-colors">
+                  {leadStory.title}
+                </h2>
+                {leadStory.description && (
+                  <p className="mt-4 text-white/75 text-[17px] leading-relaxed line-clamp-4">
+                    {leadStory.description}
+                  </p>
+                )}
+                <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between">
+                  <span className="text-white/65 text-sm font-bold">{leadStory.publisher?.name}</span>
+                  <span className="flex items-center gap-1.5 text-orange-400 text-sm font-extrabold uppercase tracking-widest group-hover:text-orange-300">
+                    Read story <TbArrowUpRight className="w-5 h-5" />
+                  </span>
                 </div>
               </div>
             </a>
 
-            {/* MORE BREAKING — 4D glossy rows */}
-            {otherBreaking.length > 0 && (
-              <div>
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="h-[2px] flex-1 bg-gradient-to-r from-white/10 to-transparent" />
-                  <span className="flex items-center gap-2 text-sm font-black tracking-widest text-red-400 uppercase">
-                    <TbFlame className="w-4 h-4" /> More Breaking
-                  </span>
-                  <div className="h-[2px] flex-1 bg-gradient-to-l from-white/10 to-transparent" />
-                </div>
-                <div className="space-y-4">
-                  {otherBreaking.map((a) => {
-                    const st = sentStyle(a.sentiment)
-                    const isPos = a.sentiment === 'positive'
-                    const isNeg = a.sentiment === 'negative'
-                    return (
-                      <a
-                        key={a.id}
-                        href={a.article_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="group block"
-                      >
-                        <div
-                          className={`relative flex items-start gap-4 px-6 py-8 rounded-xl border-l-[5px] ${st.border} overflow-hidden transition-all hover:scale-[1.003]`}
-                          style={{
-                            background: isPos
-                              ? 'linear-gradient(135deg, rgba(16,185,129,0.09) 0%, rgba(8,8,8,0.97) 55%)'
-                              : isNeg
-                                ? 'linear-gradient(135deg, rgba(239,68,68,0.09) 0%, rgba(8,8,8,0.97) 55%)'
-                                : 'linear-gradient(135deg, rgba(245,158,11,0.07) 0%, rgba(8,8,8,0.97) 55%)',
-                            border: '1px solid rgba(255,255,255,0.06)',
-                            borderLeft: undefined,
-                            boxShadow:
-                              'inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 8px rgba(0,0,0,0.5)',
-                          }}
-                        >
-                          {/* Gloss highlight */}
-                          <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/20 to-transparent pointer-events-none" />
-                          <TbFlame className="w-6 h-6 text-orange-500 shrink-0 mt-0.5" />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2.5 mb-4 flex-wrap">
-                              {a.tickers.slice(0, 3).map((t) => (
-                                <span
-                                  key={t}
-                                  className="px-3 py-1.5 bg-orange-500/20 border border-orange-500/50 text-orange-200 text-base font-black rounded-lg tracking-widest"
-                                >
-                                  {t}
-                                </span>
-                              ))}
-                              <span className="ml-auto text-orange-400/80 text-sm font-bold">
-                                {a.time_ago}
-                              </span>
-                            </div>
-                            <p className="text-white font-bold text-xl leading-snug line-clamp-2 group-hover:text-orange-50 transition-colors">
-                              {a.title}
-                            </p>
-                          </div>
-                          <TbExternalLink className="w-5 h-5 text-white/25 group-hover:text-orange-400 shrink-0 mt-1 transition-colors" />
+            {/* LATEST BREAKING */}
+            <div className="xl:col-span-2 rounded-2xl border border-white/10 bg-[#0b0b0b] p-5">
+              <SectionTitle icon={TbBroadcast} title="Latest" meta={`${otherBreaking.length} stories`} />
+              {otherBreaking.length === 0 ? (
+                <p className="text-white/50 text-sm font-semibold py-6 text-center">No other breaking stories.</p>
+              ) : (
+                <div className="divide-y divide-white/[0.07]">
+                  {otherBreaking.map((a) => (
+                    <a
+                      key={a.id}
+                      href={a.article_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="group flex items-start gap-3 py-3.5 first:pt-0 last:pb-0"
+                    >
+                      <span className={`mt-2 w-2 h-2 rounded-full shrink-0 ${sentDot(a.sentiment)}`} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-white font-bold text-[16px] leading-snug line-clamp-2 group-hover:text-orange-300 transition-colors">
+                          {a.title}
+                        </p>
+                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                          {a.tickers.slice(0, 3).map((t) => (
+                            <span key={t} className="text-[12px] font-extrabold text-orange-300 tracking-wider">
+                              {t}
+                            </span>
+                          ))}
+                          <span className="text-[12px] font-semibold text-white/55">{a.time_ago}</span>
                         </div>
-                      </a>
-                    )
-                  })}
+                      </div>
+                    </a>
+                  ))}
                 </div>
-              </div>
-            )}
-          </>
+              )}
+            </div>
+          </div>
         )}
 
-        {/* ── HISTORICAL BREAKING HEADLINES ── */}
-        <div>
+        {/* ARCHIVE */}
+        <div className="rounded-2xl border border-white/10 bg-[#0b0b0b]">
           <button
             onClick={() => {
               setHistoricalExpanded((v) => !v)
               if (!historicalExpanded) fetchHistoricalBreaking()
             }}
-            className="w-full flex items-center gap-3 py-4 group"
+            className="w-full flex items-center gap-3 px-5 py-4"
           >
-            <div className="h-[1px] flex-1 bg-gradient-to-r from-transparent via-orange-500/30 to-orange-500/60" />
-            <span className="flex items-center gap-2 text-sm font-black tracking-widest uppercase text-orange-500">
-              <TbClock className="w-4 h-4" />
-              Past 3 Days — Breaking Headlines
-              <span
-                className={`transition-transform duration-200 ${historicalExpanded ? 'rotate-180' : ''}`}
-              >
-                <TbChevronDown className="w-4 h-4" />
-              </span>
+            <span className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ background: '#FBBF2426' }}><TbClock className="w-[20px] h-[20px]" style={{ color: '#FBBF24' }} />
             </span>
-            <div className="h-[1px] flex-1 bg-gradient-to-l from-transparent via-orange-500/30 to-orange-500/60" />
+            <span className="text-white font-extrabold text-lg tracking-[0.12em] uppercase">
+              Past 3 days
+            </span>
+            <span className="text-sm font-bold text-white/55">Breaking archive</span>
+            <TbChevronDown
+              className={`ml-auto w-5 h-5 text-white/70 transition-transform ${historicalExpanded ? 'rotate-180' : ''}`}
+            />
           </button>
 
           {historicalExpanded && (
-            <div className="space-y-0 mt-1">
+            <div className="px-5 pb-5 border-t border-white/[0.07]">
               {historicalLoading ? (
                 <div className="flex items-center justify-center py-10 gap-3">
                   <div className="w-5 h-5 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
-                  <span className="text-white/40 font-bold text-sm uppercase tracking-widest">
-                    Loading archive…
-                  </span>
+                  <span className="text-white/65 font-bold text-sm uppercase tracking-widest">Loading archive</span>
                 </div>
               ) : historicalBreaking.length === 0 ? (
-                <p className="text-center text-white/30 font-bold py-8 uppercase tracking-widest text-sm">
+                <p className="text-center text-white/55 font-semibold py-8 text-sm">
                   No archived breaking news found.
                 </p>
               ) : (
                 (() => {
-                  // Group by day label
                   const now = new Date()
                   const dayLabel = (dateStr: string) => {
-                    const d = new Date(dateStr)
-                    const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000)
+                    const diffDays = Math.floor((now.getTime() - new Date(dateStr).getTime()) / 86400000)
                     if (diffDays === 0) return 'Today'
                     if (diffDays === 1) return 'Yesterday'
-                    return d.toLocaleDateString('en-US', {
+                    return new Date(dateStr).toLocaleDateString('en-US', {
                       weekday: 'long',
                       month: 'short',
                       day: 'numeric',
@@ -1685,66 +1682,35 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                     grouped[label].push(a)
                   })
                   return Object.entries(grouped).map(([day, items]) => (
-                    <div key={day} className="mb-5">
-                      <div className="flex items-center gap-3 mb-3 sticky top-0 bg-[#050505] py-2 z-10">
-                        <TbCalendar className="w-4 h-4 text-orange-400/60 shrink-0" />
-                        <span className="text-xs font-black tracking-[0.2em] text-orange-400/60 uppercase">
-                          {day}
-                        </span>
-                        <div className="h-px flex-1 bg-white/5" />
-                        <span className="text-xs text-white/20 font-bold">
-                          {items.length} stories
-                        </span>
+                    <div key={day} className="mt-5">
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className="text-[13px] font-extrabold tracking-[0.16em] text-orange-400 uppercase">{day}</span>
+                        <div className="h-px flex-1 bg-white/10" />
+                        <span className="text-[12px] text-white/55 font-bold">{items.length} stories</span>
                       </div>
-                      <div className="space-y-px">
-                        {items.map((a) => {
-                          const st = sentStyle(a.sentiment)
-                          return (
-                            <a
-                              key={a.id}
-                              href={a.article_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="group flex items-start gap-3 px-3 py-3 rounded-lg hover:bg-white/[0.03] transition-colors border border-transparent hover:border-white/[0.06]"
-                            >
-                              <span className="text-xs font-black shrink-0 mt-0.5 w-24 text-right text-white leading-tight">
-                                {new Date(a.published_utc).toLocaleDateString('en-US', {
-                                  month: 'short',
-                                  day: 'numeric',
-                                  timeZone: 'America/Los_Angeles',
-                                })}
-                                <br />
-                                {new Date(a.published_utc).toLocaleTimeString('en-US', {
-                                  hour: 'numeric',
-                                  minute: '2-digit',
-                                  hour12: true,
-                                  timeZone: 'America/Los_Angeles',
-                                })}{' '}
-                                PST
+                      {items.map((a) => (
+                        <a
+                          key={a.id}
+                          href={a.article_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="group flex items-start gap-4 px-2 py-3 rounded-lg hover:bg-white/[0.04] transition-colors"
+                        >
+                          <span className="w-20 shrink-0 text-[13px] font-bold text-white/65 pt-0.5 tabular-nums">
+                            {pst(a.published_utc)}
+                          </span>
+                          <p className="flex-1 min-w-0 text-white font-semibold text-[16px] leading-snug group-hover:text-orange-300 transition-colors">
+                            {a.title}
+                          </p>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {a.tickers?.slice(0, 2).map((t: string) => (
+                              <span key={t} className="text-[12px] font-extrabold text-orange-300 tracking-wider">
+                                {t}
                               </span>
-                              <div className="w-[3px] self-stretch rounded-full shrink-0 bg-orange-500/40" />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-white font-bold text-base leading-snug line-clamp-2 transition-colors">
-                                  {a.title}
-                                </p>
-                                {a.tickers && a.tickers.length > 0 && (
-                                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                                    {a.tickers.slice(0, 3).map((t: string) => (
-                                      <span
-                                        key={t}
-                                        className="text-xs font-black text-orange-500 bg-orange-500/10 px-1.5 py-0.5 rounded"
-                                      >
-                                        {t}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                              <TbExternalLink className="w-3.5 h-3.5 text-white/15 group-hover:text-orange-400 shrink-0 mt-0.5 transition-colors" />
-                            </a>
-                          )
-                        })}
-                      </div>
+                            ))}
+                          </div>
+                        </a>
+                      ))}
                     </div>
                   ))
                 })()
@@ -1762,112 +1728,99 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
   const renderFeed = () => {
     if (articles.length === 0)
       return (
-        <div className="flex-1 flex items-center justify-center p-12">
-          <p className="text-orange-300 font-black text-2xl uppercase">
-            No articles found. Try a different search.
-          </p>
+        <div className="flex flex-col items-center justify-center py-20">
+          <TbNews className="w-12 h-12 text-white/25 mb-3" />
+          <p className="text-white font-extrabold text-xl">No articles found</p>
+          <p className="text-white/55 text-sm mt-1">Try a different search.</p>
         </div>
       )
     return (
-      <div>
-        <div style={{ height: '20px' }} />
-        {articles.map((article, idx) => {
-          const { border, bg } = sentStyle(article.sentiment)
-          const isExpanded = expandedArticles.has(article.id)
-          const isFav = favorites.has(article.id)
-          const isPos = article.sentiment === 'positive'
-          const isNeg = article.sentiment === 'negative'
-
-          // Exact time from published_utc
-          const pubTime = article.published_utc
-            ? new Date(article.published_utc).toLocaleTimeString('en-US', {
-              hour: 'numeric',
-              minute: '2-digit',
-              hour12: true,
-              timeZone: 'America/Los_Angeles',
-            })
-            : article.time_ago
-
-          return (
-            <div
-              key={article.id}
-              className={`relative border-l-[5px] ${border} group transition-all`}
-              style={{
-                background: idx % 2 === 0 ? '#080808' : '#060606',
-                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.035)',
-              }}
-            >
-              {/* Gloss line */}
-              <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/[0.07] to-transparent pointer-events-none" />
-              <div className="px-6 pt-7 pb-6">
-                {/* Tickers — plain colored text, no background/border */}
-                {article.tickers.length > 0 && (
-                  <div className="flex items-center gap-3 mb-4 flex-wrap">
-                    {article.tickers.slice(0, 4).map((t) => (
-                      <span
-                        key={t}
-                        className={`text-lg font-black tracking-widest ${isPos ? 'text-emerald-400' : isNeg ? 'text-red-400' : 'text-orange-400'
-                          }`}
-                      >
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {/* Headline */}
-                <p className="text-white font-black text-xl leading-snug mb-4 group-hover:text-orange-50 transition-colors">
-                  {article.title}
-                </p>
-                {isExpanded && article.description && (
-                  <p className="text-white/80 text-base leading-relaxed mt-3 mb-4 font-medium pl-3 border-l-2 border-orange-500/40">
-                    {article.description}
-                  </p>
-                )}
-                {/* Footer — time left, sentiment + actions right */}
-                <div className="flex items-center justify-between mt-2">
-                  <div className="flex items-center gap-2 text-white/30 text-sm font-bold">
-                    <TbClock className="w-4 h-4 text-white/20 shrink-0" />
-                    <span>{pubTime}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {article.description && (
-                      <button
-                        onClick={() => toggleExpanded(article.id)}
-                        className="text-white/30 hover:text-white transition-colors p-1.5"
-                      >
-                        {isExpanded ? (
-                          <TbChevronUp className="w-5 h-5" />
-                        ) : (
-                          <TbChevronDown className="w-5 h-5" />
-                        )}
-                      </button>
-                    )}
+      <div className="p-5">
+        <div className="flex items-center gap-3 mb-4">
+          <span className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ background: '#38BDF826' }}><TbNews className="w-[20px] h-[20px]" style={{ color: '#38BDF8' }} />
+          </span>
+          <h3 className="text-white font-extrabold text-lg tracking-[0.12em] uppercase">Latest headlines</h3>
+          <span className="ml-auto text-sm font-bold text-white/55">{articles.length} stories</span>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-[#0b0b0b] divide-y divide-white/[0.07] overflow-hidden">
+          {articles.map((article) => {
+            const isExpanded = expandedArticles.has(article.id)
+            const isFav = favorites.has(article.id)
+            const isPos = article.sentiment === 'positive'
+            const isNeg = article.sentiment === 'negative'
+            const accent = isPos ? 'bg-emerald-400' : isNeg ? 'bg-red-400' : 'bg-amber-300'
+            const tickerCol = isPos ? 'text-emerald-300' : isNeg ? 'text-red-300' : 'text-orange-300'
+            const pubTime = article.published_utc
+              ? new Date(article.published_utc).toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true,
+                timeZone: 'America/Los_Angeles',
+              })
+              : article.time_ago
+            return (
+              <div key={article.id} className="group relative flex gap-4 pl-5 pr-4 py-4 hover:bg-white/[0.035] transition-colors">
+                <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${accent}`} />
+                <div className="w-20 shrink-0 pt-0.5">
+                  <div className="text-[14px] font-extrabold text-white tabular-nums">{pubTime}</div>
+                  <div className="text-[12px] font-semibold text-white/55">{article.time_ago}</div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  {article.tickers.length > 0 && (
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      {article.tickers.slice(0, 4).map((t) => (
+                        <span key={t} className={`px-2 py-0.5 rounded bg-white/10 text-[13px] font-extrabold tracking-wider ${tickerCol}`}>
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <a
+                    href={article.article_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-white font-bold text-[18px] leading-snug group-hover:text-orange-200 transition-colors"
+                  >
+                    {article.title}
+                  </a>
+                  {isExpanded && article.description && (
+                    <p className="mt-2 text-white/75 text-[15px] leading-relaxed">{article.description}</p>
+                  )}
+                  {article.publisher?.name && (
+                    <div className="mt-1.5 text-[12px] font-semibold text-white/50">{article.publisher.name}</div>
+                  )}
+                </div>
+                <div className="flex items-start gap-1 shrink-0">
+                  {article.description && (
                     <button
-                      onClick={() => toggleFavorite(article.id)}
-                      className="text-white/30 hover:text-orange-400 transition-colors p-1.5"
+                      onClick={() => toggleExpanded(article.id)}
+                      className="p-1.5 rounded-md text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+                      aria-label="Toggle summary"
                     >
-                      {isFav ? (
-                        <TbStarFilled className="w-5 h-5 text-orange-400" />
-                      ) : (
-                        <TbStar className="w-5 h-5" />
-                      )}
+                      {isExpanded ? <TbChevronUp className="w-5 h-5" /> : <TbChevronDown className="w-5 h-5" />}
                     </button>
-                    <a
-                      href={article.article_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-white/30 hover:text-orange-400 transition-colors p-1.5"
-                    >
-                      <TbExternalLink className="w-5 h-5" />
-                    </a>
-                  </div>
+                  )}
+                  <button
+                    onClick={() => toggleFavorite(article.id)}
+                    className="p-1.5 rounded-md text-white/60 hover:text-orange-400 hover:bg-white/10 transition-colors"
+                    aria-label="Save"
+                  >
+                    {isFav ? <TbStarFilled className="w-5 h-5 text-orange-400" /> : <TbStar className="w-5 h-5" />}
+                  </button>
+                  <a
+                    href={article.article_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-1.5 rounded-md text-white/60 hover:text-orange-400 hover:bg-white/10 transition-colors"
+                    aria-label="Open"
+                  >
+                    <TbExternalLink className="w-5 h-5" />
+                  </a>
                 </div>
               </div>
-              {/* Bottom separator */}
-              <div className="h-[1px] bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
-            </div>
-          )
-        })}
+            )
+          })}
+        </div>
       </div>
     )
   }
@@ -1888,31 +1841,90 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
       })
     const rows = Object.entries(byTicker).slice(0, 20)
 
-    if (rows.length === 0)
+    const MoverList = ({ title, list, up }: { title: string; list: MarketMover[]; up: boolean }) => {
+      const maxPct = Math.max(1, ...list.map((m) => Math.abs(m.pct)))
+      const col = up ? 'text-emerald-400' : 'text-red-400'
+      const bar = up ? 'bg-emerald-500/70' : 'bg-red-500/70'
       return (
-        <div className="p-14 text-center">
-          <TbActivity className="w-16 h-16 text-orange-400/30 mx-auto mb-5" />
-          <p className="text-white font-black text-2xl uppercase mb-3">No Movers Detected</p>
-          <p className="text-orange-300 font-bold text-lg">
-            No market-moving articles in the current feed.
-          </p>
+        <div className="rounded-2xl border border-white/10 bg-[#0b0b0b] overflow-hidden">
+          <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-white/10 bg-white/[0.03]">
+            {up ? <TbTrendingUp className="w-5 h-5 text-emerald-400" /> : <TbTrendingDown className="w-5 h-5 text-red-400" />}
+            <span className="text-white font-extrabold text-[15px] tracking-[0.14em] uppercase">{title}</span>
+          </div>
+          <div className="grid grid-cols-[28px_84px_1fr_92px_84px] gap-3 px-5 py-2 text-[12px] font-extrabold text-white/60 uppercase tracking-[0.12em] border-b border-white/[0.07]">
+            <span>#</span><span>Symbol</span><span /><span className="text-right">Price</span><span className="text-right">Change</span>
+          </div>
+          {list.length === 0 ? (
+            <div className="py-8 text-center text-white/55 text-sm font-semibold">No data</div>
+          ) : (
+            list.map((m, i) => (
+              <div key={m.ticker} className="grid grid-cols-[28px_84px_1fr_92px_84px] gap-3 items-center px-5 py-2.5 border-b border-white/[0.05] hover:bg-white/[0.04] transition-colors">
+                <span className="text-[13px] font-bold text-white/50 tabular-nums">{i + 1}</span>
+                <span className="text-white font-extrabold text-[17px] tracking-wide">{m.ticker}</span>
+                <div className="h-2 rounded-full bg-white/[0.07] overflow-hidden">
+                  <div className={`h-full rounded-full ${bar}`} style={{ width: `${(Math.abs(m.pct) / maxPct) * 100}%` }} />
+                </div>
+                <span className="text-right text-white font-bold text-[15px] tabular-nums">${m.price.toFixed(2)}</span>
+                <span className={`text-right font-extrabold text-[15px] tabular-nums ${col}`}>
+                  {m.pct >= 0 ? '+' : ''}{m.pct.toFixed(2)}%
+                </span>
+              </div>
+            ))
+          )}
         </div>
       )
+    }
+
+    const board = (
+      <div className="mb-8">
+        <div className="flex items-center gap-3 mb-4">
+          <span className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ background: '#22E58B26' }}><TbActivity className="w-[20px] h-[20px]" style={{ color: '#22E58B' }} />
+          </span>
+          <h3 className="text-white font-extrabold text-lg tracking-[0.12em] uppercase">Market movers</h3>
+          <span className="ml-auto text-sm font-bold text-white/55">Live &middot; updates every minute</span>
+        </div>
+        {bigMoversError && !bigMovers ? (
+          <div className="rounded-2xl border border-white/10 bg-[#0b0b0b] py-10 text-center">
+            <p className="text-white font-extrabold text-lg">Failed to load movers</p>
+          </div>
+        ) : !bigMovers ? (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            {[0, 1].map((i) => (
+              <div key={i} className="rounded-2xl border border-white/10 bg-[#0b0b0b] h-[420px] animate-pulse" />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <MoverList title="Top gainers" list={bigMovers.gainers} up />
+            <MoverList title="Top losers" list={bigMovers.losers} up={false} />
+          </div>
+        )}
+      </div>
+    )
+
+    if (rows.length === 0)
+      return <div className="p-5">{board}</div>
 
     return (
-      <div>
-        <div style={{ height: '20px' }} />
-
+      <div className="p-5">
+        {board}
+        <div className="flex items-center gap-3 mb-4">
+          <span className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ background: '#38BDF826' }}><TbNews className="w-[20px] h-[20px]" style={{ color: '#38BDF8' }} />
+          </span>
+          <h3 className="text-white font-extrabold text-lg tracking-[0.12em] uppercase">Movers in the news</h3>
+          <span className="ml-auto text-sm font-bold text-white/55">{rows.length} tickers</span>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-[#0b0b0b] overflow-hidden">
         {/* TABLE HEADER */}
-        <div className="grid grid-cols-[110px_1fr_350px] gap-4 px-6 py-3 border-b border-orange-500/20 bg-[#0a0a0a] sticky top-0 z-10">
-          <span className="text-xs font-black text-orange-400 uppercase tracking-widest">
-            TICKER
+        <div className="grid grid-cols-[130px_1fr_350px] gap-4 px-6 py-3 border-b border-white/10 bg-white/[0.04] sticky top-0 z-10">
+          <span className="text-[13px] font-extrabold text-white/80 uppercase tracking-[0.14em]">
+            Ticker
           </span>
-          <span className="text-xs font-black text-orange-400 uppercase tracking-widest">
-            TOP HEADLINE
+          <span className="text-[13px] font-extrabold text-white/80 uppercase tracking-[0.14em]">
+            Top headline
           </span>
-          <span className="text-xs font-black text-orange-400 uppercase tracking-widest">
-            CHART
+          <span className="text-[13px] font-extrabold text-white/80 uppercase tracking-[0.14em]">
+            Chart
           </span>
         </div>
 
@@ -2126,21 +2138,17 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
               href={article.article_url}
               target="_blank"
               rel="noopener noreferrer"
-              className={`grid grid-cols-[110px_1fr_350px] gap-4 items-center px-6 py-4 border-l-[5px] ${bdrCol} group transition-all hover:brightness-125`}
-              style={{
-                background: rowBg,
-                boxShadow: rowGlow,
-                borderBottom: '2px solid #d4af37',
-              }}
+              className={`grid grid-cols-[130px_1fr_350px] gap-4 items-center px-6 py-4 border-l-[4px] ${bdrCol} border-b border-b-white/[0.07] group transition-colors hover:bg-white/[0.04]`}
+              style={{ background: rowBg }}
             >
               {/* Ticker + time */}
               <div>
-                <span className={`text-xl font-black tracking-wider ${tickerColor}`}>{ticker}</span>
-                <span className="text-xs font-black text-white block mt-0.5">{timeStr}</span>
+                <span className={`text-2xl font-extrabold tracking-wide ${tickerColor}`}>{ticker}</span>
+                <span className="text-[13px] font-semibold text-white/65 block mt-0.5">{timeStr}</span>
               </div>
 
               {/* Headline */}
-              <p className="text-white font-bold text-base leading-snug line-clamp-2 group-hover:text-orange-50 transition-colors">
+              <p className="text-white font-bold text-[17px] leading-snug line-clamp-2 group-hover:text-orange-200 transition-colors">
                 {article.title}
               </p>
 
@@ -2149,6 +2157,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
             </a>
           )
         })}
+        </div>
       </div>
     )
   }
@@ -3468,10 +3477,10 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
   // MAIN RENDER
   // ══════════════════════════════════════════════════════════════════════════
   const tabs = [
-    { id: 'breaking' as const, label: 'BREAKING', icon: TbFlame },
-    { id: 'feed' as const, label: 'LIVE FEED', icon: TbNews },
-    { id: 'movers' as const, label: 'MOVERS', icon: TbActivity },
-    { id: 'calendar' as const, label: 'CALENDAR', icon: TbCalendar },
+    { id: 'breaking' as const, label: 'BREAKING', icon: TbFlame, sub: 'Top stories now', color: '#FF4D4D' },
+    { id: 'feed' as const, label: 'LIVE FEED', icon: TbNews, sub: 'Real-time headlines', color: '#38BDF8' },
+    { id: 'movers' as const, label: 'MOVERS', icon: TbActivity, sub: 'Stocks on the move', color: '#22E58B' },
+    { id: 'calendar' as const, label: 'CALENDAR', icon: TbCalendar, sub: 'Earnings & events', color: '#C084FC' },
   ]
 
   return (
@@ -3520,49 +3529,65 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         </div>
       )}
 
-      {/* SEARCH BAR — hidden on calendar tab */}
-      {activeTab !== 'calendar' && (
-        <div className="px-5 py-4 border-b border-white/[0.07] bg-[#090909] shrink-0">
-          <form onSubmit={handleSearch} className="flex items-center gap-3">
-            <div className="flex-1 flex items-center bg-[#0e0e0e] border-2 border-white/10 rounded-xl focus-within:border-orange-500 transition-all overflow-hidden">
-              <TbSearch className="w-5 h-5 text-orange-400 ml-4 shrink-0" />
-              <input
-                type="text"
-                value={searchTicker}
-                onChange={(e) => setSearchTicker(e.target.value)}
-                placeholder="Search ticker, keyword, sector… e.g. AAPL, tariffs, Energy"
-                className="flex-1 px-3 py-4 bg-transparent text-white placeholder-white/25 focus:outline-none font-mono text-base tracking-wider"
-              />
-              {searchTicker && (
-                <button
-                  type="button"
-                  onClick={() => setSearchTicker('')}
-                  className="mr-2 text-white/30 hover:text-white transition-colors p-1.5"
-                >
-                  <TbX className="w-4 h-4" />
-                </button>
-              )}
-              <button
-                type="submit"
-                className="mr-2 px-5 py-2.5 bg-orange-500 hover:bg-orange-400 text-black font-black text-sm rounded-lg transition-all uppercase tracking-widest shrink-0"
-              >
-                GO
-              </button>
+      {/* NEWS CENTER HEADER */}
+      <div
+        className="shrink-0 border-b border-white/10"
+        style={{ background: 'linear-gradient(180deg, #0d0d0d 0%, #070707 100%)' }}
+      >
+        <div className="flex items-center gap-4 px-5 pt-4 pb-3 flex-wrap">
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="w-1.5 h-9 rounded-full bg-orange-500" />
+            <div className="leading-tight">
+              <div className="text-white font-extrabold text-2xl tracking-tight">News Center</div>
+              <div className="flex items-center gap-2 text-[12px] font-bold tracking-[0.18em] uppercase text-white/60">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
+                </span>
+                Live &middot; {clock}
+              </div>
             </div>
+          </div>
 
-            {articles.length > 0 && (
-              <span className="text-xs text-white/25 font-bold shrink-0 whitespace-nowrap">
-                {lastRefresh.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            )}
+          {activeTab !== 'calendar' && (
+            <form onSubmit={handleSearch} className="flex-1 min-w-[260px] max-w-[560px] ml-auto">
+              <div className="flex items-center h-11 rounded-full bg-white/[0.06] border border-white/15 focus-within:border-orange-500 focus-within:bg-white/[0.09] transition-all px-4 gap-3">
+                <TbSearch className="w-5 h-5 text-white/60 shrink-0" />
+                <input
+                  type="text"
+                  value={searchTicker}
+                  onChange={(e) => setSearchTicker(e.target.value)}
+                  placeholder="Search ticker or keyword"
+                  className="flex-1 min-w-0 bg-transparent text-white placeholder-white/45 focus:outline-none text-[15px] font-semibold"
+                />
+                {searchTicker && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTicker('')}
+                    className="text-white/50 hover:text-white transition-colors"
+                    aria-label="Clear search"
+                  >
+                    <TbX className="w-4 h-4" />
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  className="h-7 px-4 rounded-full bg-orange-500 hover:bg-orange-400 text-black text-[12px] font-black uppercase tracking-widest shrink-0 transition-colors"
+                >
+                  Go
+                </button>
+              </div>
+            </form>
+          )}
 
+          <div className={`flex items-center gap-2 shrink-0 ${activeTab === 'calendar' ? 'ml-auto' : ''}`}>
             {marketSentiment && (
               <div
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-black uppercase tracking-widest shrink-0 ${marketSentiment.overall_sentiment === 'bullish'
-                  ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400'
+                className={`flex items-center gap-1.5 h-9 px-3.5 rounded-full border text-[12px] font-black uppercase tracking-widest ${marketSentiment.overall_sentiment === 'bullish'
+                  ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-300'
                   : marketSentiment.overall_sentiment === 'bearish'
-                    ? 'bg-red-500/10 border-red-500/40 text-red-400'
-                    : 'bg-amber-500/10 border-amber-500/40 text-amber-300'
+                    ? 'bg-red-500/10 border-red-500/50 text-red-300'
+                    : 'bg-amber-500/10 border-amber-500/50 text-amber-200'
                   }`}
               >
                 {marketSentiment.overall_sentiment === 'bullish' ? (
@@ -3572,27 +3597,36 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                 ) : (
                   <TbTarget className="w-4 h-4" />
                 )}
-                {marketSentiment.overall_sentiment.toUpperCase()}
+                {marketSentiment.overall_sentiment}
               </div>
             )}
-
             <button
               type="button"
               onClick={() => fetchNews(searchTicker)}
-              className="flex items-center justify-center w-11 h-11 bg-[#111] hover:bg-[#1a1a1a] rounded-xl border border-white/10 hover:border-orange-500/50 transition-all group shrink-0"
+              className="flex items-center justify-center w-9 h-9 rounded-full bg-white/[0.06] border border-white/15 hover:border-orange-500/60 transition-all group"
               title="Refresh feed"
+              aria-label="Refresh feed"
             >
               <TbRefresh
-                className={`w-5 h-5 text-white/50 group-hover:text-orange-400 transition-colors ${loading ? 'animate-spin' : ''}`}
+                className={`w-[18px] h-[18px] text-white/70 group-hover:text-orange-400 transition-colors ${loading ? 'animate-spin' : ''}`}
               />
             </button>
-
-          </form>
+            {onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close panel"
+                className="flex items-center justify-center w-9 h-9 rounded-full bg-white/[0.06] border border-white/15 hover:border-red-500/60 hover:text-red-400 text-white/70 transition-all"
+              >
+                <TbX className="w-[18px] h-[18px]" />
+              </button>
+            )}
+          </div>
         </div>
-      )}      {/* TAB BAR */}
-      <div className="flex border-b border-white/[0.07] bg-[#0a0a0a] shrink-0 items-stretch">
-        <div className="flex flex-1 min-w-0">
-          {tabs.map(({ id, label, icon: Icon }) => {
+
+        {/* TAB CARDS */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 px-5 pb-4">
+          {tabs.map(({ id, label, icon: Icon, sub, color }) => {
             const isActive = activeTab === id
             return (
               <button
@@ -3602,32 +3636,29 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                   onTabChange?.(id)
                   savedScrollPos.current = 0
                 }}
-                className={`flex-1 flex flex-row items-center justify-center gap-1.5 py-2.5 text-[13px] font-black tracking-wider uppercase transition-all relative min-w-0 ${isActive
-                  ? 'bg-black text-orange-500'
-                  : 'text-white hover:text-orange-300 hover:bg-[#111]'
+                className={`relative flex items-center gap-3.5 px-4 py-3 rounded-xl border text-left transition-all min-w-0 ${isActive
+                  ? 'border-orange-500/70 bg-gradient-to-br from-orange-500/20 to-orange-500/5 shadow-[0_0_0_1px_rgba(249,115,22,0.25)]'
+                  : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.07] hover:border-white/25'
                   }`}
               >
-                <Icon
-                  className={`w-4 h-4 shrink-0 ${isActive ? 'text-orange-500' : 'text-white'}`}
-                />
-                <span className="leading-none truncate">{label}</span>
-                {isActive && (
-                  <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-orange-500" />
-                )}
+                <span
+                  className="flex items-center justify-center w-10 h-10 rounded-lg shrink-0"
+                  style={{ background: color + (isActive ? '38' : '22'), boxShadow: isActive ? '0 0 14px ' + color + '55' : 'none' }}
+                >
+                  <Icon className="w-6 h-6" style={{ color }} />
+                </span>
+                <span className="min-w-0 leading-tight">
+                  <span className={`block text-[15px] font-extrabold tracking-[0.1em] uppercase truncate ${isActive ? 'text-white' : 'text-white/90'}`}>
+                    {label}
+                  </span>
+                  <span className={`block text-[12px] font-semibold truncate ${isActive ? 'text-orange-200' : 'text-white/55'}`}>
+                    {sub}
+                  </span>
+                </span>
               </button>
             )
           })}
         </div>
-        {onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close panel"
-            className="flex items-center justify-center w-10 shrink-0 border-l border-white/[0.07] text-white/40 hover:text-white hover:bg-red-900/30 transition-all"
-          >
-            <TbX className="w-4 h-4" />
-          </button>
-        )}
       </div>
 
       {/* CONTENT */}

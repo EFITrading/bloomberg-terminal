@@ -111,8 +111,11 @@ export default function TickerScroller() {
         style={{
           width: '100%',
           maxWidth: '100vw',
-          background: 'linear-gradient(180deg, #0a0a0a 0%, #000000 100%)',
-          borderBottom: '1px solid rgba(255, 165, 0, 0.2)',
+          background: 'linear-gradient(180deg, #0d0d10 0%, #050506 100%)',
+          borderBottom: '1px solid rgba(255, 102, 0, 0.35)',
+          boxShadow: '0 1px 12px rgba(255,102,0,0.08)',
+          WebkitMaskImage: 'linear-gradient(90deg, transparent 0, #000 40px, #000 calc(100% - 40px), transparent 100%)',
+          maskImage: 'linear-gradient(90deg, transparent 0, #000 40px, #000 calc(100% - 40px), transparent 100%)',
           overflow: 'hidden',
           position: 'fixed',
           top: '90px',
@@ -143,30 +146,31 @@ export default function TickerScroller() {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
-                padding: '0 32px',
+                padding: '0 18px',
                 whiteSpace: 'nowrap',
-                fontSize: '14px',
+                fontSize: '12px',
                 fontWeight: '700',
-                letterSpacing: '0.5px',
+                letterSpacing: '0.08em',
+                fontFamily: "'JetBrains Mono', 'Space Mono', monospace",
+                borderRight: '1px solid rgba(255,255,255,0.07)',
+                height: '16px',
               }}
             >
-              <span style={{
-                color: '#FFFFFF',
-                background: 'none',
-                borderRadius: '0',
-                padding: '0',
-              }}>{ticker.symbol}</span>
+              <span style={{ color: '#e5e7eb' }}>{ticker.symbol}</span>
               <span
                 style={{
-                  color: ticker.change >= 0 ? ('#00ff00') : ('#ff0000'),
-                  fontWeight: '700',
-                  background: 'none',
-                  borderRadius: '0',
-                  padding: '0',
+                  color: ticker.change >= 0 ? '#22c55e' : '#ef4444',
+                  background: ticker.change >= 0 ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
+                  border: `1px solid ${ticker.change >= 0 ? 'rgba(34,197,94,0.35)' : 'rgba(239,68,68,0.35)'}`,
+                  borderRadius: '3px',
+                  padding: '1px 6px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '3px',
                 }}
               >
-                {ticker.change >= 0 ? '+' : ''}
-                {ticker.change.toFixed(2)}%
+                <span style={{ fontSize: '8px' }}>{ticker.change >= 0 ? '\u25B2' : '\u25BC'}</span>
+                {Math.abs(ticker.change).toFixed(2)}%
               </span>
             </div>
           ))}

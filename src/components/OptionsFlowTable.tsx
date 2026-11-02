@@ -3056,14 +3056,11 @@ Stock Reaction: ${scores.stockReaction}/15`
     'SPX', 'SPXW', 'NDX', 'NDXP', 'RUT', 'RUTW', 'VIX', 'VIXW', 'XSP', 'DJX',
   ])
 
-  // Large-cap tickers that require elevated premium thresholds
-  const LARGE_CAP_PREMIUM_TICKERS = new Set(['AAPL', 'NVDA', 'TSLA', 'MSFT', 'GOOGL', 'GOOG', 'LLY', 'META', 'SPCX', 'TSM', 'AVGO', 'MU', 'AMD', 'AMZN'])
-
   // Mega-caps banned from SweepSense entirely (too liquid/noisy for reliable flow signal)
-  const SWEEPSENSE_BANNED_TICKERS = new Set(['NVDA', 'AAPL', 'MSFT', 'META', 'GOOG', 'GOOGL', 'AVGO', 'MU'])
+  const SWEEPSENSE_BANNED_TICKERS = new Set(['NVDA', 'AAPL', 'MSFT', 'META', 'GOOG', 'GOOGL', 'AVGO', 'MU', 'AMD', 'SPCX', 'TSLA', 'AMZN'])
 
-  // "Mag 7" mega-caps require an even higher per-leg premium for MULTI-LEG combo qualification.
-  const MAG7_TICKERS = new Set(['AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'NVDA', 'META', 'TSLA'])
+  // Any B/BB fill must be 3500+ contracts to show in SweepSense
+  const failsSellFillSize = (t: OptionsFlowData) => (t.fill_style === 'B' || t.fill_style === 'BB') && t.trade_size < 3500
 
   // MULTI-LEG trades are excluded from SweepSense by default, EXCEPT when they form a genuine
   // paired risk-reversal combo: same ticker + same expiry + printed within the same ~100ms
@@ -3072,7 +3069,7 @@ Stock Reaction: ${scores.stockReaction}/15`
   // with a CALL leg filled A/AA (buy) paired against a PUT leg filled B/BB (sell), OR a CALL leg
   // filled B/BB paired against a PUT leg filled A/AA - i.e. the two legs must be opposite option
   // types (one call, one put) with opposite buy/sell fill styles. Each leg must be $300K+
-  // premium, except Mag 7 tickers (AAPL/MSFT/GOOGL/AMZN/NVDA/META/TSLA) which require $1M+ per leg.
+  // premium, and B/BB legs need 3500+ contracts.
   // Exactly 2 legs only - 3-leg and 4-leg combos in the same window are filtered out entirely.
   // multiLegPartnerLegs maps each qualifying leg -> the OTHER qualifying leg(s) in its group,
   // so the SweepSense card can display both sides of the combo instead of just the one leg
@@ -3093,7 +3090,7 @@ Stock Reaction: ${scores.stockReaction}/15`
     groups.forEach((legs) => {
       // Only genuine 2-leg combos qualify - 3 or 4 legs printed in the same window are filtered out.
       if (legs.length !== 2) return
-      const bigLegs = legs.filter((l) => l.total_premium >= (MAG7_TICKERS.has(l.underlying_ticker.toUpperCase()) ? 1000000 : 300000))
+      const bigLegs = legs.filter((l) => l.total_premium >= 300000 && !failsSellFillSize(l))
       if (bigLegs.length !== 2) return
       const isBuy = (l: OptionsFlowData) => l.fill_style === 'A' || l.fill_style === 'AA'
       const isSell = (l: OptionsFlowData) => l.fill_style === 'B' || l.fill_style === 'BB'
@@ -3110,7 +3107,7 @@ Stock Reaction: ${scores.stockReaction}/15`
   }, [data])
 
   // Long-Term criteria: 35-120 DTE, OTM, indexes excluded
-  // Large-caps: $900K+ premium; others: $300K-$1.3M
+  // $300K-$1.3M
   const meetsLongTermCriteria = (trade: OptionsFlowData): boolean => {
     if (INDEX_ONLY_EXCLUSIONS.has(trade.underlying_ticker.toUpperCase())) return false
     if (SWEEPSENSE_BANNED_TICKERS.has(trade.underlying_ticker.toUpperCase())) return false
@@ -3118,9 +3115,9 @@ Stock Reaction: ${scores.stockReaction}/15`
     const tradeType = (trade.classification || trade.trade_type || '').toUpperCase()
     // MULTI-LEG: qualifies only when it's part of a paired buy+sell combo (see multiLegPairedTrades)
     if (tradeType === 'MULTI-LEG') return multiLegPairedTrades.has(trade)
-    const isLargeCap = LARGE_CAP_PREMIUM_TICKERS.has(trade.underlying_ticker.toUpperCase())
-    const minPremium = isLargeCap ? 900000 : 300000
-    const maxPremium = isLargeCap ? Infinity : 1300000
+    if (failsSellFillSize(trade)) return false
+    const minPremium = 300000
+    const maxPremium = 1300000
     if (trade.total_premium < minPremium || trade.total_premium > maxPremium) return false
     if (trade.trade_size < 450) return false
     if (!trade.moneyness || trade.moneyness !== 'OTM') return false
@@ -3128,7 +3125,7 @@ Stock Reaction: ${scores.stockReaction}/15`
   }
 
   // Short-Term criteria: 0-28 DTE, OTM, SWEEP/BLOCK only, ETFs+indexes excluded
-  // Large-caps: $450K+ premium; others: $125K-$340K
+  // $125K-$340K
   const meetsShortTermCriteria = (trade: OptionsFlowData): boolean => {
     if (ETF_INDEX_EXCLUSIONS.has(trade.underlying_ticker.toUpperCase())) return false
     if (SWEEPSENSE_BANNED_TICKERS.has(trade.underlying_ticker.toUpperCase())) return false
@@ -3136,9 +3133,9 @@ Stock Reaction: ${scores.stockReaction}/15`
     const tradeType = (trade.classification || trade.trade_type || '').toUpperCase()
     // MULTI-LEG: qualifies only when it's part of a paired buy+sell combo (see multiLegPairedTrades)
     if (tradeType === 'MULTI-LEG') return multiLegPairedTrades.has(trade)
-    const isLargeCap = LARGE_CAP_PREMIUM_TICKERS.has(trade.underlying_ticker.toUpperCase())
-    const minPremium = isLargeCap ? 450000 : 125000
-    const maxPremium = isLargeCap ? Infinity : 340000
+    if (failsSellFillSize(trade)) return false
+    const minPremium = 125000
+    const maxPremium = 340000
     if (trade.total_premium < minPremium || trade.total_premium > maxPremium) return false
     if (trade.trade_size < 650) return false
     if (!trade.moneyness || trade.moneyness !== 'OTM') return false
@@ -3374,7 +3371,8 @@ Stock Reaction: ${scores.stockReaction}/15`
 
       originalStockPrice: trade.spot_price,
 
-      classification: gradeResult.grade,
+      // Keep the original classification (SWEEP/BLOCK/etc) - it drives scoring and the type badge.
+      trackedGrade: gradeResult.grade,
 
       frozenComboScore: ('combo' in gradeResult.scores ? gradeResult.scores.combo : 0),
 
@@ -4811,7 +4809,10 @@ Stock Reaction: ${scores.stockReaction}/15`
       tickerRawTrades.set(t.underlying_ticker, rawList)
     }
 
-    const trades = trackedFlows.map((trade) => {
+    const GRADE_STRINGS = new Set(['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D', 'F'])
+    const trades = trackedFlows.map((rawTrade) => {
+      // Older tracked flows had their classification overwritten with the grade - restore the trade type.
+      const trade = GRADE_STRINGS.has(String(rawTrade.classification)) ? { ...rawTrade, classification: rawTrade.trade_type } : rawTrade
       const useLeap = meetsLongTermCriteria(trade)
       const g = useLeap ? calculateLeapGrade(trade, comboTradeMap) : calculatePositioningGrade(trade, comboTradeMap)
       const convictionScore = Math.round(useLeap ? (g.score / 75) * 100 : g.score)
@@ -5446,17 +5447,8 @@ Stock Reaction: ${scores.stockReaction}/15`
     if (trackedFlows.length > 0) {
       // Remove expired flows
 
-      const now = new Date()
-
-      now.setHours(0, 0, 0, 0)
-
-      const activeFlows = trackedFlows.filter((flow) => {
-        const expiryDate = new Date(flow.expiry)
-
-        expiryDate.setHours(0, 0, 0, 0)
-
-        return now <= expiryDate
-      })
+      // Expired flows are kept (shown greyed out as EXPIRED in the A+ Tracker) until removed by the user.
+      const activeFlows = trackedFlows
 
       // If expired flows were removed, update localStorage
 
@@ -10809,6 +10801,8 @@ Stock Reaction: ${scores.stockReaction}/15`
           sweepSenseProgress={gradingProgress}
           trackedFlowsSweepData={trackedFlowsSweepData}
           onRemoveTrackedFlow={removeFromFlowTracking}
+          onAddTrackedFlow={addToFlowTracking}
+          isTrackedFlow={isInFlowTracking}
         />,
         panelHost
       )}

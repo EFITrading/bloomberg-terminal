@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 
@@ -146,12 +146,27 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
     dataRef.current = viewData
   }, [viewData])
 
-  const W = 1000,
-    H = 240
-  const pL = 40,
-    pR = 12,
-    pT = 10,
-    pB = 30
+  const [chartW, setChartW] = useState(1000)
+  const hasChart = viewData.length > 0
+  useEffect(() => {
+    const el = svgRef.current
+    if (!el) return
+    const measure = () => {
+      const w = Math.round(el.getBoundingClientRect().width)
+      if (w > 50) setChartW((prev) => (prev === w ? prev : w))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  })
+
+  const W = chartW,
+    H = isMobile ? 204 : 240
+  const pL = 44,
+    pR = 14,
+    pT = 12,
+    pB = 28
   const plotW = W - pL - pR
   const plotH = H - pT - pB
 
@@ -167,28 +182,43 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
   // Keep axisRef in sync so the hover handler always uses the same formula
   axisRef.current = { min: axisMin, max: axisMax, range: axisRange }
 
-  // Y-axis ticks: 5 evenly spaced across actual data range
-  const tickStep = axisRange / 4
-  const yTicks = [0, 1, 2, 3, 4].map((n) => parseFloat((axisMin + n * tickStep).toFixed(1)))
+  // Y-axis ticks: round "nice" values that always include zero
+  const niceStep = (() => {
+    const raw = axisRange / 4
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)))
+    const n = raw / mag
+    return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag
+  })()
+  const yTicks: number[] = []
+  for (let v = Math.ceil(axisMin / niceStep) * niceStep; v <= axisMax + 1e-9; v += niceStep) {
+    yTicks.push(parseFloat(v.toFixed(2)))
+  }
 
   const toX = (i: number) => pL + (i / Math.max(viewData.length - 1, 1)) * plotW
   const toY = (score: number) => pT + plotH - ((score - axisMin) / axisRange) * plotH
   const zeroY = toY(0)
 
   // Month labels — cap to ~12 visible to prevent overlap
+  // Each label is centred on the span of its month so it sits over that month's data
   const monthLabels: { x: number; label: string }[] = []
   let lastMo = -1
+  let startIdx = 0
+  const pushMonth = (s: number, e: number) => {
+    const dt = new Date(viewData[s].date + 'T00:00:00')
+    monthLabels.push({
+      x: (toX(s) + toX(e)) / 2,
+      label: dt.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+    })
+  }
   viewData.forEach((d, i) => {
     const mo = new Date(d.date + 'T00:00:00').getMonth()
     if (mo !== lastMo) {
+      if (lastMo !== -1) pushMonth(startIdx, i - 1)
       lastMo = mo
-      const dt = new Date(d.date + 'T00:00:00')
-      monthLabels.push({
-        x: toX(i),
-        label: dt.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-      })
+      startIdx = i
     }
   })
+  if (viewData.length) pushMonth(startIdx, viewData.length - 1)
   const labelStep = Math.max(1, Math.ceil(monthLabels.length / 12))
   const visibleLabels = monthLabels.filter((_, i) => i % labelStep === 0)
 
@@ -224,6 +254,22 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
     .join(' ')
   // SPY candlestick data (open = prev close)
   const spyCandleWidth = Math.max(1, (plotW / Math.max(viewData.length, 1)) * 0.75)
+
+  // Smooth (Catmull-Rom) path through the composite points
+  const smoothPath = (() => {
+    const n = viewData.length
+    if (n < 2) return ''
+    const P = viewData.map((d, i) => [toX(i), toY(d.compositeScore)])
+    let d = `M${P[0][0].toFixed(2)},${P[0][1].toFixed(2)}`
+    for (let i = 0; i < n - 1; i++) {
+      const p0 = P[Math.max(0, i - 1)], p1 = P[i], p2 = P[i + 1], p3 = P[Math.min(n - 1, i + 2)]
+      const c1x = p1[0] + (p2[0] - p0[0]) / 6, c1y = p1[1] + (p2[1] - p0[1]) / 6
+      const c2x = p2[0] - (p3[0] - p1[0]) / 6, c2y = p2[1] - (p3[1] - p1[1]) / 6
+      d += `C${c1x.toFixed(2)},${c1y.toFixed(2)} ${c2x.toFixed(2)},${c2y.toFixed(2)} ${p2[0].toFixed(2)},${p2[1].toFixed(2)}`
+    }
+    return d
+  })()
+  const zeroFrac = Math.min(1, Math.max(0, (zeroY - pT) / plotH))
 
   // Colored line segments: red when above zero, green when below zero
   type Seg = { pts: string; color: string }
@@ -296,7 +342,7 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
       <text x="${ttX + 6}" y="${ttY + 44}" font-size="8" fill="#999" font-family="monospace">${pt.regime}</text>
       ${spyStr ? `<text x="${ttX + 6}" y="${ttY + 60}" font-size="11" fill="#ffffff" font-family="monospace" font-weight="bold">SPY ${spyStr}</text>` : ''}
     `
-  }, []) // stable — reads data via ref, reads chart constants from closure (never change)
+  }, [W, H, plotW, plotH]) // chart constants depend on measured width
 
   const handleMouseLeave = useCallback(() => {
     if (overlayRef.current) overlayRef.current.style.display = 'none'
@@ -312,94 +358,113 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
         padding: '8px 0 4px',
       }}
     >
-      {/* Current regime label + timeframe buttons */}
+      {/* Regime status + controls */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center',
-          gap: '8px',
-          marginBottom: '6px',
-          padding: '0 8px',
+          justifyContent: 'space-between',
+          gap: '10px 14px',
+          flexWrap: 'wrap',
+          marginBottom: '8px',
+          padding: '4px 12px 8px',
+          borderBottom: '1px solid #1a1a1f',
         }}
       >
-        <div style={{ flex: 1, textAlign: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flexWrap: 'wrap' }}>
           <span
             style={{
-              fontSize: '14px',
-              fontFamily: 'monospace',
-              fontWeight: '900',
+              width: 10,
+              height: 10,
+              borderRadius: '50%',
+              background: compositeColor,
+              boxShadow: `0 0 10px ${compositeColor}`,
+              flexShrink: 0,
+            }}
+          />
+          <span
+            style={{
+              fontSize: '15px',
+              fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+              fontWeight: 800,
               color: compositeColor,
-              letterSpacing: '0.1em',
+              letterSpacing: '0.08em',
+              whiteSpace: 'nowrap',
             }}
           >
             {compositeRegime}
           </span>
           <span
             style={{
-              fontSize: '13px',
-              fontFamily: 'monospace',
-              color: '#ff6600',
-              marginLeft: '6px',
+              fontSize: '11px',
+              fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+              fontWeight: 800,
+              letterSpacing: '0.08em',
+              color: '#FFB066',
+              background: '#FF660020',
+              border: '1px solid #FF660055',
+              borderRadius: 5,
+              padding: '2px 8px',
+              whiteSpace: 'nowrap',
             }}
           >
-            {compositeStrength} • {Math.round(compositeConfidence)}%
+            {compositeStrength} · {Math.round(compositeConfidence)}%
           </span>
         </div>
-        <div style={{ display: 'flex', gap: '4px', flexShrink: 0, alignItems: 'center' }}>
-          {(['QT', '1Y', '3Y', '5Y'] as const).map((tf) => (
+
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', background: '#0b0b0e', border: '1px solid #2a2a30', borderRadius: 7, padding: 2, gap: 2 }}>
+            {(['QT', '1Y', '3Y', '5Y'] as const).map((tf) => (
+              <button
+                key={tf}
+                onClick={() => setTfRange(tf)}
+                style={{
+                  padding: '4px 10px',
+                  fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  letterSpacing: '0.05em',
+                  background: tfRange === tf ? '#FF6600' : 'transparent',
+                  color: tfRange === tf ? '#000' : '#fff',
+                  border: 'none',
+                  borderRadius: 5,
+                  cursor: 'pointer',
+                }}
+              >
+                {tf}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
             <button
-              key={tf}
-              onClick={() => setTfRange(tf)}
+              onClick={() => { const nv = !showRegimeLine; setShowRegimeLine(nv); try { localStorage.setItem('showRegimeLine', String(nv)) } catch { } }}
               style={{
-                padding: '2px 7px',
-                fontFamily: 'monospace',
-                fontSize: '10px',
-                fontWeight: '700',
-                letterSpacing: '0.05em',
-                background: '#000',
-                color: tfRange === tf ? '#ff6600' : '#666',
-                border: `1px solid ${tfRange === tf ? '#ff6600' : '#333'}`,
-                borderRadius: '2px',
-                cursor: 'pointer',
-                lineHeight: '1.4',
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '4px 10px', fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif', fontSize: '12px', fontWeight: 800,
+                background: showRegimeLine ? '#ffffff10' : 'transparent',
+                color: showRegimeLine ? '#ffffff' : '#9ca3af',
+                border: `1px solid ${showRegimeLine ? '#ffffff40' : '#2a2a30'}`,
+                borderRadius: 6, cursor: 'pointer',
               }}
             >
-              {tf}
+              <span style={{ width: 14, height: 3, background: 'linear-gradient(to right, #ff5a5a 50%, #22d3a0 50%)', borderRadius: 2, opacity: showRegimeLine ? 1 : 0.4 }} />
+              Regime
             </button>
-          ))}
-          {/* Legend toggles — same row as timeframes */}
-          <div style={{ width: 1, height: 14, background: '#333', margin: '0 2px' }} />
-          <button
-            onClick={() => { const nv = !showRegimeLine; setShowRegimeLine(nv); try { localStorage.setItem('showRegimeLine', String(nv)) } catch { } }}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '3px',
-              padding: '2px 7px', fontFamily: 'monospace', fontSize: '10px', fontWeight: '700',
-              background: 'transparent',
-              color: showRegimeLine ? '#ffffff' : '#444',
-              border: `1px solid ${showRegimeLine ? '#444' : '#222'}`,
-              borderRadius: '2px', cursor: 'pointer',
-              opacity: showRegimeLine ? 1 : 0.5,
-            }}
-          >
-            <span style={{ display: 'inline-block', width: 16, height: 2, background: 'linear-gradient(to right, #ef4444 50%, #10b981 50%)', borderRadius: 1 }} />
-            REGIME
-          </button>
-          <button
-            onClick={() => { const nv = !showSpyLine; setShowSpyLine(nv); try { localStorage.setItem('showSpyLine', String(nv)) } catch { } }}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '3px',
-              padding: '2px 7px', fontFamily: 'monospace', fontSize: '10px', fontWeight: '700',
-              background: 'transparent',
-              color: showSpyLine ? '#aaaaaa' : '#444',
-              border: `1px solid ${showSpyLine ? '#444' : '#222'}`,
-              borderRadius: '2px', cursor: 'pointer',
-              opacity: showSpyLine ? 1 : 0.5,
-            }}
-          >
-            <span style={{ display: 'inline-block', width: 16, height: 2, background: '#888', borderRadius: 1 }} />
-            SPY
-          </button>
+            <button
+              onClick={() => { const nv = !showSpyLine; setShowSpyLine(nv); try { localStorage.setItem('showSpyLine', String(nv)) } catch { } }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '4px 10px', fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif', fontSize: '12px', fontWeight: 800,
+                background: showSpyLine ? '#ffffff10' : 'transparent',
+                color: showSpyLine ? '#ffffff' : '#9ca3af',
+                border: `1px solid ${showSpyLine ? '#ffffff40' : '#2a2a30'}`,
+                borderRadius: 6, cursor: 'pointer',
+              }}
+            >
+              <span style={{ width: 14, height: 3, background: '#d1d5db', borderRadius: 2, opacity: showSpyLine ? 1 : 0.4 }} />
+              SPY
+            </button>
+          </div>
         </div>
       </div>
 
@@ -442,8 +507,7 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
         <svg
           viewBox={`0 0 ${W} ${H}`}
           width="100%"
-          preserveAspectRatio="none"
-          height={isMobile ? 204 : H}
+          height={H}
           style={{ display: 'block', cursor: 'crosshair', overflow: 'visible', userSelect: 'none' }}
           onMouseMove={(e) => { if (!isPanning.current) handleMouseMove(e) }}
           ref={svgRef}
@@ -471,9 +535,10 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
                     stroke={v === 0 ? '#444' : '#1a1a1a'}
                     strokeWidth={v === 0 ? 1.5 : 1}
                     strokeDasharray={v === 0 ? '4,3' : '2,4'} />
-                  <text x={pL - 3} y={y + 3.5} textAnchor="end" fontSize="16"
-                    fill={v > 0 ? '#ef4444' : v < 0 ? '#10b981' : '#888'}
-                    fontFamily="monospace" fontWeight="700">{label}</text>                </g>
+                  <text x={pL - 6} y={y + 4} textAnchor="end" fontSize="14"
+                    fill={v > 0 ? '#ff6b6b' : v < 0 ? '#34d399' : '#d1d5db'}
+                    fontFamily="monospace" fontWeight="700">{label}</text>
+                </g>
               )
             })
             : showSpyLine && spyPrices.length > 0
@@ -487,7 +552,7 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
                     <g key={n}>
                       <line x1={pL} y1={y} x2={W - pR} y2={y}
                         stroke="#1c1c1c" strokeWidth={1} strokeDasharray="2,4" />
-                      <text x={pL - 3} y={y + 3.5} textAnchor="end" fontSize="14"
+                      <text x={pL - 6} y={y + 4} textAnchor="end" fontSize="14"
                         fill="#ffffff" fontFamily="monospace" fontWeight="700">
                         ${price.toFixed(0)}
                       </text>
@@ -501,10 +566,10 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
           {/* DEF / GRTH axis labels — only when regime line is visible */}
           {showRegimeLine && (
             <>
-              <text x={W - pR - 2} y={pT + 10} textAnchor="end" fontSize="13"
-                fill="#ef4444" fontFamily="monospace" fontWeight="700">DEF</text>
-              <text x={W - pR - 2} y={H - pB} textAnchor="end" fontSize="13"
-                fill="#10b981" fontFamily="monospace" fontWeight="700">GRTH</text>
+              <text x={W - pR - 4} y={pT + 12} textAnchor="end" fontSize="13"
+                fill="#ff6b6b" fontFamily="monospace" fontWeight="800">DEF</text>
+              <text x={W - pR - 4} y={H - pB - 4} textAnchor="end" fontSize="13"
+                fill="#34d399" fontFamily="monospace" fontWeight="800">GRTH</text>
             </>
           )}
 
@@ -539,64 +604,54 @@ const CompositeHistoryChart = memo(function CompositeHistoryChart({
             />
           )}
 
-          {/* Defensive area fill */}
-          {showRegimeLine && (
-            <polygon
-              points={`${toX(0)},${zeroY} ${abovePoints} ${toX(viewData.length - 1)},${zeroY}`}
-              fill="#ef444418"
-            />
-          )}
-          {/* Growth area fill */}
-          {showRegimeLine && (
-            <polygon
-              points={`${toX(0)},${zeroY} ${belowPoints} ${toX(viewData.length - 1)},${zeroY}`}
-              fill="#10b98118"
-            />
-          )}
-
           {/* Main line — red above zero, green below zero */}
-          {showRegimeLine && coloredSegments.map((seg, i) => (
-            <polyline
-              key={i}
-              points={seg.pts}
-              fill="none"
-              stroke={seg.color}
-              strokeWidth={2.5}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-              opacity={1}
-              shapeRendering="crispEdges"
-            />
-          ))}
+          {showRegimeLine && smoothPath && (
+            <>
+              <defs>
+                <linearGradient id="regLineGrad" gradientUnits="userSpaceOnUse" x1="0" y1={pT} x2="0" y2={H - pB}>
+                  <stop offset={zeroFrac} stopColor="#ff5a5a" />
+                  <stop offset={zeroFrac} stopColor="#22d3a0" />
+                </linearGradient>
+                <linearGradient id="regAreaUp" gradientUnits="userSpaceOnUse" x1="0" y1={pT} x2="0" y2={zeroY}>
+                  <stop offset="0" stopColor="#ff5a5a" stopOpacity="0.38" />
+                  <stop offset="1" stopColor="#ff5a5a" stopOpacity="0.02" />
+                </linearGradient>
+                <linearGradient id="regAreaDn" gradientUnits="userSpaceOnUse" x1="0" y1={zeroY} x2="0" y2={H - pB}>
+                  <stop offset="0" stopColor="#22d3a0" stopOpacity="0.02" />
+                  <stop offset="1" stopColor="#22d3a0" stopOpacity="0.38" />
+                </linearGradient>
+                <clipPath id="regClipUp"><rect x={pL} y={0} width={plotW} height={Math.max(0, zeroY)} /></clipPath>
+                <clipPath id="regClipDn"><rect x={pL} y={zeroY} width={plotW} height={Math.max(0, H - zeroY)} /></clipPath>
+              </defs>
+              <path d={`${smoothPath}L${toX(viewData.length - 1)},${zeroY}L${toX(0)},${zeroY}Z`} fill="url(#regAreaUp)" clipPath="url(#regClipUp)" />
+              <path d={`${smoothPath}L${toX(viewData.length - 1)},${zeroY}L${toX(0)},${zeroY}Z`} fill="url(#regAreaDn)" clipPath="url(#regClipDn)" />
+              <path d={smoothPath} fill="none" stroke="url(#regLineGrad)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+            </>
+          )}
 
           {/* Current value dot */}
           {showRegimeLine && lastPt && (
             <circle
               cx={toX(viewData.length - 1)}
               cy={toY(lastPt.compositeScore)}
-              r={4}
+              r={4.5}
               fill={lastDotColor}
-              stroke="#000"
-              strokeWidth={1.5}
+              stroke="#050505"
+              strokeWidth={2}
             />
           )}
 
           {/* X-axis month labels */}
-          {visibleLabels.map((lbl, i) => (
-            <text
-              key={i}
-              x={lbl.x}
-              y={H - 6}
-              textAnchor="middle"
-              fontSize="11"
-              fill="#ff6600"
-              fontFamily="monospace"
-              fontWeight="700"
-              letterSpacing="0.5"
-            >
-              {lbl.label}
-            </text>
-          ))}
+          {visibleLabels.map((lbl, i) => {
+            const anchor = lbl.x > W - pR - 28 ? 'end' : lbl.x < pL + 24 ? 'start' : 'middle'
+            const x = anchor === 'end' ? W - pR : anchor === 'start' ? pL : lbl.x
+            return (
+              <text key={i} x={x} y={H - 8} textAnchor={anchor} fontSize="12" fill="#ffffff"
+                fontFamily="system-ui, -apple-system, 'Segoe UI', sans-serif" fontWeight="600">
+                {lbl.label}
+              </text>
+            )
+          })}
 
           {/* Hover overlay — imperatively mutated, never causes React re-renders */}
           <g ref={overlayRef} style={{ display: 'none' }} />
@@ -1103,29 +1158,36 @@ function EnhancedRegimeDisplay({
                 alignItems: 'center',
                 gap: isMobile ? '4px' : '10px',
                 width: '100%',
-                justifyContent: 'center',
+                justifyContent: 'space-between',
                 flexWrap: 'wrap',
+                padding: '0 4px',
               }}
             >
               <div
                 style={{
-                  fontSize: '15px',
-                  color: '#D1D5DB',
-                  fontWeight: '700',
-                  fontFamily: 'system-ui, -apple-system, sans-serif',
-                  letterSpacing: '0.2em',
+                  fontSize: '16px',
+                  color: '#FFFFFF',
+                  fontWeight: '800',
+                  fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+                  letterSpacing: '0.18em',
                   textTransform: 'uppercase',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
                 }}
               >
+                <span style={{ width: 4, height: 18, borderRadius: 2, background: '#FF6600', boxShadow: '0 0 8px #FF660088' }} />
                 COMPOSITE
               </div>
               {/* View toggle */}
               <div
                 style={{
                   display: 'flex',
-                  border: '1px solid #2f2f2f',
-                  borderRadius: '999px',
-                  overflow: 'hidden',
+                  background: '#0b0b0e',
+                  border: '1px solid #2a2a30',
+                  borderRadius: '8px',
+                  padding: 3,
+                  gap: 2,
                 }}
               >
                 {(['gauge', 'chart'] as const).map((v) => (
@@ -1133,16 +1195,17 @@ function EnhancedRegimeDisplay({
                     key={v}
                     onClick={() => handleSetCompositeView(v)}
                     style={{
-                      padding: isMobile ? '2px 6px' : '3px 10px',
-                      fontSize: isMobile ? '13px' : '13px',
-                      fontFamily: 'monospace',
-                      fontWeight: '900',
+                      padding: isMobile ? '3px 8px' : '5px 14px',
+                      fontSize: '12px',
+                      fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+                      fontWeight: '800',
                       letterSpacing: '0.1em',
                       textTransform: 'uppercase',
                       cursor: 'pointer',
                       border: 'none',
-                      background: compositeView === v ? '#262626' : 'transparent',
-                      color: compositeView === v ? '#F3F4F6' : '#6B7280',
+                      borderRadius: 6,
+                      background: compositeView === v ? '#FF6600' : 'transparent',
+                      color: compositeView === v ? '#000000' : '#FFFFFF',
                       transition: 'all 0.2s',
                     }}
                   >
