@@ -290,6 +290,32 @@ function TrackingCard({ symbol, accent, globalTf, globalType, resetKey, livePric
     })
   }, [bars, tf])
 
+  const sessionBands = useMemo(() => {
+    if (tf === '3M' || tf === '6M' || tf === '1Y' || bars.length < 2) return []
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York', hour: 'numeric', minute: 'numeric', hourCycle: 'h23',
+    })
+    const kindOf = (t: number): 'pre' | 'reg' | 'post' => {
+      const parts = fmt.formatToParts(new Date(t))
+      const mins = Number(parts.find((p) => p.type === 'hour')?.value) * 60 + Number(parts.find((p) => p.type === 'minute')?.value)
+      return mins < 9 * 60 + 30 ? 'pre' : mins >= 16 * 60 ? 'post' : 'reg'
+    }
+    const out: { kind: 'pre' | 'post'; from: number; to: number }[] = []
+    let cur: { kind: 'pre' | 'post'; from: number; to: number } | null = null
+    bars.forEach((b, i) => {
+      const k = kindOf(b.t)
+      if (k === 'reg') {
+        cur = null
+      } else if (cur && cur.kind === k) {
+        cur.to = i + 1
+      } else {
+        cur = { kind: k, from: i, to: i + 1 }
+        out.push(cur)
+      }
+    })
+    return out
+  }, [bars, tf])
+
   const hb = hover != null ? bars[hover] : null
 
   const btn = (on: boolean): React.CSSProperties => ({
@@ -412,6 +438,16 @@ function TrackingCard({ symbol, accent, globalTf, globalType, resetKey, livePric
                   <stop offset="100%" stopColor={color} stopOpacity="0" />
                 </linearGradient>
               </defs>
+              {sessionBands.map((s, i) => (
+                <rect
+                  key={i}
+                  x={(s.from / bars.length) * W}
+                  y={0}
+                  width={((s.to - s.from) / bars.length) * W}
+                  height={H}
+                  fill={s.kind === 'pre' ? 'rgba(255,152,0,0.10)' : 'rgba(59,130,246,0.12)'}
+                />
+              ))}
               {[0.25, 0.5, 0.75].map((g) => (
                 <line
                   key={g}

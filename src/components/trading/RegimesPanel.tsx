@@ -2581,6 +2581,362 @@ function calcLastRSI(closes: number[], period = 14): number {
   return avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss)
 }
 
+async function fetchSnapshotRows(): Promise<ScannerRow[]> {
+  // Chunk the ticker list: one giant query string overflows URL limits and returns an HTML error page
+  const CHUNK = 150
+  const snaps: any[] = []
+  for (let i = 0; i < SCANNER_UNIVERSE.length; i += CHUNK) {
+    const tickers = SCANNER_UNIVERSE.slice(i, i + CHUNK).join(',')
+    const url = `/api/polygon/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers}&apikey=${POLYGON_API_KEY}`
+    try {
+      const resp = await fetch(url)
+      const text = await resp.text()
+      const data = JSON.parse(text)
+      if (Array.isArray(data.tickers)) snaps.push(...data.tickers)
+    } catch {
+      // skip a failed chunk rather than aborting the whole scan
+    }
+  }
+  return snaps
+    .filter((s: any) => {
+      const price = s.day?.c || s.lastTrade?.p || 0
+      return price >= 1 && s.prevDay?.c > 0
+    })
+    .map((s: any) => {
+      const price = s.day?.c || s.lastTrade?.p || 0
+      const prevClose = s.prevDay?.c
+      const change = price - prevClose
+      const changePct = (change / prevClose) * 100
+      return { symbol: s.ticker, price, change, changePct, volume: s.day?.v || 0 } as ScannerRow
+    })
+}
+
+async function fetchBarsRows(
+  days: number,
+  onProgress: (pct: number) => void
+): Promise<ScannerRow[]> {
+  const snapRows = await fetchSnapshotRows()
+  const snapMap: Record<string, ScannerRow> = {}
+  snapRows.forEach((r) => { snapMap[r.symbol] = r })
+
+  const today = new Date().toISOString().split('T')[0]
+  const from = new Date(Date.now() - days * 86400_000).toISOString().split('T')[0]
+  const batchSize = 10
+  const result: ScannerRow[] = []
+
+  for (let i = 0; i < SCANNER_UNIVERSE.length; i += batchSize) {
+    const batch = SCANNER_UNIVERSE.slice(i, i + batchSize)
+    const batchRes = await Promise.all(
+      batch.map(async (sym) => {
+        try {
+          const r = await fetch(
+            `/api/polygon/v2/aggs/ticker/${sym}/range/1/day/${from}/${today}?adjusted=true&sort=asc&limit=300&apikey=${POLYGON_API_KEY}`
+          )
+          const d = await r.json()
+          const bars: any[] = d.results || []
+          if (bars.length < 15) return null
+
+          const n = bars.length
+          const closes = bars.map((b: any) => b.c)
+          const highs = bars.map((b: any) => b.h)
+          const lows = bars.map((b: any) => b.l)
+          const vols = bars.map((b: any) => b.v)
+          const opens = bars.map((b: any) => b.o)
+
+          const snap = snapMap[sym]
+          const price = snap?.price || closes[n - 1]
+          const prevClose = closes[n - 2] || closes[n - 1]
+          const change = price - prevClose
+          const changePct = (change / prevClose) * 100
+          const volume = snap?.volume || vols[n - 1]
+
+          const volBars = vols.slice(Math.max(0, n - 21), n - 1)
+          const avgVolume =
+            volBars.length > 0
+              ? volBars.reduce((s: number, v: number) => s + v, 0) / volBars.length
+              : 0
+          const volRatio = avgVolume > 0 ? volume / avgVolume : 1
+
+          // Multi-period volume averages (trading days only, excl. today)
+          const vol5avg = n >= 6 ? vols.slice(n - 6, n - 1).reduce((a: number, b: number) => a + b, 0) / 5 : avgVolume
+          const vol13avg = n >= 14 ? vols.slice(n - 14, n - 1).reduce((a: number, b: number) => a + b, 0) / 13 : avgVolume
+          const vol252avg = n >= 13 ? vols.slice(Math.max(0, n - 253), n - 1).reduce((a: number, b: number) => a + b, 0) / Math.min(252, n - 1) : avgVolume
+
+          const ema8arr = calcEMAArr(closes, 8)
+          const ema21arr = calcEMAArr(closes, 21)
+          const ema8 = ema8arr[n - 1]
+          const ema21 = ema21arr[n - 1]
+          const rsi14 = calcLastRSI(closes, 14)
+
+          const atrLen = Math.min(14, n - 1)
+          let atrSum = 0
+          for (let j = n - atrLen; j < n; j++) {
+            const tr = Math.max(
+              highs[j] - lows[j],
+              Math.abs(highs[j] - closes[j - 1]),
+              Math.abs(lows[j] - closes[j - 1])
+            )
+            atrSum += tr
+          }
+          const atr14 = atrSum / atrLen
+          const atrPct = (atr14 / price) * 100
+
+          let high52w: number | undefined,
+            low52w: number | undefined,
+            position52w: number | undefined,
+            pctFrom52H: number | undefined
+          if (days >= 250) {
+            high52w = Math.max(...highs)
+            low52w = Math.min(...lows)
+            const r52 = high52w - low52w
+            position52w = r52 > 0 ? (price - low52w) / r52 : 0.5
+            pctFrom52H = ((high52w - price) / high52w) * 100
+          }
+
+          const wk = bars.slice(Math.max(0, n - 5))
+          const weekHigh = Math.max(...wk.map((b: any) => b.h))
+          const weekLow = Math.min(...wk.map((b: any) => b.l))
+
+          let ma50: number | undefined
+          if (n >= 50) {
+            const m = closes.slice(Math.max(0, n - 50))
+            ma50 = m.reduce((s: number, c: number) => s + c, 0) / m.length
+          }
+
+          // Composite Momentum Score (0–100)
+          const momentumScore = Math.round(
+            Math.min(100, Math.max(0,
+              (rsi14 - 30) * 0.9 +
+              (price > ema8 ? 8 : 0) +
+              (ema8 > ema21 ? 8 : 0) +
+              (ma50 && price > ma50 ? 6 : 0) +
+              (volRatio >= 2 ? 10 : volRatio >= 1.5 ? 7 : volRatio >= 1.2 ? 4 : 0) +
+              (changePct > 3 ? 6 : changePct > 1 ? 4 : changePct > 0 ? 2 : -2)
+            ))
+          )
+
+          // Composite Downtrend Score (0–100)
+          const downtrendScore = Math.round(
+            Math.min(100, Math.max(0,
+              (70 - rsi14) * 0.9 +
+              (price < ema8 ? 8 : 0) +
+              (ema8 < ema21 ? 8 : 0) +
+              (ma50 && price < ma50 ? 6 : 0) +
+              (volRatio >= 2 ? 10 : volRatio >= 1.5 ? 7 : volRatio >= 1.2 ? 4 : 0) +
+              (changePct < -3 ? 6 : changePct < -1 ? 4 : changePct < 0 ? 2 : -2)
+            ))
+          )
+
+          let breakoutType: ScannerRow['breakoutType']
+          if (high52w && low52w && ma50 && atr14 > 0) {
+            const d52H = (high52w - price) / atr14
+            const dWkH = (weekHigh - price) / atr14
+            const d52L = (price - low52w) / atr14
+            const dWkL = (price - weekLow) / atr14
+            if (price > ma50 && d52H <= 0.6 && volRatio >= 1.3) breakoutType = '52w-high'
+            else if (price > ma50 && dWkH <= 0.35 && volRatio >= 1.2) breakoutType = 'week-high'
+            else if (price < ma50 && d52L <= 0.6 && volRatio >= 1.3) breakoutType = '52w-low'
+            else if (price < ma50 && dWkL <= 0.35 && volRatio >= 1.2) breakoutType = 'week-low'
+          }
+
+          let reversalType: ScannerRow['reversalType']
+          if (n >= 3) {
+            const prevRSI = calcLastRSI(closes.slice(0, n - 1), 14)
+            const prevE21 = ema21arr[n - 2]
+            const prevE8 = ema8arr[n - 2]
+            const bullBody = closes[n - 1] > opens[n - 1]
+            const bearBody = closes[n - 1] < opens[n - 1]
+            const rsiRec = prevRSI < 40 && rsi14 >= 40
+            const e21Rec = closes[n - 2] < prevE21 && price >= ema21
+            const e8Rec = closes[n - 2] < prevE8 && price >= ema8
+            const rsiRoll = prevRSI > 60 && rsi14 <= 60
+            const e21Br = closes[n - 2] > prevE21 && price <= ema21
+            const e8Br = closes[n - 2] > prevE8 && price <= ema8
+            const bSigs = (rsiRec ? 1 : 0) + (e21Rec ? 1 : 0) + (e8Rec ? 1 : 0)
+            const rSigs = (rsiRoll ? 1 : 0) + (e21Br ? 1 : 0) + (e8Br ? 1 : 0)
+            if (bSigs >= 2 && volRatio >= 1.1 && bullBody && rsi14 < 65) reversalType = 'bullish'
+            else if (rSigs >= 2 && volRatio >= 1.1 && bearBody && rsi14 > 35) reversalType = 'bearish'
+          }
+
+          // ── RS Rating raw score (percentile-ranked below after batch) ──────
+          const ret5d = n >= 6 ? (closes[n - 1] / closes[n - 6] - 1) * 100 : changePct
+          const ret21d = n >= 22 ? (closes[n - 1] / closes[n - 22] - 1) * 100 : changePct
+          const ret63d = n >= 64 ? (closes[n - 1] / closes[n - 64] - 1) * 100 : changePct
+          const ret126d = n >= 127 ? (closes[n - 1] / closes[n - 127] - 1) * 100 : ret63d
+          const rsRaw = ret63d * 0.4 + ret21d * 0.3 + ret126d * 0.2 + ret5d * 0.1
+
+          // ── Volume patterns ───────────────────────────────────────────────
+          let volPattern: ScannerRow['volPattern']
+          if (n >= 5 && avgVolume > 0) {
+            // Push + low-vol pullback: big up move 1-4 days ago on high vol, today low vol pullback
+            const prevHighVolUp = (() => {
+              for (let j = Math.max(1, n - 4); j < n - 1; j++) {
+                const dc = (closes[j] - closes[j - 1]) / closes[j - 1] * 100
+                if (dc > 1.5 && vols[j] > avgVolume * 1.4) return true
+              }
+              return false
+            })()
+            if (prevHighVolUp && changePct < 0 && changePct > -4 && volume < avgVolume * 0.85) volPattern = 'push-pull'
+
+            // High-vol bounce: was trending down, today bouncing on above-avg vol
+            if (!volPattern) {
+              const wasDown = closes[n - 2] < closes[Math.max(0, n - 6)]
+              if (wasDown && changePct > 0.5 && volume > avgVolume * 1.4) volPattern = 'hv-bounce'
+            }
+
+            // Quiet fall + vol bounce: fell on low vol past 3 days, now bouncing on higher vol
+            if (!volPattern) {
+              let lowVolDays = 0, downDays = 0
+              for (let j = Math.max(1, n - 4); j < n - 1; j++) {
+                if (closes[j] < closes[j - 1]) downDays++
+                if (vols[j] < avgVolume * 0.85) lowVolDays++
+              }
+              if (downDays >= 2 && lowVolDays >= 2 && changePct > 0 && volume > avgVolume * 1.2) volPattern = 'qf-bounce'
+            }
+
+            // High-vol fall + low-vol bounce (dead cat watch)
+            if (!volPattern) {
+              const prevHighVolDown = (() => {
+                for (let j = Math.max(1, n - 4); j < n - 1; j++) {
+                  const dc = (closes[j] - closes[j - 1]) / closes[j - 1] * 100
+                  if (dc < -1.5 && vols[j] > avgVolume * 1.3) return true
+                }
+                return false
+              })()
+              if (prevHighVolDown && changePct > 0 && volume < avgVolume * 0.8) volPattern = 'hv-fall-lv-bounce'
+            }
+          }
+
+          // ── Accumulation/Distribution Score: body-weighted volume on up/down candles ─
+          const adLen = Math.min(21, n)
+          let upWtVol = 0, downWtVol = 0
+          for (let j = n - adLen; j < n; j++) {
+            const bodyPct = Math.abs(closes[j] - opens[j]) / (closes[j] || 1)
+            const weighted = vols[j] * (bodyPct + 0.001) // small floor so flat days still count
+            if (closes[j] > opens[j]) upWtVol += weighted
+            else if (closes[j] < opens[j]) downWtVol += weighted
+          }
+          const adScore = (upWtVol + downWtVol) > 0 ? Math.round(upWtVol / (upWtVol + downWtVol) * 100) : 50
+
+          // ── Volume acceleration: 5-day avg / 20-day avg (rising = building interest) ─
+          const vol5avgAccel = n >= 5 ? vols.slice(n - 5).reduce((a, b) => a + b, 0) / 5 : volume
+          const vol20avg = n >= 20 ? vols.slice(n - 20).reduce((a, b) => a + b, 0) / 20 : (avgVolume || volume)
+          const volAccel = vol20avg > 0 ? Math.round((vol5avgAccel / vol20avg) * 100) / 100 : 1
+
+          // ── Base tightness: stdev of last 10 closes / price (low = coiling) ──
+          const t10 = closes.slice(Math.max(0, n - 10))
+          const tMean = t10.reduce((a: number, b: number) => a + b, 0) / t10.length
+          const tightness = Math.round(
+            (Math.sqrt(t10.reduce((s: number, c: number) => s + (c - tMean) ** 2, 0) / t10.length) / price) * 10000
+          ) / 100
+
+          // ── Trend persistence: up-closes in last 10 bars ──
+          let upDays10 = 0
+          for (let j = Math.max(1, n - 10); j < n; j++) {
+            if (closes[j] > closes[j - 1]) upDays10++
+          }
+
+          // ── Month / Quarter highs for breakout filters ───────────────────
+          const monthHigh = n >= 5 ? Math.max(...highs.slice(Math.max(0, n - 21))) : undefined
+          const quarterHigh = n >= 5 ? Math.max(...highs.slice(Math.max(0, n - 63))) : undefined
+
+          // ── First 52w break: price at/near 52w high but wasn’t there 3 weeks ago ─
+          const prev3wHigh = n >= 20 ? Math.max(...highs.slice(Math.max(0, n - 20), n - 1)) : 0
+          const is52wBreak = high52w !== undefined && pctFrom52H !== undefined &&
+            pctFrom52H <= 1.5 && prev3wHigh < high52w * 0.985
+
+          return {
+            symbol: sym, price, change, changePct, volume,
+            avgVolume: avgVolume || undefined, volRatio, high52w, low52w,
+            position52w, pctFrom52H, weekHigh, weekLow, ma50, ema8, ema21,
+            rsi14, atr14, atrPct, momentumScore, downtrendScore,
+            rsRating: rsRaw, adScore, volAccel, tightness, upDays10,
+            vol5avg, vol13avg, vol252avg, volPattern,
+            breakoutType, reversalType,
+            monthHigh, quarterHigh, is52wBreak,
+          } as ScannerRow
+        } catch {
+          return null
+        }
+      })
+    )
+    batchRes.forEach((r) => { if (r) result.push(r) })
+    onProgress(Math.min(99, Math.round(((i + batchSize) / SCANNER_UNIVERSE.length) * 100)))
+  }
+
+  // Normalize rsRating: raw weighted return → 1-99 percentile rank
+  if (result.length > 1) {
+    const withIdx = result.map((r, i) => ({ i, raw: r.rsRating ?? 0 }))
+    withIdx.sort((a, b) => a.raw - b.raw)
+    const nR = withIdx.length
+    withIdx.forEach((item, rank) => {
+      result[item.i].rsRating = Math.max(1, Math.min(99, Math.round(rank / (nR - 1) * 99)))
+    })
+  }
+
+  return result
+}
+
+
+// ─── Screening engine (used by the Tracking tab's Screening dropdown) ─────────
+export const SCREEN_OPTIONS = SCAN_PRESETS.filter((p) => !p.hidden).map((p) => ({
+  id: p.id,
+  label: p.tabLabel ?? p.label,
+  description: p.description,
+  color: p.color,
+}))
+
+const SCREEN_INFLIGHT: Partial<Record<ScanFetchGroup, Promise<ScannerRow[]>>> = {}
+
+async function loadScreenGroup(group: ScanFetchGroup, onProgress: (pct: number) => void, force: boolean) {
+  const cached = SCAN_CACHE[group]
+  if (!force && cached && Date.now() - cached.ts < SCAN_TTL[group]) return cached.rows
+  const running = SCREEN_INFLIGHT[group]
+  if (running) return running
+  const job = (async () => {
+    let all: ScannerRow[]
+    if (group === 'snapshot') all = await fetchSnapshotRows()
+    else all = await fetchBarsRows(group === 'short' ? 60 : 260, onProgress)
+    const seen = new Set<string>()
+    all = all.filter((r) => {
+      if (seen.has(r.symbol) || TICKER_BLACKLIST.has(r.symbol)) return false
+      seen.add(r.symbol)
+      return true
+    })
+    SCAN_CACHE[group] = { rows: all, ts: Date.now() }
+    return all
+  })()
+  SCREEN_INFLIGHT[group] = job
+  try {
+    return await job
+  } finally {
+    delete SCREEN_INFLIGHT[group]
+  }
+}
+
+export type ScreenHit = { symbol: string; badge: string }
+
+export async function runScreen(
+  id: string,
+  onProgress: (pct: number) => void,
+  force = false
+): Promise<{ hits: ScreenHit[]; color: string; label: string }> {
+  const p = SCAN_PRESETS.find((x) => x.id === id) ?? SCAN_PRESETS[0]
+  const all = await loadScreenGroup(p.fetchGroup, onProgress, force)
+  const rows = p.filter(all).sort(p.sort).slice(0, p.limit)
+  const hits = rows.map((r) => {
+    let badge = p.tabLabel ?? p.label
+    if (id === 'rs-scan' || id === 'rs-weak') badge = `RS ${Math.round(r.rsRating ?? 0)}`
+    else if (id === 'volume-surge') badge = `VOL ${(r.volRatio ?? 1).toFixed(1)}x AVG`
+    else if (id === '52w-highs') badge = r.pctFrom52H != null && r.pctFrom52H < 0.05 ? 'AT 52W HIGH' : `${(r.pctFrom52H ?? 0).toFixed(1)}% FROM 52W HIGH`
+    else if (id === '52w-lows') badge = 'NEAR 52W LOW'
+    else if (id === 'breakouts' || id === 'breakdowns') badge = (r.breakoutType ?? '').replace('-', ' ').toUpperCase() || badge.toUpperCase()
+    else if (id.startsWith('reversals')) badge = r.reversalType === 'bearish' ? 'BEARISH REVERSAL' : 'BULLISH REVERSAL'
+    return { symbol: r.symbol, badge }
+  })
+  return { hits, color: p.color, label: p.tabLabel ?? p.label }
+}
+
 // ─── MarketScannerPanel ───────────────────────────────────────────────────────
 export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
   const [activePreset, setActivePreset] = useState<string>('rs-scan')
@@ -2611,292 +2967,6 @@ export const MarketScannerPanel = React.memo(function MarketScannerPanel() {
   const preset = SCAN_PRESETS.find((p) => p.id === activePreset) ?? SCAN_PRESETS[0]
 
   // ── Fetch helpers ───────────────────────────────────────────────────────────
-  const fetchSnapshotRows = async (): Promise<ScannerRow[]> => {
-    const tickers = SCANNER_UNIVERSE.join(',')
-    const url = `/api/polygon/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers}&apikey=${POLYGON_API_KEY}`
-    const resp = await fetch(url)
-    const data = await resp.json()
-    const snaps: any[] = data.tickers || []
-    return snaps
-      .filter((s: any) => {
-        const price = s.day?.c || s.lastTrade?.p || 0
-        return price >= 1 && s.prevDay?.c > 0
-      })
-      .map((s: any) => {
-        const price = s.day?.c || s.lastTrade?.p || 0
-        const prevClose = s.prevDay?.c
-        const change = price - prevClose
-        const changePct = (change / prevClose) * 100
-        return { symbol: s.ticker, price, change, changePct, volume: s.day?.v || 0 } as ScannerRow
-      })
-  }
-
-  const fetchBarsRows = async (
-    days: number,
-    onProgress: (pct: number) => void
-  ): Promise<ScannerRow[]> => {
-    const snapRows = await fetchSnapshotRows()
-    const snapMap: Record<string, ScannerRow> = {}
-    snapRows.forEach((r) => { snapMap[r.symbol] = r })
-
-    const today = new Date().toISOString().split('T')[0]
-    const from = new Date(Date.now() - days * 86400_000).toISOString().split('T')[0]
-    const batchSize = 10
-    const result: ScannerRow[] = []
-
-    for (let i = 0; i < SCANNER_UNIVERSE.length; i += batchSize) {
-      const batch = SCANNER_UNIVERSE.slice(i, i + batchSize)
-      const batchRes = await Promise.all(
-        batch.map(async (sym) => {
-          try {
-            const r = await fetch(
-              `/api/polygon/v2/aggs/ticker/${sym}/range/1/day/${from}/${today}?adjusted=true&sort=asc&limit=300&apikey=${POLYGON_API_KEY}`
-            )
-            const d = await r.json()
-            const bars: any[] = d.results || []
-            if (bars.length < 15) return null
-
-            const n = bars.length
-            const closes = bars.map((b: any) => b.c)
-            const highs = bars.map((b: any) => b.h)
-            const lows = bars.map((b: any) => b.l)
-            const vols = bars.map((b: any) => b.v)
-            const opens = bars.map((b: any) => b.o)
-
-            const snap = snapMap[sym]
-            const price = snap?.price || closes[n - 1]
-            const prevClose = closes[n - 2] || closes[n - 1]
-            const change = price - prevClose
-            const changePct = (change / prevClose) * 100
-            const volume = snap?.volume || vols[n - 1]
-
-            const volBars = vols.slice(Math.max(0, n - 21), n - 1)
-            const avgVolume =
-              volBars.length > 0
-                ? volBars.reduce((s: number, v: number) => s + v, 0) / volBars.length
-                : 0
-            const volRatio = avgVolume > 0 ? volume / avgVolume : 1
-
-            // Multi-period volume averages (trading days only, excl. today)
-            const vol5avg = n >= 6 ? vols.slice(n - 6, n - 1).reduce((a: number, b: number) => a + b, 0) / 5 : avgVolume
-            const vol13avg = n >= 14 ? vols.slice(n - 14, n - 1).reduce((a: number, b: number) => a + b, 0) / 13 : avgVolume
-            const vol252avg = n >= 13 ? vols.slice(Math.max(0, n - 253), n - 1).reduce((a: number, b: number) => a + b, 0) / Math.min(252, n - 1) : avgVolume
-
-            const ema8arr = calcEMAArr(closes, 8)
-            const ema21arr = calcEMAArr(closes, 21)
-            const ema8 = ema8arr[n - 1]
-            const ema21 = ema21arr[n - 1]
-            const rsi14 = calcLastRSI(closes, 14)
-
-            const atrLen = Math.min(14, n - 1)
-            let atrSum = 0
-            for (let j = n - atrLen; j < n; j++) {
-              const tr = Math.max(
-                highs[j] - lows[j],
-                Math.abs(highs[j] - closes[j - 1]),
-                Math.abs(lows[j] - closes[j - 1])
-              )
-              atrSum += tr
-            }
-            const atr14 = atrSum / atrLen
-            const atrPct = (atr14 / price) * 100
-
-            let high52w: number | undefined,
-              low52w: number | undefined,
-              position52w: number | undefined,
-              pctFrom52H: number | undefined
-            if (days >= 250) {
-              high52w = Math.max(...highs)
-              low52w = Math.min(...lows)
-              const r52 = high52w - low52w
-              position52w = r52 > 0 ? (price - low52w) / r52 : 0.5
-              pctFrom52H = ((high52w - price) / high52w) * 100
-            }
-
-            const wk = bars.slice(Math.max(0, n - 5))
-            const weekHigh = Math.max(...wk.map((b: any) => b.h))
-            const weekLow = Math.min(...wk.map((b: any) => b.l))
-
-            let ma50: number | undefined
-            if (n >= 50) {
-              const m = closes.slice(Math.max(0, n - 50))
-              ma50 = m.reduce((s: number, c: number) => s + c, 0) / m.length
-            }
-
-            // Composite Momentum Score (0–100)
-            const momentumScore = Math.round(
-              Math.min(100, Math.max(0,
-                (rsi14 - 30) * 0.9 +
-                (price > ema8 ? 8 : 0) +
-                (ema8 > ema21 ? 8 : 0) +
-                (ma50 && price > ma50 ? 6 : 0) +
-                (volRatio >= 2 ? 10 : volRatio >= 1.5 ? 7 : volRatio >= 1.2 ? 4 : 0) +
-                (changePct > 3 ? 6 : changePct > 1 ? 4 : changePct > 0 ? 2 : -2)
-              ))
-            )
-
-            // Composite Downtrend Score (0–100)
-            const downtrendScore = Math.round(
-              Math.min(100, Math.max(0,
-                (70 - rsi14) * 0.9 +
-                (price < ema8 ? 8 : 0) +
-                (ema8 < ema21 ? 8 : 0) +
-                (ma50 && price < ma50 ? 6 : 0) +
-                (volRatio >= 2 ? 10 : volRatio >= 1.5 ? 7 : volRatio >= 1.2 ? 4 : 0) +
-                (changePct < -3 ? 6 : changePct < -1 ? 4 : changePct < 0 ? 2 : -2)
-              ))
-            )
-
-            let breakoutType: ScannerRow['breakoutType']
-            if (high52w && low52w && ma50 && atr14 > 0) {
-              const d52H = (high52w - price) / atr14
-              const dWkH = (weekHigh - price) / atr14
-              const d52L = (price - low52w) / atr14
-              const dWkL = (price - weekLow) / atr14
-              if (price > ma50 && d52H <= 0.6 && volRatio >= 1.3) breakoutType = '52w-high'
-              else if (price > ma50 && dWkH <= 0.35 && volRatio >= 1.2) breakoutType = 'week-high'
-              else if (price < ma50 && d52L <= 0.6 && volRatio >= 1.3) breakoutType = '52w-low'
-              else if (price < ma50 && dWkL <= 0.35 && volRatio >= 1.2) breakoutType = 'week-low'
-            }
-
-            let reversalType: ScannerRow['reversalType']
-            if (n >= 3) {
-              const prevRSI = calcLastRSI(closes.slice(0, n - 1), 14)
-              const prevE21 = ema21arr[n - 2]
-              const prevE8 = ema8arr[n - 2]
-              const bullBody = closes[n - 1] > opens[n - 1]
-              const bearBody = closes[n - 1] < opens[n - 1]
-              const rsiRec = prevRSI < 40 && rsi14 >= 40
-              const e21Rec = closes[n - 2] < prevE21 && price >= ema21
-              const e8Rec = closes[n - 2] < prevE8 && price >= ema8
-              const rsiRoll = prevRSI > 60 && rsi14 <= 60
-              const e21Br = closes[n - 2] > prevE21 && price <= ema21
-              const e8Br = closes[n - 2] > prevE8 && price <= ema8
-              const bSigs = (rsiRec ? 1 : 0) + (e21Rec ? 1 : 0) + (e8Rec ? 1 : 0)
-              const rSigs = (rsiRoll ? 1 : 0) + (e21Br ? 1 : 0) + (e8Br ? 1 : 0)
-              if (bSigs >= 2 && volRatio >= 1.1 && bullBody && rsi14 < 65) reversalType = 'bullish'
-              else if (rSigs >= 2 && volRatio >= 1.1 && bearBody && rsi14 > 35) reversalType = 'bearish'
-            }
-
-            // ── RS Rating raw score (percentile-ranked below after batch) ──────
-            const ret5d = n >= 6 ? (closes[n - 1] / closes[n - 6] - 1) * 100 : changePct
-            const ret21d = n >= 22 ? (closes[n - 1] / closes[n - 22] - 1) * 100 : changePct
-            const ret63d = n >= 64 ? (closes[n - 1] / closes[n - 64] - 1) * 100 : changePct
-            const ret126d = n >= 127 ? (closes[n - 1] / closes[n - 127] - 1) * 100 : ret63d
-            const rsRaw = ret63d * 0.4 + ret21d * 0.3 + ret126d * 0.2 + ret5d * 0.1
-
-            // ── Volume patterns ───────────────────────────────────────────────
-            let volPattern: ScannerRow['volPattern']
-            if (n >= 5 && avgVolume > 0) {
-              // Push + low-vol pullback: big up move 1-4 days ago on high vol, today low vol pullback
-              const prevHighVolUp = (() => {
-                for (let j = Math.max(1, n - 4); j < n - 1; j++) {
-                  const dc = (closes[j] - closes[j - 1]) / closes[j - 1] * 100
-                  if (dc > 1.5 && vols[j] > avgVolume * 1.4) return true
-                }
-                return false
-              })()
-              if (prevHighVolUp && changePct < 0 && changePct > -4 && volume < avgVolume * 0.85) volPattern = 'push-pull'
-
-              // High-vol bounce: was trending down, today bouncing on above-avg vol
-              if (!volPattern) {
-                const wasDown = closes[n - 2] < closes[Math.max(0, n - 6)]
-                if (wasDown && changePct > 0.5 && volume > avgVolume * 1.4) volPattern = 'hv-bounce'
-              }
-
-              // Quiet fall + vol bounce: fell on low vol past 3 days, now bouncing on higher vol
-              if (!volPattern) {
-                let lowVolDays = 0, downDays = 0
-                for (let j = Math.max(1, n - 4); j < n - 1; j++) {
-                  if (closes[j] < closes[j - 1]) downDays++
-                  if (vols[j] < avgVolume * 0.85) lowVolDays++
-                }
-                if (downDays >= 2 && lowVolDays >= 2 && changePct > 0 && volume > avgVolume * 1.2) volPattern = 'qf-bounce'
-              }
-
-              // High-vol fall + low-vol bounce (dead cat watch)
-              if (!volPattern) {
-                const prevHighVolDown = (() => {
-                  for (let j = Math.max(1, n - 4); j < n - 1; j++) {
-                    const dc = (closes[j] - closes[j - 1]) / closes[j - 1] * 100
-                    if (dc < -1.5 && vols[j] > avgVolume * 1.3) return true
-                  }
-                  return false
-                })()
-                if (prevHighVolDown && changePct > 0 && volume < avgVolume * 0.8) volPattern = 'hv-fall-lv-bounce'
-              }
-            }
-
-            // ── Accumulation/Distribution Score: body-weighted volume on up/down candles ─
-            const adLen = Math.min(21, n)
-            let upWtVol = 0, downWtVol = 0
-            for (let j = n - adLen; j < n; j++) {
-              const bodyPct = Math.abs(closes[j] - opens[j]) / (closes[j] || 1)
-              const weighted = vols[j] * (bodyPct + 0.001) // small floor so flat days still count
-              if (closes[j] > opens[j]) upWtVol += weighted
-              else if (closes[j] < opens[j]) downWtVol += weighted
-            }
-            const adScore = (upWtVol + downWtVol) > 0 ? Math.round(upWtVol / (upWtVol + downWtVol) * 100) : 50
-
-            // ── Volume acceleration: 5-day avg / 20-day avg (rising = building interest) ─
-            const vol5avgAccel = n >= 5 ? vols.slice(n - 5).reduce((a, b) => a + b, 0) / 5 : volume
-            const vol20avg = n >= 20 ? vols.slice(n - 20).reduce((a, b) => a + b, 0) / 20 : (avgVolume || volume)
-            const volAccel = vol20avg > 0 ? Math.round((vol5avgAccel / vol20avg) * 100) / 100 : 1
-
-            // ── Base tightness: stdev of last 10 closes / price (low = coiling) ──
-            const t10 = closes.slice(Math.max(0, n - 10))
-            const tMean = t10.reduce((a: number, b: number) => a + b, 0) / t10.length
-            const tightness = Math.round(
-              (Math.sqrt(t10.reduce((s: number, c: number) => s + (c - tMean) ** 2, 0) / t10.length) / price) * 10000
-            ) / 100
-
-            // ── Trend persistence: up-closes in last 10 bars ──
-            let upDays10 = 0
-            for (let j = Math.max(1, n - 10); j < n; j++) {
-              if (closes[j] > closes[j - 1]) upDays10++
-            }
-
-            // ── Month / Quarter highs for breakout filters ───────────────────
-            const monthHigh = n >= 5 ? Math.max(...highs.slice(Math.max(0, n - 21))) : undefined
-            const quarterHigh = n >= 5 ? Math.max(...highs.slice(Math.max(0, n - 63))) : undefined
-
-            // ── First 52w break: price at/near 52w high but wasn’t there 3 weeks ago ─
-            const prev3wHigh = n >= 20 ? Math.max(...highs.slice(Math.max(0, n - 20), n - 1)) : 0
-            const is52wBreak = high52w !== undefined && pctFrom52H !== undefined &&
-              pctFrom52H <= 1.5 && prev3wHigh < high52w * 0.985
-
-            return {
-              symbol: sym, price, change, changePct, volume,
-              avgVolume: avgVolume || undefined, volRatio, high52w, low52w,
-              position52w, pctFrom52H, weekHigh, weekLow, ma50, ema8, ema21,
-              rsi14, atr14, atrPct, momentumScore, downtrendScore,
-              rsRating: rsRaw, adScore, volAccel, tightness, upDays10,
-              vol5avg, vol13avg, vol252avg, volPattern,
-              breakoutType, reversalType,
-              monthHigh, quarterHigh, is52wBreak,
-            } as ScannerRow
-          } catch {
-            return null
-          }
-        })
-      )
-      batchRes.forEach((r) => { if (r) result.push(r) })
-      onProgress(Math.min(99, Math.round(((i + batchSize) / SCANNER_UNIVERSE.length) * 100)))
-    }
-
-    // Normalize rsRating: raw weighted return → 1-99 percentile rank
-    if (result.length > 1) {
-      const withIdx = result.map((r, i) => ({ i, raw: r.rsRating ?? 0 }))
-      withIdx.sort((a, b) => a.raw - b.raw)
-      const nR = withIdx.length
-      withIdx.forEach((item, rank) => {
-        result[item.i].rsRating = Math.max(1, Math.min(99, Math.round(rank / (nR - 1) * 99)))
-      })
-    }
-
-    return result
-  }
-
   const fetchSingleSparkline = useCallback(async (symbol: string, tf: '1D' | '5M' | '1H' | '1W') => {
     const todayStr = new Date().toISOString().split('T')[0]
     let url: string

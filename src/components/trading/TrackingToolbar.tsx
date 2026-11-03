@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from 'react'
 
+import { SCREEN_OPTIONS, runScreen, type ScreenHit } from './RegimesPanel'
 import { dailyBars, type TrackingChartType, type TrackingTf } from './TrackingCard'
 
 export type TrackingScan =
@@ -10,6 +11,7 @@ export type TrackingScan =
   | { kind: 'lo52' }
   | { kind: 'perf'; period: 'MTD' | 'QTD' | 'YTD'; dir: 'win' | 'lose' }
   | { kind: 'chop'; period: 'D' | 'W' | 'M' | 'Q' }
+  | { kind: 'screen'; id: string }
 
 type Bar = { t: number; o: number; h: number; l: number; c: number }
 type Badge = { text: string; color: string }
@@ -78,8 +80,28 @@ export function useTrackingScan<T extends { title: string; symbols: string[]; co
   scan: TrackingScan
 ) {
   const [daily, setDaily] = useState<Record<string, Bar[]>>({})
-  const active = scan.kind !== 'off'
+  const [screenRes, setScreenRes] = useState<{
+    id: string
+    hits: ScreenHit[]
+    color: string
+    label: string
+  } | null>(null)
+  const [screenPct, setScreenPct] = useState(0)
+  const screenId = scan.kind === 'screen' ? scan.id : null
+  const active = scan.kind !== 'off' && scan.kind !== 'screen'
   const all = useMemo(() => Array.from(new Set(categories.flatMap((c) => c.symbols))), [categories])
+
+  useEffect(() => {
+    if (!screenId) return
+    let dead = false
+    setScreenPct(0)
+    runScreen(screenId, (p) => !dead && setScreenPct(p))
+      .then((r) => !dead && setScreenRes({ id: screenId, ...r }))
+      .catch(() => !dead && setScreenRes({ id: screenId, hits: [], color: '#1a4d8f', label: 'SCREEN FAILED' }))
+    return () => {
+      dead = true
+    }
+  }, [screenId])
 
   useEffect(() => {
     if (!active) return
@@ -116,6 +138,23 @@ export function useTrackingScan<T extends { title: string; symbols: string[]; co
     return { categories: out as T[], badges, matches }
   }, [categories, daily, scan, active])
 
+  if (screenId) {
+    const ready = screenRes && screenRes.id === screenId ? screenRes : null
+    const badges: Record<string, Badge> = {}
+    ready?.hits.forEach((h) => (badges[h.symbol] = { text: h.badge, color: ready.color }))
+    const cats = ready && ready.hits.length
+      ? [{ title: `SCREEN · ${ready.label.toUpperCase()}`, symbols: ready.hits.map((h) => h.symbol), color: ready.color }]
+      : []
+    return {
+      categories: cats as unknown as T[],
+      badges,
+      matches: ready?.hits.length ?? 0,
+      loading: !ready,
+      loaded: screenPct,
+      total: 100,
+    }
+  }
+
   return { ...result, loading: active && loaded < all.length, loaded, total: all.length }
 }
 
@@ -129,7 +168,7 @@ interface ToolbarProps {
   status?: { loading: boolean; loaded: number; total: number; matches: number }
 }
 
-const seg = (on: boolean, tone = '#FF6600'): React.CSSProperties => ({
+const seg = (on: boolean, tone = '#ffffff'): React.CSSProperties => ({
   padding: '6px 12px',
   fontSize: 12,
   fontWeight: 800,
@@ -148,6 +187,7 @@ const group: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: 2,
+  flexShrink: 0,
   background: '#0b0b0e',
   border: '1px solid #26262b',
   borderRadius: 7,
@@ -155,17 +195,18 @@ const group: React.CSSProperties = {
 }
 
 const label: React.CSSProperties = {
-  fontSize: 10,
+  fontSize: 11,
   fontWeight: 800,
-  letterSpacing: '1px',
-  color: '#FF8A33',
-  fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-  padding: '0 8px 0 6px',
+  letterSpacing: '0.5px',
+  color: '#ffffff',
+  fontFamily: 'monospace',
+  padding: '0 5px 0 4px',
+  whiteSpace: 'nowrap',
 }
 
-const sel = (on: boolean, tone = '#FF6600'): React.CSSProperties => ({
-  padding: '6px 10px',
-  fontSize: 12,
+const sel = (on: boolean, tone = '#ffffff'): React.CSSProperties => ({
+  padding: '5px 4px',
+  fontSize: 11,
   fontWeight: 800,
   fontFamily: 'monospace',
   background: '#15151a',
@@ -179,7 +220,7 @@ const sel = (on: boolean, tone = '#FF6600'): React.CSSProperties => ({
 export default function TrackingToolbar({ tf, onTf, type, onType, scan, onScan, status }: ToolbarProps) {
   const perf = scan.kind === 'perf' ? scan : null
   const chop = scan.kind === 'chop' ? scan : null
-  const row: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }
+  const row: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap', overflowX: 'auto' }
 
   return (
     <div
@@ -214,12 +255,17 @@ export default function TrackingToolbar({ tf, onTf, type, onType, scan, onScan, 
 
         <div style={group}>
           <span style={label}>52 WEEK</span>
-          <button style={seg(scan.kind === 'hi52', UP)} onClick={() => onScan(scan.kind === 'hi52' ? { kind: 'off' } : { kind: 'hi52' })}>
-            HIGHS
-          </button>
-          <button style={seg(scan.kind === 'lo52', DOWN)} onClick={() => onScan(scan.kind === 'lo52' ? { kind: 'off' } : { kind: 'lo52' })}>
-            LOWS
-          </button>
+          <select
+            style={sel(scan.kind === 'hi52' || scan.kind === 'lo52')}
+            value={scan.kind === 'hi52' || scan.kind === 'lo52' ? scan.kind : ''}
+            onChange={(e) =>
+              e.target.value ? onScan({ kind: e.target.value as 'hi52' | 'lo52' }) : onScan({ kind: 'off' })
+            }
+          >
+            <option value="">SELECT...</option>
+            <option value="hi52">HIGHS</option>
+            <option value="lo52">LOWS</option>
+          </select>
         </div>
 
         <div style={group}>
@@ -244,9 +290,9 @@ export default function TrackingToolbar({ tf, onTf, type, onType, scan, onScan, 
         </div>
 
         <div style={group}>
-          <span style={label}>CHOP / RANGE-BOUND</span>
+          <span style={label}>RANGE-BOUND</span>
           <select
-            style={sel(!!chop, AMBER)}
+            style={sel(!!chop)}
             value={chop?.period ?? ''}
             onChange={(e) =>
               e.target.value
@@ -262,6 +308,24 @@ export default function TrackingToolbar({ tf, onTf, type, onType, scan, onScan, 
           </select>
         </div>
 
+        <div style={group}>
+          <span style={label}>SCREENING</span>
+          <select
+            style={sel(scan.kind === 'screen')}
+            value={scan.kind === 'screen' ? scan.id : ''}
+            onChange={(e) =>
+              e.target.value ? onScan({ kind: 'screen', id: e.target.value }) : onScan({ kind: 'off' })
+            }
+          >
+            <option value="">SELECT...</option>
+            {SCREEN_OPTIONS.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label.toUpperCase()}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {scan.kind !== 'off' && (
           <button
             onClick={() => onScan({ kind: 'off' })}
@@ -270,9 +334,9 @@ export default function TrackingToolbar({ tf, onTf, type, onType, scan, onScan, 
             ✕ CLEAR
           </button>
         )}
-        {scan.kind !== 'off' && status && (
+        {scan.kind !== 'off' && status && status.loading && (
           <span style={{ fontSize: 12, fontWeight: 800, fontFamily: 'monospace', color: '#fff' }}>
-            {status.loading ? `SCANNING ${status.loaded}/${status.total}...` : `${status.matches} MATCHES`}
+            {scan.kind === 'screen' ? `SCREENING ${status.loaded}%...` : `SCANNING ${status.loaded}/${status.total}...`}
           </span>
         )}
       </div>

@@ -18,7 +18,9 @@
     --glass-border: rgba(255, 102, 0, 0.2);
 }
 
-* {
+/* This unlayered reset overrides Tailwind v4's layered padding/margin utilities.
+   The News panel is exempt so its spacing classes (p-5, space-y-8, gap-*) work. */
+*:where(:not(.news-scope):not(.news-scope *)) {
     margin: 0;
     padding: 0;
     box-sizing: border-box;

@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react'
 
 import DealerGEXChart from './DealerGEXChart'
 import DealerOpenInterestChart from './DealerOpenInterestChart'
+import OIConcentration3D from './OIConcentration3D'
 
 // DESKTOP ONLY - OI/GEX Tab Component
 const DealerAttractionOIDesktop: React.FC<{
@@ -57,433 +58,143 @@ const DealerAttractionOIDesktop: React.FC<{
 
   return (
     <div className="space-y-8">
-      {/* DESKTOP Control Bar - Single Row Layout */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, max-content))',
-          gap: '8px',
-          padding: '12px',
-          background: '#000000',
-          borderRadius: '12px',
-          border: '1px solid #333333',
-          boxShadow: `
-          0 8px 32px rgba(0, 0, 0, 0.8),
-          0 2px 8px rgba(0, 0, 0, 0.6),
-          inset 0 1px 0 rgba(255, 255, 255, 0.1),
-          inset 0 -1px 0 rgba(0, 0, 0, 0.8)
-        `,
-          position: 'relative' as const,
-          zIndex: 100,
-          transform: 'translateZ(0)',
-          backdropFilter: 'blur(20px)',
-        }}
-      >
-        {/* 3D Highlight Effect */}
-        <div
-          style={{
-            position: 'absolute' as const,
-            top: '1px',
-            left: '1px',
-            right: '1px',
-            height: '50%',
-            background: 'rgba(255, 255, 255, 0.05)',
-            borderRadius: '12px 12px 0 0',
-            pointerEvents: 'none' as const,
-          }}
-        />
-
-        {/* Expiration Selector */}
-        <select
-          value={sharedExpiration}
-          onChange={(e) => setSharedExpiration(e.target.value)}
-          style={{
-            background: '#000000',
-            border: '1px solid #333333',
-            borderRadius: '8px',
-            color: '#ffffff',
-            padding: '10px 12px',
-            fontSize: '15px',
-            fontWeight: '700',
-            outline: 'none',
-            cursor: 'pointer',
-            transition: 'all 0.2s ease',
-            fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
-            boxShadow: `
-              inset 0 2px 4px rgba(0, 0, 0, 0.6),
-              inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-              0 1px 0 rgba(255, 255, 255, 0.1)
-            `,
-            textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
-            zIndex: 1,
-          }}
-        >
-          <option
-            key="all-expirations"
-            value="all-expirations"
-            style={{ background: '#000000', color: '#ffffff', fontWeight: '600' }}
-          >
-            All Expirations
-          </option>
-          <option
-            key="45-days"
-            value="45-days"
-            style={{ background: '#000000', color: '#ffffff', fontWeight: '600' }}
-          >
-            45 Days (All)
-          </option>
-          {expirationDates.map((date) => (
-            <option key={date} value={date} style={{ background: '#000000', color: '#ffffff' }}>
-              {new Date(date + 'T12:00:00').toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-                timeZone: 'America/Los_Angeles',
-              })}
-            </option>
-          ))}
-        </select>
-
-        {/* 90% Range P/C Display */}
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column' as const,
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '2px',
-            padding: '6px 8px',
-            background: '#000000',
-            borderRadius: '8px',
-            border: '1px solid #333333',
-            boxShadow: `
-            inset 0 2px 4px rgba(0, 0, 0, 0.6),
-            inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-            0 1px 0 rgba(255, 255, 255, 0.1)
-          `,
-            zIndex: 1,
-          }}
-        >
-          <div
-            style={{
-              color: '#ff6600',
-              fontSize: '11px',
-              fontWeight: '600',
-              letterSpacing: '0.5px',
-              textTransform: 'uppercase' as const,
-            }}
-          >
-            90% Range P/C
-          </div>
-          <div
-            style={{
-              color: '#ffffff',
-              fontSize: '13px',
-              fontWeight: '600',
-              fontFamily: '"SF Mono", "Monaco", "Courier New", monospace',
-            }}
-          >
-            {expectedRangePCRatio || 'Calc...'}
-          </div>
-        </div>
-
-        {/* 45D P/C Display */}
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column' as const,
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '2px',
-            padding: '6px 8px',
-            background: '#000000',
-            borderRadius: '8px',
-            border: '1px solid #333333',
-            boxShadow: `
-            inset 0 2px 4px rgba(0, 0, 0, 0.6),
-            inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-            0 1px 0 rgba(255, 255, 255, 0.1)
-          `,
-            zIndex: 1,
-          }}
-        >
-          <div
-            style={{
-              color: '#ff6600',
-              fontSize: '11px',
-              fontWeight: '600',
-              letterSpacing: '0.5px',
-              textTransform: 'uppercase' as const,
-            }}
-          >
-            45D P/C
-          </div>
-          <div
-            style={{
-              color: '#ffffff',
-              fontSize: '13px',
-              fontWeight: '600',
-              fontFamily: '"SF Mono", "Monaco", "Courier New", monospace',
-            }}
-          >
-            {cumulativePCRatio45Days || 'Calc...'}
-          </div>
-        </div>
-
-        {/* Premium Button */}
-        <button
-          onClick={() => setShowPremium(!showPremium)}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '4px',
-            padding: '8px 10px',
-            background: showPremium ? 'rgba(255, 170, 0, 0.2)' : '#000000',
-            border: showPremium ? '1px solid #ffaa00' : '1px solid #333333',
-            borderRadius: '8px',
-            color: showPremium ? '#ffaa00' : '#ffffff',
-            fontSize: '13px',
-            fontWeight: '600',
-            cursor: 'pointer',
-            transition: 'all 0.2s ease',
-            boxShadow: showPremium
-              ? 'none'
-              : `
-              inset 0 2px 4px rgba(0, 0, 0, 0.6),
-              inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-              0 1px 0 rgba(255, 255, 255, 0.1)
-            `,
-            textTransform: 'uppercase' as const,
-            letterSpacing: '0.5px',
-            zIndex: 1,
-          }}
-        >
-          💰 Premium
-        </button>
-
-        {/* AI Button */}
-        <button
-          onClick={() => setShowAITowers(!showAITowers)}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '4px',
-            padding: '8px 10px',
-            background: showAITowers
-              ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-              : '#000000',
-            border: showAITowers ? '1px solid #667eea' : '1px solid #333333',
-            borderRadius: '8px',
-            color: '#ffffff',
-            fontSize: '13px',
-            fontWeight: '600',
-            cursor: 'pointer',
-            transition: 'all 0.2s ease',
-            boxShadow: showAITowers
-              ? '0 4px 12px rgba(102, 126, 234, 0.4)'
-              : `
-              inset 0 2px 4px rgba(0, 0, 0, 0.6),
-              inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-              0 1px 0 rgba(255, 255, 255, 0.1)
-            `,
-            textTransform: 'uppercase' as const,
-            letterSpacing: '0.5px',
-            zIndex: 1,
-          }}
-        >
-          👑 AI
-        </button>
-
-        {/* DESKTOP: Separate OI Dropdown - Shows 'OI' Title */}
-        <div style={{ position: 'relative' as const, display: 'flex', alignItems: 'center' }}>
-          <div
-            style={{
-              position: 'absolute' as const,
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              color: '#ff6600',
-              fontSize: '15px',
-              fontWeight: '700',
-              pointerEvents: 'none' as const,
-              zIndex: 2,
-              textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
-              letterSpacing: '1px',
-              lineHeight: '1',
-            }}
-          >
-            OI
-          </div>
+      {/* DESKTOP Control Bar */}
+      <style>{`
+        .oi-bar { display:flex; align-items:stretch; flex-wrap:nowrap; gap:8px; padding:8px 10px; overflow-x:auto; background:#050505; border:1px solid #1f1f1f; border-radius:10px; position:relative; z-index:100; font-family:Inter,"SF Pro Display",-apple-system,BlinkMacSystemFont,sans-serif; }
+        .oi-group { display:flex; align-items:stretch; gap:8px; flex:0 0 auto; }
+        .oi-divider { width:1px; background:#1f1f1f; margin:4px 2px; }
+        .oi-select { height:40px; padding:0 30px 0 12px; background:#0b0b0b url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 9L1 4h10z'/%3E%3C/svg%3E") no-repeat right 12px center; border:1px solid #262626; border-radius:8px; color:#fff; font-size:15px; font-weight:700; outline:none; cursor:pointer; appearance:none; -webkit-appearance:none; transition:border-color .15s; }
+        .oi-select:hover, .oi-select:focus { border-color:#555; }
+        .oi-select option { background:#000; color:#fff; font-size:15px; }
+        .oi-stat { display:flex; flex-direction:column; justify-content:center; gap:3px; min-width:0; padding:0 12px; height:40px; background:#0b0b0b; border:1px solid #262626; border-radius:8px; }
+        .oi-stat-label { color:#8a8a8a; font-size:10.5px; font-weight:700; letter-spacing:.8px; text-transform:uppercase; line-height:1; }
+        .oi-stat-value { color:#fff; font-size:14px; font-weight:700; font-family:"SF Mono",Menlo,Consolas,monospace; line-height:1; }
+        .oi-toggle { height:40px; padding:0 14px; white-space:nowrap; display:flex; align-items:center; gap:8px; background:#0b0b0b; border:1px solid #262626; border-radius:8px; color:#bdbdbd; font-size:13px; font-weight:800; letter-spacing:.8px; text-transform:uppercase; cursor:pointer; transition:all .15s; }
+        .oi-toggle:hover { border-color:#444; color:#fff; }
+        .oi-toggle.on-premium { background:#2a2a2a; border-color:#ffaa00; color:#ffaa00; }
+        .oi-toggle.on-ai { background:#2a2a2a; border-color:#9b86ff; color:#c4b5ff; }
+        .oi-seg { display:flex; align-items:stretch; height:40px; background:#0b0b0b; border:1px solid #262626; border-radius:8px; overflow:hidden; }
+        .oi-seg-title { display:flex; align-items:center; padding:0 12px; font-size:12px; font-weight:900; letter-spacing:1.2px; border-right:1px solid #262626; }
+        .oi-seg button { padding:0 11px; background:transparent; border:none; border-right:1px solid #1a1a1a; color:#9a9a9a; font-size:13px; font-weight:700; cursor:pointer; transition:all .15s; white-space:nowrap; }
+        .oi-seg button:last-child { border-right:none; }
+        .oi-seg button:hover { color:#fff; background:#141414; }
+        .oi-seg.oi button.active { background:#2a2a2a; color:#fff; box-shadow:inset 0 -2px 0 #ff6600; }
+        .oi-seg.gex button.active { background:#2a2a2a; color:#fff; box-shadow:inset 0 -2px 0 #9b86ff; }
+      `}</style>
+      <div className="oi-bar">
+        <div className="oi-group">
           <select
-            value={
-              showNetOI ? 'net' : showCalls && showPuts ? 'both' : showCalls ? 'calls' : 'puts'
-            }
-            onChange={(e) => {
-              const value = e.target.value
-              if (value === 'both') {
-                setShowCalls(true)
-                setShowPuts(true)
-                setShowNetOI(false)
-              } else if (value === 'calls') {
-                setShowCalls(true)
-                setShowPuts(false)
-                setShowNetOI(false)
-              } else if (value === 'puts') {
-                setShowCalls(false)
-                setShowPuts(true)
-                setShowNetOI(false)
-              } else if (value === 'net') {
-                setShowNetOI(true)
-                setShowCalls(false)
-                setShowPuts(false)
-              }
-            }}
-            style={{
-              background: '#000000',
-              border: '1px solid #333333',
-              borderRadius: '8px',
-              color: 'transparent',
-              padding: '10px 32px',
-              fontSize: '13px',
-              fontWeight: '600',
-              outline: 'none',
-              cursor: 'pointer',
-              transition: 'all 0.2s ease',
-              fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
-              boxShadow: `
-                inset 0 2px 4px rgba(0, 0, 0, 0.6),
-                inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-                0 1px 0 rgba(255, 255, 255, 0.1)
-              `,
-              textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
-              zIndex: 1,
-              appearance: 'none' as const,
-              WebkitAppearance: 'none' as const,
-              MozAppearance: 'none' as const,
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M6 9L1 4h10z'/%3E%3C/svg%3E")`,
-              backgroundRepeat: 'no-repeat',
-              backgroundPosition: 'right 8px center',
-              paddingRight: '28px',
-              minWidth: '100px',
-            }}
+            className="oi-select"
+            value={sharedExpiration}
+            onChange={(e) => setSharedExpiration(e.target.value)}
           >
-            <option value="both" style={{ background: '#000000', color: '#ffffff' }}>
-              Calls + Puts
-            </option>
-            <option value="calls" style={{ background: '#000000', color: '#ffffff' }}>
-              Calls Only
-            </option>
-            <option value="puts" style={{ background: '#000000', color: '#ffffff' }}>
-              Puts Only
-            </option>
-            <option value="net" style={{ background: '#000000', color: '#ffffff' }}>
-              Net
-            </option>
+            <option value="all-expirations">All Expirations</option>
+            <option value="45-days">45 Days (All)</option>
+            {expirationDates.map((date) => (
+              <option key={date} value={date}>
+                {new Date(date + 'T12:00:00').toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric',
+                  timeZone: 'America/Los_Angeles',
+                })}
+              </option>
+            ))}
           </select>
+          <div className="oi-stat">
+            <span className="oi-stat-label">90% Range P/C</span>
+            <span className="oi-stat-value">{expectedRangePCRatio || 'Calc...'}</span>
+          </div>
+          <div className="oi-stat">
+            <span className="oi-stat-label">45D P/C</span>
+            <span className="oi-stat-value">{cumulativePCRatio45Days || 'Calc...'}</span>
+          </div>
         </div>
 
-        {/* DESKTOP: Separate GEX Dropdown - Shows 'GEX' Title */}
-        <div style={{ position: 'relative' as const, display: 'flex', alignItems: 'center' }}>
-          <div
-            style={{
-              position: 'absolute' as const,
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              color: '#667eea',
-              fontSize: '15px',
-              fontWeight: '700',
-              pointerEvents: 'none' as const,
-              zIndex: 2,
-              textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
-              letterSpacing: '1px',
-              lineHeight: '1',
-            }}
+        <div className="oi-group">
+          <button
+            className={`oi-toggle${showPremium ? ' on-premium' : ''}`}
+            onClick={() => setShowPremium(!showPremium)}
           >
-            GEX
+            💰 Premium
+          </button>
+          <button
+            className={`oi-toggle${showAITowers ? ' on-ai' : ''}`}
+            onClick={() => setShowAITowers(!showAITowers)}
+          >
+            👑 AI
+          </button>
+        </div>
+
+        <div className="oi-divider" />
+
+        <div className="oi-group">
+          <div className="oi-seg oi">
+            <span className="oi-seg-title" style={{ color: '#ff6600' }}>OI</span>
+            {[
+              { k: 'both', l: 'All' },
+              { k: 'calls', l: 'Calls' },
+              { k: 'puts', l: 'Puts' },
+              { k: 'net', l: 'Net' },
+            ].map(({ k, l }) => {
+              const cur = showNetOI ? 'net' : showCalls && showPuts ? 'both' : showCalls ? 'calls' : 'puts'
+              return (
+                <button
+                  key={k}
+                  className={cur === k ? 'active' : ''}
+                  onClick={() => {
+                    setShowNetOI(k === 'net')
+                    setShowCalls(k === 'both' || k === 'calls')
+                    setShowPuts(k === 'both' || k === 'puts')
+                  }}
+                >
+                  {l}
+                </button>
+              )
+            })}
           </div>
-          <select
-            value={
-              showNetGamma
+          <div className="oi-seg gex">
+            <span className="oi-seg-title" style={{ color: '#9b86ff' }}>GEX</span>
+            {[
+              { k: 'both', l: 'Both' },
+              { k: 'positive', l: 'Pos' },
+              { k: 'negative', l: 'Neg' },
+              { k: 'net', l: 'Net' },
+            ].map(({ k, l }) => {
+              const cur = showNetGamma
                 ? 'net'
                 : showPositiveGamma && showNegativeGamma
                   ? 'both'
                   : showPositiveGamma
                     ? 'positive'
                     : 'negative'
-            }
-            onChange={(e) => {
-              const value = e.target.value
-              if (value === 'both') {
-                setShowPositiveGamma(true)
-                setShowNegativeGamma(true)
-                setShowNetGamma(false)
-              } else if (value === 'positive') {
-                setShowPositiveGamma(true)
-                setShowNegativeGamma(false)
-                setShowNetGamma(false)
-              } else if (value === 'negative') {
-                setShowPositiveGamma(false)
-                setShowNegativeGamma(true)
-                setShowNetGamma(false)
-              } else if (value === 'net') {
-                setShowNetGamma(true)
-                setShowPositiveGamma(false)
-                setShowNegativeGamma(false)
-              }
-            }}
-            style={{
-              background: '#000000',
-              border: '1px solid #333333',
-              borderRadius: '8px',
-              color: 'transparent',
-              padding: '10px 40px',
-              fontSize: '13px',
-              fontWeight: '600',
-              outline: 'none',
-              cursor: 'pointer',
-              transition: 'all 0.2s ease',
-              fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
-              boxShadow: `
-                inset 0 2px 4px rgba(0, 0, 0, 0.6),
-                inset 0 -1px 0 rgba(255, 255, 255, 0.05),
-                0 1px 0 rgba(255, 255, 255, 0.1)
-              `,
-              textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
-              zIndex: 1,
-              appearance: 'none' as const,
-              WebkitAppearance: 'none' as const,
-              MozAppearance: 'none' as const,
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M6 9L1 4h10z'/%3E%3C/svg%3E")`,
-              backgroundRepeat: 'no-repeat',
-              backgroundPosition: 'right 8px center',
-              paddingRight: '28px',
-              minWidth: '120px',
-            }}
-          >
-            <option value="both" style={{ background: '#000000', color: '#ffffff' }}>
-              Pos + Neg
-            </option>
-            <option value="positive" style={{ background: '#000000', color: '#ffffff' }}>
-              Positive
-            </option>
-            <option value="negative" style={{ background: '#000000', color: '#ffffff' }}>
-              Negative
-            </option>
-            <option value="net" style={{ background: '#000000', color: '#ffffff' }}>
-              Net
-            </option>
-          </select>
+              return (
+                <button
+                  key={k}
+                  className={cur === k ? 'active' : ''}
+                  onClick={() => {
+                    setShowNetGamma(k === 'net')
+                    setShowPositiveGamma(k === 'both' || k === 'positive')
+                    setShowNegativeGamma(k === 'both' || k === 'negative')
+                  }}
+                >
+                  {l}
+                </button>
+              )
+            })}
+          </div>
         </div>
       </div>
 
       {/* DESKTOP: Normal size charts (no scaling) - Dynamic width based on table count */}
+      {showAITowers && (
+        <OIConcentration3D selectedTicker={selectedTicker} selectedExpiration={sharedExpiration} premium={showPremium} />
+      )}
       <div
         style={{
-          width: activeTableCount === 2 ? '1100px' : '1200px',
-          maxWidth: activeTableCount === 2 ? '1100px' : '1200px',
+          width: '100%',
+          maxWidth: '100%',
+          display: showAITowers ? 'none' : undefined,
         }}
       >
         <DealerOpenInterestChart
@@ -496,7 +207,6 @@ const DealerAttractionOIDesktop: React.FC<{
           showCalls={showCalls}
           showPuts={showPuts}
           showNetOI={showNetOI}
-          showTowers={showAITowers}
           onExpectedRangePCRatioChange={setExpectedRangePCRatio}
           onCumulativePCRatio45DaysChange={setCumulativePCRatio45Days}
           onExpectedRange90Change={setExpectedRange90}
@@ -504,8 +214,9 @@ const DealerAttractionOIDesktop: React.FC<{
       </div>
       <div
         style={{
-          width: activeTableCount === 2 ? '1100px' : '1200px',
-          maxWidth: activeTableCount === 2 ? '1100px' : '1200px',
+          width: '100%',
+          maxWidth: '100%',
+          display: showAITowers ? 'none' : undefined,
         }}
       >
         <DealerGEXChart
@@ -518,7 +229,6 @@ const DealerAttractionOIDesktop: React.FC<{
           showPositiveGamma={showPositiveGamma}
           showNegativeGamma={showNegativeGamma}
           showNetGamma={showNetGamma}
-          showAttrax={showAITowers}
           expectedRange90={expectedRange90}
         />
       </div>

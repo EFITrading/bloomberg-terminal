@@ -1,5 +1,6 @@
-'use client'
+﻿'use client'
 
+import { LuCalendarDays, LuNewspaper, LuRadioTower, LuTrendingUp } from 'react-icons/lu'
 import {
   TbActivity,
   TbAlertTriangle,
@@ -138,50 +139,6 @@ interface CalendarEvent {
 
 // ─── Company Logo (Polygon branding API — same as MarketHeatmap) ──────────────
 
-const _logoCache: Record<string, string | null> = {}
-const _logoCallbacks: Record<string, Array<(url: string | null) => void>> = {}
-let _logoActiveCount = 0
-const LOGO_MAX_CONCURRENT = 3
-
-function _processLogoQueue(apiKey: string) {
-  const pending = Object.keys(_logoCallbacks).filter((t) => _logoCache[t] === undefined)
-  while (_logoActiveCount < LOGO_MAX_CONCURRENT && pending.length > 0) {
-    const ticker = pending.shift()!
-    if (_logoCache[ticker] !== undefined) {
-      // already resolved while waiting
-      const cbs = _logoCallbacks[ticker] ?? []
-      delete _logoCallbacks[ticker]
-      cbs.forEach((cb) => cb(_logoCache[ticker]))
-      continue
-    }
-    _logoActiveCount++
-    fetch(`/api/polygon/v3/reference/tickers/${ticker}?apiKey=${apiKey}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        const rawUrl = data?.results?.branding?.icon_url || data?.results?.branding?.logo_url || null
-        // Polygon branding URLs point directly at api.polygon.io and require
-        // the real apiKey query param — proxy them through our own route
-        // (which injects the real server-side key) instead of hitting
-        // Polygon directly with an empty client-side key.
-        const url = rawUrl ? rawUrl.replace('https://api.polygon.io/', '/api/polygon/') : null
-        _logoCache[ticker] = url
-        const cbs = _logoCallbacks[ticker] ?? []
-        delete _logoCallbacks[ticker]
-        cbs.forEach((cb) => cb(url))
-      })
-      .catch(() => {
-        _logoCache[ticker] = null
-        const cbs = _logoCallbacks[ticker] ?? []
-        delete _logoCallbacks[ticker]
-        cbs.forEach((cb) => cb(null))
-      })
-      .finally(() => {
-        _logoActiveCount--
-        _processLogoQueue(apiKey)
-      })
-  }
-}
-
 // ── Black-Scholes helpers (same as EFICharting) ──────────────────────────────
 const _erf = (x: number): number => {
   const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741, a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911
@@ -229,29 +186,10 @@ const CompanyLogo: React.FC<{ ticker: string; size?: number; className?: string;
   className = '',
   fluid = false,
 }) => {
-  const [logoUrl, setLogoUrl] = React.useState<string | null>(
-    _logoCache[ticker] !== undefined ? _logoCache[ticker] : null
-  )
-  // Client never holds the real Polygon key — the /api/polygon proxy injects it server-side.
-  const POLYGON_KEY = ''
-
-  React.useEffect(() => {
-    if (!ticker) {
-      return
-    }
-    if (_logoCache[ticker] !== undefined) {
-      setLogoUrl(_logoCache[ticker])
-      return
-    }
-    // Enqueue this ticker
-    if (!_logoCallbacks[ticker]) {
-      _logoCallbacks[ticker] = []
-    }
-    _logoCallbacks[ticker].push((url) => {
-      setLogoUrl(url)
-    })
-    _processLogoQueue(POLYGON_KEY)
-  }, [ticker, POLYGON_KEY])
+  // Logos are stored in the DB and served by /api/ticker-logo (browser-cached); no per-load Polygon scan
+  const [failed, setFailed] = React.useState(false)
+  const logoUrl = !ticker || failed ? null : `/api/ticker-logo?ticker=${encodeURIComponent(ticker)}`
+  React.useEffect(() => setFailed(false), [ticker])
 
   const fluidStyle: React.CSSProperties = fluid
     ? { width: '100%', height: '100%', aspectRatio: '1 / 1' }
@@ -293,8 +231,7 @@ const CompanyLogo: React.FC<{ ticker: string; size?: number; className?: string;
       className={`rounded object-contain shrink-0 ${className}`}
       style={{ ...fluidStyle, background: 'rgba(255,255,255,0.06)', padding: '2px' }}
       onError={() => {
-        _logoCache[ticker] = null
-        setLogoUrl(null)
+        setFailed(true)
       }}
     />
   )
@@ -1536,8 +1473,8 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
       })
     const SectionTitle = ({ icon: Icon, title, meta }: { icon: any; title: string; meta?: string }) => (
       <div className="flex items-center gap-3 mb-4">
-        <span className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ background: '#FF4D4D26' }}>
-          <Icon className="w-[20px] h-[20px]" style={{ color: '#FF4D4D' }} />
+        <span className="flex items-center justify-center w-8 h-8">
+          <Icon className="w-[22px] h-[22px] text-white/80" />
         </span>
         <h3 className="text-white font-extrabold text-lg tracking-[0.12em] uppercase">{title}</h3>
         {meta && <span className="ml-auto text-sm font-bold text-white/55">{meta}</span>}
@@ -1555,72 +1492,94 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         )}
 
         {leadStory && (
-          <div className="grid grid-cols-1 xl:grid-cols-5 gap-5">
+          <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
             {/* LEAD STORY */}
             <a
               href={leadStory.article_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="group xl:col-span-3 relative rounded-2xl border border-white/10 hover:border-orange-500/50 overflow-hidden transition-all"
-              style={{ background: 'linear-gradient(160deg, #161616 0%, #0a0a0a 70%)' }}
+              className="group xl:col-span-3 relative flex rounded-xl border border-white/10 hover:border-white/25 overflow-hidden transition-colors bg-[#0c0c0d]"
             >
-              <div className="h-1 bg-gradient-to-r from-red-600 via-orange-500 to-transparent" />
-              <div className="p-7">
-                <div className="flex items-center gap-2.5 mb-5 flex-wrap">
-                  <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-red-600 text-white text-[12px] font-black tracking-[0.18em] uppercase">
-                    <TbFlame className="w-4 h-4" /> Breaking
+              <div className="w-1 shrink-0 bg-red-600" />
+              <div className="flex-1 min-w-0 p-8 flex flex-col">
+                <div className="flex items-center gap-3 text-[12px] font-bold uppercase tracking-[0.16em]">
+                  <span className="flex items-center gap-2 text-red-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                    Breaking
                   </span>
-                  {leadStory.tickers.slice(0, 4).map((t) => (
-                    <span key={t} className="px-2.5 py-1 rounded-md bg-white/10 text-white text-sm font-extrabold tracking-wider">
-                      {t}
+                  <span className="text-white/30">|</span>
+                  <span className="text-white/60 normal-case tracking-normal text-[13px] font-semibold">{leadStory.time_ago}</span>
+                  {leadStory.sentiment && (
+                    <span
+                      className={`ml-auto px-2.5 py-1 rounded text-[11px] tracking-widest ${leadStory.sentiment === 'positive'
+                        ? 'bg-emerald-500/10 text-emerald-300'
+                        : leadStory.sentiment === 'negative'
+                          ? 'bg-red-500/10 text-red-300'
+                          : 'bg-white/[0.06] text-white/70'
+                        }`}
+                    >
+                      {leadStory.sentiment === 'positive' ? 'Bullish' : leadStory.sentiment === 'negative' ? 'Bearish' : 'Neutral'}
                     </span>
-                  ))}
-                  <span className="ml-auto text-sm font-bold text-white/65">{leadStory.time_ago}</span>
+                  )}
                 </div>
-                <h2 className="text-white font-extrabold text-[28px] leading-[1.2] tracking-tight group-hover:text-orange-100 transition-colors">
+                <h2 className="mt-5 text-white font-bold text-[32px] leading-[1.15] tracking-tight group-hover:text-white/90">
                   {leadStory.title}
                 </h2>
                 {leadStory.description && (
-                  <p className="mt-4 text-white/75 text-[17px] leading-relaxed line-clamp-4">
+                  <p className="mt-5 text-white/70 text-[17px] leading-[1.65] line-clamp-4">
                     {leadStory.description}
                   </p>
                 )}
-                <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between">
-                  <span className="text-white/65 text-sm font-bold">{leadStory.publisher?.name}</span>
-                  <span className="flex items-center gap-1.5 text-orange-400 text-sm font-extrabold uppercase tracking-widest group-hover:text-orange-300">
-                    Read story <TbArrowUpRight className="w-5 h-5" />
-                  </span>
+                {leadStory.tickers.length > 0 && (
+                  <div className="mt-6 flex items-center gap-2 flex-wrap">
+                    {leadStory.tickers.slice(0, 6).map((t) => (
+                      <span key={t} className="px-2.5 py-1 rounded border border-white/15 text-white text-[13px] font-bold tracking-wider">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-auto pt-7">
+                  <div className="pt-4 border-t border-white/10 flex items-center justify-between">
+                    <span className="text-white/60 text-sm font-semibold">{leadStory.publisher?.name}</span>
+                    <span className="flex items-center gap-1.5 text-white text-sm font-bold group-hover:text-orange-400 transition-colors">
+                      Read full story <TbArrowUpRight className="w-[18px] h-[18px]" />
+                    </span>
+                  </div>
                 </div>
               </div>
             </a>
 
             {/* LATEST BREAKING */}
-            <div className="xl:col-span-2 rounded-2xl border border-white/10 bg-[#0b0b0b] p-5">
-              <SectionTitle icon={TbBroadcast} title="Latest" meta={`${otherBreaking.length} stories`} />
+            <div className="xl:col-span-2 rounded-xl border border-white/10 bg-[#0c0c0d] flex flex-col">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+                <h3 className="text-white font-bold text-[15px] tracking-[0.14em] uppercase">Latest</h3>
+                <span className="text-[13px] font-semibold text-white/50">{otherBreaking.length} {otherBreaking.length === 1 ? 'story' : 'stories'}</span>
+              </div>
               {otherBreaking.length === 0 ? (
-                <p className="text-white/50 text-sm font-semibold py-6 text-center">No other breaking stories.</p>
+                <p className="text-white/50 text-sm font-semibold py-10 text-center">No other breaking stories.</p>
               ) : (
-                <div className="divide-y divide-white/[0.07]">
+                <div className="flex-1 divide-y divide-white/[0.07]">
                   {otherBreaking.map((a) => (
                     <a
                       key={a.id}
                       href={a.article_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="group flex items-start gap-3 py-3.5 first:pt-0 last:pb-0"
+                      className="group flex items-start gap-4 px-6 py-5 hover:bg-white/[0.04] transition-colors"
                     >
-                      <span className={`mt-2 w-2 h-2 rounded-full shrink-0 ${sentDot(a.sentiment)}`} />
+                      <span className={`mt-1 w-1 self-stretch rounded-full shrink-0 ${sentDot(a.sentiment)}`} />
                       <div className="min-w-0 flex-1">
-                        <p className="text-white font-bold text-[16px] leading-snug line-clamp-2 group-hover:text-orange-300 transition-colors">
+                        <p className="text-white font-semibold text-[17px] leading-snug line-clamp-2">
                           {a.title}
                         </p>
-                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                        <div className="flex items-center gap-2.5 mt-2.5 flex-wrap">
                           {a.tickers.slice(0, 3).map((t) => (
-                            <span key={t} className="text-[12px] font-extrabold text-orange-300 tracking-wider">
+                            <span key={t} className="text-[12px] font-bold text-white/85 tracking-wider px-2 py-0.5 rounded border border-white/15">
                               {t}
                             </span>
                           ))}
-                          <span className="text-[12px] font-semibold text-white/55">{a.time_ago}</span>
+                          <span className="text-[13px] font-medium text-white/50">{a.time_ago}</span>
                         </div>
                       </div>
                     </a>
@@ -1640,7 +1599,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
             }}
             className="w-full flex items-center gap-3 px-5 py-4"
           >
-            <span className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ background: '#FBBF2426' }}><TbClock className="w-[20px] h-[20px]" style={{ color: '#FBBF24' }} />
+            <span className="flex items-center justify-center w-8 h-8"><TbClock className="w-[22px] h-[22px] text-white/80" />
             </span>
             <span className="text-white font-extrabold text-lg tracking-[0.12em] uppercase">
               Past 3 days
@@ -1737,7 +1696,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
     return (
       <div className="p-5">
         <div className="flex items-center gap-3 mb-4">
-          <span className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ background: '#38BDF826' }}><TbNews className="w-[20px] h-[20px]" style={{ color: '#38BDF8' }} />
+          <span className="flex items-center justify-center w-8 h-8"><TbNews className="w-[22px] h-[22px] text-white/80" />
           </span>
           <h3 className="text-white font-extrabold text-lg tracking-[0.12em] uppercase">Latest headlines</h3>
           <span className="ml-auto text-sm font-bold text-white/55">{articles.length} stories</span>
@@ -1878,7 +1837,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
     const board = (
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-4">
-          <span className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ background: '#22E58B26' }}><TbActivity className="w-[20px] h-[20px]" style={{ color: '#22E58B' }} />
+          <span className="flex items-center justify-center w-8 h-8"><TbActivity className="w-[22px] h-[22px] text-white/80" />
           </span>
           <h3 className="text-white font-extrabold text-lg tracking-[0.12em] uppercase">Market movers</h3>
           <span className="ml-auto text-sm font-bold text-white/55">Live &middot; updates every minute</span>
@@ -1909,7 +1868,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
       <div className="p-5">
         {board}
         <div className="flex items-center gap-3 mb-4">
-          <span className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ background: '#38BDF826' }}><TbNews className="w-[20px] h-[20px]" style={{ color: '#38BDF8' }} />
+          <span className="flex items-center justify-center w-8 h-8"><TbNews className="w-[22px] h-[22px] text-white/80" />
           </span>
           <h3 className="text-white font-extrabold text-lg tracking-[0.12em] uppercase">Movers in the news</h3>
           <span className="ml-auto text-sm font-bold text-white/55">{rows.length} tickers</span>
@@ -3477,10 +3436,10 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
   // MAIN RENDER
   // ══════════════════════════════════════════════════════════════════════════
   const tabs = [
-    { id: 'breaking' as const, label: 'BREAKING', icon: TbFlame, sub: 'Top stories now', color: '#FF4D4D' },
-    { id: 'feed' as const, label: 'LIVE FEED', icon: TbNews, sub: 'Real-time headlines', color: '#38BDF8' },
-    { id: 'movers' as const, label: 'MOVERS', icon: TbActivity, sub: 'Stocks on the move', color: '#22E58B' },
-    { id: 'calendar' as const, label: 'CALENDAR', icon: TbCalendar, sub: 'Earnings & events', color: '#C084FC' },
+    { id: 'breaking' as const, label: 'Breaking', icon: LuRadioTower, sub: 'Top stories now', color: '#E5E7EB' },
+    { id: 'feed' as const, label: 'Live Feed', icon: LuNewspaper, sub: 'Real-time headlines', color: '#E5E7EB' },
+    { id: 'movers' as const, label: 'Movers', icon: LuTrendingUp, sub: 'Stocks on the move', color: '#E5E7EB' },
+    { id: 'calendar' as const, label: 'Calendar', icon: LuCalendarDays, sub: 'Earnings & events', color: '#E5E7EB' },
   ]
 
   return (
@@ -3489,45 +3448,34 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
       {isMobile ? (
         <NewsPanelMobileTicker tickerText={tickerText} onClose={onClose} />
       ) : (
-        <div
-          className="relative overflow-hidden h-10 shrink-0 flex items-center select-none"
-          style={{ background: 'linear-gradient(90deg, #7f1d1d 0%, #991b1b 40%, #7f1d1d 100%)' }}
-        >
-          <div
-            className="absolute left-0 top-0 bottom-0 z-10 flex items-center gap-2 px-4"
-            style={{
-              background: 'linear-gradient(90deg, #b91c1c 0%, #991b1b 100%)',
-              borderRight: '1px solid #ef4444',
-            }}
-          >
-            <TbFlame className="w-5 h-5 text-white animate-pulse shrink-0" />
-            <span className="text-white text-sm font-black tracking-[0.2em] uppercase whitespace-nowrap">
-              BREAKING
+        <div className="flex items-stretch h-11 shrink-0 select-none bg-[#0a0a0b] border-b border-white/10">
+          <div className="flex items-center gap-2.5 px-5 bg-red-700 shrink-0">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-60" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
+            </span>
+            <span className="text-white text-[13px] font-extrabold tracking-[0.18em] uppercase whitespace-nowrap">
+              Breaking
             </span>
           </div>
           <div
-            className="absolute right-0 top-0 bottom-0 z-10 flex items-center px-4 gap-2"
-            style={{
-              background: 'linear-gradient(90deg, transparent, #7f1d1d 30%, #991b1b 100%)',
-              borderLeft: '1px solid #ef444440',
-            }}
+            className="flex-1 min-w-0 overflow-hidden flex items-center"
+            style={{ maskImage: 'linear-gradient(90deg, transparent 0, #000 40px, #000 calc(100% - 40px), transparent 100%)', WebkitMaskImage: 'linear-gradient(90deg, transparent 0, #000 40px, #000 calc(100% - 40px), transparent 100%)' }}
           >
-            <TbClock className="w-4 h-4 text-red-200 shrink-0" />
-            <span className="text-red-100 text-sm font-black tracking-wider whitespace-nowrap">
+            {tickerText ? (
+              <div className="whitespace-nowrap text-white/90 text-[14px] font-semibold news-ticker-scroll">
+                {tickerText}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;/&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{tickerText}
+              </div>
+            ) : (
+              <div className="text-white/60 text-[14px] font-semibold animate-pulse pl-4">Loading…</div>
+            )}
+          </div>
+          <div className="flex items-center px-5 border-l border-white/10 shrink-0 bg-[#0a0a0b]">
+            <span className="text-white text-[13px] font-bold tracking-wider whitespace-nowrap tabular-nums">
               {clock}
             </span>
           </div>
-          <div className="overflow-hidden pl-44 pr-44 w-full">
-            {tickerText ? (
-              <div className="whitespace-nowrap text-red-50 text-sm font-bold news-ticker-scroll">
-                {tickerText}&nbsp;&nbsp;&nbsp;●&nbsp;&nbsp;&nbsp;{tickerText}
-              </div>
-            ) : (
-              <div className="text-red-100 text-sm font-bold animate-pulse pl-4">Loading…</div>
-            )}
-          </div>
-        </div>
-      )}
+        </div>      )}
 
       {/* NEWS CENTER HEADER */}
       <div
@@ -3636,25 +3584,21 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                   onTabChange?.(id)
                   savedScrollPos.current = 0
                 }}
-                className={`relative flex items-center gap-3.5 px-4 py-3 rounded-xl border text-left transition-all min-w-0 ${isActive
-                  ? 'border-orange-500/70 bg-gradient-to-br from-orange-500/20 to-orange-500/5 shadow-[0_0_0_1px_rgba(249,115,22,0.25)]'
-                  : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.07] hover:border-white/25'
+                className={`relative flex items-center gap-3 px-5 py-3.5 rounded-lg border text-left transition-all min-w-0 ${isActive
+                  ? 'border-white/30 bg-white/[0.09]'
+                  : 'border-white/10 bg-white/[0.02] hover:bg-white/[0.06] hover:border-white/25'
                   }`}
               >
-                <span
-                  className="flex items-center justify-center w-10 h-10 rounded-lg shrink-0"
-                  style={{ background: color + (isActive ? '38' : '22'), boxShadow: isActive ? '0 0 14px ' + color + '55' : 'none' }}
-                >
-                  <Icon className="w-6 h-6" style={{ color }} />
-                </span>
+                <Icon className={`w-[22px] h-[22px] shrink-0 ${isActive ? 'text-white' : 'text-white/60'}`} strokeWidth={1.75} />
                 <span className="min-w-0 leading-tight">
-                  <span className={`block text-[15px] font-extrabold tracking-[0.1em] uppercase truncate ${isActive ? 'text-white' : 'text-white/90'}`}>
+                  <span className={`block text-[16px] font-bold tracking-wide truncate ${isActive ? 'text-white' : 'text-white/85'}`}>
                     {label}
                   </span>
-                  <span className={`block text-[12px] font-semibold truncate ${isActive ? 'text-orange-200' : 'text-white/55'}`}>
+                  <span className="block text-[12px] font-medium truncate text-white/55">
                     {sub}
                   </span>
                 </span>
+                {isActive && <span className="absolute left-4 right-4 -bottom-px h-[2px] rounded-full bg-orange-500" />}
               </button>
             )
           })}

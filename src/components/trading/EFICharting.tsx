@@ -106,7 +106,7 @@ import NewsPanel from '../news/NewsPanelV2'
 import SeasonaxLanding from '../seasonax/SeasonaxLanding'
 import EnhancedRegimeDisplay, { prefetchCompositeHistory } from '../terminal/EnhancedRegimeDisplay'
 import ChainPanel from './ChainPanel'
-import TrackingCard, { type TrackingChartType } from './TrackingCard'
+import TrackingCard, { type TrackingChartType, type TrackingTf } from './TrackingCard'
 import TrackingToolbar, { useTrackingScan, type TrackingScan } from './TrackingToolbar'
 import MarketDataLoader from '../loading/MarketDataLoader'
 import DarkPoolButton from './DarkPoolButton'
@@ -115,7 +115,6 @@ import LWChartDrawingTools from './LWChartDrawingTools'
 import MultiChartView from './MultiChartView'
 import PlanPanel from './PlanPanel'
 import RegimesPanelComponent from './RegimesPanel'
-import { MarketScannerPanel } from './RegimesPanel'
 
 // Enhanced Market Regime Types
 interface SectorAnalysis {
@@ -8333,6 +8332,7 @@ export default function TradingViewChart({
   const [seasonalPainPointActive, setSeasonalPainPointActive] = useState(false)
   const [seasonalShowMonthly, setSeasonalShowMonthly] = useState(false)
   const [seasonalEventsDropdownOpen, setSeasonalEventsDropdownOpen] = useState(false)
+  const [almanacControlsEl, setAlmanacControlsEl] = useState<HTMLDivElement | null>(null)
   const [seasonalPatternsDropdownOpen, setSeasonalPatternsDropdownOpen] = useState(false)
   const [seasonalSelectedEvent, setSeasonalSelectedEvent] = useState<string | null>(null)
   const [seasonalSelectedPatterns, setSeasonalSelectedPatterns] = useState<string[]>([])
@@ -16638,8 +16638,8 @@ export default function TradingViewChart({
         // Hide on mobile devices (screen width < 768px)
         if (_ci.ohlc && !isMobile) {
           const ohlc = _ci.ohlc
-          const panelX = 20
-          const panelY = 20
+          const panelX = 175 // clear of the symbol / indicator legend overlay at the top-left
+          const panelY = 8
           const panelWidth = 200
           const panelHeight = 80
 
@@ -17494,8 +17494,7 @@ export default function TradingViewChart({
         visibleData.forEach((candle, index) => {
           const x = CHART_LEFT_MARGIN + index * candleSpacing + candleSpacing / 2
           const closeY =
-            priceChartHeight -
-            ((candle.close - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight
+            20 + (priceChartHeight - 120) * (1 - (candle.close - adjustedMin) / (adjustedMax - adjustedMin))
 
           if (index === 0) {
             ctx.moveTo(x, closeY)
@@ -17511,8 +17510,7 @@ export default function TradingViewChart({
         visibleData.forEach((candle, index) => {
           const x = CHART_LEFT_MARGIN + index * candleSpacing + candleSpacing / 2
           const closeY =
-            priceChartHeight -
-            ((candle.close - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight
+            20 + (priceChartHeight - 120) * (1 - (candle.close - adjustedMin) / (adjustedMax - adjustedMin))
 
           ctx.beginPath()
           ctx.arc(x, closeY, 2, 0, Math.PI * 2)
@@ -21259,10 +21257,11 @@ export default function TradingViewChart({
         : config.colors.bearish
 
     // Convert prices to canvas coordinates - pixel-perfect alignment
+    // Same Y mapping as drawPriceScale / crosshair / last-price label
     const priceToY = (price: number) => {
       const ratio = (price - minPrice) / (maxPrice - minPrice)
-      const chartArea = height - 5 // Reserve 5px at bottom for time labels
-      return Math.floor(chartArea - ratio * (chartArea - 20) - 10) // Floor for consistent alignment
+      const usable = height - 20 - 100
+      return Math.floor(20 + usable * (1 - ratio))
     }
 
     const openY = priceToY(open)
@@ -25186,7 +25185,17 @@ export default function TradingViewChart({
                 setTrackingResetKey((k) => k + 1)
               }}
               scan={trackingScan}
-              onScan={setTrackingScan}
+              onScan={(s) => {
+                setTrackingScan(s)
+                const tfForScan: Record<string, TrackingTf> = {
+                  off: '1D', hi52: '1Y', lo52: '1Y',
+                  MTD: '1M', QTD: '3M', YTD: '1Y',
+                  D: '1D', W: '5D', M: '1M', Q: '3M',
+                }
+                const key = s.kind === 'perf' || s.kind === 'chop' ? s.period : s.kind
+                setTrackingTimeframe(tfForScan[key] ?? '3M')
+                setTrackingResetKey((k) => k + 1)
+              }}
               status={{ loading: trackingScanResult.loading, loaded: trackingScanResult.loaded, total: trackingScanResult.total, matches: trackingScanResult.matches }}
             />
 
@@ -35536,7 +35545,7 @@ export default function TradingViewChart({
             {!isMobile && !hideDesktopSidebar && (
               <div
                 style={{
-                  width: 58,
+                  width: 82,
                   flexShrink: 0,
                   height: '100%',
                   minHeight: 0,
@@ -35589,8 +35598,10 @@ export default function TradingViewChart({
                           }
                         }}
                         style={{
-                          width: '45px',
-                          height: '45px',
+                          width: '72px',
+                          height: '50px',
+                          flexDirection: 'column',
+                          gap: '3px',
                           borderRadius: '8px',
                           background: isActive
                             ? `linear-gradient(135deg, ${tab.color}40 0%, ${tab.color}20 50%, ${tab.color}35 100%)`
@@ -35611,6 +35622,7 @@ export default function TradingViewChart({
                         onMouseLeave={e => { if (!isActive) { const el = e.currentTarget as HTMLElement; el.style.color = `${tab.color}99`; el.style.background = 'linear-gradient(135deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 50%, rgba(0,0,0,0.2) 100%)'; el.style.border = '1px solid rgba(255,255,255,0.08)'; el.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.2), 0 2px 4px rgba(0,0,0,0.4)' } }}
                       >
                         {tab.icon}
+                        <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.02em', lineHeight: 1, color: '#ffffff', opacity: 0.92, whiteSpace: 'nowrap' }}>{tab.title}</span>
                       </button>
                       {/* Tooltip */}
                       <div className="pat-tooltip" style={{
@@ -35663,10 +35675,10 @@ export default function TradingViewChart({
                         onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
                       >
                         <button onClick={() => setCurrentDrawingTool((isActive ? 'select' : tool) as any)}
-                          style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: bright, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: isActive ? `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px ${bright}66` : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: isActive ? `drop-shadow(0 0 5px ${bright})` : 'none' }}
+                          style={{ width: '72px', height: '50px', flexDirection: 'column', gap: '3px', borderRadius: '7px', background: glossBg, border: 'none', color: bright, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: isActive ? `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px ${bright}66` : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: isActive ? `drop-shadow(0 0 5px ${bright})` : 'none' }}
                           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px ${bright}44` }}
                           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = isActive ? `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px ${bright}66` : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
-                        >{icon}</button>
+                        >{icon}<span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.02em', lineHeight: 1, color: '#ffffff', opacity: 0.92, whiteSpace: 'nowrap' }}>{({ trendline: 'Trend', horizontal: 'H-Line', vertical: 'V-Line', parallelChannel: 'Channel', rectangle: 'Box', priceRange: 'Range', buyZone: 'Buy Zone', sellZone: 'Sell Zone', brush: 'Brush', text: 'Text', fib: 'Fib', elliottWave: 'Elliott 12345', elliottWaveABC: 'Elliott ABC', path: 'Path' } as Record<string, string>)[tool] ?? title}</span></button>
                         <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: `1px solid ${bright}`, borderRadius: '5px', padding: '3px 9px', color: bright, fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>{title}</div>
                       </div>
                     )
@@ -35681,10 +35693,10 @@ export default function TradingViewChart({
                         onMouseEnter={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '1' }}
                         onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
                       >
-                        <button onClick={() => setIsDrawingToolLocked(!on)} style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: on ? '#FCD34D' : '#78450A', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: on ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #FCD34D66' : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: on ? 'drop-shadow(0 0 5px #FCD34D)' : 'none' }}
+                        <button onClick={() => setIsDrawingToolLocked(!on)} style={{ width: '72px', height: '50px', flexDirection: 'column', gap: '3px', borderRadius: '7px', background: glossBg, border: 'none', color: on ? '#FCD34D' : '#78450A', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: on ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #FCD34D66' : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: on ? 'drop-shadow(0 0 5px #FCD34D)' : 'none' }}
                           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#FCD34D'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #FCD34D44' }}
                           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = on ? '#FCD34D' : '#78450A'; (e.currentTarget as HTMLElement).style.boxShadow = on ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #FCD34D66' : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
-                        >{on ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 9.9-1" /></svg>}</button>
+                        >{on ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 9.9-1" /></svg>}<span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.02em', lineHeight: 1, color: '#ffffff', opacity: 0.92, whiteSpace: 'nowrap' }}>{on ? 'Locked' : 'Lock'}</span></button>
                         <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: '1px solid #FCD34D', borderRadius: '5px', padding: '3px 9px', color: '#FCD34D', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>{on ? 'Lock: ON' : 'Lock: OFF'}</div>
                       </div>
                     )
@@ -35698,10 +35710,10 @@ export default function TradingViewChart({
                         onMouseEnter={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '1' }}
                         onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
                       >
-                        <button onClick={() => { if (!dis) { const ni = currentHistoryIndex - 1; setHistoryIndex(p => ({ ...p, [currentSymbol]: ni })); setLwChartDrawings(p => ({ ...p, [currentSymbol]: currentHistory[ni] })) } }} disabled={dis} style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: dis ? '#2d3748' : '#4B7BEC', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: dis ? 'not-allowed' : 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                        <button onClick={() => { if (!dis) { const ni = currentHistoryIndex - 1; setHistoryIndex(p => ({ ...p, [currentSymbol]: ni })); setLwChartDrawings(p => ({ ...p, [currentSymbol]: currentHistory[ni] })) } }} disabled={dis} style={{ width: '72px', height: '50px', flexDirection: 'column', gap: '3px', borderRadius: '7px', background: glossBg, border: 'none', color: dis ? '#2d3748' : '#4B7BEC', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: dis ? 'not-allowed' : 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
                           onMouseEnter={e => { if (!dis) { (e.currentTarget as HTMLElement).style.color = '#74A7FF'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #4B7BEC44' } }}
                           onMouseLeave={e => { if (!dis) { (e.currentTarget as HTMLElement).style.color = '#4B7BEC'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.07)' } }}
-                        ><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14L4 9L9 4" /><path d="M4 9H16C18.2091 9 20 10.7909 20 13C20 15.2091 18.2091 17 16 17H13" /></svg></button>
+                        ><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14L4 9L9 4" /><path d="M4 9H16C18.2091 9 20 10.7909 20 13C20 15.2091 18.2091 17 16 17H13" /></svg><span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.02em', lineHeight: 1, color: '#ffffff', opacity: 0.92, whiteSpace: 'nowrap' }}>Undo</span></button>
                         <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: '1px solid #4B7BEC', borderRadius: '5px', padding: '3px 9px', color: '#74A7FF', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>Undo</div>
                       </div>
                     )
@@ -35715,10 +35727,10 @@ export default function TradingViewChart({
                         onMouseEnter={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '1' }}
                         onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
                       >
-                        <button onClick={() => { if (!dis) { const ni = currentHistoryIndex + 1; setHistoryIndex(p => ({ ...p, [currentSymbol]: ni })); setLwChartDrawings(p => ({ ...p, [currentSymbol]: currentHistory[ni] })) } }} disabled={dis} style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: dis ? '#2d3748' : '#2A9D8F', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: dis ? 'not-allowed' : 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                        <button onClick={() => { if (!dis) { const ni = currentHistoryIndex + 1; setHistoryIndex(p => ({ ...p, [currentSymbol]: ni })); setLwChartDrawings(p => ({ ...p, [currentSymbol]: currentHistory[ni] })) } }} disabled={dis} style={{ width: '72px', height: '50px', flexDirection: 'column', gap: '3px', borderRadius: '7px', background: glossBg, border: 'none', color: dis ? '#2d3748' : '#2A9D8F', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: dis ? 'not-allowed' : 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
                           onMouseEnter={e => { if (!dis) { (e.currentTarget as HTMLElement).style.color = '#4DD0C4'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #2A9D8F44' } }}
                           onMouseLeave={e => { if (!dis) { (e.currentTarget as HTMLElement).style.color = '#2A9D8F'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.07)' } }}
-                        ><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 14L20 9L15 4" /><path d="M20 9H8C5.79086 9 4 10.7909 4 13C4 15.2091 5.79086 17 8 17H11" /></svg></button>
+                        ><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 14L20 9L15 4" /><path d="M20 9H8C5.79086 9 4 10.7909 4 13C4 15.2091 5.79086 17 8 17H11" /></svg><span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.02em', lineHeight: 1, color: '#ffffff', opacity: 0.92, whiteSpace: 'nowrap' }}>Redo</span></button>
                         <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: '1px solid #2A9D8F', borderRadius: '5px', padding: '3px 9px', color: '#4DD0C4', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>Redo</div>
                       </div>
                     )
@@ -35732,10 +35744,10 @@ export default function TradingViewChart({
                         onMouseEnter={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '1' }}
                         onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
                       >
-                        <button onClick={() => setIsBackgroundVisible(!vis)} style={{ width: '50px', height: '45px', borderRadius: '7px', background: glossBg, border: 'none', color: vis ? '#4ADE80' : '#166534', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: vis ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #4ADE8066' : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: vis ? 'drop-shadow(0 0 4px #4ADE80)' : 'none' }}
+                        <button onClick={() => setIsBackgroundVisible(!vis)} style={{ width: '72px', height: '50px', flexDirection: 'column', gap: '3px', borderRadius: '7px', background: glossBg, border: 'none', color: vis ? '#4ADE80' : '#166534', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: vis ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #4ADE8066' : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: vis ? 'drop-shadow(0 0 4px #4ADE80)' : 'none' }}
                           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#4ADE80'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #4ADE8044' }}
                           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = vis ? '#4ADE80' : '#166534'; (e.currentTarget as HTMLElement).style.boxShadow = vis ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #4ADE8066' : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
-                        >{vis ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12C2 12 5 5 12 5C19 5 22 12 22 12C22 12 19 19 12 19C5 19 2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg> : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3L21 21" /><path d="M10.5 10.677a2 2 0 0 0 2.823 2.823" /><path d="M7.362 7.561C5.68 8.875 4.496 10.618 4 12c1.17 2.769 4.032 6 8 6" /><path d="M12 6c3.905.515 6.608 4.352 7.5 6" /></svg>}</button>
+                        >{vis ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12C2 12 5 5 12 5C19 5 22 12 22 12C22 12 19 19 12 19C5 19 2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg> : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3L21 21" /><path d="M10.5 10.677a2 2 0 0 0 2.823 2.823" /><path d="M7.362 7.561C5.68 8.875 4.496 10.618 4 12c1.17 2.769 4.032 6 8 6" /><path d="M12 6c3.905.515 6.608 4.352 7.5 6" /></svg>}<span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.02em', lineHeight: 1, color: '#ffffff', opacity: 0.92, whiteSpace: 'nowrap' }}>{vis ? 'Visible' : 'Hidden'}</span></button>
                         <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: '1px solid #4ADE80', borderRadius: '5px', padding: '3px 9px', color: '#4ADE80', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>{vis ? 'Drawings: On' : 'Drawings: Off'}</div>
                       </div>
                     )
@@ -35745,10 +35757,10 @@ export default function TradingViewChart({
                     onMouseEnter={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '1' }}
                     onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
                   >
-                    <button onClick={() => { setLwChartDrawings(p => ({ ...p, [currentSymbol]: [] })); setDrawingHistory(p => ({ ...p, [currentSymbol]: [[]] })); setHistoryIndex(p => ({ ...p, [currentSymbol]: 0 })); setCurrentDrawingTool('select') }} style={{ width: '50px', height: '45px', borderRadius: '7px', background: 'linear-gradient(175deg, #252525 0%, #111 40%, #070707 100%)', border: 'none', color: '#7F1D1D', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
+                    <button onClick={() => { setLwChartDrawings(p => ({ ...p, [currentSymbol]: [] })); setDrawingHistory(p => ({ ...p, [currentSymbol]: [[]] })); setHistoryIndex(p => ({ ...p, [currentSymbol]: 0 })); setCurrentDrawingTool('select') }} style={{ width: '72px', height: '50px', flexDirection: 'column', gap: '3px', borderRadius: '7px', background: 'linear-gradient(175deg, #252525 0%, #111 40%, #070707 100%)', border: 'none', color: '#7F1D1D', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
                       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#F87171'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px #F8717144' }}
                       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#7F1D1D'; (e.currentTarget as HTMLElement).style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
-                    ><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
+                    ><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg><span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.02em', lineHeight: 1, color: '#ffffff', opacity: 0.92, whiteSpace: 'nowrap' }}>Clear All</span></button>
                     <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: '1px solid #F87171', borderRadius: '5px', padding: '3px 9px', color: '#F87171', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>Clear All</div>
                   </div>
                 </div>
@@ -35782,7 +35794,6 @@ export default function TradingViewChart({
                   { id: 'seasonality', icon: TbCalendar, label: 'SEASONALS', color: '#F472B6' },
                   { id: 'gex', icon: () => <span style={{ fontWeight: 800, fontFamily: 'Georgia, serif' }}>{'\u0394'}</span>, label: 'GREEKS', color: '#FB923C' },
                   { id: 'news', icon: TbNews, label: 'NEWS', color: '#FCD34D' },
-                  { id: 'screen', icon: TbActivity, label: 'SCREEN', color: '#22D3EE' },
                   { id: 'chain', icon: TbLink, label: 'CHAIN', color: '#2DD4BF' },
                 ].map((item) => {
                   const IconComponent = item.icon
@@ -37816,6 +37827,7 @@ export default function TradingViewChart({
                   )}
                   {/* Always mounted so NewsPanel auto-scans (breaking news, calendar, implied vol, movers) in background */}
                   <div
+                    className="news-scope"
                     style={{
                       display: activeSidebarPanel === 'news' ? 'block' : 'none',
                       height: '100%',
@@ -38094,7 +38106,154 @@ export default function TradingViewChart({
                             .seasonality-custom-panel .almanac-daily-chart {
                               min-height: 525px !important;
                               max-height: 625px !important;
-                              margin-top: 60px !important;
+                              margin-top: 0px !important;
+                            }
+
+                            @media (min-width: 768px) {
+                              /* Top row: symbol / mode / highlight controls — tidy, wrapping, no clipped text */
+                              /* ===== Unified control-bar design (top bar + monthly bar) ===== */
+                              .seasonality-controls-row-1,
+                              .seasonality-custom-panel .almanac-daily-chart .chart-controls-desktop {
+                                background: #000 !important;
+                                border: 1px solid #1f242d !important;
+                                border-radius: 8px !important;
+                                box-shadow: none !important;
+                                width: 100% !important;
+                                box-sizing: border-box !important;
+                                max-width: 100% !important;
+                              }
+                              .seasonality-controls-row-1 { flex-wrap: nowrap !important; gap: 8px !important; padding: 10px 12px !important; }
+                              .seasonality-controls-row-1 { }
+                              .seasonality-controls-row-1 > input,
+                              .seasonality-controls-row-1 > select,
+                              .seasonality-controls-row-1 > button,
+                              .seasonality-custom-panel .almanac-daily-chart .chart-controls-desktop select,
+                              .seasonality-custom-panel .almanac-daily-chart .chart-controls-desktop button {
+                                height: 40px !important;
+                                min-height: 40px !important;
+                                max-height: 40px !important;
+                                box-sizing: border-box !important;
+                                padding: 0 14px !important;
+                                background-color: #090b0f !important;
+                                background-image: none !important;
+                                border: 1px solid #2a303b !important;
+                                border-radius: 8px !important;
+                                box-shadow: inset 0 1px 0 rgba(255,255,255,0.04) !important;
+                                color: #e3e8f0 !important;
+                                -webkit-text-fill-color: #e3e8f0 !important;
+                                font-family: 'Inter', 'Segoe UI', system-ui, sans-serif !important;
+                                font-size: 13px !important;
+                                font-weight: 600 !important;
+                                letter-spacing: 0.3px !important;
+                                text-transform: none !important;
+                                transform: none !important;
+                                transition: border-color .15s, background-color .15s !important;
+                                flex: 1 1 auto !important;
+                                white-space: nowrap !important;
+                              }
+                              .seasonality-controls-row-1 > select:nth-of-type(1),
+                              .seasonality-controls-row-1 > select:nth-of-type(2),
+                              .seasonality-controls-row-1 > button { flex: 0 0 auto !important; }
+                              .seasonality-controls-row-1 > input { flex: 1 1 160px !important; width: auto !important; min-width: 140px !important; text-transform: uppercase !important; text-align: left !important; padding-left: 16px !important; letter-spacing: 1.2px !important; font-weight: 700 !important; }
+                              .seasonality-custom-panel .almanac-daily-chart .chart-controls-desktop select { flex: 1 1 130px !important; }
+                              .seasonality-controls-row-1 > select,
+                              .seasonality-custom-panel .almanac-daily-chart .chart-controls-desktop select {
+                                width: auto !important;
+                                min-width: 0 !important;
+                                max-width: none !important;
+                                padding-right: 30px !important;
+                                text-overflow: ellipsis !important;
+                                appearance: none !important;
+                                -webkit-appearance: none !important;
+                                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238b95a5' stroke-width='1.5'/%3E%3C/svg%3E") !important;
+                                background-repeat: no-repeat !important;
+                                background-position: right 11px center !important;
+                              }
+                              .seasonality-controls-row-1 > input:hover,
+                              .seasonality-controls-row-1 > select:hover,
+                              .seasonality-controls-row-1 > button:hover,
+                              .seasonality-custom-panel .almanac-daily-chart .chart-controls-desktop select:hover,
+                              .seasonality-custom-panel .almanac-daily-chart .chart-controls-desktop button:hover {
+                                background-color: #0f1218 !important;
+                                border-color: #3a4454 !important;
+                              }
+                              .seasonality-controls-row-1 > input:focus {
+                                border-color: #4ea1ff !important;
+                              }
+                              .seasonality-controls-row-1 > button:nth-of-type(2) {
+                                color: #2ee59d !important; -webkit-text-fill-color: #2ee59d !important;
+                                border-color: rgba(46, 229, 157, 0.35) !important;
+                              }
+                              .seasonality-controls-row-1 > button:nth-of-type(3) {
+                                color: #ff6b6b !important; -webkit-text-fill-color: #ff6b6b !important;
+                                border-color: rgba(255, 107, 107, 0.35) !important;
+                              }
+                              .seasonality-controls-row-1 > button:nth-of-type(2):hover { border-color: #2ee59d !important; }
+                              .seasonality-controls-row-1 > button:nth-of-type(3):hover { border-color: #ff6b6b !important; }
+                              /* Selected filters (view / events / patterns) */
+                              .seasonality-custom-panel .almanac-daily-chart .chart-controls-desktop select.has-value {
+                                border-color: #4ea1ff !important;
+                                background-color: rgba(78, 161, 255, 0.10) !important;
+                                color: #e8f2ff !important;
+                                -webkit-text-fill-color: #e8f2ff !important;
+                              }
+                              /* Monthly bar inner layout */
+                              .seasonality-custom-panel .almanac-daily-chart .chart-controls-desktop > div {
+                                padding: 10px 12px !important;
+                                gap: 8px !important;
+                                flex-wrap: wrap !important;
+                                width: 100% !important;
+                                box-sizing: border-box !important;
+                                overflow: visible !important;
+                                min-height: 0 !important;
+                              }
+                              .seasonality-custom-panel .almanac-daily-chart .chart-controls-desktop .alm-versatility-label { display: none !important; }
+                              .seasonality-custom-panel .almanac-daily-chart .chart-controls-desktop .alm-golden-sep,
+                              .seasonality-custom-panel .almanac-daily-chart .chart-controls-desktop .almanac-ctrl-divider {
+                                width: 1px !important;
+                                height: 22px !important;
+                                background: #262d39 !important;
+                                box-shadow: none !important;
+                                margin: 0 4px !important;
+                              }
+                              .seasonality-custom-panel .almanac-daily-chart .chart-controls-desktop svg { width: 12px; height: 12px; }
+                              .seasonality-custom-panel .almanac-daily-chart .chart-controls-desktop button { gap: 6px; }
+                              .seasonality-custom-panel .almanac-daily-chart .chart-controls-desktop button:nth-of-type(1) { color: #4ec9d4 !important; -webkit-text-fill-color: #4ec9d4 !important; border-color: rgba(78,201,212,0.35) !important; }
+                              .seasonality-custom-panel .almanac-daily-chart .chart-controls-desktop button:nth-of-type(2) { color: #2ee59d !important; -webkit-text-fill-color: #2ee59d !important; border-color: rgba(46,229,157,0.35) !important; }
+                              .seasonality-custom-panel .almanac-daily-chart .chart-controls-desktop button:nth-of-type(3) { color: #ff6b6b !important; -webkit-text-fill-color: #ff6b6b !important; border-color: rgba(255,107,107,0.35) !important; }
+
+                              /* Monthly chart control bar — sits directly above the monthly chart it controls */
+                              .seasonality-almanac-controls {
+                                display: flex;
+                                align-items: center;
+                                flex-wrap: wrap;
+                                gap: 10px;
+                                margin: 16px 0 12px 0;
+                                padding: 8px 14px;
+                                background: #000000;
+                                border: 1px solid rgba(255, 107, 0, 0.3);
+                                border-radius: 4px;
+                                position: relative;
+                                z-index: 20;
+                                overflow: visible;
+                              }
+                              .seasonality-almanac-controls::before {
+                                content: 'MONTHLY CHART';
+                                font-size: 11px;
+                                font-weight: 800;
+                                letter-spacing: 1.5px;
+                                color: rgba(255, 255, 255, 0.55);
+                                margin-right: 6px;
+                                padding-right: 14px;
+                                border-right: 1px solid rgba(255, 107, 0, 0.35);
+                                line-height: 28px;
+                              }
+                              .seasonality-almanac-controls > select,
+                              .seasonality-almanac-controls > button,
+                              .seasonality-almanac-controls > div > button {
+                                height: 38px !important;
+                                box-sizing: border-box !important;
+                              }
                             }
                             
                             .seasonality-custom-panel .chart-container {
@@ -38132,17 +38291,20 @@ export default function TradingViewChart({
                             
                             /* ONLY FOR SEASONALITY SIDEBAR: Navy-green background container for ALL buttons in ONE ROW */
                             .seasonality-custom-panel .chart-header-row {
-                              background: linear-gradient(135deg, #0a1628 0%, #001a0a 50%, #0a1628 100%) !important;
-                              padding: 0px 20px !important;
-                              border-radius: 4px !important;
-                              margin-bottom: 12px !important;
+                              background: transparent !important;
+                              padding: 0 !important;
+                              border-radius: 0 !important;
+                              margin: 0 0 10px 0 !important;
                               border: none !important;
-                              box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.05), inset 0 -2px 4px rgba(0, 0, 0, 0.5) !important;
+                              box-shadow: none !important;
+                              width: 100% !important;
+                              box-sizing: border-box !important;
                               display: flex !important;
                               flex-wrap: nowrap !important;
                               align-items: center !important;
-                              overflow-x: auto !important;
+                              overflow: visible !important;
                             }
+                            .seasonality-custom-panel .chart-header-row > .chart-controls-desktop { flex: 1 1 100% !important; margin: 0 !important; }
                             
                             .seasonality-custom-panel .chart-controls-row {
                               display: flex !important;
@@ -38275,32 +38437,49 @@ export default function TradingViewChart({
                               opacity: 1 !important;
                             }
                             
-                            /* Fix Normal/Election text to be HORIZONTAL side by side */
-                            .seasonality-custom-panel .almanac-daily-chart > div:last-child {
-                              display: flex !important;
-                              flex-direction: row !important;
-                              gap: 20px !important;
-                              justify-content: center !important;
-                              align-items: center !important;
-                              flex-wrap: nowrap !important;
+                            /* Calendar view: size to content, keep inside the panel */
+                            .seasonality-custom-panel .almanac-daily-chart[data-view="calendar"] {
+                              min-height: 0 !important;
+                              max-height: none !important;
+                              height: auto !important;
+                            }
+                            .seasonality-custom-panel .almanac-daily-chart[data-view="calendar"] .chart-container {
+                              height: auto !important;
+                              min-height: 0 !important;
+                              max-height: none !important;
+                              overflow: visible !important;
+                            }
+                            .seasonality-custom-panel .almanac-daily-chart[data-view="calendar"] .calendar-grid {
+                              width: 100% !important;
+                              max-width: 100% !important;
+                              box-sizing: border-box !important;
+                              border: 1px solid #262d39 !important;
+                              border-radius: 8px !important;
+                              overflow: hidden !important;
+                            }
+                            .seasonality-custom-panel .almanac-daily-chart[data-view="calendar"] .calendar-header-row,
+                            .seasonality-custom-panel .almanac-daily-chart[data-view="calendar"] .calendar-days {
+                              grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+                            }
+                            .seasonality-custom-panel .almanac-daily-chart[data-view="calendar"] .calendar-days > *,
+                            .seasonality-custom-panel .almanac-daily-chart[data-view="calendar"] .calendar-header-row > * {
+                              min-width: 0 !important;
+                              overflow: hidden !important;
+                              overflow-wrap: anywhere !important;
+                              word-break: break-word !important;
+                              font-size: 10px !important;
+                              padding: 6px !important;
+                            }
+                            .seasonality-custom-panel .almanac-daily-chart[data-view="calendar"] .calendar-day { min-height: 84px !important; }
+                            .seasonality-custom-panel .almanac-daily-chart[data-view="calendar"] .day-header {
+                              font-size: 11px !important;
+                              padding: 8px 4px !important;
+                              letter-spacing: 0.6px !important;
                             }
                             
-                            .seasonality-custom-panel .almanac-daily-chart > div:last-child > div {
-                              display: inline-block !important;
-                              white-space: nowrap !important;
-                            }
-                            
-                            /* Hide almanac controls completely - Events/Patterns are in Row 1 now */
-                            .seasonality-custom-panel .almanac-daily-chart .chart-header-row {
-                              display: none !important;
-                            }
-                            
-                            .seasonality-custom-panel .almanac-daily-chart .almanac-mobile-controls {
-                              display: none !important;
-                            }
-                            
+                            /* Monthly chart's own native controls (view, month, events, patterns) are shown directly above it */
                             .seasonality-custom-panel .almanac-daily-chart .chart-controls-desktop {
-                              display: none !important;
+                              margin: 12px 0 10px 0 !important;
                             }
                             
                             /* Hide mobile controls on desktop */
@@ -38360,7 +38539,24 @@ export default function TradingViewChart({
                               background-color: #000000 !important;
                               background: #000000 !important;
                               color: #ffffff !important;
-                              padding: 8px !important;
+                              padding: 10px 12px !important;
+                              font-size: 14px !important;
+                              font-weight: 600 !important;
+                              font-family: 'Inter', 'Segoe UI', system-ui, sans-serif !important;
+                              line-height: 1.5 !important;
+                            }
+                            .seasonality-custom-panel .almanac-ctrl-select option,
+                            .seasonality-custom-panel .almanac-daily-chart .chart-controls-desktop select option {
+                              font-size: 14px !important;
+                              font-weight: 600 !important;
+                              padding: 10px 12px !important;
+                              font-family: 'Inter', 'Segoe UI', system-ui, sans-serif !important;
+                            }
+                            .seasonality-custom-panel select optgroup {
+                              font-size: 12px !important;
+                              font-weight: 800 !important;
+                              letter-spacing: 1px !important;
+                              font-family: 'Inter', 'Segoe UI', system-ui, sans-serif !important;
                             }
                             
                             .seasonality-controls-row-1 select option:hover,
@@ -38732,18 +38928,9 @@ export default function TradingViewChart({
                                 >✕</button>
                               )}
 
-                              {/* Almanac Controls - Desktop Only, Always Visible */}
-                              {!isMobile && (
+                              {/* Almanac Controls - rendered into the slot above the monthly chart */}
+                              {!isMobile && almanacControlsEl && createPortal(
                                 <>
-                                  {/* Divider */}
-                                  <div
-                                    style={{
-                                      width: '1px',
-                                      height: '28px',
-                                      background: 'rgba(255, 107, 0, 0.3)',
-                                    }}
-                                  />
-
                                   {/* Month Selector */}
                                   <select
                                     onChange={(e) => {
@@ -39530,7 +39717,8 @@ export default function TradingViewChart({
                                       </div>
                                     )}
                                   </div>
-                                </>
+                                </>,
+                                almanacControlsEl
                               )}
                             </div>
 
@@ -39593,12 +39781,10 @@ export default function TradingViewChart({
                                   gap: '8px',
                                   marginBottom: '16px',
                                   padding: '6px 16px',
-                                  background:
-                                    'linear-gradient(135deg, #0a1628 0%, #000000 50%, #0a1628 100%)',
-                                  border: '1px solid rgba(255, 107, 0, 0.3)',
-                                  borderRadius: '4px',
-                                  boxShadow:
-                                    'inset 0 2px 4px rgba(255, 255, 255, 0.05), inset 0 -2px 4px rgba(0, 0, 0, 0.5)',
+                                  background: '#000',
+                                  border: '1px solid #1f242d',
+                                  borderRadius: '8px',
+                                  boxShadow: 'none',
                                 }}
                               >
                                 {/* Sweet Spot Button - Mobile Only */}
@@ -40196,22 +40382,6 @@ export default function TradingViewChart({
                             )}
                           </div>
                         )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* ── SCREEN panel ── */}
-                  {mountedPanelsRef.current.has('screen') && (
-                    <div className="h-full flex flex-col" style={{ display: activeSidebarPanel === 'screen' ? 'flex' : 'none', background: '#050505' }}>
-                      <div className="flex gap-0 w-full" style={{ flexShrink: 0 }}>
-                        <div className="flex-1 flex items-center font-black uppercase tracking-[0.15em] relative" style={{ padding: '14px 16px', fontSize: '14px', color: '#06B6D4', border: '2px solid #06B6D4', background: 'linear-gradient(180deg,#1a1a1a 0%,#060606 100%)', boxShadow: '0 0 18px rgba(6,182,212,0.35), inset 0 1px 0 rgba(255,255,255,0.1)' }}>
-                          <div className="absolute inset-0 bg-gradient-to-b from-cyan-500/15 to-transparent pointer-events-none" />
-                          <span className="relative" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}>SCREEN</span>
-                        </div>
-                        <button onClick={() => setActiveSidebarPanel(null)} className="flex items-center justify-center font-bold transition-all" style={{ width: '44px', flexShrink: 0, alignSelf: 'stretch', fontSize: '16px', color: '#FF6600', border: '2px solid rgba(255,102,0,0.5)', background: 'linear-gradient(180deg,#111111 0%,#040404 100%)', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.background = '#FF6600'; e.currentTarget.style.color = '#000' }} onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(180deg,#111111 0%,#040404 100%)'; e.currentTarget.style.color = '#FF6600' }}>&#x2715;</button>
-                      </div>
-                      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-                        <MarketScannerPanel />
                       </div>
                     </div>
                   )}

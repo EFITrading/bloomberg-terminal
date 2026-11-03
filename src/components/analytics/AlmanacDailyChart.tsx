@@ -2019,6 +2019,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
   return (
     <div
       className="almanac-daily-chart"
+      data-view={activeView}
       style={isMobileView
         ? { display: 'flex', flexDirection: 'column', height: 'calc(100dvh - 136px)', overflow: 'hidden', padding: 0, minHeight: 0 }
         : { position: 'relative', overflow: 'visible' }
@@ -2063,7 +2064,7 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
         )}
 
         {/* Desktop: Tabs + Controls */}
-        {!isMobileView && activeView === 'chart' && <div
+        {!isMobileView && <div
           className="chart-controls-row chart-controls-desktop desktop-only-btn"
           data-active-view={activeView}
           style={{ display: 'flex', flexDirection: 'column', background: '#000000', borderBottom: '1px solid #1a1a1a' }}
@@ -2110,8 +2111,8 @@ const AlmanacDailyChart: React.FC<AlmanacDailyChartProps> = ({
             .almanac-ctrl-select optgroup { background:#000; color:#ff9933; font-family:'JetBrains Mono',monospace; font-weight:900; font-size:13px; letter-spacing:0.8px; text-transform:uppercase; padding:5px 0; }
           `}</style>
 
-          {/* Single controls row — only when chart view */}
-          {activeView === 'chart' && (() => {
+          {/* Controls row — view switcher always visible so calendar can return to chart */}
+          {(() => {
             const base: React.CSSProperties = {
               boxSizing: 'border-box',
               height: '47px', minHeight: '47px', maxHeight: '47px', padding: '0 16px',

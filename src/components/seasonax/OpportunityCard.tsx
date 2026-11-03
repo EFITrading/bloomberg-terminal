@@ -205,10 +205,11 @@ const PeriodCandleChart: React.FC<{ yearData: YearCandleData }> = ({ yearData })
 }
 
 // ── Canvas-based mini seasonal chart (almanac-style, crispy) ──────
-const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean; todayDayIdx?: number }> = ({
+const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean; todayDayIdx?: number; large?: boolean }> = ({
   data,
   isPositive,
   todayDayIdx,
+  large = false,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -231,7 +232,9 @@ const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean; t
     canvas.style.height = `${height}px`
     ctx.scale(dpr, dpr)
 
-    const PAD = { top: 22, right: 12, bottom: 36, left: 56 }
+    const PAD = large
+      ? { top: 28, right: 14, bottom: 44, left: 76 }
+      : { top: 22, right: 12, bottom: 36, left: 56 }
     const cw = width - PAD.left - PAD.right
     const ch = height - PAD.top - PAD.bottom
 
@@ -260,7 +263,7 @@ const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean; t
     const zeroY = getY(0)
 
     // ── Y-axis grid + labels (bold white, JetBrains Mono)
-    ctx.font = 'bold 13px "JetBrains Mono", "Courier New", monospace'
+    ctx.font = `bold ${large ? 17 : 13}px "JetBrains Mono", "Courier New", monospace`
     ctx.textAlign = 'right'
     const numH = 6
     for (let i = 0; i <= numH; i++) {
@@ -336,7 +339,7 @@ const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean; t
       const tx = todayDayIdx < 0 ? PAD.left : getX(Math.min(todayDayIdx, maxDays - 1))
       if (tx >= PAD.left && tx <= width - PAD.right) {
         ctx.fillStyle = todayDayIdx < 0 ? 'rgba(255, 200, 50, 0.85)' : 'rgba(255, 255, 255, 0.85)'
-        ctx.font = 'bold 9px "JetBrains Mono", monospace'
+        ctx.font = `bold ${large ? 13 : 9}px "JetBrains Mono", monospace`
         ctx.textAlign = 'center'
         ctx.fillText('NOW', tx, PAD.top - 4)
       }
@@ -344,7 +347,7 @@ const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean; t
 
     // ── X-axis day labels
     ctx.fillStyle = '#FFFFFF'
-    ctx.font = 'bold 12px "JetBrains Mono", "Courier New", monospace'
+    ctx.font = `bold ${large ? 16 : 12}px "JetBrains Mono", "Courier New", monospace`
     ctx.textAlign = 'center'
     const xTicks: number[] = [0]
     for (let d = 4; d < maxDays - 1; d += 5) xTicks.push(d)
@@ -352,14 +355,14 @@ const MiniSeasonalChart: React.FC<{ data: MiniChartState; isPositive: boolean; t
     xTicks.forEach((d) => {
       const x = getX(d)
       if (x >= PAD.left && x <= width - PAD.right)
-        ctx.fillText(`${d + 1}`, x, height - PAD.bottom + 16)
+        ctx.fillText(`${d + 1}`, x, height - PAD.bottom + (large ? 21 : 16))
     })
 
     // Border frame
     ctx.strokeStyle = 'rgba(255,255,255,0.18)'
     ctx.lineWidth = 0.5
     ctx.strokeRect(PAD.left, PAD.top, cw, ch)
-  }, [data, isPositive, avgColor, todayDayIdx])
+  }, [data, isPositive, avgColor, todayDayIdx, large])
 
   useEffect(() => {
     requestAnimationFrame(draw)
@@ -1539,7 +1542,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                       Loading chart…
                     </div>
                   ) : miniChart ? (
-                    <MiniSeasonalChart data={miniChart} isPositive={isPositive} todayDayIdx={daysUntilStart !== undefined && daysUntilStart !== null ? -daysUntilStart : undefined} />
+                    <MiniSeasonalChart large={sidebarMode} data={miniChart} isPositive={isPositive} todayDayIdx={daysUntilStart !== undefined && daysUntilStart !== null ? -daysUntilStart : undefined} />
                   ) : (
                     <div
                       style={{
@@ -1857,7 +1860,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
           {isExpanded && createPortal(
             <div
               onClick={(e) => { e.stopPropagation(); onExpand?.() }}
-              style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+              style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 2147483000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
             >
               <style>{`
                 .opp-candle-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
@@ -1947,7 +1950,7 @@ const OpportunityCard: React.FC<OpportunityCardProps> = ({
                 transform: 'translate(-50%, -50%) scale(1.5)',
                 width: hoverZoomRect.width,
                 height: hoverZoomRect.height,
-                zIndex: 2000,
+                zIndex: 2147483001,
                 pointerEvents: 'none',
               }}
               className="opp-candle-card opp-candle-hovering"

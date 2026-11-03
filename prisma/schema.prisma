@@ -139,3 +139,10 @@ model SeasonalScan {
   data      Json
   updatedAt DateTime @updatedAt
 }
+
+model TickerLogo {
+  ticker    String   @id
+  mime      String   @default("image/png")
+  data      Bytes?   // null = no logo exists for this ticker
+  updatedAt DateTime @updatedAt
+}

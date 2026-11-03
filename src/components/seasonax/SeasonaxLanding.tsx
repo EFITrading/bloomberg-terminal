@@ -849,7 +849,7 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
           </div>
         ) : opportunities.length > 0 ? (
           <div
-            className="split-results-container"
+            className={`split-results-container${sidebarMode ? ' sx-sidebar-mode' : ''}`}
             style={{
               border: isMobileView ? 'none' : '3px solid #FFD700',
               borderRadius: isMobileView ? '0' : '12px',
@@ -862,6 +862,30 @@ const SeasonaxLanding: React.FC<SeasonaxLandingProps> = ({
               marginTop: sidebarMode ? '20px' : '0',
             }}
           >
+            {sidebarMode && (
+              <style>{`
+                .sx-sidebar-mode .sx-sector-bar { display: none !important; }
+                .sx-sidebar-mode .section-header-split { margin-bottom: 10px !important; padding: 12px 0 !important; text-align: center !important; }
+                .sx-sidebar-mode .section-title {
+                  display: flex !important; flex-direction: row !important; align-items: center !important;
+                  justify-content: center !important; gap: 12px !important;
+                  font-size: 20px !important; font-weight: 800 !important; letter-spacing: 1.5px !important;
+                  line-height: 1.2 !important; margin: 0 !important; color: #ffffff !important;
+                  -webkit-text-fill-color: #ffffff !important; background: none !important; text-shadow: none !important;
+                  white-space: nowrap !important;
+                }
+                .sx-sidebar-mode .section-title svg { width: 28px !important; height: 28px !important; flex-shrink: 0 !important; }
+                .sx-sidebar-mode .section-title .count { font-size: 18px !important; font-weight: 700 !important; color: #9aa4b2 !important; -webkit-text-fill-color: #9aa4b2 !important; }
+                .sx-sidebar-mode .results-grid-split [style*="font-size: 4px"],
+                .sx-sidebar-mode .results-grid-split [style*="font-size: 5.5px"],
+                .sx-sidebar-mode .results-grid-split [style*="font-size: 7px"],
+                .sx-sidebar-mode .results-grid-split [style*="font-size: 8px"] { font-size: 12px !important; }
+                .sx-sidebar-mode .results-grid-split [style*="font-size: 9px"],
+                .sx-sidebar-mode .results-grid-split [style*="font-size: 10px"] { font-size: 13px !important; }
+                .sx-sidebar-mode .results-grid-split [style*="font-size: 11px"] { font-size: 14px !important; }
+                .sx-sidebar-mode .results-grid-split [style*="font-size: 13px"] { font-size: 15px !important; }
+              `}</style>
+            )}
             {/* Sector toggle bar — one button per sector ETF actually present among the found trades */}
             {availableSectors.length > 1 && (
               <div

@@ -2082,7 +2082,7 @@ const GexPanel: React.FC<GexPanelProps> = ({
     if (sidebarPanel) {
       // Count total items: OI chart (if enabled) + tables
       const oiCount = showOI ? 1 : 0
-      const totalItems = oiCount + activeTableCount
+      const totalItems = showOI ? 1 : oiCount + activeTableCount
 
       if (totalItems === 0 || totalItems === 1) {
         // 0 items OR 1 item (OI only OR 1 table only) - 1200px
@@ -7602,14 +7602,14 @@ const GexPanel: React.FC<GexPanelProps> = ({
                           <div
                             className="flex-shrink-0 gex-chart-section"
                             style={{
-                              width: activeTableCount === 2 ? '1100px' : '1200px',
-                              minWidth: activeTableCount === 2 ? '1100px' : '1200px',
+                              width: '100%',
+                              minWidth: 0,
                             }}
                           >
-                            <OIGEXTab selectedTicker={selectedTicker} activeTableCount={activeTableCount} controlsSlot={oiControlsSlot} />
+                            <OIGEXTab selectedTicker={selectedTicker} activeTableCount={0} controlsSlot={oiControlsSlot} />
                           </div>
                         )}
-                        {(() => {
+                        {!showOI && (() => {
                           // Calculate table width based on context
                           const tableWidths: string[] = []
 

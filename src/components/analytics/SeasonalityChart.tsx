@@ -137,6 +137,7 @@ interface SeasonalityChartProps {
   externalSelectedEvent?: string | null
   externalSelectedPatterns?: string[]
   hideFullscreenToggle?: boolean
+  monthlyControlsSlot?: React.ReactNode
 }
 
 const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
@@ -158,6 +159,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
   externalSelectedEvent,
   externalSelectedPatterns = [],
   hideFullscreenToggle = false,
+  monthlyControlsSlot,
 }) => {
   const [selectedSymbol, setSelectedSymbol] = useState<string>(initialSymbol || '')
   const [seasonalData, setSeasonalData] = useState<SeasonalAnalysis | null>(null)
@@ -2258,45 +2260,6 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                         marginTop: '0px',
                       }}
                     >
-                      {/* EXPAND button — normal mode, desktop only */}
-                      {!isMobileView && !hideFullscreenToggle && <button
-                        onClick={() => setIsFullscreen((f) => !f)}
-                        title="Fullscreen"
-                        style={{
-                          position: 'absolute',
-                          top: '8px',
-                          right: '8px',
-                          zIndex: 10001,
-                          background: 'rgba(0,0,0,0.75)',
-                          border: '1px solid rgba(255,255,255,0.18)',
-                          borderRadius: '5px',
-                          color: '#fff',
-                          cursor: 'pointer',
-                          padding: '5px 8px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '5px',
-                          fontSize: '11px',
-                          fontFamily: '"Roboto Mono", monospace',
-                          fontWeight: 700,
-                          letterSpacing: '0.06em',
-                          lineHeight: 1,
-                          backdropFilter: 'blur(6px)',
-                          transition: 'border-color 0.15s, background 0.15s',
-                        }}
-                        onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.45)' }}
-                        onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)' }}
-                      >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#00ff88" strokeWidth="2.5" strokeLinecap="square">
-                          <polyline points="15 3 21 3 21 9" />
-                          <line x1="21" y1="3" x2="14" y2="10" />
-                        </svg>
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ff3b3b" strokeWidth="2.5" strokeLinecap="square">
-                          <polyline points="9 21 3 21 3 15" />
-                          <line x1="3" y1="21" x2="10" y2="14" />
-                        </svg>
-                      </button>}
-
                       {/* Canvas chart */}
                       <div style={{ height: '100%', width: '100%', position: 'relative' }}>
                         <SeasonaxMainChart
@@ -2382,6 +2345,7 @@ const SeasonalityChart: React.FC<SeasonalityChartProps> = ({
                   </div>
 
                   {/* Monthly Analysis Chart below seasonal chart — only in normal mode */}
+                  {!hideMonthlyReturns && !isMobileView && monthlyControlsSlot}
                   {!hideMonthlyReturns && !isMobileView && memoizedMonthlyChart}
                 </>
               )}
