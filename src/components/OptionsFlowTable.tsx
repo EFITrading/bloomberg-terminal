@@ -1199,7 +1199,7 @@ export const OptionsFlowTable: React.FC<OptionsFlowTableProps> = ({
     { text: 'Unusual options activity today is tomorrow\'s headline.', author: 'EFI Research' },
     { text: 'Every large position started as an idea someone believed in enough to size up.', author: 'EFI Research' },
     { text: 'Options flow is the heartbeat of institutional conviction.', author: 'EFI Research' },
-    { text: 'The dark pool is where certainty trades. Follow the size.', author: 'EFI Research' },
+    { text: 'Certainty trades in size. Follow the size.', author: 'EFI Research' },
     { text: 'A sweep across multiple exchanges is a trader screaming urgency.', author: 'EFI Research' },
     { text: 'When IV crush comes, preparation determines winners from losers.', author: 'EFI Research' },
     // Trading psychology

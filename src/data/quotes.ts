@@ -16,7 +16,7 @@ export const TRADING_QUOTES: { text: string; author: string }[] = [
     { text: 'A sweep order is a whisper from the institution that can\'t wait.', author: 'EFI Research' },
     { text: 'The options market sees the future before the equity market does.', author: 'EFI Research' },
     { text: 'Implied volatility is the price of fear. Learn to sell it or respect it.', author: 'EFI Research' },
-    { text: 'Dark pool prints reveal the hand of players who prefer the shadows.', author: 'EFI Research' },
+    { text: 'Large prints reveal the hand of players who prefer the shadows.', author: 'EFI Research' },
     { text: 'When a whale sizes in, the ripple hits the tape before the news.', author: 'EFI Research' },
     { text: 'Volatility is not risk. It\'s opportunity in disguise for those who are prepared.', author: 'EFI Research' },
     { text: 'Successful traders are not born — they are built through discipline, losses, and relentless self-improvement.', author: 'EFI Research' },

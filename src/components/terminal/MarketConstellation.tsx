@@ -47,7 +47,7 @@ export default function MarketConstellation() {
  {
  title: "Options Flow",
  value: "Live",
- description: "Monitor institutional options activity and dark pool transactions",
+ description: "Monitor institutional options activity and large block transactions",
  color: "#FFD700",
  icon: "λ"
  },

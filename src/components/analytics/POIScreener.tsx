@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -636,7 +636,7 @@ function POITable({ poiLevels, currentPrice }: { poiLevels: POILevel[]; currentP
             fontFamily: 'JetBrains Mono, monospace',
           }}
         >
-          NO DARK POOL PRINTS DETECTED
+          NO PIVOT POINTS DETECTED
         </div>
       )}
 

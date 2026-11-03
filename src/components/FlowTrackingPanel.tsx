@@ -1421,7 +1421,7 @@ function SweepSenseTab({
     { text: 'Premium doesn\'t lie. Size tells the story.', author: 'EFI Research' },
     { text: 'Unusual options activity today is tomorrow\'s headline.', author: 'EFI Research' },
     { text: 'Options flow is the heartbeat of institutional conviction.', author: 'EFI Research' },
-    { text: 'The dark pool is where certainty trades. Follow the size.', author: 'EFI Research' },
+    { text: 'Certainty trades in size. Follow the size.', author: 'EFI Research' },
     { text: 'A sweep across multiple exchanges is a trader screaming urgency.', author: 'EFI Research' },
     { text: 'When IV crush comes, preparation determines winners from losers.', author: 'EFI Research' },
     { text: 'The goal of a successful trader is to make the best trades. Money is secondary.', author: 'Alexander Elder' },

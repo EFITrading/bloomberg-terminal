@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import React, { useRef, useState } from 'react'
 
@@ -314,7 +314,7 @@ export default function POIScanScreener() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingRight: 16, borderRight: '1px solid rgba(255,255,255,0.07)', flexShrink: 0, alignSelf: 'stretch' }}>
                     <div style={{ width: 4, height: 30, background: 'linear-gradient(180deg,#00D4FF,#0080FF)', borderRadius: 2, flexShrink: 0, boxShadow: '0 0 10px rgba(0,212,255,0.45)' }} />
                     <div>
-                        <div style={{ ...mono, fontWeight: 900, fontSize: 19, color: '#00D4FF', letterSpacing: '3px', lineHeight: 1 }}>DARK POOL POI</div>
+                        <div style={{ ...mono, fontWeight: 900, fontSize: 19, color: '#00D4FF', letterSpacing: '3px', lineHeight: 1 }}>PIVOT POINT</div>
                         <div style={{ ...mono, fontSize: 10, color: 'rgba(255,255,255,0.35)', letterSpacing: '1px', marginTop: 2 }}>45-DAY LOOKBACK · {POI_TICKERS.length} TICKERS</div>
                     </div>
                 </div>
@@ -416,7 +416,7 @@ export default function POIScanScreener() {
                 {/* Empty states */}
                 {phase === 'idle' && results.length === 0 && (
                     <div style={{ ...mono, textAlign: 'center', color: 'rgba(255,255,255,0.15)', marginTop: 80, fontSize: 13, letterSpacing: '2px', lineHeight: 2 }}>
-                        PRESS SCAN TO FIND<br />DARK POOL POI LEVELS
+                        PRESS SCAN TO FIND<br />PIVOT POINT LEVELS
                     </div>
                 )}
                 {phase === 'scanning' && results.length === 0 && (
@@ -425,7 +425,7 @@ export default function POIScanScreener() {
                             <circle cx="5.5" cy="5.5" r="4" stroke="rgba(0,212,255,0.3)" strokeWidth="1.5" />
                             <path d="M5.5 1.5 A4 4 0 0 1 9.5 5.5" stroke="#00D4FF" strokeWidth="1.5" strokeLinecap="round" />
                         </svg>
-                        SCANNING DARK POOL DATA…
+                        SCANNING PIVOT POINT DATA…
                     </div>
                 )}
 

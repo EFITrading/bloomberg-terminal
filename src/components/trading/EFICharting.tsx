@@ -36135,7 +36135,7 @@ export default function TradingViewChart({
                         { key: 'dex', label: 'DEX Map', active: isDexMapActive, set: setIsDexMapActive },
                         { key: 'iv', label: 'IV', active: showIVPanel, set: setShowIVPanel },
                         { key: 'flow', label: 'Flow', active: isFlowChartActive, set: setIsFlowChartActive },
-                        { key: 'dp', label: 'Dark Pool', active: showDarkPoolIndicator, set: setShowDarkPoolIndicator },
+                        { key: 'dp', label: 'Pivot Point', active: showDarkPoolIndicator, set: setShowDarkPoolIndicator },
                       ]
                       const rows = indicators.filter(i => i.active || mobileHiddenIndicators.includes(i.key))
                       const toggle = (i: typeof indicators[number]) => {
