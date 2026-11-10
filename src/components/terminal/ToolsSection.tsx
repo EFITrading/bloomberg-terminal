@@ -74,7 +74,7 @@ export default function ToolsSection() {
             badge: 'LIVE PRICE',
             badgeType: 'cyan',
             name: 'Professional Charting Suite',
-            description: 'Full charting workspace with 5M, 1H and daily timeframes, Expected Range, Seasonality, Gamma Exposure (GEX), Implied Volatility and Technalysis overlays, option chain, news, and a complete drawing toolbar.',
+            description: 'Full charting workspace with 5M, 1H and daily timeframes, Expected Range, Seasonality, Gamma Exposure (GEX), Implied Volatility overlays, option chain, news, and a complete drawing toolbar.',
             features: ['Gamma Exposure', 'Expected Range', 'Option Chain', 'Drawing Tools'],
             stat1: { val: live.spxPrice ? live.spxPrice.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '--', lbl: 'SPY Last' },
             stat2: { val: 'GEX', lbl: 'Overlays' },

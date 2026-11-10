@@ -325,64 +325,6 @@ interface PriceAlert {
   }
 }
 
-// TECHNALYSIS PRICE ACTION SYSTEM INTERFACES
-// ==================================================================================
-
-interface OrderBlock {
-  type: 'bullish' | 'bearish'
-  price: number
-  high: number
-  low: number
-  index: number
-  strength: number
-  isValid: boolean
-  isMitigated: boolean
-  volumeConfirmation: boolean
-}
-
-interface FairValueGap {
-  type: 'bullish' | 'bearish'
-  topPrice: number
-  bottomPrice: number
-  startIndex: number
-  endIndex: number
-  gapSize: number
-  isValid: boolean
-  isFilled: boolean
-}
-
-interface LiquidityZone {
-  type: 'buy_side' | 'sell_side'
-  price: number
-  strength: number
-  index: number
-  isSwept: boolean
-  expectedReaction: 'reversal' | 'continuation'
-}
-
-interface MarketStructure {
-  type: 'higher_high' | 'higher_low' | 'lower_high' | 'lower_low'
-  price: number
-  index: number
-  trendDirection: 'bullish' | 'bearish' | 'ranging'
-}
-
-interface BreakOfStructure {
-  type: 'bos' | 'choch'
-  direction: 'bullish' | 'bearish'
-  price: number
-  index: number
-  previousStructure: MarketStructure
-}
-
-interface OptimalTradeEntry {
-  type: 'premium' | 'discount' | 'equilibrium'
-  priceLevel: number
-  confidence: number
-  setupType: string
-  index: number
-}
-
 // Drawing types for proper TypeScript support
 interface DrawingPoint {
   x: number
@@ -2691,126 +2633,221 @@ const calculateFutureExpiriesLevels = async (
 // Extracts the market-implied probability distribution from option prices using the
 // second derivative of call prices with respect to strike (Breeden-Litzenberger 1978).
 // f(K) = e^(rT) * d²C/dK²   →   integrate to CDF  →  invert at 5/25/50/75/95 percentiles
+// Smoothed-IV Breeden-Litzenberger: tight-spread OTM quotes -> IV smile (polynomial fit)
+// -> analytic density on a fine grid. Backtested against raw second-difference BL (see tmp test).
 const calculatePctChanceLevels = async (symbol: string, overrideExpiry?: string) => {
   try {
-    // 1. Current price
     const priceResp = await fetch(`/api/polygon/v2/last/trade/${symbol}?apikey=${POLYGON_API_KEY}`)
     if (!priceResp.ok) throw new Error('Failed to fetch price')
-    const priceData = await priceResp.json()
-    const S = priceData.results?.p as number
-    if (!S) throw new Error('No price in response')
+    const S = (await priceResp.json()).results?.p as number
+    if (!S) throw new Error('No price')
 
-    // 2. Expiry + time
     const { weeklyExpiry, weeklyDate } = await getExpirationDatesFromAPI(symbol)
     let chosenExpiry = overrideExpiry || weeklyExpiry
     let chosenDate = overrideExpiry ? new Date(overrideExpiry + 'T00:00:00') : weeklyDate
-    const rfr = await getRiskFreeRate().then(v => v ?? 0.0442)
+    const r = await getRiskFreeRate().then(v => v ?? 0.0442)
 
-    // 3. Get ATM IV from snapshot — fetch all calls, find closest strike to S
-    let allCallsSnap = await fetch(`/api/polygon/v3/snapshot/options/${symbol}?expiration_date=${chosenExpiry}&contract_type=call&limit=250&apikey=${POLYGON_API_KEY}`).then(r => r.json())
-
-    // If chosen expiry has no options (e.g. holiday), fall back to nearest valid expiry
-    if (!allCallsSnap.results?.length && overrideExpiry) {
-      allCallsSnap = await fetch(`/api/polygon/v3/snapshot/options/${symbol}?expiration_date=${weeklyExpiry}&contract_type=call&limit=250&apikey=${POLYGON_API_KEY}`).then(r => r.json())
+    const snap = (exp: string, type: string) =>
+      fetch(`/api/polygon/v3/snapshot/options/${symbol}?expiration_date=${exp}&contract_type=${type}&limit=250&apikey=${POLYGON_API_KEY}`).then(x => x.json())
+    let [callsSnap, putsSnap] = await Promise.all([snap(chosenExpiry, 'call'), snap(chosenExpiry, 'put')])
+    if (!callsSnap.results?.length && overrideExpiry) {
       chosenExpiry = weeklyExpiry
       chosenDate = weeklyDate
+      ;[callsSnap, putsSnap] = await Promise.all([snap(chosenExpiry, 'call'), snap(chosenExpiry, 'put')])
+    }
+    if (!callsSnap.results?.length) throw new Error('No call snapshot results')
+
+    const T = Math.max(1, getDaysUntilExpiration(chosenDate)) / 365
+    const disc = Math.exp(r * T)
+
+    // Only two-sided, tight-spread quotes; stale last-trades are what broke the old method
+    const midOf = (s: any): number => {
+      const q = s.last_quote || {}
+      const b = Number(q.bid) || 0
+      const a = Number(q.ask) || 0
+      if (b <= 0 || a < b || (a - b) / ((a + b) / 2) > 0.35) return 0
+      return (a + b) / 2
+    }
+    const strikeOf = (s: any): number => s.details?.strike_price ?? s.strike_price
+
+    // Forward from put-call parity (captures dividends/borrow): F = K + e^{rT}(C - P), median near the money
+    const putMid = new Map<number, number>()
+    for (const s of putsSnap.results ?? []) {
+      const k = strikeOf(s), m = midOf(s)
+      if (k && m > 0) putMid.set(k, m)
+    }
+    const fwdSamples: number[] = []
+    for (const s of callsSnap.results ?? []) {
+      const k = strikeOf(s), c = midOf(s), p = putMid.get(k)
+      if (k && c > 0 && p && Math.abs(k / S - 1) < 0.03) fwdSamples.push(k + disc * (c - p))
+    }
+    fwdSamples.sort((a, b) => a - b)
+    const parityF = fwdSamples.length ? fwdSamples[Math.floor(fwdSamples.length / 2)] : 0
+    const F = parityF > 0 && Math.abs(parityF / (S * disc) - 1) < 0.05 ? parityF : S * disc
+    const Seff = F / disc // spot net of dividends so Black-Scholes reproduces F
+
+    const bsPrice = (k: number, iv: number, call: boolean) => calculateBlackScholesPrice(Seff, k, r, iv, T, call)
+    const impliedVol = (P: number, k: number, call: boolean) => {
+      let lo = 0.01, hi = 3
+      for (let i = 0; i < 40; i++) {
+        const m = (lo + hi) / 2
+        if (bsPrice(k, m, call) > P) hi = m
+        else lo = m
+      }
+      return (lo + hi) / 2
     }
 
-    // Compute T after fallback so it uses the final chosenDate
-    const dte = Math.max(1, getDaysUntilExpiration(chosenDate))
-    const T = dte / 365
+    const pts: { x: number; iv: number }[] = []
+    const addPts = (list: any[], call: boolean) => {
+      for (const s of list) {
+        const k = strikeOf(s)
+        if (!k || (call ? k < F : k >= F)) continue
+        const p = midOf(s)
+        if (p <= 0.02) continue
+        const iv = impliedVol(p, k, call)
+        if (iv > 0.02 && iv < 2.9) pts.push({ x: Math.log(k / F), iv })
+      }
+    }
+    addPts(putsSnap.results ?? [], false)
+    addPts(callsSnap.results ?? [], true)
+    if (pts.length < 8) throw new Error('Not enough quotes')
+    const atmIV = pts.reduce((b, p) => (Math.abs(p.x) < Math.abs(b.x) ? p : b), pts[0]).iv
 
-    if (!allCallsSnap.results?.length) throw new Error('No call snapshot results')
-    const atmSnap = (allCallsSnap.results as any[])
-      .filter(s => (s.details?.strike_price ?? s.strike_price) > 0)
-      .sort((a, b) => Math.abs((a.details?.strike_price ?? a.strike_price) - S) - Math.abs((b.details?.strike_price ?? b.strike_price) - S))[0]
-    const atmIV: number = atmSnap?.implied_volatility ?? 0.20
-
-    // 4. Use existing 90% probability logic to find the scan bounds (same as Expected Range)
-    const lo = findStrikeForProbability(S, rfr, atmIV, T, 90, false)
-    const hi = findStrikeForProbability(S, rfr, atmIV, T, 90, true)
-
-    // 5. Snapshot for puts within the 90% band (calls already fetched above)
-    const putSnap = await fetch(`/api/polygon/v3/snapshot/options/${symbol}?expiration_date=${chosenExpiry}&contract_type=put&limit=250&apikey=${POLYGON_API_KEY}`).then(r => r.json())
-
-    // 6. Build (K, C) pairs
-    type KCPair = { K: number; C: number }
-    const pairs: KCPair[] = []
-
-    for (const snap of allCallsSnap.results ?? []) {
-      const K: number = snap.details?.strike_price ?? snap.strike_price
-      if (!K || K < lo || K > hi) continue
-      const q: any = snap.last_quote || {}
-      const mid = ((Number(q.bid) || 0) + (Number(q.ask) || 0)) / 2 || Number(snap.last_trade?.price) || 0
-      const iv: number = snap.implied_volatility ?? 0
-      const C = mid > 0 ? mid : (iv > 0 ? calculateBlackScholesPrice(S, K, rfr, iv, T, true) : 0)
-      if (C > 0) pairs.push({ K, C })
+    // SVI total-variance smile w(x) = a + b(rho(x-m) + sqrt((x-m)^2 + s^2)), Nelder-Mead fit
+    const fitSVI = (): ((x: number) => number) | null => {
+      const loss = (v: number[]) => {
+        const [a, b, rho, m, sg] = v
+        if (b <= 0 || sg <= 0.001 || Math.abs(rho) >= 0.999 || a + b * sg * Math.sqrt(1 - rho * rho) < 0) return 1e9
+        let e = 0
+        for (const p of pts) {
+          const w = a + b * (rho * (p.x - m) + Math.sqrt((p.x - m) ** 2 + sg * sg))
+          e += (w - p.iv * p.iv * T) ** 2
+        }
+        return e
+      }
+      const w0 = atmIV * atmIV * T
+      let best: number[] | null = null
+      let bestL = Infinity
+      for (const start of [[w0 * 0.5, w0 * 2, -0.4, 0, 0.1], [w0 * 0.8, w0 * 4, -0.7, 0, 0.05], [w0 * 0.3, w0, 0, 0.01, 0.2]]) {
+        let sx = [start, ...start.map((_, i) => start.map((v, j) => (j === i ? v + (Math.abs(v) * 0.2 || 0.05) : v)))]
+        let fs = sx.map(loss)
+        for (let it = 0; it < 600; it++) {
+          const ord = fs.map((f, i) => i).sort((i, j) => fs[i] - fs[j])
+          sx = ord.map(i => sx[i]); fs = ord.map(i => fs[i])
+          const c = sx[0].map((_, j) => sx.slice(0, -1).reduce((s, p) => s + p[j], 0) / (sx.length - 1))
+          const pt = (t: number) => c.map((v, j) => v + t * (sx[sx.length - 1][j] - v))
+          const refl = pt(-1), fr = loss(refl)
+          if (fr < fs[0]) {
+            const ex = pt(-2), fe = loss(ex)
+            if (fe < fr) { sx[sx.length - 1] = ex; fs[fs.length - 1] = fe } else { sx[sx.length - 1] = refl; fs[fs.length - 1] = fr }
+          } else if (fr < fs[fs.length - 2]) {
+            sx[sx.length - 1] = refl; fs[fs.length - 1] = fr
+          } else {
+            const con = pt(0.5), fc = loss(con)
+            if (fc < fs[fs.length - 1]) { sx[sx.length - 1] = con; fs[fs.length - 1] = fc }
+            else { for (let i = 1; i < sx.length; i++) { sx[i] = sx[0].map((v, j) => v + 0.5 * (sx[i][j] - v)); fs[i] = loss(sx[i]) } }
+          }
+        }
+        if (fs[0] < bestL) { bestL = fs[0]; best = sx[0] }
+      }
+      if (!best || bestL >= 1e8) return null
+      const [a, b, rho, m, sg] = best
+      return (x: number) => Math.sqrt(Math.max(a + b * (rho * (x - m) + Math.sqrt((x - m) ** 2 + sg * sg)), 1e-6) / T)
     }
 
-    const disc = Math.exp(-rfr * T)
-    for (const snap of putSnap.results ?? []) {
-      const K: number = snap.details?.strike_price ?? snap.strike_price
-      if (!K || K < lo || K >= S) continue
-      const q: any = snap.last_quote || {}
-      const P = ((Number(q.bid) || 0) + (Number(q.ask) || 0)) / 2 || Number(snap.last_trade?.price) || 0
-      const iv: number = snap.implied_volatility ?? 0
-      const Pval = P > 0 ? P : (iv > 0 ? calculateBlackScholesPrice(S, K, rfr, iv, T, false) : 0)
-      if (Pval > 0) pairs.push({ K, C: Pval + S - K * disc })
-    }
-
-    pairs.sort((a, b) => a.K - b.K)
-    const deduped: KCPair[] = []
-    for (const p of pairs) {
-      if (deduped.length === 0 || p.K !== deduped[deduped.length - 1].K) deduped.push(p)
-    }
-    if (deduped.length < 5) throw new Error('Not enough strikes: ' + deduped.length)
-
-    // 7. Breeden-Litzenberger second derivative → risk-neutral density
-    const discFwd = Math.exp(rfr * T)
-    type Density = { K: number; f: number }
-    const density: Density[] = []
-    for (let i = 1; i < deduped.length - 1; i++) {
-      const { K: K0, C: C0 } = deduped[i - 1]
-      const { K: K1, C: C1 } = deduped[i]
-      const { K: K2, C: C2 } = deduped[i + 1]
-      const dK = (K2 - K0) / 2
-      if (dK <= 0) continue
-      const d2C = (C2 - 2 * C1 + C0) / (dK * dK)
-      density.push({ K: K1, f: discFwd * Math.max(0, d2C) })
-    }
-    if (density.length < 3) throw new Error('Insufficient density points')
-
-    // 8. Trapezoid CDF → normalize
-    const cdf: { K: number; p: number }[] = [{ K: density[0].K, p: 0 }]
-    let total = 0
-    for (let i = 1; i < density.length; i++) {
-      const dK = density[i].K - density[i - 1].K
-      total += 0.5 * (density[i].f + density[i - 1].f) * dK
-      cdf.push({ K: density[i].K, p: total })
-    }
-    if (total <= 0) throw new Error('Zero probability mass')
-    for (const pt of cdf) pt.p /= total
-
-    // 9. Invert CDF at percentiles
-    const interpolateStrike = (targetP: number): number => {
-      for (let i = 1; i < cdf.length; i++) {
-        if (cdf[i].p >= targetP) {
-          const t = (targetP - cdf[i - 1].p) / (cdf[i].p - cdf[i - 1].p)
-          return cdf[i - 1].K + t * (cdf[i].K - cdf[i - 1].K)
+    const fitPoly = (deg: number): number[] => {
+      const n = deg + 1
+      const A = Array.from({ length: n }, () => Array(n + 1).fill(0))
+      for (const p of pts) {
+        const pw: number[] = []
+        for (let i = 0; i <= 2 * deg; i++) pw.push(p.x ** i)
+        for (let i = 0; i < n; i++) {
+          for (let j = 0; j < n; j++) A[i][j] += pw[i + j]
+          A[i][n] += pw[i] * p.iv
         }
       }
-      return cdf[cdf.length - 1].K
+      for (let i = 0; i < n; i++) {
+        let m = i
+        for (let k = i + 1; k < n; k++) if (Math.abs(A[k][i]) > Math.abs(A[m][i])) m = k
+        ;[A[i], A[m]] = [A[m], A[i]]
+        for (let k = 0; k < n; k++) {
+          if (k === i) continue
+          const f = A[k][i] / A[i][i]
+          for (let c = i; c <= n; c++) A[k][c] -= f * A[i][c]
+        }
+      }
+      return A.map((row, i) => row[n] / row[i])
     }
 
-    return {
-      p5: interpolateStrike(0.05),
-      p25: interpolateStrike(0.25),
-      p50: interpolateStrike(0.50),
-      p75: interpolateStrike(0.75),
-      p95: interpolateStrike(0.95),
-      currentPrice: S,
-      expiryLabel: chosenExpiry,
+    const xs = pts.map(p => p.x)
+    const xmin = Math.min(...xs), xmax = Math.max(...xs)
+    const h = S * 0.002
+    const densityFor = (ivf: (x: number) => number) => {
+      const grid: number[] = [], pdf: number[] = []
+      const c = (k: number) => bsPrice(k, ivf(Math.log(k / F)), true)
+      for (let k = S * 0.55; k <= S * 1.55; k += S * 0.002) {
+        grid.push(k)
+        pdf.push(Math.exp(r * T) * Math.max(0, (c(k + h) - 2 * c(k) + c(k - h)) / (h * h)))
+      }
+      return { grid, pdf }
     }
+    const summarize = (grid: number[], pdf: number[]) => {
+      const cum = [0]
+      let mean = 0
+      for (let i = 1; i < grid.length; i++) {
+        const dk = grid[i] - grid[i - 1]
+        cum.push(cum[i - 1] + 0.5 * (pdf[i] + pdf[i - 1]) * dk)
+        mean += 0.5 * (pdf[i] * grid[i] + pdf[i - 1] * grid[i - 1]) * dk
+      }
+      const tot = cum[cum.length - 1]
+      if (!(tot > 0)) return null
+      let spotPct = 1
+      for (let i = 1; i < grid.length; i++) {
+        if (grid[i] >= S) {
+          const t = (S - grid[i - 1]) / (grid[i] - grid[i - 1] || 1)
+          spotPct = (cum[i - 1] + t * (cum[i] - cum[i - 1])) / tot
+          break
+        }
+      }
+      const inv = (p: number) => {
+        for (let i = 1; i < cum.length; i++) {
+          if (cum[i] / tot >= p) {
+            const t = (p - cum[i - 1] / tot) / ((cum[i] - cum[i - 1]) / tot || 1)
+            return grid[i - 1] + t * (grid[i] - grid[i - 1])
+          }
+        }
+        return grid[grid.length - 1]
+      }
+      return { meanErr: Math.abs(mean / tot / F - 1), spotPct, p5: inv(0.05), p25: inv(0.25), p50: inv(0.5), p75: inv(0.75), p95: inv(0.95) }
+    }
+
+    // SVI first, then cubic/quadratic polynomial, flat ATM IV as last resort; each must reproduce the forward
+    const candidates: ((x: number) => number)[] = []
+    const svi = fitSVI()
+    if (svi) candidates.push(svi)
+    for (const deg of [3, 2]) {
+      const co = fitPoly(deg)
+      candidates.push(x => {
+        const xc = Math.min(Math.max(x, xmin), xmax)
+        let v = 0
+        for (let i = 0; i < co.length; i++) v += co[i] * xc ** i
+        return Math.max(v, 0.03)
+      })
+    }
+    candidates.push(() => atmIV)
+    for (const ivf of candidates) {
+      const { grid, pdf } = densityFor(ivf)
+      const s = summarize(grid, pdf)
+      if (s && s.meanErr < 0.004) {
+        const isSvi = ivf === svi
+        const confidence = isSvi && pts.length >= 20 ? 'High' : isSvi || pts.length >= 12 ? 'Medium' : 'Low'
+        return {
+          p5: s.p5, p25: s.p25, p50: s.p50, p75: s.p75, p95: s.p95, currentPrice: S, expiryLabel: chosenExpiry,
+          dte: Math.round(T * 365), spotPct: s.spotPct, confidence, impliedMove: (s.p75 - s.p25) / 1.349,
+        }
+      }
+    }
+    throw new Error('No consistent density')
   } catch {
     return null
   }
@@ -2844,7 +2881,7 @@ const renderPctChanceLines = (
   priceChartHeight: number,
   adjustedMin: number,
   adjustedMax: number,
-  levels: { p5: number; p25: number; p50: number; p75: number; p95: number; currentPrice: number; expiryLabel: string },
+  levels: { p5: number; p25: number; p50: number; p75: number; p95: number; currentPrice: number; expiryLabel: string; dte?: number; spotPct?: number; confidence?: string; impliedMove?: number },
   visibleCandleCount: number,
   lastCandleX: number
 ) => {
@@ -2864,30 +2901,178 @@ const renderPctChanceLines = (
 
   const rightEdge = chartWidth + CHART_LEFT_MARGIN
   const lineStartX = lastCandleX + 12
+  const labelRight = rightEdge - 112
+  const pillH = 32
+  const originY = priceToY(levels.currentPrice)
+
+  type Row = { price: number; col: string; pct: string; txt: string; yEnd: number; isMed: boolean }
+  const cumOf = [95, 75, 50, 25, 5]
+  const rows: Row[] = lines
+    .map((ln, i) => {
+      const isMed = cumOf[i] === 50
+      const up = ln.price >= levels.currentPrice
+      const move = (ln.price / levels.currentPrice - 1) * 100
+      return {
+        price: ln.price,
+        isMed,
+        col: isMed ? '#FFD700' : up ? '#22C55E' : '#FF3B3B',
+        pct: isMed ? '50/50' : `${up ? 100 - cumOf[i] : cumOf[i]}%`,
+        txt: `${up ? '▲' : '▼'} $${ln.price.toFixed(2)}  ${move >= 0 ? '+' : ''}${move.toFixed(1)}%`,
+        yEnd: priceToY(ln.price),
+      }
+    })
+    .filter(r => r.yEnd >= 0 && r.yEnd <= priceChartHeight)
 
   ctx.save()
-  ctx.setLineDash([5, 4])
-  ctx.lineWidth = 1.5
+  ctx.textBaseline = 'middle'
+  const badgeFont = 'bold 20px monospace'
+  const txtFont = 'bold 16px monospace'
+  ctx.font = badgeFont
+  const badgeW = Math.max(...rows.map(r => ctx.measureText(r.pct).width), 40) + 18
+  ctx.font = txtFont
+  const textW = Math.max(...rows.map(r => ctx.measureText(r.txt).width), 60) + 20
+  const pillW = badgeW + textW
+  const pillX = labelRight - pillW
+  const fanEndX = Math.max(lineStartX + 90, pillX - 14)
 
-  for (const ln of lines) {
-    const y = priceToY(ln.price)
-    if (y < 0 || y > priceChartHeight) continue // truly off-screen, skip
-
-    ctx.strokeStyle = ln.color
-    ctx.globalAlpha = 1
-    ctx.beginPath()
-    ctx.moveTo(lineStartX, y)
-    ctx.lineTo(rightEdge - 6, y)
-    ctx.stroke()
-
-    // Label: right-aligned just before Y axis so it never overflows
-    ctx.fillStyle = ln.color
-    ctx.font = 'bold 20px monospace'
-    ctx.textAlign = 'right'
-    ctx.fillText(`${ln.label} · $${ln.price.toFixed(2)}`, rightEdge - 8, y - 5)
+  // Spread pills vertically so they never overlap, keeping a leader to the true level
+  const pillY = rows.map(r => r.yEnd)
+  for (let i = 1; i < rows.length; i++) {
+    if (pillY[i] - pillY[i - 1] < pillH + 3) pillY[i] = pillY[i - 1] + pillH + 3
   }
 
+  // Probability fan from spot to the expiry: grows with sqrt(time), same shape as the ATR cone
+  const STEPS = 40
+  const curve = (yEnd: number, fx: number) => originY + (yEnd - originY) * Math.sqrt(fx)
+  rows.forEach(r => {
+    ctx.strokeStyle = r.col
+    ctx.lineWidth = r.isMed ? 2.5 : 2
+    ctx.globalAlpha = r.isMed ? 1 : 0.95
+    ctx.setLineDash(r.isMed ? [8, 5] : [])
+    ctx.beginPath()
+    for (let s = 0; s <= STEPS; s++) {
+      const f = s / STEPS
+      const x = lineStartX + (fanEndX - lineStartX) * f
+      const y = curve(r.yEnd, f)
+      if (s === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    }
+    ctx.stroke()
+  })
   ctx.setLineDash([])
+  ctx.globalAlpha = 1
+
+  // Origin dot at spot
+  ctx.fillStyle = '#FFFFFF'
+  ctx.beginPath()
+  ctx.arc(lineStartX, originY, 4, 0, Math.PI * 2)
+  ctx.fill()
+
+  // Ladder of pills: odds badge + target + % move
+  rows.forEach((r, i) => {
+    const py = pillY[i]
+    const top = py - pillH / 2
+
+    // leader from fan end to pill
+    ctx.strokeStyle = r.col
+    ctx.globalAlpha = 0.6
+    ctx.lineWidth = 1.5
+    ctx.beginPath()
+    ctx.moveTo(fanEndX, r.yEnd)
+    ctx.lineTo(pillX, py)
+    ctx.stroke()
+    ctx.globalAlpha = 1
+    ctx.fillStyle = r.col
+    ctx.beginPath()
+    ctx.arc(fanEndX, r.yEnd, 4, 0, Math.PI * 2)
+    ctx.fill()
+
+    ctx.fillStyle = 'rgba(8,8,12,0.94)'
+    ctx.beginPath()
+    ctx.roundRect(pillX, top, pillW, pillH, 7)
+    ctx.fill()
+    ctx.strokeStyle = r.col
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+
+    ctx.fillStyle = r.col
+    ctx.beginPath()
+    ctx.roundRect(pillX, top, badgeW, pillH, [7, 0, 0, 7])
+    ctx.fill()
+
+    ctx.textAlign = 'center'
+    ctx.font = badgeFont
+    ctx.fillStyle = '#000'
+    ctx.fillText(r.pct, pillX + badgeW / 2, py + 1)
+    ctx.textAlign = 'left'
+    ctx.font = txtFont
+    ctx.fillStyle = '#FFFFFF'
+    ctx.fillText(r.txt, pillX + badgeW + 10, py + 1)
+  })
+
+  // Header: directional bias, split meter, then expiry / move / data quality
+  {
+    const upProb = levels.spotPct != null ? Math.round((1 - levels.spotPct) * 100) : 50
+    const downProb = 100 - upProb
+    const bias = upProb >= 54 ? 'BULLISH' : upProb <= 46 ? 'BEARISH' : 'NEUTRAL'
+    const biasColor = bias === 'BULLISH' ? '#22C55E' : bias === 'BEARISH' ? '#FF3B3B' : '#FFD700'
+    const arrow = bias === 'BULLISH' ? '▲' : bias === 'BEARISH' ? '▼' : '◆'
+    const subParts = [`EXP ${levels.expiryLabel}`]
+    if (levels.dte != null) subParts.push(`${levels.dte}D`)
+    if (levels.impliedMove != null) subParts.push(`MOVE ±$${levels.impliedMove.toFixed(2)} (${((levels.impliedMove / levels.currentPrice) * 100).toFixed(1)}%)`)
+    if (levels.confidence) subParts.push(`DATA ${levels.confidence.toUpperCase()}`)
+    const subTxt = subParts.join('  ·  ')
+
+    ctx.font = 'bold 13px monospace'
+    const subW = ctx.measureText(subTxt).width
+    const hw = Math.max(pillW, subW + 28, 330)
+    const hh = 84
+    const hx = labelRight - hw
+    const hy = 12
+
+    ctx.fillStyle = 'rgba(8,8,12,0.95)'
+    ctx.beginPath()
+    ctx.roundRect(hx, hy, hw, hh, 9)
+    ctx.fill()
+    ctx.strokeStyle = biasColor
+    ctx.lineWidth = 2
+    ctx.stroke()
+
+    ctx.textAlign = 'left'
+    ctx.font = 'bold 26px monospace'
+    ctx.fillStyle = biasColor
+    ctx.fillText(`${arrow} ${bias}`, hx + 14, hy + 22)
+
+    // UP / DOWN odds, right-aligned
+    ctx.textAlign = 'right'
+    ctx.font = 'bold 18px monospace'
+    ctx.fillStyle = '#FF3B3B'
+    ctx.fillText(`${downProb}% ▼`, hx + hw - 14, hy + 22)
+    const dW = ctx.measureText(`${downProb}% ▼`).width
+    ctx.fillStyle = '#22C55E'
+    ctx.fillText(`${upProb}% ▲`, hx + hw - 14 - dW - 16, hy + 22)
+
+    // split meter
+    const mx = hx + 14, mw = hw - 28, my = hy + 43, mh = 9
+    ctx.fillStyle = '#FF3B3B'
+    ctx.beginPath()
+    ctx.roundRect(mx, my, mw, mh, 4)
+    ctx.fill()
+    ctx.fillStyle = '#22C55E'
+    ctx.beginPath()
+    ctx.roundRect(mx, my, mw * (upProb / 100), mh, 4)
+    ctx.fill()
+    ctx.fillStyle = '#FFFFFF'
+    ctx.fillRect(mx + mw * 0.5 - 1, my - 3, 2, mh + 6)
+
+    ctx.textAlign = 'left'
+    ctx.font = 'bold 13px monospace'
+    ctx.fillStyle = '#9CA3AF'
+    ctx.fillText(subTxt, hx + 14, hy + 70)
+  }
+
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'alphabetic'
   ctx.globalAlpha = 1
   ctx.restore()
 }
@@ -2961,49 +3146,352 @@ const renderExpectedRangeLines = (
 
   // Filter lines based on selected range type
   const linesToDraw = allLines.filter((line) => line.type === rangeType)
-  ctx.font = 'bold 12px Arial'
+
+  const rangeTag = rangeType === 'weekly' ? 'WEEK' : rangeType === 'monthly' ? 'MONTH' : 'CUSTOM'
+  const describe = (label: string) => {
+    const is90 = label.includes('90')
+    const isCall = label.endsWith('C')
+    return { name: is90 ? 'DEALER HEDGE' : 'EXPECTED RANGE', arrow: isCall ? '\u25B2' : '\u25BC' }
+  }
+
+  // Pill labels sit to the LEFT of the line end so they never touch the right price axis
+  const PILL_H = 24
+  const PILL_RIGHT = chartWidth - 112
+  const visibleLines = linesToDraw
+    .map((line) => ({ line, y: priceToY(line.price) }))
+    .filter(({ y }) => y >= -50 && y <= chartHeight + 50)
+  const pillYs = visibleLines.map((v) => v.y)
+  const order = visibleLines.map((_, i) => i).sort((a, b) => pillYs[a] - pillYs[b])
+  for (let k = 1; k < order.length; k++) {
+    const gap = pillYs[order[k]] - pillYs[order[k - 1]]
+    if (gap < PILL_H + 2) pillYs[order[k]] = pillYs[order[k - 1]] + PILL_H + 2
+  }
 
   let linesDrawn = 0
 
-  linesToDraw.forEach((line) => {
-    // Draw lines even if slightly outside range, but extend the range if needed
-    const y = priceToY(line.price)
-
-    // Only skip if way outside the chart bounds
-    if (y >= -50 && y <= chartHeight + 50) {
-      // Draw horizontal line from last candle extending to the right
-      // First draw a shadow line for better visibility
+  visibleLines.forEach(({ line, y }, idx) => {
+    {
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)'
       ctx.lineWidth = 6
       ctx.globalAlpha = 0.5
       ctx.setLineDash([])
       ctx.beginPath()
-      ctx.moveTo(lastCandleX, y + 1) // Slightly offset shadow
+      ctx.moveTo(lastCandleX, y + 1)
       ctx.lineTo(chartWidth - 100, y + 1)
       ctx.stroke()
 
-      // Then draw the main colored line
       ctx.strokeStyle = line.color
-      ctx.lineWidth = 4 // Make lines even thicker
-      ctx.globalAlpha = 1.0 // Ensure full opacity
-      ctx.setLineDash([]) // Solid line for maximum visibility
+      ctx.lineWidth = 3
+      ctx.globalAlpha = 1.0
+      ctx.setLineDash([])
       ctx.beginPath()
-      ctx.moveTo(lastCandleX, y) // Start from last candle position
-      ctx.lineTo(chartWidth - 100, y) // Extend to right edge (before price axis)
+      ctx.moveTo(lastCandleX, y)
+      ctx.lineTo(chartWidth - 100, y)
       ctx.stroke()
 
-      // Draw price label on the right with background
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.8)' // Darker background for text
-      ctx.fillRect(chartWidth - 95, y - 15, 90, 20)
+      const { name, arrow } = describe(line.label)
+      const priceText = `$${line.price.toFixed(2)}`
+      const py = pillYs[idx]
 
+      ctx.font = '800 11px Arial'
+      const tagW = ctx.measureText(rangeTag).width
+      const nameW = ctx.measureText(name).width
+      ctx.font = 'bold 15px Arial'
+      const priceW = ctx.measureText(priceText).width
+      const pad = 10
+      const pillW = pad + 14 + nameW + 8 + tagW + 14 + priceW + pad
+      const x0 = PILL_RIGHT - pillW
+      const y0 = py - PILL_H / 2
+
+      // connector from line to pill when the pill was nudged off the line
+      if (Math.abs(py - y) > 1) {
+        ctx.strokeStyle = line.color
+        ctx.globalAlpha = 0.6
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(PILL_RIGHT, py)
+        ctx.lineTo(chartWidth - 100, y)
+        ctx.stroke()
+        ctx.globalAlpha = 1
+      }
+
+      // pill body
+      ctx.fillStyle = 'rgba(8, 8, 10, 0.94)'
+      ctx.beginPath()
+      if (typeof (ctx as any).roundRect === 'function') (ctx as any).roundRect(x0, y0, pillW, PILL_H, 6)
+      else ctx.rect(x0, y0, pillW, PILL_H)
+      ctx.fill()
+      ctx.strokeStyle = line.color
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+
+      ctx.textBaseline = 'middle'
+      ctx.textAlign = 'left'
+      let cx = x0 + pad
       ctx.fillStyle = line.color
-      ctx.font = 'bold 14px Arial' // Larger font
-      ctx.fillText(`${line.label}: $${line.price.toFixed(2)}`, chartWidth - 90, y - 2)
+      ctx.font = 'bold 11px Arial'
+      ctx.fillText(arrow, cx, py)
+      cx += 14
+      ctx.fillStyle = '#ffffff'
+      ctx.font = '800 11px Arial'
+      ctx.fillText(name, cx, py)
+      cx += nameW + 8
+      ctx.fillStyle = 'rgba(255,255,255,0.5)'
+      ctx.fillText(rangeTag, cx, py)
+      cx += tagW + 14
+      ctx.fillStyle = line.color
+      ctx.font = 'bold 15px Arial'
+      ctx.fillText(priceText, cx, py)
+      ctx.textBaseline = 'alphabetic'
 
       linesDrawn++
-    } else {
     }
   })
+}
+
+// ============================================================================
+// DEALER PROFILE — collapses the strike × expiry map into one per-strike book,
+// finds the real concentration peaks (walls / acceleration pockets), the
+// zero-gamma flip, and states what to expect at each level.
+// ============================================================================
+const renderDealerProfile = (
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  minPrice: number,
+  maxPrice: number,
+  mapData: any,
+  visibleData: any[],
+  visibleCandleCount: number,
+  kind: 'gex' | 'dex'
+) => {
+  if (!mapData?.strikes?.length || !visibleData?.length) return
+  const spot: number = visibleData[visibleData.length - 1].close
+  const priceRange = maxPrice - minPrice
+  if (!(priceRange > 0) || !(spot > 0)) return
+  const priceToY = (p: number) => 20 + (height - 120) * (1 - (p - minPrice) / priceRange)
+  const GREEN = '#34D399', RED = '#F87171'
+
+  const all = (mapData.strikes as any[])
+    .map(s => {
+      let net = 0, gross = 0, domExp = '', domVal = 0
+      for (const [exp, d] of Object.entries(s.expirations as Record<string, any>)) {
+        const n = (d as any).netDealer || 0
+        net += n
+        gross += Math.abs((d as any).callDealer || 0) + Math.abs((d as any).putDealer || 0)
+        if (Math.abs(n) > domVal) { domVal = Math.abs(n); domExp = exp }
+      }
+      return { strike: s.strike as number, net, gross, domExp }
+    })
+    .sort((a, b) => a.strike - b.strike)
+  const R = all.filter(r => Math.abs(r.strike / spot - 1) <= 0.25)
+  if (R.length < 5) return
+
+  // light smoothing so one noisy strike can't masquerade as a wall
+  const sm = R.map((r, i) => (R[i - 1]?.net ?? r.net) * 0.25 + r.net * 0.5 + (R[i + 1]?.net ?? r.net) * 0.25)
+  const maxAbs = Math.max(...sm.map(Math.abs))
+  const totalAbs = sm.reduce((a, v) => a + Math.abs(v), 0)
+  if (!maxAbs || !totalAbs) return
+
+  type Peak = { strike: number; val: number; share: number; exp: string; contested: boolean }
+  const cand: Peak[] = []
+  for (let i = 0; i < R.length; i++) {
+    const v = sm[i]
+    if (Math.abs(v) < maxAbs * 0.12) continue
+    let isPeak = true
+    for (let k = -2; k <= 2; k++) {
+      if (k === 0 || !sm[i + k]) continue
+      if (Math.abs(sm[i + k]) > Math.abs(v)) { isPeak = false; break }
+    }
+    if (isPeak) cand.push({
+      strike: R[i].strike, val: R[i].net, share: Math.abs(v) / totalAbs, exp: R[i].domExp,
+      // calls and puts nearly cancel here: big gross interest but weak net effect
+      contested: R[i].gross > 0 && Math.abs(R[i].net) / R[i].gross < 0.35,
+    })
+  }
+  const pick = (sign: number) => {
+    const out: Peak[] = []
+    for (const p of cand.filter(c => Math.sign(c.val) === sign).sort((a, b) => Math.abs(b.val) - Math.abs(a.val))) {
+      if (out.every(o => Math.abs(o.strike / p.strike - 1) > 0.006)) out.push(p)
+      if (out.length === 2) break
+    }
+    return out
+  }
+  const peaks = [...pick(1), ...pick(-1)]
+
+  // zero-gamma flip: where cumulative dealer gamma (low strike → high strike) crosses zero nearest spot
+  let flip: number | null = null
+  if (kind === 'gex') {
+    let cum = 0, prevCum = 0, best = Infinity
+    for (let i = 0; i < R.length; i++) {
+      prevCum = cum; cum += R[i].net
+      if (i > 0 && prevCum !== 0 && Math.sign(prevCum) !== Math.sign(cum)) {
+        const t = Math.abs(prevCum) / (Math.abs(prevCum) + Math.abs(cum))
+        const lvl = R[i - 1].strike + t * (R[i].strike - R[i - 1].strike)
+        if (Math.abs(lvl - spot) < best) { best = Math.abs(lvl - spot); flip = lvl }
+      }
+    }
+  }
+
+  const near = R.filter(r => Math.abs(r.strike / spot - 1) <= 0.03).reduce((a, r) => a + r.net, 0)
+  const total = R.reduce((a, r) => a + r.net, 0)
+  const posRegime = kind === 'gex' ? (flip != null ? spot >= flip : near >= 0) : total >= 0
+
+  const fmt = (v: number) => {
+    const a = Math.abs(v)
+    return `${v < 0 ? '-' : '+'}$${a >= 1e9 ? (a / 1e9).toFixed(1) + 'B' : a >= 1e6 ? (a / 1e6).toFixed(0) + 'M' : (a / 1e3).toFixed(0) + 'K'}`
+  }
+  const font = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+
+  ctx.save()
+  // ── Right-edge histogram: dealer exposure by strike ──
+  const histW = 78
+  const pxPerStrike = (() => {
+    const g = R.length > 1 ? Math.min(...R.slice(1).map((r, i) => r.strike - R[i].strike).filter(x => x > 0)) : 1
+    return Math.max(2, Math.abs(priceToY(R[0].strike) - priceToY(R[0].strike + g)) * 0.8)
+  })()
+  const peakStrikes = new Set(peaks.map(p => p.strike))
+  for (let i = 0; i < R.length; i++) {
+    const y = priceToY(R[i].strike)
+    if (y < 0 || y > height) continue
+    const len = Math.max(1.5, (Math.abs(sm[i]) / maxAbs) * histW)
+    const isPk = peakStrikes.has(R[i].strike)
+    ctx.fillStyle = sm[i] >= 0 ? GREEN : RED
+    ctx.globalAlpha = isPk ? 1 : 0.85
+    ctx.fillRect(width - len, y - pxPerStrike / 2, len, pxPerStrike)
+  }
+  ctx.globalAlpha = 1
+
+  // ── Level lines + pills ──
+  const lastIdx = Math.min(visibleData.length - 1, visibleCandleCount - 1)
+  const spacing = width / visibleCandleCount
+  const startX = Math.min(width - 160, CHART_LEFT_MARGIN + lastIdx * spacing + spacing)
+
+  // Pin corridor: shaded band between the nearest positive wall below and above spot
+  const posBelow = peaks.filter(p => p.val > 0 && p.strike < spot).sort((a, b) => b.strike - a.strike)[0]
+  const posAbove = peaks.filter(p => p.val > 0 && p.strike >= spot).sort((a, b) => a.strike - b.strike)[0]
+  if (kind === 'gex' && posBelow && posAbove) {
+    const yTop = priceToY(posAbove.strike), yBot = priceToY(posBelow.strike)
+    ctx.fillStyle = 'rgba(52,211,153,0.14)'
+    ctx.fillRect(startX, yTop, width - startX, yBot - yTop)
+  }
+  const fmtExp = (e: string) => {
+    if (!e) return ''
+    const d = new Date(e + 'T12:00:00Z')
+    return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`
+  }
+  const multiExp = Object.keys(mapData.strikes[0]?.expirations ?? {}).length > 1 || (mapData.expirations?.length ?? 0) > 1
+  type Lv = { y: number; color: string; title: string; sub: string; dashed: boolean }
+  const lvs: Lv[] = []
+  for (const p of peaks) {
+    const above = p.strike >= spot
+    const pos = p.val > 0
+    const pct = ((p.strike / spot - 1) * 100)
+    const atLevel = Math.abs(pct) < 0.3
+    let title: string, sub: string
+    if (kind === 'gex') {
+      title = pos ? (above ? 'POS GAMMA WALL' : 'POS GAMMA FLOOR') : 'NEG GAMMA POCKET'
+      sub = pos
+        ? (above ? 'Dealers sell rallies here · resistance / pin' : 'Dealers buy dips here · support / pin')
+        : (above ? 'Dealers chase price up · breakout accelerates' : 'Dealers chase price down · breakdown accelerates')
+    } else {
+      title = pos ? 'LONG-DELTA CLUSTER' : 'SHORT-DELTA CLUSTER'
+      sub = pos ? 'Dealers sell into strength · overhead supply' : 'Dealers buy into weakness · hedge bid'
+    }
+    if (atLevel) sub = `PRICE AT LEVEL · ${sub}`
+    if (p.contested) sub += ' · contested (calls≈puts)'
+    if (multiExp && p.exp) title += `  exp ${fmtExp(p.exp)}`
+    lvs.push({
+      y: priceToY(p.strike), color: pos ? GREEN : RED, dashed: false,
+      title: `$${p.strike.toFixed(p.strike % 1 ? 2 : 0)}  ${title}  ${fmt(p.val)} · ${(p.share * 100).toFixed(0)}%  (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)`,
+      sub,
+    })
+  }
+  if (flip != null) {
+    const pct = (flip / spot - 1) * 100
+    lvs.push({
+      y: priceToY(flip), color: '#FBBF24', dashed: true,
+      title: `$${flip.toFixed(flip % 1 ? 2 : 0)}  GAMMA FLIP  (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)`,
+      sub: 'Above = moves dampen · Below = moves accelerate',
+    })
+  }
+  lvs.sort((a, b) => a.y - b.y)
+  const pillH = 46, gap = 5, rightX = width - histW - 8
+  const ys = lvs.map(l => Math.min(height - pillH / 2 - 2, Math.max(116 + pillH / 2, l.y)))
+  for (let i = 1; i < ys.length; i++) if (ys[i] - ys[i - 1] < pillH + gap) ys[i] = ys[i - 1] + pillH + gap
+  lvs.forEach((l, i) => {
+    if (l.y < -20 || l.y > height + 20) return
+    ctx.save()
+    ctx.strokeStyle = l.color
+    ctx.globalAlpha = 0.9
+    ctx.lineWidth = 1.5
+    ctx.setLineDash(l.dashed ? [6, 4] : [4, 3])
+    ctx.beginPath(); ctx.moveTo(startX, l.y); ctx.lineTo(width, l.y); ctx.stroke()
+    ctx.restore()
+
+    // leader from the (possibly displaced) label back to the exact price line
+    ctx.save()
+    ctx.fillStyle = l.color
+    ctx.strokeStyle = l.color
+    ctx.lineWidth = 1.5
+    ctx.beginPath(); ctx.arc(rightX, l.y, 3.5, 0, Math.PI * 2); ctx.fill()
+    if (Math.abs(ys[i] - l.y) > 2) {
+      ctx.beginPath(); ctx.moveTo(rightX, l.y); ctx.lineTo(rightX, ys[i]); ctx.stroke()
+    }
+    ctx.restore()
+
+    ctx.save()
+    ctx.font = `800 14px ${font}`
+    const tw = ctx.measureText(l.title).width
+    ctx.font = `600 13px ${font}`
+    const sw = ctx.measureText(l.sub).width
+    const w = Math.max(tw, sw) + 18
+    const x0 = rightX - w, y0 = ys[i] - pillH / 2
+    ctx.fillStyle = 'rgba(8,8,10,0.92)'
+    ctx.beginPath(); ctx.roundRect(x0, y0, w, pillH, 5); ctx.fill()
+    ctx.fillStyle = l.color
+    ctx.fillRect(x0, y0 + 3, 3, pillH - 6)
+    ctx.strokeStyle = l.color; ctx.globalAlpha = 0.5; ctx.lineWidth = 1
+    ctx.beginPath(); ctx.roundRect(x0, y0, w, pillH, 5); ctx.stroke()
+    ctx.globalAlpha = 1
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
+    ctx.font = `800 14px ${font}`
+    ctx.fillStyle = l.color
+    ctx.fillText(l.title, x0 + 12, y0 + 15)
+    ctx.font = `600 13px ${font}`
+    ctx.fillStyle = '#E5E7EB'
+    ctx.fillText(l.sub, x0 + 12, y0 + 34)
+    ctx.restore()
+  })
+
+  // ── Regime card (top-right) ──
+  const cw = 410, ch = 98, cx = width - cw - 10, cy = 10
+  const c = posRegime ? GREEN : RED
+  ctx.fillStyle = 'rgba(8,8,10,0.92)'
+  ctx.beginPath(); ctx.roundRect(cx, cy, cw, ch, 6); ctx.fill()
+  ctx.strokeStyle = c; ctx.globalAlpha = 0.6; ctx.lineWidth = 1
+  ctx.beginPath(); ctx.roundRect(cx, cy, cw, ch, 6); ctx.stroke()
+  ctx.globalAlpha = 1
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
+  ctx.font = `800 17px ${font}`
+  ctx.fillStyle = c
+  const head = kind === 'gex'
+    ? (posRegime ? '● POSITIVE GAMMA — PINNING' : '● NEGATIVE GAMMA — ACCELERATING')
+    : (total >= 0 ? '● NET LONG DEALER DELTA' : '● NET SHORT DEALER DELTA')
+  ctx.fillText(head, cx + 14, cy + 21)
+  ctx.font = `600 14px ${font}`
+  ctx.fillStyle = '#E5E7EB'
+  const l1 = kind === 'gex'
+    ? (posRegime ? 'Dealers fade moves: ranges hold, walls act as magnets.' : 'Dealers chase moves: breaks extend fast, expect speed.')
+    : (total >= 0 ? 'Dealers hedge by selling strength: overhead supply.' : 'Dealers hedge by buying weakness: supportive bid.')
+  ctx.fillText(l1, cx + 14, cy + 49)
+  ctx.font = `700 14px ${font}`
+  ctx.fillStyle = '#FBBF24'
+  const l2 = kind === 'gex'
+    ? (flip != null ? `Flip $${flip.toFixed(flip % 1 ? 2 : 0)} · spot ${spot >= flip ? 'above' : 'below'} by ${Math.abs((spot / flip - 1) * 100).toFixed(1)}%` : 'No gamma flip within ±25% of spot')
+    : `Net ${fmt(total)} across ±25% of spot`
+  ctx.fillText(l2, cx + 14, cy + 76)
+  ctx.restore()
 }
 
 // Smart text positioning to prevent overlaps
@@ -3096,7 +3584,7 @@ const renderGEXMap = (
 
   const priceRange = maxPrice - minPrice
   const priceToY = (price: number): number =>
-    height - ((price - minPrice) / priceRange) * height
+      20 + (height - 120) * (1 - (price - minPrice) / priceRange)
 
   const candleSpacing = width / visibleCandleCount
   const lastVisibleIndex = Math.min(visibleData.length - 1, visibleCandleCount - 1)
@@ -3213,7 +3701,7 @@ const renderGEXMap = (
       // Range: ~0.10 (at normalizedMag 0) → 0.95 (at normalizedMag 1)
       const peakOpacity = isGold || isPurple
         ? 1.0
-        : 0.10 + Math.pow(normalizedMag, 1.5) * 0.85  // faint → fully opaque
+        : 0.38 + Math.pow(normalizedMag, 0.55) * 0.62  // strong floor so every cell is clearly visible
 
       // Brighter base colors for GEX:
       let r: number, g: number, b: number
@@ -3427,7 +3915,7 @@ const renderDEXMap = (
 
   const priceRange = maxPrice - minPrice
   const priceToY = (price: number): number =>
-    height - ((price - minPrice) / priceRange) * height
+      20 + (height - 120) * (1 - (price - minPrice) / priceRange)
 
   const candleSpacing = width / visibleCandleCount
   const lastVisibleIndex = Math.min(visibleData.length - 1, visibleCandleCount - 1)
@@ -3526,7 +4014,7 @@ const renderDEXMap = (
       // Aggressive opacity curve — same as GEX map for consistent visual language.
       const peakOpacity = isGold || isPurple
         ? 1.0
-        : 0.10 + Math.pow(normalizedMag, 1.5) * 0.85
+        : 0.38 + Math.pow(normalizedMag, 0.55) * 0.62
 
       let r: number, g: number, b: number
       if (isGold) {
@@ -3949,556 +4437,6 @@ const renderExpansionLiquidationZone = (
   // Draw white text on colored background
   ctx.fillStyle = '#ffffff'
   ctx.fillText(bottomPriceText, chartWidth + 47, bottomY)
-}
-
-// ==================================================================================
-// TECHNALYSIS PRICE ACTION DETECTION FUNCTIONS
-// ==================================================================================
-
-const calculateImpulseStrength = (candles: ChartDataPoint[]): number => {
-  let strength = 0
-  candles.forEach((c) => {
-    const body = Math.abs(c.close - c.open)
-    const wick = c.high - c.low - body
-    if (body > wick * 2) strength++
-  })
-  return Math.min(strength, 5)
-}
-
-const detectMarketStructure = (data: ChartDataPoint[], lookback: number = 5): MarketStructure[] => {
-  const structures: MarketStructure[] = []
-  const swings: { price: number; index: number; type: 'high' | 'low' }[] = []
-
-  for (let i = lookback; i < data.length - lookback; i++) {
-    const current = data[i]
-    let isSwingHigh = true
-    for (let j = 1; j <= lookback; j++) {
-      if (data[i - j].high >= current.high || data[i + j].high >= current.high) {
-        isSwingHigh = false
-        break
-      }
-    }
-    if (isSwingHigh) swings.push({ price: current.high, index: i, type: 'high' })
-
-    let isSwingLow = true
-    for (let j = 1; j <= lookback; j++) {
-      if (data[i - j].low <= current.low || data[i + j].low <= current.low) {
-        isSwingLow = false
-        break
-      }
-    }
-    if (isSwingLow) swings.push({ price: current.low, index: i, type: 'low' })
-  }
-
-  for (let i = 1; i < swings.length; i++) {
-    const prev = swings[i - 1]
-    const curr = swings[i]
-    if (prev.type === 'high' && curr.type === 'high') {
-      structures.push({
-        type: curr.price > prev.price ? 'higher_high' : 'lower_high',
-        price: curr.price,
-        index: curr.index,
-        trendDirection: curr.price > prev.price ? 'bullish' : 'bearish',
-      })
-    } else if (prev.type === 'low' && curr.type === 'low') {
-      structures.push({
-        type: curr.price > prev.price ? 'higher_low' : 'lower_low',
-        price: curr.price,
-        index: curr.index,
-        trendDirection: curr.price > prev.price ? 'bullish' : 'bearish',
-      })
-    }
-  }
-  return structures
-}
-
-const detectOrderBlocks = (data: ChartDataPoint[]): OrderBlock[] => {
-  const orderBlocks: OrderBlock[] = []
-  for (let i = 3; i < data.length - 3; i++) {
-    const current = data[i]
-    const next = data[i + 1]
-    const next2 = data[i + 2]
-    const next3 = data[i + 3]
-
-    if (
-      current.close < current.open &&
-      next.close > next.open &&
-      next2.close > next2.open &&
-      next3.close > current.high
-    ) {
-      orderBlocks.push({
-        type: 'bullish',
-        price: (current.open + current.close) / 2,
-        high: current.high,
-        low: current.low,
-        index: i,
-        strength: calculateImpulseStrength([next, next2, next3]),
-        isValid: true,
-        isMitigated: false,
-        volumeConfirmation: current.volume > (data[i - 1]?.volume || 0),
-      })
-    }
-
-    if (
-      current.close > current.open &&
-      next.close < next.open &&
-      next2.close < next2.open &&
-      next3.close < current.low
-    ) {
-      orderBlocks.push({
-        type: 'bearish',
-        price: (current.open + current.close) / 2,
-        high: current.high,
-        low: current.low,
-        index: i,
-        strength: calculateImpulseStrength([next, next2, next3]),
-        isValid: true,
-        isMitigated: false,
-        volumeConfirmation: current.volume > (data[i - 1]?.volume || 0),
-      })
-    }
-  }
-  return orderBlocks
-}
-
-const invalidateOrderBlocks = (orderBlocks: OrderBlock[], data: ChartDataPoint[]): OrderBlock[] => {
-  return orderBlocks.map((ob) => {
-    if (ob.isMitigated) return ob
-
-    // Check all candles after the order block for mitigation
-    for (let i = ob.index + 1; i < data.length; i++) {
-      const candle = data[i]
-
-      // Bullish order block is mitigated when price breaks below its low
-      if (ob.type === 'bullish' && candle.close < ob.low) {
-        return { ...ob, isMitigated: true }
-      }
-
-      // Bearish order block is mitigated when price breaks above its high
-      if (ob.type === 'bearish' && candle.close > ob.high) {
-        return { ...ob, isMitigated: true }
-      }
-    }
-
-    return ob
-  })
-}
-
-const detectFairValueGaps = (data: ChartDataPoint[]): FairValueGap[] => {
-  const fvgs: FairValueGap[] = []
-  for (let i = 1; i < data.length - 1; i++) {
-    const prev = data[i - 1]
-    const current = data[i]
-    const next = data[i + 1]
-
-    if (next.low > prev.high) {
-      const gapSize = next.low - prev.high
-      if (gapSize / current.close >= 0.002) {
-        fvgs.push({
-          type: 'bullish',
-          topPrice: next.low,
-          bottomPrice: prev.high,
-          startIndex: i - 1,
-          endIndex: i + 1,
-          gapSize,
-          isValid: true,
-          isFilled: false,
-        })
-      }
-    }
-
-    if (next.high < prev.low) {
-      const gapSize = prev.low - next.high
-      if (gapSize / current.close >= 0.002) {
-        fvgs.push({
-          type: 'bearish',
-          topPrice: prev.low,
-          bottomPrice: next.high,
-          startIndex: i - 1,
-          endIndex: i + 1,
-          gapSize,
-          isValid: true,
-          isFilled: false,
-        })
-      }
-    }
-  }
-  return fvgs
-}
-
-const invalidateFilledFVGs = (fvgs: FairValueGap[], data: ChartDataPoint[]): FairValueGap[] => {
-  return fvgs.map((fvg) => {
-    if (fvg.isFilled) return fvg
-
-    // Check all candles after the FVG for fills
-    for (let i = fvg.endIndex + 1; i < data.length; i++) {
-      const candle = data[i]
-
-      // Bullish FVG is filled when price comes back down into the gap
-      if (fvg.type === 'bullish' && candle.low <= fvg.topPrice) {
-        return { ...fvg, isFilled: true }
-      }
-
-      // Bearish FVG is filled when price comes back up into the gap
-      if (fvg.type === 'bearish' && candle.high >= fvg.bottomPrice) {
-        return { ...fvg, isFilled: true }
-      }
-    }
-
-    return fvg
-  })
-}
-
-const detectLiquidityZones = (data: ChartDataPoint[]): LiquidityZone[] => {
-  const liquidityZones: LiquidityZone[] = []
-  const swingHighs: { price: number; index: number }[] = []
-  const swingLows: { price: number; index: number }[] = []
-
-  for (let i = 5; i < data.length - 5; i++) {
-    let isSwingHigh = true
-    let isSwingLow = true
-    for (let j = 1; j <= 5; j++) {
-      if (data[i - j].high >= data[i].high || data[i + j].high >= data[i].high) isSwingHigh = false
-      if (data[i - j].low <= data[i].low || data[i + j].low <= data[i].low) isSwingLow = false
-    }
-    if (isSwingHigh) swingHighs.push({ price: data[i].high, index: i })
-    if (isSwingLow) swingLows.push({ price: data[i].low, index: i })
-  }
-
-  for (let i = 0; i < swingHighs.length - 1; i++) {
-    let equalCount = 1
-    const basePrice = swingHighs[i].price
-    for (let j = i + 1; j < swingHighs.length; j++) {
-      if (Math.abs(swingHighs[j].price - basePrice) / basePrice <= 0.003) equalCount++
-    }
-    if (equalCount >= 2) {
-      liquidityZones.push({
-        type: 'buy_side',
-        price: basePrice,
-        strength: equalCount,
-        index: swingHighs[i].index,
-        isSwept: false,
-        expectedReaction: 'reversal',
-      })
-    }
-  }
-
-  for (let i = 0; i < swingLows.length - 1; i++) {
-    let equalCount = 1
-    const basePrice = swingLows[i].price
-    for (let j = i + 1; j < swingLows.length; j++) {
-      if (Math.abs(swingLows[j].price - basePrice) / basePrice <= 0.003) equalCount++
-    }
-    if (equalCount >= 2) {
-      liquidityZones.push({
-        type: 'sell_side',
-        price: basePrice,
-        strength: equalCount,
-        index: swingLows[i].index,
-        isSwept: false,
-        expectedReaction: 'reversal',
-      })
-    }
-  }
-  return liquidityZones
-}
-
-const detectBreakOfStructure = (
-  data: ChartDataPoint[],
-  structures: MarketStructure[]
-): BreakOfStructure[] => {
-  const breaks: BreakOfStructure[] = []
-  for (let i = 1; i < structures.length; i++) {
-    const prev = structures[i - 1]
-    const curr = structures[i]
-    if (prev.type === 'lower_low' && curr.type === 'higher_low') {
-      breaks.push({
-        type: 'bos',
-        direction: 'bullish',
-        price: curr.price,
-        index: curr.index,
-        previousStructure: prev,
-      })
-    }
-    if (prev.type === 'higher_high' && curr.type === 'lower_high') {
-      breaks.push({
-        type: 'bos',
-        direction: 'bearish',
-        price: curr.price,
-        index: curr.index,
-        previousStructure: prev,
-      })
-    }
-    if (
-      (prev.trendDirection === 'bullish' && curr.trendDirection === 'bearish') ||
-      (prev.trendDirection === 'bearish' && curr.trendDirection === 'bullish')
-    ) {
-      breaks.push({
-        type: 'choch',
-        direction: curr.trendDirection,
-        price: curr.price,
-        index: curr.index,
-        previousStructure: prev,
-      })
-    }
-  }
-  return breaks
-}
-
-const calculatePremiumDiscountZones = (
-  data: ChartDataPoint[],
-  startIdx: number,
-  endIdx: number
-): OptimalTradeEntry[] => {
-  const rangeHigh = Math.max(...data.slice(startIdx, endIdx + 1).map((d) => d.high))
-  const rangeLow = Math.min(...data.slice(startIdx, endIdx + 1).map((d) => d.low))
-  const rangeSize = rangeHigh - rangeLow
-  return [
-    {
-      type: 'premium',
-      priceLevel: rangeLow + rangeSize * 0.75,
-      confidence: 8,
-      setupType: 'Sell Zone',
-      index: endIdx,
-    },
-    {
-      type: 'premium',
-      priceLevel: rangeLow + rangeSize * 0.618,
-      confidence: 9,
-      setupType: 'Optimal Sell',
-      index: endIdx,
-    },
-    {
-      type: 'equilibrium',
-      priceLevel: rangeLow + rangeSize * 0.5,
-      confidence: 5,
-      setupType: 'Mid-Range',
-      index: endIdx,
-    },
-    {
-      type: 'discount',
-      priceLevel: rangeLow + rangeSize * 0.382,
-      confidence: 9,
-      setupType: 'Optimal Buy',
-      index: endIdx,
-    },
-    {
-      type: 'discount',
-      priceLevel: rangeLow + rangeSize * 0.25,
-      confidence: 8,
-      setupType: 'Buy Zone',
-      index: endIdx,
-    },
-  ]
-}
-
-const renderTechnalysisIndicators = (
-  ctx: CanvasRenderingContext2D,
-  data: ChartDataPoint[],
-  chartWidth: number,
-  chartHeight: number,
-  minPrice: number,
-  maxPrice: number,
-  startIndex: number,
-  visibleCandleCount: number,
-  activeFeatures: {
-    orderBlocks: boolean
-    fvg: boolean
-    liquidity: boolean
-    structure: boolean
-    premiumDiscount: boolean
-  }
-) => {
-  const candleSpacing = chartWidth / visibleCandleCount
-  const priceToY = (price: number) =>
-    chartHeight - ((price - minPrice) / (maxPrice - minPrice)) * chartHeight
-  const indexToX = (index: number) => CHART_LEFT_MARGIN + (index - startIndex) * candleSpacing
-
-  if (activeFeatures.orderBlocks) {
-    const orderBlocks = detectOrderBlocks(data)
-    const validBlocks = invalidateOrderBlocks(orderBlocks, data)
-    validBlocks.forEach((ob) => {
-      if (
-        !ob.isValid ||
-        ob.isMitigated ||
-        ob.strength < 2 ||
-        ob.index < startIndex ||
-        ob.index > startIndex + visibleCandleCount + 50
-      )
-        return
-      const x = indexToX(ob.index)
-      const lastX = indexToX(data.length - 1) + 5 * candleSpacing
-      const topY = priceToY(ob.high)
-      const bottomY = priceToY(ob.low)
-
-      // Use opacity based on strength: 3 stars = 100%, 2 stars = 50%
-      const fillOpacity = ob.strength >= 3 ? 0.5 : 0.175
-      const strokeOpacity = ob.strength >= 3 ? 1.0 : 0.5
-
-      // 3-star = lime green/pure red, 2-star = regular green/red at 50%
-      const bullishColor = ob.strength >= 3 ? '50, 205, 50' : '0, 255, 0' // Lime green vs pure green
-      const bearishColor = '255, 0, 0' // Red
-
-      ctx.fillStyle =
-        ob.type === 'bullish'
-          ? `rgba(${bullishColor}, ${fillOpacity})`
-          : `rgba(${bearishColor}, ${fillOpacity})`
-      ctx.fillRect(x, topY, lastX - x, bottomY - topY)
-
-      ctx.strokeStyle =
-        ob.type === 'bullish'
-          ? `rgba(${bullishColor}, ${strokeOpacity})`
-          : `rgba(${bearishColor}, ${strokeOpacity})`
-      ctx.lineWidth = ob.volumeConfirmation ? 3 : 2
-      ctx.setLineDash(ob.volumeConfirmation ? [] : [5, 3])
-      ctx.strokeRect(x, topY, lastX - x, bottomY - topY)
-      ctx.setLineDash([])
-
-      // Label without stars
-      ctx.font = 'bold 12px monospace'
-      ctx.fillStyle =
-        ob.type === 'bullish'
-          ? `rgba(${bullishColor}, ${strokeOpacity})`
-          : `rgba(${bearishColor}, ${strokeOpacity})`
-      ctx.fillText('OB', x + 5, (topY + bottomY) / 2)
-    })
-  }
-
-  if (activeFeatures.fvg) {
-    const fvgs = detectFairValueGaps(data)
-    const validFvgs = invalidateFilledFVGs(fvgs, data)
-    validFvgs.forEach((fvg) => {
-      if (
-        !fvg.isValid ||
-        fvg.isFilled ||
-        fvg.endIndex < startIndex ||
-        fvg.startIndex > startIndex + visibleCandleCount + 50
-      )
-        return
-      const startX = indexToX(fvg.startIndex)
-      const lastX = indexToX(data.length - 1) + 5 * candleSpacing
-      const topY = priceToY(fvg.topPrice)
-      const bottomY = priceToY(fvg.bottomPrice)
-      ctx.fillStyle = fvg.type === 'bullish' ? 'rgba(255, 215, 0, 0.15)' : 'rgba(255, 0, 255, 0.15)'
-      ctx.fillRect(startX, topY, lastX - startX, bottomY - topY)
-      ctx.strokeStyle = fvg.type === 'bullish' ? '#ffd700' : '#ff00ff'
-      ctx.lineWidth = 2
-      ctx.setLineDash([8, 4])
-      ctx.beginPath()
-      ctx.moveTo(startX, topY)
-      ctx.lineTo(lastX, topY)
-      ctx.moveTo(startX, bottomY)
-      ctx.lineTo(lastX, bottomY)
-      ctx.stroke()
-      ctx.setLineDash([])
-    })
-  }
-
-  if (activeFeatures.liquidity) {
-    const liqZones = detectLiquidityZones(data)
-    liqZones.forEach((liq) => {
-      if (liq.isSwept || liq.index < startIndex || liq.index > startIndex + visibleCandleCount + 50)
-        return
-      const y = priceToY(liq.price)
-      const startX = Math.max(CHART_LEFT_MARGIN, indexToX(liq.index - 10))
-      const endX = indexToX(data.length - 1) + 5 * candleSpacing
-      ctx.strokeStyle = liq.type === 'buy_side' ? '#00ffff' : '#ff6600'
-      ctx.lineWidth = Math.min(liq.strength, 4)
-      ctx.setLineDash([10, 5])
-      ctx.beginPath()
-      ctx.moveTo(startX, y)
-      ctx.lineTo(endX, y)
-      ctx.stroke()
-      ctx.setLineDash([])
-      for (let i = 0; i < liq.strength; i++) {
-        ctx.fillStyle = liq.type === 'buy_side' ? '#00ffff' : '#ff6600'
-        ctx.beginPath()
-        ctx.arc(startX + i * 15, y, 4, 0, Math.PI * 2)
-        ctx.fill()
-      }
-      ctx.font = 'bold 12px monospace'
-      ctx.fillStyle = liq.type === 'buy_side' ? '#00ffff' : '#ff6600'
-      ctx.fillText(
-        liq.type === 'buy_side' ? '🔼 BSL' : '🔽 SSL',
-        startX + liq.strength * 15 + 5,
-        y - 5
-      )
-    })
-  }
-
-  if (activeFeatures.structure) {
-    const structures = detectMarketStructure(data)
-    const breaks = detectBreakOfStructure(data, structures)
-    breaks.forEach((brk) => {
-      if (brk.index < startIndex || brk.index > startIndex + visibleCandleCount) return
-      const x = indexToX(brk.index)
-      const y = priceToY(brk.price)
-
-      // Determine label based on type and direction
-      let label = ''
-      if (brk.type === 'bos' && brk.direction === 'bullish') label = 'Up'
-      else if (brk.type === 'bos' && brk.direction === 'bearish') label = 'Down'
-      else if (brk.type === 'choch' && brk.direction === 'bullish') label = 'Building'
-      else if (brk.type === 'choch' && brk.direction === 'bearish') label = 'Failing'
-
-      // Set full opacity for text
-      ctx.globalAlpha = 1.0
-      ctx.font = 'bold 14px monospace'
-      const textMetrics = ctx.measureText(label)
-      const textWidth = textMetrics.width
-      const textHeight = 16
-
-      // Draw semi-transparent background box
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.8)'
-      ctx.fillRect(x - textWidth / 2 - 3, y - 25, textWidth + 6, textHeight + 4)
-
-      // Draw text at full opacity
-      ctx.fillStyle = brk.direction === 'bullish' ? '#00ff00' : '#ff0000'
-      ctx.fillText(label, x - textWidth / 2, y - 10)
-      ctx.beginPath()
-      if (brk.direction === 'bullish') {
-        ctx.moveTo(x, y)
-        ctx.lineTo(x - 5, y + 10)
-        ctx.lineTo(x + 5, y + 10)
-      } else {
-        ctx.moveTo(x, y)
-        ctx.lineTo(x - 5, y - 10)
-        ctx.lineTo(x + 5, y - 10)
-      }
-      ctx.closePath()
-      ctx.fill()
-    })
-  }
-
-  if (activeFeatures.premiumDiscount) {
-    const pdZones = calculatePremiumDiscountZones(
-      data,
-      Math.max(0, data.length - 50),
-      data.length - 1
-    )
-    pdZones.forEach((zone) => {
-      const y = priceToY(zone.priceLevel)
-      const startX = CHART_LEFT_MARGIN
-      const endX = indexToX(data.length - 1) + 5 * candleSpacing
-      let color = '#888888'
-      if (zone.type === 'premium') color = '#ff4444'
-      if (zone.type === 'discount') color = '#44ff44'
-      if (zone.type === 'equilibrium') color = '#ffff00'
-      ctx.strokeStyle = color
-      ctx.lineWidth = zone.confidence >= 9 ? 2 : 1
-      ctx.setLineDash(zone.confidence >= 9 ? [] : [5, 5])
-      ctx.globalAlpha = 0.6
-      ctx.beginPath()
-      ctx.moveTo(startX, y)
-      ctx.lineTo(endX, y)
-      ctx.stroke()
-      ctx.globalAlpha = 1
-      ctx.setLineDash([])
-      ctx.font = '11px monospace'
-      ctx.fillStyle = color
-      ctx.fillText(zone.setupType, endX + 5, y + 4)
-    })
-  }
 }
 
 interface TradingViewChartProps {
@@ -6517,6 +6455,153 @@ function _scanHistory(allBars: { date: string; high: number; low: number; close:
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ───────── Smart Performance: historical analog engine ─────────
+type PerfBar = { t: number; o: number; h: number; l: number; c: number }
+type PerfSeries = {
+  n: number; close: number[]; ytd: number[]; ytdDay: number[]; year: number[]
+  dd: number[]; bounce: number[]; ret21: number[]; dayRet: number[]; sma200: number[]
+  rollHigh: number[]; rollLow: number[]; athRun: number[]
+}
+
+const buildPerfSeries = (bars: PerfBar[]): PerfSeries => {
+  const n = bars.length
+  const close = bars.map(b => b.c)
+  const year = bars.map(b => new Date(b.t).getUTCFullYear())
+  const ytd = new Array(n).fill(0), ytdDay = new Array(n).fill(0)
+  const dd = new Array(n).fill(0), bounce = new Array(n).fill(0)
+  const ret21 = new Array(n).fill(0), dayRet = new Array(n).fill(0)
+  const sma200 = new Array(n).fill(NaN), rollHigh = new Array(n).fill(0), rollLow = new Array(n).fill(0)
+  const athRun = new Array(n).fill(0)
+  let prevYearClose = close[0], dayInYear = 0, runAth = -Infinity, sum = 0
+  const hq: number[] = [], lq: number[] = []
+  for (let i = 0; i < n; i++) {
+    if (i > 0 && year[i] !== year[i - 1]) { prevYearClose = close[i - 1]; dayInYear = 0 }
+    dayInYear++
+    ytd[i] = (close[i] / prevYearClose - 1) * 100
+    ytdDay[i] = dayInYear
+    runAth = Math.max(runAth, close[i]); athRun[i] = runAth
+    while (hq.length && hq[0] < i - 251) hq.shift()
+    while (hq.length && close[hq[hq.length - 1]] <= close[i]) hq.pop()
+    hq.push(i); rollHigh[i] = close[hq[0]]
+    while (lq.length && lq[0] < i - 251) lq.shift()
+    while (lq.length && close[lq[lq.length - 1]] >= close[i]) lq.pop()
+    lq.push(i); rollLow[i] = close[lq[0]]
+    dd[i] = close[i] / rollHigh[i] - 1
+    bounce[i] = close[i] / rollLow[i] - 1
+    ret21[i] = i >= 21 ? close[i] / close[i - 21] - 1 : 0
+    dayRet[i] = i >= 1 ? close[i] / close[i - 1] - 1 : 0
+    sum += close[i]
+    if (i >= 200) sum -= close[i - 200]
+    if (i >= 199) sma200[i] = sum / 200
+  }
+  return { n, close, ytd, ytdDay, year, dd, bounce, ret21, dayRet, sma200, rollHigh, rollLow, athRun }
+}
+
+// Returns the "condition is true on bar i" test for a smart-performance key
+const perfCond = (key: string, s: PerfSeries): ((i: number) => boolean) | null => {
+  let m: RegExpMatchArray | null
+  if (key === 'perf-ath') return i => i >= 252 && s.close[i] >= s.athRun[i]
+  if (key === 'perf-52wh') return i => i >= 252 && s.close[i] >= s.rollHigh[i]
+  if (key === 'perf-52wl') return i => i >= 252 && s.close[i] <= s.rollLow[i]
+  if (key === 'perf-sma200-up') return i => i >= 201 && s.close[i] > s.sma200[i] && s.close[i - 1] <= s.sma200[i - 1]
+  if (key === 'perf-sma200-dn') return i => i >= 201 && s.close[i] < s.sma200[i] && s.close[i - 1] >= s.sma200[i - 1]
+  if ((m = key.match(/^perf-ytd-(-?\d+)$/))) { const c = +m[1]; return i => s.ytdDay[i] >= 15 && Math.abs(s.ytd[i] - c) <= 2.5 }
+  if ((m = key.match(/^perf-dd-(\d+)$/))) { const x = +m[1] / 100; return i => i >= 252 && s.dd[i] <= -x }
+  if ((m = key.match(/^perf-bounce-(\d+)$/))) { const x = +m[1] / 100; return i => i >= 252 && s.bounce[i] >= x }
+  if ((m = key.match(/^perf-m1-(-?\d+)$/))) { const x = +m[1] / 100; return i => (x > 0 ? s.ret21[i] >= x : s.ret21[i] <= x) }
+  if ((m = key.match(/^perf-day-(-?\d+)$/))) { const x = +m[1] / 100; return i => (x > 0 ? s.dayRet[i] >= x : s.dayRet[i] <= x) }
+  return null
+}
+
+// Distinct past episodes (first day the condition became true), excluding the current bar
+const perfFindTriggers = (key: string, s: PerfSeries): number[] => {
+  const cond = perfCond(key, s)
+  if (!cond) return []
+  const out: number[] = []
+  const lastYear = s.year[s.n - 1]
+  if (key.startsWith('perf-ytd-')) {
+    let seenYear = -1
+    for (let i = 1; i < s.n - 1; i++) {
+      if (s.year[i] === lastYear || s.year[i] === seenYear) continue
+      if (cond(i)) { out.push(i); seenYear = s.year[i] }
+    }
+    return out
+  }
+  const gap = key.startsWith('perf-day-') ? 10 : 30
+  let last = -999
+  for (let i = 1; i < s.n - 1; i++) {
+    if (cond(i) && !cond(i - 1) && i - last >= gap) { out.push(i); last = i }
+  }
+  return out
+}
+
+const perfMon = (t: number) => {
+  const d = new Date(t)
+  return `${d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' })} '${String(d.getUTCFullYear()).slice(2)}`
+}
+
+// Which performance situations the symbol is in right now, backed by 2-5 real past events each
+const perfDetectSignals = (bars: PerfBar[]): Array<{ key: string; label: string; description: string }> => {
+  if (bars.length < 400) return []
+  const s = buildPerfSeries(bars)
+  const i = s.n - 1
+  const cands: Array<{ key: string; label: string }> = []
+  if (s.ytdDay[i] >= 15 && Math.abs(s.ytd[i]) >= 5) {
+    const c = Math.round(s.ytd[i])
+    cands.push({ key: `perf-ytd-${c}`, label: `${c >= 0 ? '📈 Up' : '📉 Down'} ${Math.abs(c)}% YTD` })
+  }
+  const ddX = [40, 30, 25, 20, 15, 10, 8, 5].find(x => s.dd[i] <= -x / 100)
+  if (ddX) cands.push({ key: `perf-dd-${ddX}`, label: `🔻 Down ${ddX}%+ From 52W High` })
+  const bX = [100, 75, 50, 30, 20].find(x => s.bounce[i] >= x / 100)
+  if (bX) cands.push({ key: `perf-bounce-${bX}`, label: `🚀 Up ${bX}%+ Off 52W Low` })
+  const mX = [20, 15, 12, 8].find(x => Math.abs(s.ret21[i]) >= x / 100)
+  if (mX) { const sg = s.ret21[i] > 0 ? 1 : -1; cands.push({ key: `perf-m1-${sg * mX}`, label: `${sg > 0 ? '⚡ Up' : '⚡ Down'} ${mX}%+ In 1 Month` }) }
+  const dX = [8, 5, 3].find(x => Math.abs(s.dayRet[i]) >= x / 100)
+  if (dX) { const sg = s.dayRet[i] > 0 ? 1 : -1; cands.push({ key: `perf-day-${sg * dX}`, label: `${sg > 0 ? '🟢 +' : '🔴 -'}${dX}% Single-Day Move` }) }
+  if (perfCond('perf-ath', s)!(i)) cands.push({ key: 'perf-ath', label: '🏔 New All-Time High' })
+  else if (perfCond('perf-52wh', s)!(i)) cands.push({ key: 'perf-52wh', label: '📈 New 52-Week High' })
+  if (perfCond('perf-52wl', s)!(i)) cands.push({ key: 'perf-52wl', label: '📉 New 52-Week Low' })
+  if (perfCond('perf-sma200-up', s)!(i)) cands.push({ key: 'perf-sma200-up', label: '✅ Reclaimed 200-Day Average' })
+  if (perfCond('perf-sma200-dn', s)!(i)) cands.push({ key: 'perf-sma200-dn', label: '⛔ Lost 200-Day Average' })
+
+  const out: Array<{ key: string; label: string; description: string }> = []
+  for (const c of cands) {
+    const trig = perfFindTriggers(c.key, s).slice(-5)
+    if (trig.length < 2) continue
+    const rets = trig.filter(t => t + 20 < s.n).map(t => s.close[t + 20] / s.close[t] - 1)
+    const avg = rets.length ? rets.reduce((a, b) => a + b, 0) / rets.length * 100 : 0
+    const ups = rets.filter(r => r > 0).length
+    const when = trig.map(t => perfMon(bars[t].t)).join(', ')
+    out.push({
+      key: c.key,
+      label: c.label,
+      description: `${trig.length} past events · 20d avg ${avg >= 0 ? '+' : ''}${avg.toFixed(1)}% · ${ups}/${rets.length} up · ${when}`,
+    })
+  }
+  return out
+}
+
+const perfBarsCache: Record<string, Promise<PerfBar[]>> = {}
+const loadPerfBars = (sym: string): Promise<PerfBar[]> => {
+  if (!perfBarsCache[sym]) {
+    perfBarsCache[sym] = (async () => {
+      const end = new Date(), start = new Date(); start.setFullYear(end.getFullYear() - 25)
+      let bars: PerfBar[] = []
+      let url: string | null = `/api/polygon/v2/aggs/ticker/${sym}/range/1/day/${start.toISOString().split('T')[0]}/${end.toISOString().split('T')[0]}?adjusted=true&sort=asc&limit=50000&apiKey=`
+      while (url) {
+        const resp: Response = await fetch(url)
+        if (!resp.ok) break
+        const json: any = await resp.json()
+        if (!json.results?.length) break
+        bars = bars.concat(json.results)
+        url = json.next_url ? json.next_url + '&apiKey=' : null
+      }
+      return bars
+    })().catch(() => { delete perfBarsCache[sym]; return [] as PerfBar[] })
+  }
+  return perfBarsCache[sym]
+}
+
 export default function TradingViewChart({
   symbol,
   initialTimeframe = '1d',
@@ -6744,7 +6829,6 @@ export default function TradingViewChart({
   const topBarRef = useRef<HTMLDivElement>(null)
 
   // Dropdown button refs for positioning
-  const technalysisButtonRef = useRef<HTMLButtonElement>(null)
   const expectedRangeButtonRef = useRef<HTMLButtonElement>(null)
   const gexButtonRef = useRef<HTMLButtonElement>(null)
   const rrgButtonRef = useRef<HTMLButtonElement>(null) // Chart state
@@ -6760,7 +6844,6 @@ export default function TradingViewChart({
     setIsSmartEventsOpen(false)
     setIsGexDropdownOpen(false)
     setIsIVHVDropdownOpen(false)
-    setIsTechnalysisDropdownOpen(false)
     setIsFlowMovesDropdownOpen(false)
     setIsRrgDropdownOpen(false)
     setIsPEDropdownOpen(false)
@@ -6784,7 +6867,6 @@ export default function TradingViewChart({
       setIsSmartEventsOpen(false)
       setIsGexDropdownOpen(false)
       setIsIVHVDropdownOpen(false)
-      setIsTechnalysisDropdownOpen(false)
       setIsFlowMovesDropdownOpen(false)
       setIsRrgDropdownOpen(false)
       setIsPEDropdownOpen(false)
@@ -6878,6 +6960,10 @@ export default function TradingViewChart({
   const { isOpen: isGuideAIOpen, setIsOpen: setGuideAIOpen } = useChatStore()
   // Mobile standalone panel toggles for Range and Gex buttons
   const [isMobileRangeOpen, setIsMobileRangeOpen] = useState(false)
+  const [showMobileCustomRange, setShowMobileCustomRange] = useState(false)
+  const [mobileRangeDate, setMobileRangeDate] = useState('')
+  const [mobileRangeCalMonth, setMobileRangeCalMonth] = useState<Date>(() => new Date())
+  const [mobileScanDate, setMobileScanDate] = useState('')
   const [isMobileGexOpen, setIsMobileGexOpen] = useState(false)
   const [isMobileSeaxOpen, setIsMobileSeaxOpen] = useState(false)
   const [seaxSmartSection, setSeaxSmartSection] = useState<'perf' | 'events' | null>(null)
@@ -7169,7 +7255,6 @@ export default function TradingViewChart({
     setLwChartDrawings((prev) => ({ ...prev, [sym]: newDrawings }))
   }
 
-  const [isTechnalysisDropdownOpen, setIsTechnalysisDropdownOpen] = useState<boolean>(false)
 
   // Parallel Channel Dragging State
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null)
@@ -10298,9 +10383,9 @@ export default function TradingViewChart({
   const [showMobilePctChanceCal, setShowMobilePctChanceCal] = useState(false)
   const [customCalMonth, setCustomCalMonth] = useState<Date>(() => new Date())
   const [pctChanceLevels, setPctChanceLevels] = useState<{
-    p5: number; p25: number; p50: number; p75: number; p95: number; currentPrice: number; expiryLabel: string
-  } | null>(null)
-  const pctChanceLevelsRef = useRef<typeof pctChanceLevels>(null)
+    p5: number; p25: number; p50: number; p75: number; p95: number; currentPrice: number; expiryLabel: string; dte?: number; spotPct?: number; confidence?: string; impliedMove?: number
+      } | null>(null)
+      const pctChanceLevelsRef = useRef<typeof pctChanceLevels>(null)
   useEffect(() => { pctChanceLevelsRef.current = pctChanceLevels }, [pctChanceLevels])
   const [customExpirationDate, setCustomExpirationDate] = useState<string>('')
   const [pendingCustomDate, setPendingCustomDate] = useState<string>('')
@@ -10368,6 +10453,14 @@ export default function TradingViewChart({
   const [isSeasonal15YActive, setIsSeasonal15YActive] = useState(false)
   const [isSeasonal10YActive, setIsSeasonal10YActive] = useState(false)
   const [isSeasonalElectionActive, setIsSeasonalElectionActive] = useState(false)
+  // How seasonal projections are drawn: OHLC candles or a single line
+  const [seasonalDisplay, setSeasonalDisplay] = useState<'candles' | 'line'>('candles')
+  const seasonalDisplayRef = useRef<'candles' | 'line'>('candles')
+  const chooseSeasonalDisplay = (mode: 'candles' | 'line') => {
+    seasonalDisplayRef.current = mode
+    setSeasonalDisplay(mode)
+    requestAnimationFrame(() => renderChartRef.current())
+  }
   const [electionInsufficientData, setElectionInsufficientData] = useState(false)
   const seasonalButtonRef = useRef<HTMLButtonElement>(null)
   // Combined 20Y OHLC candle seasonal data (main Seasonality button, 1D only)
@@ -10423,93 +10516,18 @@ export default function TradingViewChart({
   const [smartPerfTriggerDate, setSmartPerfTriggerDate] = useState<Date | null>(null)
   const [isSmartPerfActive, setIsSmartPerfActive] = useState(false)
 
-  // Detect performance-based signals from chart data
-  const detectSmartSignals = useCallback((chartData: ChartDataPoint[]) => {
-    if (!chartData || chartData.length < 252) { setSmartPerformanceSignals([]); return }
-    const signals: SmartSignal[] = []
-    const current = chartData[chartData.length - 1].close
-    const prices252 = chartData.slice(-252).map(d => d.close)
-    const high52 = Math.max(...prices252)
-    const low52 = Math.min(...prices252)
-    const allTimePrices = chartData.map(d => d.close)
-    const ath = Math.max(...allTimePrices)
-    const atl = Math.min(...allTimePrices)
-    const pct1Y = ((current - chartData[chartData.length - 252].close) / chartData[chartData.length - 252].close) * 100
-    const pct1M = chartData.length >= 21 ? ((current - chartData[chartData.length - 21].close) / chartData[chartData.length - 21].close) * 100 : 0
-    const distFromATH = ((current - ath) / ath) * 100
-    const distFromATL = ((current - atl) / atl) * 100
-    const distFrom52H = ((current - high52) / high52) * 100
-    const distFrom52L = ((current - low52) / low52) * 100
-    // ATH / ATL
-    if (Math.abs(distFromATH) < 0.5) signals.push({ key: 'perf-ath', label: '🏔 Near All-Time High', description: `Within 0.5% of ATH ($${ath.toFixed(2)})` })
-    if (Math.abs(distFromATL) < 2) signals.push({ key: 'perf-atl', label: '🕳 Near All-Time Low', description: `Within 2% of ATL ($${atl.toFixed(2)})` })
-    // 52w high/low
-    if (Math.abs(distFrom52H) < 1) signals.push({ key: 'perf-52wh', label: '📈 52-Week High', description: `Within 1% of 52w high ($${high52.toFixed(2)})` })
-    if (Math.abs(distFrom52L) < 1) signals.push({ key: 'perf-52wl', label: '📉 52-Week Low', description: `Within 1% of 52w low ($${low52.toFixed(2)})` })
-    // Monthly moves
-    if (pct1M >= 8 && pct1M < 13) signals.push({ key: 'perf-up8-12m', label: `📊 Up ${pct1M.toFixed(1)}% (1M)`, description: 'Stock up 8–12% in last month' })
-    if (pct1M <= -8 && pct1M > -13) signals.push({ key: 'perf-dn8-12m', label: `📊 Down ${Math.abs(pct1M).toFixed(1)}% (1M)`, description: 'Stock down 8–12% in last month' })
-    // Annual moves
-    if (pct1Y >= 8 && pct1Y < 13) signals.push({ key: 'perf-up8-12y', label: `📈 Up ${pct1Y.toFixed(1)}% (1Y)`, description: 'Stock up 8–12% in last year' })
-    if (pct1Y <= -8 && pct1Y > -13) signals.push({ key: 'perf-dn8-12y', label: `📉 Down ${Math.abs(pct1Y).toFixed(1)}% (1Y)`, description: 'Stock down 8–12% in last year' })
-
-    // ── Reclaimed ATH after being below for 1+ year ──
-    // Current price is within 0.5% of ATH, and 252 bars ago price was >5% below ATH
-    if (Math.abs(distFromATH) < 0.5 && chartData.length >= 252) {
-      const price1YAgo = chartData[chartData.length - 252].close
-      const dist1YAgoFromATH = ((price1YAgo - ath) / ath) * 100
-      if (dist1YAgoFromATH < -5) {
-        signals.push({ key: 'perf-reclaim-ath', label: '🔁 Reclaimed ATH After 1Y+', description: `Back at ATH after being ${Math.abs(dist1YAgoFromATH).toFixed(1)}% below a year ago` })
-      }
+  // Detect performance situations from 25Y of daily history; each needs 2-5 real past events
+  const perfDetectToken = useRef(0)
+  const detectSmartSignals = useCallback(async (_chartData: ChartDataPoint[]) => {
+    const token = ++perfDetectToken.current
+    const sym = config.symbol
+    try {
+      const bars = await loadPerfBars(sym)
+      if (token !== perfDetectToken.current) return
+      setSmartPerformanceSignals(perfDetectSignals(bars))
+    } catch {
+      if (token === perfDetectToken.current) setSmartPerformanceSignals([])
     }
-
-    // ── First 52-Week High after 1+ year ──
-    // At 52w high now, but 252 bars ago was more than 10% below current 52w high
-    if (Math.abs(distFrom52H) < 1 && chartData.length >= 252) {
-      const prices504 = chartData.slice(-504).map(d => d.close)
-      const high2Y = Math.max(...prices504)
-      const prevYearHigh = chartData.length >= 504 ? Math.max(...chartData.slice(-504, -252).map(d => d.close)) : high2Y
-      if (current > prevYearHigh * 1.01) {
-        signals.push({ key: 'perf-first-52wh', label: '🆕 First 52W High After 1Y+', description: `Breaking out above prior year\'s high of $${prevYearHigh.toFixed(2)}` })
-      }
-    }
-
-    // ── New high after >20% drawdown ──
-    // Find the deepest trough in the last 2 years, check if drawdown from ATH exceeded 20%,
-    // and price has now recovered to within 1% of ATH
-    if (chartData.length >= 252 && Math.abs(distFromATH) < 1) {
-      const lookback = chartData.slice(-504)
-      const troughPrice = Math.min(...lookback.map(d => d.low ?? d.close))
-      const drawdownFromATH = ((troughPrice - ath) / ath) * 100
-      if (drawdownFromATH <= -20) {
-        signals.push({ key: 'perf-recovery-20pct', label: `🔥 New High After ${Math.abs(drawdownFromATH).toFixed(0)}% Drawdown`, description: `Recovered to ATH after dropping to $${troughPrice.toFixed(2)}` })
-      }
-    }
-
-    // ── Relative strength greater than SPY for 1 month ──
-    if (chartData.length >= 21 && config.symbol !== 'SPY') {
-      const spyReturn1M = spyReturn1MRef.current
-      if (spyReturn1M !== null && pct1M > spyReturn1M) {
-        signals.push({ key: 'perf-rs-spy', label: `💪 Outperforming SPY (1M)`, description: `Stock +${pct1M.toFixed(1)}% vs SPY ${spyReturn1M >= 0 ? '+' : ''}${spyReturn1M.toFixed(1)}% past month` })
-      }
-    }
-
-    // ── Multi-Year Base Resolution (3–5 year breakout) ──
-    // Price is within 1% of ATH but spent 3+ years (756+ bars) below ATH before now
-    if (Math.abs(distFromATH) < 1 && chartData.length >= 756) {
-      // Find how many consecutive bars from the end were below 99% of ATH before today
-      const athThreshold = ath * 0.99
-      let barsBelow = 0
-      for (let i = chartData.length - 2; i >= 0; i--) {
-        if (chartData[i].close < athThreshold) { barsBelow++ } else { break }
-      }
-      const yearsBelow = barsBelow / 252
-      if (yearsBelow >= 3) {
-        signals.push({ key: 'perf-base-breakout', label: `🏗 Multi-Year Base Breakout (${yearsBelow.toFixed(1)}Y)`, description: `Breaking out after ${yearsBelow.toFixed(1)} years below ATH of $${ath.toFixed(2)}` })
-      }
-    }
-
-    setSmartPerformanceSignals(signals)
   }, [config.symbol])
 
   // Detect time-based event signals (holidays + options events within ±30 days)
@@ -10617,162 +10635,10 @@ export default function TradingViewChart({
       }
     } catch { return null }
 
-    // Fetch SPY bars in parallel if needed for RS signal
-    let spyBars: any[] = []
-    if (signalKey === 'perf-rs-spy') {
-      try {
-        let nextUrl: string | null = `/api/polygon/v2/aggs/ticker/SPY/range/1/day/${startDate.toISOString().split('T')[0]}/${endDate.toISOString().split('T')[0]}?adjusted=true&sort=asc&limit=50000&apiKey=${API_KEY}`
-        while (nextUrl) {
-          const resp: Response = await fetch(nextUrl)
-          if (!resp.ok) break
-          const json: any = await resp.json()
-          if (!json.results?.length) break
-          spyBars = spyBars.concat(json.results)
-          nextUrl = json.next_url ? json.next_url + `&apiKey=${API_KEY}` : null
-        }
-      } catch { /* proceed without SPY */ }
-    }
-    if (dailyBars.length < 50) return null
-
-    // Find historical trigger indices — each bar where the same condition was true
-    const MIN_GAP = SLOTS // at least 45 bars between triggers to avoid overlap
-    const triggerIndices: number[] = []
-
-    if (signalKey === 'perf-ath') {
-      // New all-time high
-      let runningATH = -Infinity; let lastTrig = -999
-      for (let i = 0; i < dailyBars.length; i++) {
-        const c = dailyBars[i].c
-        if (c > runningATH) { runningATH = c; if (i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i } }
-      }
-    } else if (signalKey === 'perf-atl') {
-      // New all-time low
-      let runningATL = Infinity; let lastTrig = -999
-      for (let i = 0; i < dailyBars.length; i++) {
-        const c = dailyBars[i].c
-        if (c < runningATL) { runningATL = c; if (i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i } }
-      }
-    } else if (signalKey === 'perf-52wh') {
-      // Within 1% of 52-week high — precompute rolling max in O(n) with sliding window
-      const roll52High = new Float64Array(dailyBars.length)
-      let winMax = -Infinity
-      const winQ: number[] = [] // monotonic deque of indices (descending close)
-      for (let i = 0; i < dailyBars.length; i++) {
-        // Remove indices outside window
-        while (winQ.length && winQ[0] < i - 251) winQ.shift()
-        // Maintain descending deque
-        while (winQ.length && dailyBars[winQ[winQ.length - 1]].c <= dailyBars[i].c) winQ.pop()
-        winQ.push(i)
-        roll52High[i] = dailyBars[winQ[0]].c
-      }
-      let lastTrig = -999
-      for (let i = 252; i < dailyBars.length; i++) {
-        if (Math.abs((dailyBars[i].c - roll52High[i]) / roll52High[i]) < 0.01 && i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i }
-      }
-    } else if (signalKey === 'perf-52wl') {
-      // Within 1% of 52-week low — precompute rolling min in O(n) with sliding window
-      const roll52Low = new Float64Array(dailyBars.length)
-      const winQ: number[] = [] // monotonic deque of indices (ascending close)
-      for (let i = 0; i < dailyBars.length; i++) {
-        while (winQ.length && winQ[0] < i - 251) winQ.shift()
-        while (winQ.length && dailyBars[winQ[winQ.length - 1]].c >= dailyBars[i].c) winQ.pop()
-        winQ.push(i)
-        roll52Low[i] = dailyBars[winQ[0]].c
-      }
-      let lastTrig = -999
-      for (let i = 252; i < dailyBars.length; i++) {
-        if (Math.abs((dailyBars[i].c - roll52Low[i]) / roll52Low[i]) < 0.01 && i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i }
-      }
-    } else if (signalKey === 'perf-reclaim-ath') {
-      // Reclaimed ATH after being 1+ year (252 bars) below it
-      let runningATH = -Infinity; let lastTrig = -999
-      for (let i = 0; i < dailyBars.length; i++) {
-        if (dailyBars[i].c > runningATH) runningATH = dailyBars[i].c
-        if (i >= 252) {
-          const price1YAgo = dailyBars[i - 252].c
-          const isAtATH = Math.abs((dailyBars[i].c - runningATH) / runningATH) < 0.005
-          const wasBelow1YAgo = ((price1YAgo - runningATH) / runningATH) * 100 < -5
-          if (isAtATH && wasBelow1YAgo && i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i }
-        }
-      }
-    } else if (signalKey === 'perf-first-52wh') {
-      // At 52w high AND current price is above prior year's (252–504 bars back) highest close
-      const roll52High = new Float64Array(dailyBars.length)
-      const winQ: number[] = []
-      for (let i = 0; i < dailyBars.length; i++) {
-        while (winQ.length && winQ[0] < i - 251) winQ.shift()
-        while (winQ.length && dailyBars[winQ[winQ.length - 1]].c <= dailyBars[i].c) winQ.pop()
-        winQ.push(i)
-        roll52High[i] = dailyBars[winQ[0]].c
-      }
-      let lastTrig = -999
-      for (let i = 504; i < dailyBars.length; i++) {
-        const at52wh = Math.abs((dailyBars[i].c - roll52High[i]) / roll52High[i]) < 0.01
-        const priorYearHigh = Math.max(...dailyBars.slice(i - 504, i - 252).map((b: any) => b.c))
-        if (at52wh && dailyBars[i].c > priorYearHigh * 1.01 && i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i }
-      }
-    } else if (signalKey === 'perf-recovery-20pct') {
-      // Near ATH (within 1%) AND deepest trough in prior 504 bars was ≥20% below ATH
-      let runningATH = -Infinity; let lastTrig = -999
-      for (let i = 0; i < dailyBars.length; i++) {
-        if (dailyBars[i].c > runningATH) runningATH = dailyBars[i].c
-        if (i >= 252) {
-          const isAtATH = Math.abs((dailyBars[i].c - runningATH) / runningATH) < 0.01
-          if (isAtATH) {
-            const lookbackBars = dailyBars.slice(Math.max(0, i - 504), i)
-            const trough = Math.min(...lookbackBars.map((b: any) => b.l ?? b.c))
-            const drawdown = ((trough - runningATH) / runningATH) * 100
-            if (drawdown <= -20 && i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i }
-          }
-        }
-      }
-    } else if (signalKey === 'perf-rs-spy') {
-      // Stock's 21-day return > SPY's 21-day return on that same day
-      // Align SPY bars by timestamp to stock bars
-      const spyByTs: Record<number, number> = {}
-      for (const bar of spyBars) spyByTs[bar.t] = bar.c
-      let lastTrig = -999
-      for (let i = 21; i < dailyBars.length; i++) {
-        const stockPct = (dailyBars[i].c - dailyBars[i - 21].c) / dailyBars[i - 21].c * 100
-        const spyClose = spyByTs[dailyBars[i].t]
-        const spyPrev = spyByTs[dailyBars[i - 21].t]
-        if (!spyClose || !spyPrev) continue
-        const spyPct = (spyClose - spyPrev) / spyPrev * 100
-        if (stockPct > spyPct && i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i }
-      }
-    } else if (signalKey === 'perf-base-breakout') {
-      // New ATH (within 1%) AND spent ≥756 consecutive bars (3 years) below ATH before this
-      let runningATH = -Infinity; let lastTrig = -999
-      for (let i = 0; i < dailyBars.length; i++) {
-        if (dailyBars[i].c > runningATH) runningATH = dailyBars[i].c
-        if (i >= 756) {
-          const isAtATH = Math.abs((dailyBars[i].c - runningATH) / runningATH) < 0.01
-          if (isAtATH) {
-            const athThreshold = runningATH * 0.99
-            let barsBelow = 0
-            for (let j = i - 1; j >= 0; j--) {
-              if (dailyBars[j].c < athThreshold) barsBelow++; else break
-            }
-            if (barsBelow >= 756 && i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i }
-          }
-        }
-      }
-    } else {
-      // Monthly / yearly move signals — find bars where rolling window return is in range
-      let window = 21, minPct = 0, maxPct = 10000, isUp = true
-      if (signalKey === 'perf-up8-12m') { window = 21; minPct = 8; maxPct = 13; isUp = true }
-      else if (signalKey === 'perf-dn8-12m') { window = 21; minPct = 8; maxPct = 13; isUp = false }
-      else if (signalKey === 'perf-up8-12y') { window = 252; minPct = 8; maxPct = 13; isUp = true }
-      else if (signalKey === 'perf-dn8-12y') { window = 252; minPct = 8; maxPct = 13; isUp = false }
-      let lastTrig = -999
-      for (let i = window; i < dailyBars.length; i++) {
-        const pct = (dailyBars[i].c - dailyBars[i - window].c) / dailyBars[i - window].c * 100
-        const inRange = isUp ? (pct >= minPct && pct < maxPct) : (pct <= -minPct && pct > -maxPct)
-        if (inRange && i - lastTrig >= MIN_GAP) { triggerIndices.push(i); lastTrig = i }
-      }
-    }
-
-    if (triggerIndices.length === 0) return null
+    if (dailyBars.length < 400) return null
+    // Only the 2-5 most recent real matching events drive the projection
+    const triggerIndices = perfFindTriggers(signalKey, buildPerfSeries(dailyBars)).slice(-5)
+    if (triggerIndices.length < 2) return null
 
     // ── INTRADAY PATH: fetch per-bar OHLC around each trigger (mirrors calculateEventSeasonal) ──
     const intradayTfMap: Record<string, { mult: number; slotsPerDay: number }> = {
@@ -11591,7 +11457,7 @@ export default function TradingViewChart({
   const [ivRankColor, setIVRankColor] = useState('#FF6B9D')
   const [ivPercentileColor, setIVPercentileColor] = useState('#00FF88')
   const [hvColor, setHVColor] = useState('#00D4FF')
-  const [ivPanelHeight, setIVPanelHeight] = useState(120) // Height per indicator panel
+  const [ivPanelHeight, setIVPanelHeight] = useState(190) // Height per indicator panel
   const [isDraggingIVPanel, setIsDraggingIVPanel] = useState(false) // For resize dragging
   const [ivLookbackPeriod, setIVLookbackPeriod] = useState(365) // Default 1 year
   const [hvWindow, setHVWindow] = useState(20) // Historical Volatility window (10, 20, 30, 60 days)
@@ -12220,16 +12086,6 @@ export default function TradingViewChart({
   const [isExpansionLiquidationActive, setIsExpansionLiquidationActive] = useState(false)
   const [expansionLiquidationZones, setExpansionLiquidationZones] = useState<any[]>([])
 
-  // Technalysis indicator state
-  const [technalysisActive, setTechnalysisActive] = useState(false)
-  const [technalysisFeatures, setTechnalysisFeatures] = useState({
-    orderBlocks: false,
-    fvg: false,
-    liquidity: false,
-    structure: false,
-    premiumDiscount: false,
-  })
-
   // Sync global indicator state → active chart's per-chart overrides in multi-chart mode.
   // This means every toolbar button click automatically scopes to the active chart only.
   useEffect(() => {
@@ -12247,7 +12103,6 @@ export default function TradingViewChart({
         isSeasonal10YActive,
         isSeasonalElectionActive,
         isExpansionLiquidationActive,
-        technalysisActive,
         isFlowChartActive,
       },
     }))
@@ -12255,7 +12110,7 @@ export default function TradingViewChart({
     chartLayout,
     isExpectedRangeActive, isWeeklyActive, isMonthlyActive,
     isSeasonalActive, isSeasonal20YActive, isSeasonal15YActive, isSeasonal10YActive, isSeasonalElectionActive,
-    isExpansionLiquidationActive, technalysisActive, isFlowChartActive,
+    isExpansionLiquidationActive, isFlowChartActive,
   ])
 
   // Alerts state
@@ -17866,11 +17721,21 @@ export default function TradingViewChart({
       // Project 20 trading days forward as individual points
       const forwardDays = 20
       const atrLineConfigs = [
-        { key: 'atr1up', color: '#00FF88', dash: [7, 3], width: 2.2, label: '+1 ATR', offset: atr },
-        { key: 'atr2up', color: '#00E5FF', dash: [5, 4], width: 1.5, label: '+2 ATR', offset: atr * 2 },
-        { key: 'atr1dn', color: '#FF4444', dash: [7, 3], width: 2.2, label: '-1 ATR', offset: -atr },
-        { key: 'atr2dn', color: '#FF9900', dash: [5, 4], width: 1.5, label: '-2 ATR', offset: -atr * 2 },
+        { key: 'atr1up', color: '#00FF66', dash: [] as number[], width: 2.6, label: '+1 ATR', offset: atr },
+        { key: 'atr2up', color: '#22C55E', dash: [] as number[], width: 2, label: '+2 ATR', offset: atr * 2 },
+        { key: 'atr1dn', color: '#FF3B3B', dash: [] as number[], width: 2.6, label: '-1 ATR', offset: -atr },
+        { key: 'atr2dn', color: '#FF7A7A', dash: [] as number[], width: 2, label: '-2 ATR', offset: -atr * 2 },
       ]
+
+      // Volatility-style curve: the expected range widens with sqrt(time)
+      const CURVE_STEPS = 40
+      const tracePath = (ox: number, oy: number, ex: number, ey: number, yShift = 0) => {
+        ctx.moveTo(ox, oy + yShift)
+        for (let i = 1; i <= CURVE_STEPS; i++) {
+          const f = i / CURVE_STEPS
+          ctx.lineTo(ox + (ex - ox) * f, oy + (ey - oy) * Math.sqrt(f) + yShift)
+        }
+      }
 
       ctx.save()
       const _atrAlpha = overlayAlpha('atrRange')
@@ -17887,59 +17752,137 @@ export default function TradingViewChart({
         ctx.lineWidth = width + 2.5
         ctx.setLineDash([])
         ctx.beginPath()
-        ctx.moveTo(originX, startY + 1.5)
-        ctx.lineTo(endX, endY + 1.5)
+        tracePath(originX, startY, endX, endY, 1.5)
         ctx.stroke()
 
         // Main line
-        ctx.globalAlpha = 0.9 * _atrAlpha
+        ctx.globalAlpha = 0.95 * _atrAlpha
         ctx.strokeStyle = color
         ctx.lineWidth = width
         ctx.setLineDash(dash)
         ctx.lineJoin = 'round'
         ctx.beginPath()
-        ctx.moveTo(originX, startY)
-        ctx.lineTo(endX, endY)
+        tracePath(originX, startY, endX, endY)
         ctx.stroke()
 
-        // Dot at endpoint
+        // Endpoint marker: ring + core
         ctx.setLineDash([])
-        ctx.globalAlpha = 1 * _atrAlpha
+        ctx.globalAlpha = 0.25 * _atrAlpha
         ctx.fillStyle = color
         ctx.beginPath()
-        ctx.arc(endX, endY, 3, 0, Math.PI * 2)
+        ctx.arc(endX, endY, 7, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.globalAlpha = 1 * _atrAlpha
+        ctx.beginPath()
+        ctx.arc(endX, endY, 3.5, 0, Math.PI * 2)
         ctx.fill()
         // Store for hit-testing
         projectedPointsRef.current.atrRange.push({ x: endX, y: endY })
 
-        // Label at endpoint
-        if (endX < chartWidth - 10) {
-          ctx.font = 'bold 16px Arial'
-          const labelText = `${label}  $${targetPrice.toFixed(2)}`
-          const textW = ctx.measureText(labelText).width
-          ctx.fillStyle = `rgba(0,0,0,${0.75 * _atrAlpha})`
-          ctx.fillRect(endX + 4, endY - 10, textW + 8, 19)
-          ctx.fillStyle = color
-          ctx.textAlign = 'left'
-          ctx.fillText(labelText, endX + 6, endY + 4)
-        }
+        // Pill label: name, price and % move from last close; flips left if it would reach the price axis
+        const pctMove = (offset / originPrice) * 100
+        const pctText = `${pctMove >= 0 ? '+' : ''}${pctMove.toFixed(1)}%`
+        const arrowTxt = offset >= 0 ? '\u25B2' : '\u25BC'
+        const nameText = label.replace(' ATR', '\u00D7ATR')
+        const priceText = `$${targetPrice.toFixed(2)}`
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'middle'
+        ctx.font = '800 13px Arial'
+        const nameW = ctx.measureText(nameText).width
+        ctx.font = 'bold 15px Arial'
+        const priceW = ctx.measureText(priceText).width
+        ctx.font = 'bold 12px Arial'
+        const pctW = ctx.measureText(pctText).width
+        const padX = 10
+        const pillH = 26
+        const pillW = padX + 12 + nameW + 10 + priceW + 10 + pctW + padX
+        const axisSafe = chartWidth - 112
+        const placeRight = endX + 12 + pillW <= axisSafe
+        const px = placeRight ? endX + 12 : Math.max(originX + 8, Math.min(endX - 12 - pillW, axisSafe - pillW))
+        const py = endY - pillH / 2
+        ctx.globalAlpha = 0.95 * _atrAlpha
+        ctx.fillStyle = 'rgba(8,8,10,0.92)'
+        ctx.beginPath()
+        if (typeof (ctx as any).roundRect === 'function') (ctx as any).roundRect(px, py, pillW, pillH, 7)
+        else ctx.rect(px, py, pillW, pillH)
+        ctx.fill()
+        ctx.strokeStyle = color
+        ctx.lineWidth = 1.5
+        ctx.setLineDash([])
+        ctx.stroke()
+        let tx = px + padX
+        ctx.fillStyle = color
+        ctx.font = 'bold 11px Arial'
+        ctx.fillText(arrowTxt, tx, endY)
+        tx += 12
+        ctx.fillStyle = '#ffffff'
+        ctx.font = '800 13px Arial'
+        ctx.fillText(nameText, tx, endY)
+        tx += nameW + 10
+        ctx.fillStyle = color
+        ctx.font = 'bold 15px Arial'
+        ctx.fillText(priceText, tx, endY)
+        tx += priceW + 10
+        ctx.fillStyle = offset >= 0 ? '#22C55E' : '#FF3B3B'
+        ctx.font = '800 12px Arial'
+        ctx.fillText(pctText, tx, endY)
+        ctx.textBaseline = 'alphabetic'
       })
 
-      // Shade between ±1 ATR lines
-      const atr1upY_start = priceToY(originPrice)
-      const atr1dnY_start = priceToY(originPrice)
-      const atr1upY_end = priceToY(originPrice + atr)
-      const atr1dnY_end = priceToY(originPrice - atr)
+      // Layered cone: faint ±2 ATR envelope, stronger ±1 ATR core
       const endX = originX + forwardDays * candleSpacing
-      ctx.globalAlpha = 0.06 * _atrAlpha
-      ctx.fillStyle = '#00FF88'
+      const originY = priceToY(originPrice)
+      const fillCone = (mult: number, color: string, alpha: number) => {
+        const grad = ctx.createLinearGradient(originX, 0, endX, 0)
+        grad.addColorStop(0, `${color}00`)
+        grad.addColorStop(1, color)
+        ctx.globalAlpha = alpha * _atrAlpha
+        ctx.fillStyle = grad
+        ctx.beginPath()
+        const upY = priceToY(originPrice + atr * mult)
+        const dnY = priceToY(originPrice - atr * mult)
+        ctx.moveTo(originX, originY)
+        for (let i = 1; i <= CURVE_STEPS; i++) {
+          const f = i / CURVE_STEPS
+          ctx.lineTo(originX + (endX - originX) * f, originY + (upY - originY) * Math.sqrt(f))
+        }
+        for (let i = CURVE_STEPS; i >= 0; i--) {
+          const f = i / CURVE_STEPS
+          ctx.lineTo(originX + (endX - originX) * f, originY + (dnY - originY) * Math.sqrt(f))
+        }
+        ctx.closePath()
+        ctx.fill()
+      }
+      fillCone(2, '#22C55E', 0.08)
+      fillCone(1, '#00FF66', 0.14)
+
+      // Origin marker with ATR value tag
+      ctx.globalAlpha = _atrAlpha
+      ctx.fillStyle = '#ffffff'
       ctx.beginPath()
-      ctx.moveTo(originX, atr1upY_start)
-      ctx.lineTo(endX, atr1upY_end)
-      ctx.lineTo(endX, atr1dnY_end)
-      ctx.lineTo(originX, atr1dnY_start)
-      ctx.closePath()
+      ctx.arc(originX, originY, 4, 0, Math.PI * 2)
       ctx.fill()
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)'
+      ctx.lineWidth = 1.5
+      ctx.beginPath()
+      ctx.arc(originX, originY, 8, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.font = '800 12px Arial'
+      ctx.textAlign = 'left'
+      ctx.textBaseline = 'middle'
+      const atrTag = `ATR(45) $${atr.toFixed(2)}`
+      const atrTagW = ctx.measureText(atrTag).width
+      ctx.fillStyle = 'rgba(8,8,10,0.92)'
+      ctx.beginPath()
+      if (typeof (ctx as any).roundRect === 'function') (ctx as any).roundRect(originX + 14, originY - 11, atrTagW + 16, 22, 6)
+      else ctx.rect(originX + 14, originY - 11, atrTagW + 16, 22)
+      ctx.fill()
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)'
+      ctx.lineWidth = 1
+      ctx.stroke()
+      ctx.fillStyle = '#ffffff'
+      ctx.fillText(atrTag, originX + 22, originY)
+      ctx.textBaseline = 'alphabetic'
 
       // Draw X-axis date labels at week-boundary milestones (5, 10, 15, 20 trading days)
       ctx.globalAlpha = 1
@@ -18013,19 +17956,55 @@ export default function TradingViewChart({
 
       const forwardDays = 20
       const sdLineConfigs = [
-        { color: '#00FF88', dash: [7, 3] as number[], width: 2.2, label: '+1σ', offset: stddev },
-        { color: '#00E5FF', dash: [5, 4] as number[], width: 1.5, label: '+2σ', offset: stddev * 2 },
-        { color: '#FF4444', dash: [7, 3] as number[], width: 2.2, label: '-1σ', offset: -stddev },
-        { color: '#FF9900', dash: [5, 4] as number[], width: 1.5, label: '-2σ', offset: -stddev * 2 },
+        { color: '#4ADE80', width: 2.6, label: '+1\u03C3', offset: stddev },
+        { color: '#16A34A', width: 2, label: '+2\u03C3', offset: stddev * 2 },
+        { color: '#F87171', width: 2.6, label: '-1\u03C3', offset: -stddev },
+        { color: '#DC2626', width: 2, label: '-2\u03C3', offset: -stddev * 2 },
       ]
+
+      // Spread widens with sqrt(time), same shape as the ATR cone
+      const SD_STEPS = 40
+      const sdEndX = originX + forwardDays * candleSpacing
+      const sdOriginY = priceToY(originPrice)
+      const sdTrace = (ey: number, yShift = 0) => {
+        ctx.moveTo(originX, sdOriginY + yShift)
+        for (let i = 1; i <= SD_STEPS; i++) {
+          const f = i / SD_STEPS
+          ctx.lineTo(originX + (sdEndX - originX) * f, sdOriginY + (ey - sdOriginY) * Math.sqrt(f) + yShift)
+        }
+      }
 
       ctx.save()
       const _sdAlpha = overlayAlpha('stddevRange')
 
-      sdLineConfigs.forEach(({ color, dash, width, label, offset }) => {
+      // Layered cone first so lines and labels sit on top: faint ±2σ, stronger ±1σ
+      const sdCone = (mult: number, color: string, alpha: number) => {
+        const grad = ctx.createLinearGradient(originX, 0, sdEndX, 0)
+        grad.addColorStop(0, `${color}00`)
+        grad.addColorStop(1, color)
+        ctx.globalAlpha = alpha * _sdAlpha
+        ctx.fillStyle = grad
+        ctx.beginPath()
+        const upY = priceToY(originPrice + stddev * mult)
+        const dnY = priceToY(originPrice - stddev * mult)
+        ctx.moveTo(originX, sdOriginY)
+        for (let i = 1; i <= SD_STEPS; i++) {
+          const f = i / SD_STEPS
+          ctx.lineTo(originX + (sdEndX - originX) * f, sdOriginY + (upY - sdOriginY) * Math.sqrt(f))
+        }
+        for (let i = SD_STEPS; i >= 0; i--) {
+          const f = i / SD_STEPS
+          ctx.lineTo(originX + (sdEndX - originX) * f, sdOriginY + (dnY - sdOriginY) * Math.sqrt(f))
+        }
+        ctx.closePath()
+        ctx.fill()
+      }
+      sdCone(2, '#16A34A', 0.07)
+      sdCone(1, '#4ADE80', 0.12)
+
+      sdLineConfigs.forEach(({ color, width, label, offset }) => {
         const targetPrice = originPrice + offset
-        const endX = originX + forwardDays * candleSpacing
-        const startY = priceToY(originPrice)
+        const endX = sdEndX
         const endY = priceToY(targetPrice)
 
         ctx.globalAlpha = 0.25 * _sdAlpha
@@ -18033,56 +18012,104 @@ export default function TradingViewChart({
         ctx.lineWidth = width + 2.5
         ctx.setLineDash([])
         ctx.beginPath()
-        ctx.moveTo(originX, startY + 1.5)
-        ctx.lineTo(endX, endY + 1.5)
+        sdTrace(endY, 1.5)
         ctx.stroke()
 
-        ctx.globalAlpha = 0.9 * _sdAlpha
+        ctx.globalAlpha = 0.95 * _sdAlpha
         ctx.strokeStyle = color
         ctx.lineWidth = width
-        ctx.setLineDash(dash)
         ctx.lineJoin = 'round'
         ctx.beginPath()
-        ctx.moveTo(originX, startY)
-        ctx.lineTo(endX, endY)
+        sdTrace(endY)
         ctx.stroke()
 
-        ctx.setLineDash([])
-        ctx.globalAlpha = 1 * _sdAlpha
+        ctx.globalAlpha = 0.25 * _sdAlpha
         ctx.fillStyle = color
         ctx.beginPath()
-        ctx.arc(endX, endY, 3, 0, Math.PI * 2)
+        ctx.arc(endX, endY, 7, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.globalAlpha = _sdAlpha
+        ctx.beginPath()
+        ctx.arc(endX, endY, 3.5, 0, Math.PI * 2)
         ctx.fill()
         // Store for hit-testing
         projectedPointsRef.current.stddevRange.push({ x: endX, y: endY })
 
-        if (endX < chartWidth - 10) {
-          ctx.font = 'bold 16px Arial'
-          const labelText = `${label}  $${targetPrice.toFixed(2)}`
-          const textW = ctx.measureText(labelText).width
-          ctx.fillStyle = `rgba(0,0,0,${0.75 * _sdAlpha})`
-          ctx.fillRect(endX + 4, endY - 10, textW + 8, 19)
-          ctx.fillStyle = color
-          ctx.textAlign = 'left'
-          ctx.fillText(labelText, endX + 6, endY + 4)
-        }
+        // Pill: arrow, sigma, price, % move; flips left if it would reach the price axis
+        const pctMove = (offset / originPrice) * 100
+        const pctText = `${pctMove >= 0 ? '+' : ''}${pctMove.toFixed(1)}%`
+        const arrowTxt = offset >= 0 ? '\u25B2' : '\u25BC'
+        const priceText = `$${targetPrice.toFixed(2)}`
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'middle'
+        ctx.font = '800 13px Arial'
+        const nameW = ctx.measureText(label).width
+        ctx.font = 'bold 15px Arial'
+        const priceW = ctx.measureText(priceText).width
+        ctx.font = 'bold 12px Arial'
+        const pctW = ctx.measureText(pctText).width
+        const padX = 10
+        const pillH = 26
+        const pillW = padX + 12 + nameW + 10 + priceW + 10 + pctW + padX
+        const axisSafe = chartWidth - 112
+        const placeRight = endX + 12 + pillW <= axisSafe
+        const px = placeRight ? endX + 12 : Math.max(originX + 8, Math.min(endX - 12 - pillW, axisSafe - pillW))
+        const py = endY - pillH / 2
+        ctx.globalAlpha = 0.95 * _sdAlpha
+        ctx.fillStyle = 'rgba(8,8,10,0.92)'
+        ctx.beginPath()
+        if (typeof (ctx as any).roundRect === 'function') (ctx as any).roundRect(px, py, pillW, pillH, 7)
+        else ctx.rect(px, py, pillW, pillH)
+        ctx.fill()
+        ctx.strokeStyle = color
+        ctx.lineWidth = 1.5
+        ctx.stroke()
+        let tx = px + padX
+        ctx.fillStyle = color
+        ctx.font = 'bold 11px Arial'
+        ctx.fillText(arrowTxt, tx, endY)
+        tx += 12
+        ctx.fillStyle = '#ffffff'
+        ctx.font = '800 13px Arial'
+        ctx.fillText(label, tx, endY)
+        tx += nameW + 10
+        ctx.fillStyle = color
+        ctx.font = 'bold 15px Arial'
+        ctx.fillText(priceText, tx, endY)
+        tx += priceW + 10
+        ctx.fillStyle = offset >= 0 ? '#22C55E' : '#FF3B3B'
+        ctx.font = '800 12px Arial'
+        ctx.fillText(pctText, tx, endY)
+        ctx.textBaseline = 'alphabetic'
       })
 
-      // Shade ±1σ channel
-      const sd1upY_start = priceToY(originPrice)
-      const sd1dnY_start = priceToY(originPrice)
-      const sd1upY_end = priceToY(originPrice + stddev)
-      const sd1dnY_end = priceToY(originPrice - stddev)
-      const sdEndX = originX + forwardDays * candleSpacing
-      ctx.globalAlpha = 0.06 * _sdAlpha
-      ctx.fillStyle = '#00FF88'
+      // Origin marker with sigma value tag
+      ctx.globalAlpha = _sdAlpha
+      ctx.fillStyle = '#ffffff'
       ctx.beginPath()
-      ctx.moveTo(originX, sd1upY_start)
-      ctx.lineTo(sdEndX, sd1upY_end)
-      ctx.lineTo(sdEndX, sd1dnY_end)
-      ctx.lineTo(originX, sd1dnY_start)
-      ctx.closePath()
+      ctx.arc(originX, sdOriginY, 4, 0, Math.PI * 2)
       ctx.fill()
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)'
+      ctx.lineWidth = 1.5
+      ctx.beginPath()
+      ctx.arc(originX, sdOriginY, 8, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.font = '800 12px Arial'
+      ctx.textAlign = 'left'
+      ctx.textBaseline = 'middle'
+      const sdTag = `\u03C3(45) $${stddev.toFixed(2)}`
+      const sdTagW = ctx.measureText(sdTag).width
+      ctx.fillStyle = 'rgba(8,8,10,0.92)'
+      ctx.beginPath()
+      if (typeof (ctx as any).roundRect === 'function') (ctx as any).roundRect(originX + 14, sdOriginY - 11, sdTagW + 16, 22, 6)
+      else ctx.rect(originX + 14, sdOriginY - 11, sdTagW + 16, 22)
+      ctx.fill()
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)'
+      ctx.lineWidth = 1
+      ctx.stroke()
+      ctx.fillStyle = '#ffffff'
+      ctx.fillText(sdTag, originX + 22, sdOriginY)
+      ctx.textBaseline = 'alphabetic'
 
       // X-axis date labels at week milestones (shared collision)
       ctx.globalAlpha = 1
@@ -18343,9 +18370,55 @@ export default function TradingViewChart({
 
         // forceCandles: render daily OHLC projection as candles on any timeframe
         const hasOHLC = points.length > 1 && points[0]?.open !== undefined
-        const shouldDrawCandles = pointsArePerBar || (forceCandles && hasOHLC)
+        const shouldDrawCandles = (pointsArePerBar || (forceCandles && hasOHLC)) && seasonalDisplayRef.current === 'candles'
 
 
+
+        // Seasonal zone: tinted panel with a dashed start edge and tag behind the projection
+        if (points.length > 1) {
+          const hexToRgba = (hex: string, a: number) => {
+            const h = hex.replace('#', '')
+            return `rgba(${parseInt(h.slice(0, 2), 16)},${parseInt(h.slice(2, 4), 16)},${parseInt(h.slice(4, 6), 16)},${a})`
+          }
+          const zx0 = Math.max(CHART_LEFT_MARGIN, points[0].x - candleSpacing)
+          const zx1 = Math.min(width - 100, points[points.length - 1].x + candleSpacing)
+          if (zx1 > zx0) {
+            ctx.save()
+            const zg = ctx.createLinearGradient(zx0, 0, zx1, 0)
+            zg.addColorStop(0, hexToRgba(color, 0.10))
+            zg.addColorStop(1, hexToRgba(color, 0.02))
+            ctx.fillStyle = zg
+            ctx.fillRect(zx0, 0, zx1 - zx0, priceChartHeight)
+            // diagonal hatch so the zone reads as "forecast", not data
+            ctx.beginPath()
+            ctx.rect(zx0, 0, zx1 - zx0, priceChartHeight)
+            ctx.clip()
+            ctx.strokeStyle = hexToRgba(color, 0.07)
+            ctx.lineWidth = 1
+            for (let hx = zx0 - priceChartHeight; hx < zx1; hx += 14) {
+              ctx.beginPath()
+              ctx.moveTo(hx, priceChartHeight)
+              ctx.lineTo(hx + priceChartHeight, 0)
+              ctx.stroke()
+            }
+            ctx.fillStyle = hexToRgba(color, 0.9)
+            ctx.fillRect(zx0, 0, zx1 - zx0, 3)
+            ctx.strokeStyle = hexToRgba(color, 0.45)
+            ctx.lineWidth = 1
+            ctx.setLineDash([4, 4])
+            ctx.beginPath()
+            ctx.moveTo(Math.round(zx0) + 0.5, 0)
+            ctx.lineTo(Math.round(zx0) + 0.5, priceChartHeight)
+            ctx.stroke()
+            ctx.setLineDash([])
+            ctx.font = 'bold 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+            ctx.textAlign = 'left'
+            ctx.textBaseline = 'top'
+            ctx.fillStyle = hexToRgba(color, 0.9)
+            ctx.fillText('SEASONAL PROJECTION', zx0 + 8, 8)
+            ctx.restore()
+          }
+        }
 
         if (shouldDrawCandles) {
           // ── For intraday candle mode: build % based Y scale anchored to last price ──
@@ -18417,6 +18490,22 @@ export default function TradingViewChart({
           ctx.globalAlpha = 1
           ctx.setLineDash([])
 
+        } else if (seasonalDisplayRef.current === 'line' && points.length > 1) {
+          // User chose line view: one smooth line in the series colour
+          ctx.strokeStyle = color
+          ctx.lineWidth = 3
+          ctx.globalAlpha = 0.95
+          ctx.setLineDash(isDashed ? [5, 5] : [])
+          ctx.lineJoin = 'round'
+          ctx.beginPath()
+          ctx.moveTo(points[0].x, points[0].y)
+          for (let i = 1; i < points.length - 1; i++) {
+            ctx.quadraticCurveTo(points[i].x, points[i].y, (points[i].x + points[i + 1].x) / 2, (points[i].y + points[i + 1].y) / 2)
+          }
+          ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y)
+          ctx.stroke()
+          ctx.globalAlpha = 1
+          ctx.setLineDash([])
         } else {
           // ── DAILY / line mode: draw segmented line by session ──────────────────
           if (points.length > 0) {
@@ -18798,6 +18887,18 @@ export default function TradingViewChart({
       )
     }
 
+    // Dealer profile: walls, acceleration pockets, flip and plain-language expectations
+    {
+      const gexSrc = isGexMap45dActiveRef.current && gexMap45dDataRef.current ? gexMap45dDataRef.current
+        : isGexMapActiveRef.current && gexMapDataRef.current ? gexMapDataRef.current : null
+      const dexSrc = isDexMap45dActiveRef.current && dexMap45dDataRef.current ? dexMap45dDataRef.current
+        : isDexMapActiveRef.current && dexMapDataRef.current ? dexMapDataRef.current : null
+      const profSrc = gexSrc ?? dexSrc
+      if (profSrc) {
+        renderDealerProfile(ctx, chartWidth, priceChartHeight, adjustedMin, adjustedMax, profSrc, visibleData, visibleCandleCount, gexSrc ? 'gex' : 'dex')
+      }
+    }
+
     // ── DARK POOL PRINT OVERLAY ──────────────────────────────────────────────
     if (showDarkPoolIndicatorRef.current && Object.keys(darkPoolDataRef.current).length > 0) {
       const darkPoolData = darkPoolDataRef.current
@@ -19047,22 +19148,6 @@ export default function TradingViewChart({
           )
         }
       })
-    }
-
-    // Draw Technalysis indicators
-    const anyFeatureEnabled = technalysisActive || Object.values(technalysisFeatures).some((f) => f)
-    if (anyFeatureEnabled) {
-      renderTechnalysisIndicators(
-        ctx,
-        data,
-        chartWidth,
-        priceChartHeight,
-        adjustedMin,
-        adjustedMax,
-        startIndex,
-        visibleCandleCount,
-        technalysisFeatures
-      )
     }
 
     // Draw flow chart above volume if active (intraday timeframes: 1m, 5m, 15m, 30m, 1h, 4h)
@@ -19371,8 +19456,6 @@ export default function TradingViewChart({
     smartPerfData,
     isSmartPerfActive,
     smartPerfTriggerDate,
-    technalysisActive,
-    technalysisFeatures,
     isRRGCandleActive,
     rrgMode,
     isExpansionLiquidationActive,
@@ -20444,6 +20527,12 @@ export default function TradingViewChart({
   }
 
   // Draw IV/HV indicator panels at the bottom of the chart (TradingView style)
+  const hexToRgbaStr = (c: string, a: number) => {
+    const m = /^#([0-9a-f]{6})$/i.exec(c.trim())
+    if (!m) return c
+    const n = parseInt(m[1], 16)
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`
+  }
   const drawIVPanel = (
     ctx: CanvasRenderingContext2D,
     panelType: 'iv' | 'ivRank' | 'ivPercentile' | 'hv',
@@ -20473,8 +20562,11 @@ export default function TradingViewChart({
 
     const config = panelConfig[panelType]
 
-    // Draw panel background - solid black
-    ctx.fillStyle = config.bgColor
+    // Panel background - deep navy gradient
+    const bgGrad = ctx.createLinearGradient(0, panelStartY, 0, panelEndY)
+    bgGrad.addColorStop(0, '#0a0f1a')
+    bgGrad.addColorStop(1, '#030507')
+    ctx.fillStyle = bgGrad
     ctx.fillRect(CHART_LEFT_MARGIN, panelStartY, chartWidth, panelHeight)
 
     // Draw panel border at top
@@ -20487,8 +20579,8 @@ export default function TradingViewChart({
 
     // Title is rendered in the HTML header overlay — skip canvas title to avoid double text
 
-    // Add padding for chart area — 36px to clear the 32px header bar
-    const yAxisPadding = 36
+    // Add padding for chart area — 54px to clear the 48px header bar
+    const yAxisPadding = 54
     const effectivePanelStartY = panelStartY + yAxisPadding
     const effectivePanelEndY = panelEndY - 10
     const effectivePanelHeight = effectivePanelEndY - effectivePanelStartY
@@ -20546,82 +20638,130 @@ export default function TradingViewChart({
       // Collect last positions while drawing lines (don't draw tags yet)
       const ivLineTags: { lastY: number; lastValue: number; color: string }[] = []
 
+      // Horizontal grid
+      ctx.save()
+      ctx.strokeStyle = 'rgba(255,255,255,0.07)'
+      ctx.lineWidth = 1
+      for (let i = 0; i <= 3; i++) {
+        const gy = Math.round(effectivePanelEndY - (i * effectivePanelHeight) / 3) + 0.5
+        ctx.beginPath()
+        ctx.moveTo(CHART_LEFT_MARGIN, gy)
+        ctx.lineTo(CHART_LEFT_MARGIN + chartWidth, gy)
+        ctx.stroke()
+      }
+      ctx.restore()
+
+      // Dashed average line for the primary visible series
+      {
+        const primary = showNetIVLine ? 'netIV' : showCallIVLine ? 'callIV' : 'putIV'
+        const vs = ivDataArray.map(d => (d as any)[primary] as number | null).filter((v): v is number => v !== null)
+        if (vs.length) {
+          const avg = vs.reduce((a, b) => a + b, 0) / vs.length
+          const ay = effectivePanelEndY - ((avg - paddedMin) / paddedRange) * effectivePanelHeight
+          ctx.save()
+          ctx.strokeStyle = 'rgba(251,191,36,0.55)'
+          ctx.lineWidth = 1
+          ctx.setLineDash([5, 4])
+          ctx.beginPath(); ctx.moveTo(CHART_LEFT_MARGIN, ay); ctx.lineTo(CHART_LEFT_MARGIN + chartWidth, ay); ctx.stroke()
+          ctx.setLineDash([])
+          ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+          ctx.textAlign = 'left'
+          ctx.fillStyle = 'rgba(251,191,36,0.9)'
+          ctx.fillText(`1Y AVG ${avg.toFixed(1)}%`, CHART_LEFT_MARGIN + 8, ay - 5)
+          ctx.restore()
+        }
+      }
+
       // Draw each active IV line
       ivLines.forEach((lineConfig) => {
         if (!lineConfig.show) return
 
-        ctx.strokeStyle = lineConfig.color
-        ctx.lineWidth = 2.5
-        ctx.lineCap = 'round'
-        ctx.lineJoin = 'round'
-        ctx.beginPath()
-
-        let firstPoint = true
-        let lastX = 0
-        let lastY = 0
-        let lastValue: number | null = null
-
+        const pts: { x: number; y: number; v: number }[] = []
         ivDataArray.forEach((item) => {
           const x = datePositions.get(item.date)
           const value = (item as any)[lineConfig.key] as number | null
-
           if (x !== undefined && value !== null) {
-            const y =
-              effectivePanelEndY - ((value - paddedMin) / paddedRange) * effectivePanelHeight
-
-            if (firstPoint) {
-              ctx.moveTo(x, y)
-              firstPoint = false
-            } else {
-              ctx.lineTo(x, y)
-            }
-
-            lastX = x
-            lastY = y
-            lastValue = value
+            pts.push({ x, y: effectivePanelEndY - ((value - paddedMin) / paddedRange) * effectivePanelHeight, v: value })
           }
         })
+        if (pts.length < 2) return
 
+        // Gradient area under the line
+        const grad = ctx.createLinearGradient(0, effectivePanelStartY, 0, effectivePanelEndY)
+        grad.addColorStop(0, hexToRgbaStr(lineConfig.color, 0.32))
+        grad.addColorStop(1, hexToRgbaStr(lineConfig.color, 0))
+        ctx.beginPath()
+        ctx.moveTo(pts[0].x, effectivePanelEndY)
+        pts.forEach(p => ctx.lineTo(p.x, p.y))
+        ctx.lineTo(pts[pts.length - 1].x, effectivePanelEndY)
+        ctx.closePath()
+        ctx.fillStyle = grad
+        ctx.fill()
+
+        // Line
+        ctx.strokeStyle = lineConfig.color
+        ctx.lineWidth = 2
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+        ctx.beginPath()
+        pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)))
         ctx.stroke()
 
-        if (lastValue !== null) {
-          ivLineTags.push({ lastY, lastValue, color: lineConfig.color })
-        }
+        // Period high / low markers
+        let hi = pts[0], lo = pts[0]
+        pts.forEach(p => { if (p.v > hi.v) hi = p; if (p.v < lo.v) lo = p })
+        ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+        ctx.textAlign = 'center'
+        ;[[hi, 'H', -8], [lo, 'L', 15]].forEach(([p, tag, dy]) => {
+          const pt = p as { x: number; y: number; v: number }
+          ctx.fillStyle = lineConfig.color
+          ctx.beginPath(); ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2); ctx.fill()
+          ctx.fillStyle = 'rgba(255,255,255,0.85)'
+          ctx.fillText(`${tag} ${pt.v.toFixed(1)}%`, Math.min(Math.max(pt.x, CHART_LEFT_MARGIN + 40), CHART_LEFT_MARGIN + chartWidth - 50), pt.y + (dy as number))
+        })
+
+        // Pulsing-style last point
+        const lp = pts[pts.length - 1]
+        ctx.fillStyle = hexToRgbaStr(lineConfig.color, 0.25)
+        ctx.beginPath(); ctx.arc(lp.x, lp.y, 7, 0, Math.PI * 2); ctx.fill()
+        ctx.fillStyle = lineConfig.color
+        ctx.beginPath(); ctx.arc(lp.x, lp.y, 3.5, 0, Math.PI * 2); ctx.fill()
+        ctx.strokeStyle = '#000'
+        ctx.lineWidth = 1.5
+        ctx.stroke()
+
+        ivLineTags.push({ lastY: lp.y, lastValue: lp.v, color: lineConfig.color })
       })
 
-      // Draw Y-axis scale labels first (behind price tags)
       ctx.restore()
       const yAxisX = chartWidth + CHART_LEFT_MARGIN - 5
-      ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+      ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
       ctx.textAlign = 'left'
-      ctx.fillStyle = '#FFFFFF'
+      ctx.textBaseline = 'middle'
 
-      const steps = 3
-      for (let i = 0; i <= steps; i++) {
-        const value = paddedMin + (paddedRange / steps) * i
-        const y = effectivePanelEndY - (i * effectivePanelHeight) / steps
+      for (let i = 0; i <= 3; i++) {
+        const value = paddedMin + (paddedRange / 3) * i
+        const y = effectivePanelEndY - (i * effectivePanelHeight) / 3
         if (y < panelStartY + yAxisPadding + 4) continue
-        ctx.strokeStyle = 'rgba(255,255,255,0.25)'
-        ctx.lineWidth = 1
-        ctx.beginPath()
-        ctx.moveTo(yAxisX - 5, y)
-        ctx.lineTo(yAxisX, y)
-        ctx.stroke()
-        ctx.fillText(`${value.toFixed(1)}%`, yAxisX, y + 6)
+        ctx.fillStyle = 'rgba(255,255,255,0.75)'
+        ctx.fillText(`${value.toFixed(1)}%`, yAxisX + 6, y)
       }
 
-      // Now draw price tags ON TOP of Y-axis labels
-      ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-      ctx.textAlign = 'left'
-      ivLineTags.forEach(({ lastY, lastValue, color }) => {
+      // Last-value tags: filled colour chips, de-overlapped
+      ctx.font = '800 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+      const tagsSorted = [...ivLineTags].sort((a, b) => a.lastY - b.lastY)
+      let prevY = -1e9
+      tagsSorted.forEach(({ lastY, lastValue, color }) => {
+        const ty = Math.max(lastY, prevY + 20)
+        prevY = ty
         const labelText = `${lastValue.toFixed(1)}%`
-        const textWidth = ctx.measureText(labelText).width
-        // Solid black background covers any Y-axis label underneath
-        ctx.fillStyle = '#000000'
-        ctx.fillRect(yAxisX - 2, lastY - 13, textWidth + 14, 26)
+        const tw = ctx.measureText(labelText).width
         ctx.fillStyle = color
-        ctx.fillText(labelText, yAxisX + 5, lastY + 7)
+        ctx.beginPath(); ctx.roundRect(yAxisX, ty - 10, tw + 14, 20, 4); ctx.fill()
+        ctx.fillStyle = '#000'
+        ctx.fillText(labelText, yAxisX + 7, ty + 0.5)
       })
+      ctx.textBaseline = 'alphabetic'
 
       return // Exit early for IV panel
     }
@@ -20668,96 +20808,137 @@ export default function TradingViewChart({
 
     // Draw 50% reference line for rank and percentile
     if (panelType === 'ivRank' || panelType === 'ivPercentile') {
-      const y50 = effectivePanelEndY - ((50 - paddedMin) / paddedRange) * effectivePanelHeight
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)'
+      const yAt = (v: number) => effectivePanelEndY - ((v - paddedMin) / paddedRange) * effectivePanelHeight
+      const zones: Array<[number, number, string, string]> = [
+        [80, 100, '248,113,113', 'HIGH · IV RICH · SELL PREMIUM'],
+        [0, 20, '52,211,153', 'LOW · IV CHEAP · BUY PREMIUM'],
+      ]
+      ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+      ctx.textAlign = 'left'
+      zones.forEach(([a, b, rgb, label]) => {
+        const yTop = yAt(b), yBot = yAt(a)
+        const g = ctx.createLinearGradient(0, yTop, 0, yBot)
+        g.addColorStop(0, `rgba(${rgb},${a === 80 ? 0.28 : 0.04})`)
+        g.addColorStop(1, `rgba(${rgb},${a === 80 ? 0.04 : 0.28})`)
+        ctx.fillStyle = g
+        ctx.fillRect(CHART_LEFT_MARGIN, yTop, chartWidth, yBot - yTop)
+        ctx.strokeStyle = `rgba(${rgb},0.6)`
+        ctx.lineWidth = 1
+        ctx.setLineDash([4, 4])
+        ctx.beginPath()
+        const ly = a === 80 ? yTop + 0.5 : yBot - 0.5
+        ctx.moveTo(CHART_LEFT_MARGIN, ly); ctx.lineTo(CHART_LEFT_MARGIN + chartWidth, ly); ctx.stroke()
+        ctx.setLineDash([])
+        ctx.fillStyle = `rgba(${rgb},1)`
+        ctx.fillText(label, CHART_LEFT_MARGIN + 10, a === 80 ? yTop + 14 : yBot - 7)
+      })
+      const y50 = yAt(50)
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.28)'
       ctx.lineWidth = 1
       ctx.setLineDash([3, 3])
       ctx.beginPath()
       ctx.moveTo(CHART_LEFT_MARGIN, y50)
-      ctx.lineTo(chartWidth - 80, y50)
+      ctx.lineTo(CHART_LEFT_MARGIN + chartWidth, y50)
       ctx.stroke()
       ctx.setLineDash([])
+      ctx.fillStyle = 'rgba(255,255,255,0.6)'
+      ctx.fillText('MEDIAN 50', CHART_LEFT_MARGIN + 10, y50 - 5)
+    } else {
+      const hvs = ivDataArray.map(d => d.hv).filter((v): v is number => v !== null)
+      if (hvs.length) {
+        const avg = hvs.reduce((a, b) => a + b, 0) / hvs.length
+        const ay = effectivePanelEndY - ((avg - paddedMin) / paddedRange) * effectivePanelHeight
+        ctx.strokeStyle = 'rgba(251,191,36,0.55)'
+        ctx.lineWidth = 1
+        ctx.setLineDash([5, 4])
+        ctx.beginPath(); ctx.moveTo(CHART_LEFT_MARGIN, ay); ctx.lineTo(CHART_LEFT_MARGIN + chartWidth, ay); ctx.stroke()
+        ctx.setLineDash([])
+        ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+        ctx.textAlign = 'left'
+        ctx.fillStyle = 'rgba(251,191,36,0.9)'
+        ctx.fillText(`1Y AVG ${avg.toFixed(1)}%`, CHART_LEFT_MARGIN + 8, ay - 5)
+      }
     }
 
-    // Draw the line chart - crisp solid line
-    ctx.strokeStyle = config.lineColor
-    ctx.lineWidth = 2.5
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
-    ctx.imageSmoothingEnabled = false
-    ctx.beginPath()
+    // Grid
+    ctx.save()
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)'
+    ctx.lineWidth = 1
+    for (let i = 0; i <= 3; i++) {
+      const gy = Math.round(effectivePanelEndY - (i * effectivePanelHeight) / 3) + 0.5
+      ctx.beginPath(); ctx.moveTo(CHART_LEFT_MARGIN, gy); ctx.lineTo(CHART_LEFT_MARGIN + chartWidth, gy); ctx.stroke()
+    }
+    ctx.restore()
 
-    let firstPoint = true
-    let lastX = 0
-    let lastY = 0
-    let lastValue: number | null = null
-
+    const npts: { x: number; y: number; v: number }[] = []
     ivDataArray.forEach((item) => {
       const x = datePositions.get(item.date)
       const value = getDataValue(item)
-
       if (x !== undefined && value !== null) {
-        const y = effectivePanelEndY - ((value - paddedMin) / paddedRange) * effectivePanelHeight
-
-        if (firstPoint) {
-          ctx.moveTo(x, y)
-          firstPoint = false
-        } else {
-          ctx.lineTo(x, y)
-        }
-
-        lastX = x
-        lastY = y
-        lastValue = value
+        npts.push({ x, y: effectivePanelEndY - ((value - paddedMin) / paddedRange) * effectivePanelHeight, v: value })
       }
     })
 
-    ctx.stroke()
+    let lastY = 0
+    let lastValue: number | null = null
+    if (npts.length >= 2) {
+      const grad = ctx.createLinearGradient(0, effectivePanelStartY, 0, effectivePanelEndY)
+      grad.addColorStop(0, hexToRgbaStr(config.lineColor, 0.32))
+      grad.addColorStop(1, hexToRgbaStr(config.lineColor, 0))
+      ctx.beginPath()
+      ctx.moveTo(npts[0].x, effectivePanelEndY)
+      npts.forEach(p => ctx.lineTo(p.x, p.y))
+      ctx.lineTo(npts[npts.length - 1].x, effectivePanelEndY)
+      ctx.closePath()
+      ctx.fillStyle = grad
+      ctx.fill()
 
-    // Exit clip region, draw Y-axis labels first, then price tag on top
+      ctx.strokeStyle = config.lineColor
+      ctx.lineWidth = 2
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      ctx.beginPath()
+      npts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)))
+      ctx.stroke()
+
+      const lp = npts[npts.length - 1]
+      ctx.fillStyle = hexToRgbaStr(config.lineColor, 0.25)
+      ctx.beginPath(); ctx.arc(lp.x, lp.y, 7, 0, Math.PI * 2); ctx.fill()
+      ctx.fillStyle = config.lineColor
+      ctx.beginPath(); ctx.arc(lp.x, lp.y, 3.5, 0, Math.PI * 2); ctx.fill()
+      lastY = lp.y
+      lastValue = lp.v
+    }
+
+    // Exit clip region, then axis labels and the last-value chip
     ctx.restore()
     const yAxisX2 = chartWidth + CHART_LEFT_MARGIN - 5
-    ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
     ctx.textAlign = 'left'
-    ctx.fillStyle = '#FFFFFF'
+    ctx.textBaseline = 'middle'
 
-    const steps = 3
-    for (let i = 0; i <= steps; i++) {
-      const value = paddedMin + (paddedRange / steps) * i
-      const y = effectivePanelEndY - (i * effectivePanelHeight) / steps
-
+    for (let i = 0; i <= 3; i++) {
+      const value = paddedMin + (paddedRange / 3) * i
+      const y = effectivePanelEndY - (i * effectivePanelHeight) / 3
       if (y < panelStartY + yAxisPadding + 4) continue
-
-      const labelText =
-        panelType === 'ivRank' || panelType === 'ivPercentile'
-          ? `${value.toFixed(0)}%`
-          : `${value.toFixed(1)}%`
-
-      ctx.strokeStyle = 'rgba(255,255,255,0.25)'
-      ctx.lineWidth = 1
-      ctx.beginPath()
-      ctx.moveTo(yAxisX2 - 5, y)
-      ctx.lineTo(yAxisX2, y)
-      ctx.stroke()
-      ctx.fillStyle = '#FFFFFF'
-      ctx.fillText(labelText, yAxisX2, y + 6)
+      ctx.fillStyle = 'rgba(255,255,255,0.75)'
+      ctx.fillText(
+        panelType === 'ivRank' || panelType === 'ivPercentile' ? `${value.toFixed(0)}%` : `${value.toFixed(1)}%`,
+        yAxisX2 + 6,
+        y
+      )
     }
 
-    // Draw price tag ON TOP of Y-axis labels
     if (lastValue !== null && typeof lastValue === 'number') {
-      const displayValue = lastValue as number
-      const priceLabel =
-        panelType === 'ivRank' || panelType === 'ivPercentile'
-          ? `${displayValue.toFixed(1)}%`
-          : `${displayValue.toFixed(1)}%`
-      ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-      ctx.textAlign = 'left'
-      const textWidth = ctx.measureText(priceLabel).width
-      ctx.fillStyle = '#000000'
-      ctx.fillRect(yAxisX2 - 2, lastY - 13, textWidth + 14, 26)
+      const priceLabel = `${(lastValue as number).toFixed(1)}%`
+      ctx.font = '800 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+      const tw = ctx.measureText(priceLabel).width
       ctx.fillStyle = config.lineColor
-      ctx.fillText(priceLabel, yAxisX2 + 5, lastY + 7)
+      ctx.beginPath(); ctx.roundRect(yAxisX2, lastY - 10, tw + 14, 20, 4); ctx.fill()
+      ctx.fillStyle = '#000'
+      ctx.fillText(priceLabel, yAxisX2 + 7, lastY + 0.5)
     }
+    ctx.textBaseline = 'alphabetic'
   }
 
   // Draw grid lines aligned with actual axis tick positions
@@ -21890,7 +22071,6 @@ export default function TradingViewChart({
     isFutureExpiriesActive,
     futureExpiriesLevels.length,
     isSeasonalActive,
-    technalysisActive,
     isRRGCandleActive,
     rrgMode,
     isExpansionLiquidationActive,
@@ -21956,14 +22136,6 @@ export default function TradingViewChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seasonalProjectionData, isSeasonalActive, chartLayout])
 
-  // Re-render when Technalysis is toggled
-  useEffect(() => {
-    if (chartLayout === '1x1') {
-      renderChart()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [technalysisActive, technalysisFeatures, chartLayout])
-
   // Re-render when GEX Map / DEX Map data arrives (so the heatmap shows immediately on load)
   useEffect(() => {
     if (chartLayout === '1x1') renderChartRef.current()
@@ -21984,14 +22156,6 @@ export default function TradingViewChart({
     if (chartLayout === '1x1') renderChartRef.current()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dexMap45dData, isDexMap45dActive])
-
-  // Re-render when Technalysis features change
-  useEffect(() => {
-    if (technalysisActive && technalysisFeatures && chartLayout === '1x1') {
-      renderChart()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [technalysisFeatures, technalysisActive, chartLayout])
 
   // Re-render when RRG Candle settings change
   useEffect(() => {
@@ -22086,6 +22250,11 @@ export default function TradingViewChart({
     if (chartLayout === '1x1') renderChart()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seasonalEventData, chartLayout])
+
+  useEffect(() => {
+    if (chartLayout === '1x1') renderChart()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [smartPerfData, smartPerfTriggerDate, isSmartPerfActive, chartLayout])
 
   // TradingView-style interaction handlers
 
@@ -30948,7 +31117,7 @@ export default function TradingViewChart({
                     <div className="mobile-dtd-group">
                       {(() => {
                         const dataActive = (isExpectedRangeActive || isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive || isAnyIVHVActive || showDarkPoolIndicator || isRRGCandleActive)
-                        const toolsActive = (isSeasonalActive || technalysisActive || isFlowChartActive || showPEPanel || showPEGPanel)
+                        const toolsActive = (isSeasonalActive || isFlowChartActive || showPEPanel || showPEGPanel)
                         const drawActive = currentDrawingTool !== 'select' // kept for ref
                         const dtdBtnBase: React.CSSProperties = {
                           position: 'relative', overflow: 'hidden',
@@ -31003,6 +31172,11 @@ export default function TradingViewChart({
                           </div>
                           {/* ── SEASONALITY ── */}
                           <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>Seasonality</div>
+                                                    <div style={{ display: 'flex', gap: '4px', padding: '3px', background: '#000', borderRadius: '6px', border: '1px solid rgba(255,133,0,0.3)' }}>
+                                                      {(['candles', 'line'] as const).map(m => (
+                                                        <button key={m} onClick={() => chooseSeasonalDisplay(m)} style={{ flex: 1, padding: '7px 6px', borderRadius: '4px', border: 'none', cursor: 'pointer', fontWeight: 800, fontSize: '11px', letterSpacing: '1px', textTransform: 'uppercase', background: seasonalDisplay === m ? '#ff8500' : 'transparent', color: seasonalDisplay === m ? '#000' : '#aaa' }}>{m === 'candles' ? 'Candles' : 'Line'}</button>
+                                                      ))}
+                                                    </div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                             <button onClick={async () => { if (isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) { setIsSeasonal10YActive(false); setIsSeasonal15YActive(false); setIsSeasonal20YActive(false); setSeasonal10YData(null); setSeasonal15YData(null); setSeasonal20YData(null); setSeasonalCandleData(null); if (!isSeasonalElectionActive) setIsSeasonalActive(false); } else { if (config.timeframe !== '1d') return; setIsLoadingSeasonalProjection(true); setIsSeasonalActive(true); setSeasonalCandleNoData(false); const result = await calculateSeasonalityCandleProjection(symbol, data); if (result === 'NOT_ENOUGH_DATA') { setSeasonalCandleNoData(true); setIsSeasonalActive(false); setIsSeasonal20YActive(false); setIsLoadingSeasonalProjection(false); return; } setSeasonalCandleData(result); setIsSeasonal20YActive(true); setIsLoadingSeasonalProjection(false); } }} className={`btn-3d-carved ${(isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', opacity: config.timeframe !== '1d' ? 0.4 : 1 }}>{isLoadingSeasonalProjection ? <svg className="animate-spin" style={{ width: 16, height: 16, flexShrink: 0, display: 'inline-block' }} fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="rgba(255,133,0,0.3)" strokeWidth="3" /><path fill="#ff8500" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg> : seasonalCandleNoData ? 'No Data' : (isSeasonal10YActive || isSeasonal15YActive || isSeasonal20YActive) ? 'Seasonal ✓' : config.timeframe !== '1d' ? 'Seasonal (1D)' : 'Seasonal'}</button>
                             <button onClick={async () => { const n = !isSeasonalElectionActive; setIsSeasonalElectionActive(n); if (n) { if (!seasonalElectionData) { setElectionInsufficientData(false); setIsLoadingSeasonalProjection(true); const cycle = getCurrentElectionCycle(); const result = await calculateElectionCandleProjection(symbol, data, cycle); setIsLoadingSeasonalProjection(false); if (result === 'NOT_ENOUGH_DATA' || !result) { setElectionInsufficientData(true); setIsSeasonalElectionActive(false); return; } setSeasonalElectionData(result as any); } setIsSeasonalActive(true); } else { if (!isSeasonal20YActive && !isSeasonal15YActive && !isSeasonal10YActive) setIsSeasonalActive(false); } }} className={`btn-3d-carved ${isSeasonalElectionActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: electionInsufficientData ? '#f59e0b' : undefined }}>{electionInsufficientData ? 'Election N/A' : isSeasonalElectionActive ? 'Election ✓' : 'Election'}</button>
@@ -31093,18 +31267,6 @@ export default function TradingViewChart({
                             <button onClick={() => { if (isRRGCandleActive && rrgMode === 'iv') { setIsRRGCandleActive(false); setRrgCandleColors(new Map()); } else { setRrgMode('iv'); handleRRGCandleClick(rrgIvLookbackPeriod, 'iv'); } }} className={`btn-3d-carved ${isRRGCandleActive && rrgMode === 'iv' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>IV{isRRGCandleActive && rrgMode === 'iv' ? ' ✓' : ''}</button>
                             <button onClick={() => { if (isRRGCandleActive && rrgMode === 'ivspy') { setIsRRGCandleActive(false); setRrgCandleColors(new Map()); } else { setRrgMode('ivspy'); handleRRGCandleClick(rrgIvLookbackPeriod, 'ivspy'); } }} className={`btn-3d-carved ${isRRGCandleActive && rrgMode === 'ivspy' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>IV/SPY{isRRGCandleActive && rrgMode === 'ivspy' ? ' ✓' : ''}</button>
                           </div>
-                          {/* ── TECHNALYSIS ── */}
-                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', marginTop: '4px' }}>Technalysis</div>
-                          <button onClick={() => { const next = !technalysisActive; setTechnalysisActive(next); setTechnalysisFeatures({ orderBlocks: next, fvg: next, liquidity: next, structure: next, premiumDiscount: next }); }} className={`btn-3d-carved ${technalysisActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', width: '100%' }}>Enable All{technalysisActive ? ' ✓' : ''}</button>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
-                            <button onClick={() => { setTechnalysisFeatures(p => ({ ...p, orderBlocks: !p.orderBlocks })); if (!technalysisActive) setTechnalysisActive(true); }} className={`btn-3d-carved ${technalysisFeatures.orderBlocks ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Zones{technalysisFeatures.orderBlocks ? ' ✓' : ''}</button>
-                            <button onClick={() => { setTechnalysisFeatures(p => ({ ...p, fvg: !p.fvg })); if (!technalysisActive) setTechnalysisActive(true); }} className={`btn-3d-carved ${technalysisFeatures.fvg ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Fills{technalysisFeatures.fvg ? ' ✓' : ''}</button>
-                            <button onClick={() => { setTechnalysisFeatures(p => ({ ...p, liquidity: !p.liquidity })); if (!technalysisActive) setTechnalysisActive(true); }} className={`btn-3d-carved ${technalysisFeatures.liquidity ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Hunting{technalysisFeatures.liquidity ? ' ✓' : ''}</button>
-                          </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-                            <button onClick={() => { setTechnalysisFeatures(p => ({ ...p, structure: !p.structure })); if (!technalysisActive) setTechnalysisActive(true); }} className={`btn-3d-carved ${technalysisFeatures.structure ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Trend{technalysisFeatures.structure ? ' ✓' : ''}</button>
-                            <button onClick={() => { setTechnalysisFeatures(p => ({ ...p, premiumDiscount: !p.premiumDiscount })); if (!technalysisActive) setTechnalysisActive(true); }} className={`btn-3d-carved ${technalysisFeatures.premiumDiscount ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Prem/Disc{technalysisFeatures.premiumDiscount ? ' ✓' : ''}</button>
-                          </div>
                           {/* ── OTHER ── */}
                           <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', marginTop: '4px' }}>Other</div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
@@ -31124,13 +31286,102 @@ export default function TradingViewChart({
                             <span style={{ color: '#ff8500', fontWeight: 800, fontSize: '16px', textTransform: 'uppercase', letterSpacing: '3px' }}>Range</span>
                             <button onClick={() => setIsMobileRangeOpen(false)} style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#555', fontSize: '20px', cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
                           </div>
+                          <div style={{ fontSize: '10px', fontWeight: 800, letterSpacing: '1.2px', color: '#8a8a8a', textTransform: 'uppercase' }}>Expected range · 80% / 90%</div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                             <button onClick={() => { const n = !isWeeklyActive; setIsWeeklyActive(n); if (n && !expectedRangeLevels && !isLoadingExpectedRange) { setIsLoadingExpectedRange(true); calculateExpectedRangeLevels(symbol).then(r => { if (r) setExpectedRangeLevels(r.levels); setIsLoadingExpectedRange(false); }); } if (n || isMonthlyActive || isCustomActive) setIsExpectedRangeActive(true); else setIsExpectedRangeActive(false); }} className={`btn-3d-carved ${isWeeklyActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>{isLoadingExpectedRange && !isWeeklyActive ? null : isLoadingExpectedRange && isWeeklyActive ? <svg className="animate-spin" style={{ width: 14, height: 14, flexShrink: 0 }} fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="rgba(255,133,0,0.3)" strokeWidth="3" /><path fill="#ff8500" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg> : null}<span>Weekly{isWeeklyActive ? ' ✓' : ''}</span></button>
                             <button onClick={() => { const n = !isMonthlyActive; setIsMonthlyActive(n); if (n && !expectedRangeLevels && !isLoadingExpectedRange) { setIsLoadingExpectedRange(true); calculateExpectedRangeLevels(symbol).then(r => { if (r) setExpectedRangeLevels(r.levels); setIsLoadingExpectedRange(false); }); } if (n || isWeeklyActive || isCustomActive) setIsExpectedRangeActive(true); else setIsExpectedRangeActive(false); }} className={`btn-3d-carved ${isMonthlyActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>{isLoadingExpectedRange && isMonthlyActive ? <svg className="animate-spin" style={{ width: 14, height: 14, flexShrink: 0 }} fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="rgba(255,133,0,0.3)" strokeWidth="3" /><path fill="#ff8500" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg> : null}<span>Monthly{isMonthlyActive ? ' ✓' : ''}</span></button>
-                            <button onClick={() => { const next = !isATRRangeActiveRef.current; isATRRangeActiveRef.current = next; setIsATRRangeActive(next); }} className={`btn-3d-carved ${isATRRangeActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>ATR Range{isATRRangeActive ? ' ✓' : ''}</button>
+                                                      </div>
+                                                      {/* Custom Range: one chosen expiry, same as desktop */}
+                                                      <div>
+                                                        <button
+                                                          onClick={() => { const o = !showMobileCustomRange; setShowMobileCustomRange(o); if (o) { setShowCustomDatePicker(false); setShowMobilePctChanceCal(false) } }}
+                                                          className={`btn-3d-carved ${isCustomActive ? 'active' : ''}`}
+                                                          style={{ width: '100%', padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                                                        >
+                                                          <span>Custom Range{isCustomActive && customExpirationDate ? ` · ${customExpirationDate.split('-').slice(1).join('/')} ✓` : ''}</span>
+                                                          <svg style={{ width: 10, height: 10, marginLeft: 2, transition: 'transform 0.2s', transform: showMobileCustomRange ? 'rotate(180deg)' : 'none' }} viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                                                        </button>
+                                                        {showMobileCustomRange && (() => {
+                                                          const today = new Date(); today.setHours(0, 0, 0, 0)
+                                                          const yr = mobileRangeCalMonth.getFullYear()
+                                                          const mo = mobileRangeCalMonth.getMonth()
+                                                          const firstDay = new Date(yr, mo, 1).getDay()
+                                                          const daysInMonth = new Date(yr, mo + 1, 0).getDate()
+                                                          const cells: (number | null)[] = []
+                                                          for (let i = 0; i < firstDay; i++) cells.push(null)
+                                                          for (let d = 1; d <= daysInMonth; d++) cells.push(d)
+                                                          while (cells.length % 7 !== 0) cells.push(null)
+                                                          const pad = (n: number) => String(n).padStart(2, '0')
+                                                          const arrowBtn = { background: 'none', border: 'none', color: '#ff8500', fontSize: '18px', cursor: 'pointer', padding: '0 6px', lineHeight: 1 } as const
+                                                          return (
+                                                            <div style={{ marginTop: '6px', background: '#0a0a0a', border: '1px solid rgba(255,133,0,0.35)', borderRadius: '6px', padding: '8px', userSelect: 'none' }}>
+                                                              <div style={{ fontSize: '10px', fontWeight: 700, color: '#9a9a9a', textAlign: 'center', marginBottom: '4px' }}>Pick one expiry for the 80% / 90% range</div>
+                                                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                                                <button onClick={() => { const d = new Date(mobileRangeCalMonth); d.setMonth(d.getMonth() - 1); setMobileRangeCalMonth(d) }} style={arrowBtn}>‹</button>
+                                                                <span style={{ color: '#ff8500', fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px' }}>{mobileRangeCalMonth.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
+                                                                <button onClick={() => { const d = new Date(mobileRangeCalMonth); d.setMonth(d.getMonth() + 1); setMobileRangeCalMonth(d) }} style={arrowBtn}>›</button>
+                                                              </div>
+                                                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', marginBottom: '3px' }}>
+                                                                {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => <div key={i} style={{ textAlign: 'center', fontSize: '10px', color: '#555', fontWeight: '700' }}>{d}</div>)}
+                                                              </div>
+                                                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px' }}>
+                                                                {cells.map((day, i) => {
+                                                                  if (!day) return <div key={i} />
+                                                                  const iso = `${yr}-${pad(mo + 1)}-${pad(day)}`
+                                                                  const isPast = new Date(yr, mo, day) < today
+                                                                  const isSelected = mobileRangeDate === iso
+                                                                  return (
+                                                                    <div key={i} onClick={() => { if (!isPast) setMobileRangeDate(iso) }}
+                                                                      style={{ textAlign: 'center', fontSize: '11px', fontWeight: isPast ? '400' : '700', padding: '4px 0', borderRadius: '3px', cursor: isPast ? 'default' : 'pointer', color: isPast ? '#333' : isSelected ? '#000' : '#fff', background: isSelected ? '#ff8500' : !isPast ? 'rgba(255,133,0,0.12)' : 'transparent', border: !isPast && !isSelected ? '1px solid rgba(255,133,0,0.25)' : '1px solid transparent' }}>{day}</div>
+                                                                  )
+                                                                })}
+                                                              </div>
+                                                            </div>
+                                                          )
+                                                        })()}
+                                                        {showMobileCustomRange && mobileRangeDate && (
+                                                          <button
+                                                            onClick={() => {
+                                                              setCustomExpirationDate(mobileRangeDate)
+                                                              setIsLoadingExpectedRange(true)
+                                                              setIsCustomActive(true)
+                                                              setIsExpectedRangeActive(true)
+                                                              calculateExpectedRangeLevels(symbol, mobileRangeDate).then(result => {
+                                                                if (result) setExpectedRangeLevels(result.levels)
+                                                                setIsLoadingExpectedRange(false)
+                                                              })
+                                                              setShowMobileCustomRange(false)
+                                                            }}
+                                                            className="btn-3d-carved"
+                                                            style={{ width: '100%', marginTop: '8px', padding: '10px', borderRadius: '6px', background: 'rgba(255,133,0,0.15)', border: '1px solid rgba(255,133,0,0.5)', color: '#ff8500', fontSize: '12px', fontWeight: '800', letterSpacing: '1px', cursor: 'pointer' }}
+                                                          >
+                                                            SHOW RANGE — {mobileRangeDate}
+                                                          </button>
+                                                        )}
+                                                        {isCustomActive && customExpirationDate && (
+                                                          <div style={{ marginTop: '8px', padding: '8px 12px', background: '#000000', borderRadius: '4px', border: '1px solid rgba(255, 133, 0, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                                                            <span style={{ color: '#ff8500', fontSize: '12px', fontWeight: '600' }}>
+                                                              {customExpirationDate.split('-').slice(1).join('/') + '/' + customExpirationDate.split('-')[0]}
+                                                            </span>
+                                                            <button
+                                                              onClick={() => {
+                                                                setIsCustomActive(false)
+                                                                setCustomExpirationDate('')
+                                                                setMobileRangeDate('')
+                                                                if (!isWeeklyActive && !isMonthlyActive) setIsExpectedRangeActive(false)
+                                                              }}
+                                                              style={{ background: 'transparent', border: 'none', color: '#ff8500', fontSize: '20px', fontWeight: '700', cursor: 'pointer', padding: '0 4px', lineHeight: '1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                                            >×</button>
+                                                          </div>
+                                                        )}
+                                                      </div>
+                                                      <div style={{ fontSize: '10px', fontWeight: 800, letterSpacing: '1.2px', color: '#8a8a8a', textTransform: 'uppercase' }}>Volatility projection</div>
+                                                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                                                        <button onClick={() => { const next = !isATRRangeActiveRef.current; isATRRangeActiveRef.current = next; setIsATRRangeActive(next); }} className={`btn-3d-carved ${isATRRangeActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>ATR Range{isATRRangeActive ? ' ✓' : ''}</button>
                             <button onClick={() => { const next = !isStdDevRangeActiveRef.current; isStdDevRangeActiveRef.current = next; setIsStdDevRangeActive(next); }} className={`btn-3d-carved ${isStdDevRangeActive ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>StdDev{isStdDevRangeActive ? ' ✓' : ''}</button>
                           </div>
 
+                          <div style={{ fontSize: '10px', fontWeight: 800, letterSpacing: '1.2px', color: '#8a8a8a', textTransform: 'uppercase' }}>Probability · bias & odds</div>
                           {/* % Chance button + calendar popup */}
                           {(() => {
                             const renderCal = (
@@ -31225,6 +31476,7 @@ export default function TradingViewChart({
                             )
                           })()}
 
+                          <div style={{ fontSize: '10px', fontWeight: 800, letterSpacing: '1.2px', color: '#8a8a8a', textTransform: 'uppercase' }}>Scan all expiries · up to date</div>
                           {/* Custom date expiry + calendar popup */}
                           <div>
                             <button
@@ -31233,14 +31485,14 @@ export default function TradingViewChart({
                                 setShowCustomDatePicker(opening)
                                 if (opening) setShowMobilePctChanceCal(false)
                               }}
-                              className={`btn-3d-carved ${isCustomActive ? 'active' : ''}`}
+                              className={`btn-3d-carved ${isFutureExpiriesActive ? 'active' : ''}`}
                               style={{ width: '100%', padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
                             >
                               {isLoadingFutureExpiries ? (
                                 <svg className="animate-spin" style={{ width: 18, height: 18, flexShrink: 0 }} fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="rgba(255,133,0,0.3)" strokeWidth="3" /><path fill="#ff8500" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg>
                               ) : (
                                 <>
-                                  <span>Custom{isCustomActive ? ' ✓' : ''}</span>
+                                  <span>Scan Expiries{isFutureExpiriesActive ? ' ✓' : ''}</span>
                                   <svg style={{ width: 10, height: 10, marginLeft: 2, transition: 'transform 0.2s', transform: showCustomDatePicker ? 'rotate(180deg)' : 'none' }} viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
                                 </>
                               )}
@@ -31286,8 +31538,7 @@ export default function TradingViewChart({
                             {showCustomDatePicker && pendingCustomDate && (
                               <button
                                 onClick={() => {
-                                  setCustomExpirationDate(pendingCustomDate)
-                                  setIsCustomActive(true)
+                                  setMobileScanDate(pendingCustomDate)
                                   setIsLoadingFutureExpiries(true)
                                   calculateFutureExpiriesLevels(symbol, pendingCustomDate).then(results => {
                                     futureExpiriesLevelsRef.current = results
@@ -31306,15 +31557,14 @@ export default function TradingViewChart({
                                 SCAN — {pendingCustomDate}
                               </button>
                             )}
-                            {isCustomActive && customExpirationDate && (
+                            {isFutureExpiriesActive && mobileScanDate && (
                               <div style={{ marginTop: '8px', padding: '8px 12px', background: '#000000', borderRadius: '4px', border: '1px solid rgba(255, 133, 0, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
                                 <span style={{ color: '#ff8500', fontSize: '12px', fontWeight: '600' }}>
-                                  {customExpirationDate.split('-').slice(1).join('/') + '/' + customExpirationDate.split('-')[0]}
+                                  {mobileScanDate.split('-').slice(1).join('/') + '/' + mobileScanDate.split('-')[0]}
                                 </span>
                                 <button
                                   onClick={() => {
-                                    setIsCustomActive(false)
-                                    setCustomExpirationDate('')
+                                    setMobileScanDate('')
                                     setPendingCustomDate('')
                                     isFutureExpiriesActiveRef.current = false
                                     futureExpiriesLevelsRef.current = []
@@ -31889,6 +32139,7 @@ export default function TradingViewChart({
                         }}
                       >
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <div style={{ fontSize: '10px', fontWeight: 800, letterSpacing: '1.2px', color: '#8a8a8a', margin: '10px 2px 2px', textTransform: 'uppercase' }}>Expected range · 80% / 90%</div>
                           <button
                             onClick={() => {
                               const newWeeklyState = !isWeeklyActive
@@ -31971,175 +32222,6 @@ export default function TradingViewChart({
                             }}
                           >
                             Monthly Range
-                          </button>
-                          <button
-                            onClick={() => {
-                              const next = !isATRRangeActiveRef.current
-                              isATRRangeActiveRef.current = next
-                              setIsATRRangeActive(next)
-                              setIsExpectedRangeDropdownOpen(false)
-                            }}
-                            className={`btn-3d-carved ${isATRRangeActive ? 'active' : ''}`}
-                            style={{
-                              padding: '10px 16px',
-                              fontWeight: '700',
-                              fontSize: '14px',
-                              textAlign: 'left',
-                              borderRadius: '4px',
-                              width: '100%',
-                            }}
-                          >
-                            ATR Range
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (isPctChanceActive) {
-                                setIsPctChanceActive(false)
-                                setPctChanceLevels(null)
-                                setIsExpectedRangeDropdownOpen(false)
-                                return
-                              }
-                              // Set active immediately so chart reacts; fetch levels in background
-                              setIsPctChanceActive(true)
-                              setIsLoadingPctChance(true)
-                              setIsExpectedRangeDropdownOpen(false)
-                              calculatePctChanceLevels(symbol, pctChanceCustomDate || undefined).then((result) => {
-                                setIsLoadingPctChance(false)
-                                if (result) {
-                                  // Set ref directly so next render frame picks it up immediately
-                                  pctChanceLevelsRef.current = result
-                                  setPctChanceLevels(result)
-                                  requestAnimationFrame(() => renderChartRef.current())
-                                } else {
-                                  isPctChanceActiveRef.current = false
-                                  setIsPctChanceActive(false)
-                                }
-                              })
-                            }}
-                            className={`btn-3d-carved ${isPctChanceActive ? 'active' : ''}`}
-                            style={{
-                              padding: '10px 16px',
-                              fontWeight: '700',
-                              fontSize: '14px',
-                              textAlign: 'left',
-                              borderRadius: '4px',
-                              width: '100%',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '8px',
-                            }}
-                          >
-                            {isLoadingPctChance ? (
-                              <>
-                                {'% Chance'}
-                                <svg width="14" height="14" viewBox="0 0 14 14" style={{ marginLeft: 4 }}>
-                                  <defs>
-                                    <linearGradient id="pctSpinnerGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                                      <stop offset="0%" stopColor="#FFD700" />
-                                      <stop offset="100%" stopColor="#FF8500" />
-                                    </linearGradient>
-                                  </defs>
-                                  <circle cx="7" cy="7" r="5" fill="none" stroke="url(#pctSpinnerGrad)" strokeWidth="2" strokeDasharray="20 12" strokeLinecap="round">
-                                    <animateTransform attributeName="transform" type="rotate" from="0 7 7" to="360 7 7" dur="0.8s" repeatCount="indefinite" />
-                                  </circle>
-                                </svg>
-                              </>
-                            ) : '% Chance'}
-                          </button>
-                          {/* % Chance expiry — custom calendar showing valid expiry dates */}
-                          {(() => {
-                            const today = new Date(); today.setHours(0, 0, 0, 0)
-                            const yr = pctChanceCalMonth.getFullYear()
-                            const mo = pctChanceCalMonth.getMonth()
-                            const firstDay = new Date(yr, mo, 1).getDay() // 0=Sun
-                            const daysInMonth = new Date(yr, mo + 1, 0).getDate()
-                            const cells: (number | null)[] = []
-                            for (let i = 0; i < firstDay; i++) cells.push(null)
-                            for (let d = 1; d <= daysInMonth; d++) cells.push(d)
-                            while (cells.length % 7 !== 0) cells.push(null)
-                            const pad = (n: number) => String(n).padStart(2, '0')
-                            const monthLabel = pctChanceCalMonth.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-                            return (
-                              <div style={{ marginTop: '6px', background: '#0a0a0a', border: '1px solid rgba(255,133,0,0.35)', borderRadius: '6px', padding: '8px', userSelect: 'none' }}>
-                                {/* Header */}
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                                  <button onClick={() => { const d = new Date(pctChanceCalMonth); d.setMonth(d.getMonth() - 1); setPctChanceCalMonth(d) }}
-                                    style={{ background: 'none', border: 'none', color: '#ff8500', fontSize: '16px', cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}>‹</button>
-                                  <span style={{ color: '#ff8500', fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px' }}>{monthLabel}</span>
-                                  <button onClick={() => { const d = new Date(pctChanceCalMonth); d.setMonth(d.getMonth() + 1); setPctChanceCalMonth(d) }}
-                                    style={{ background: 'none', border: 'none', color: '#ff8500', fontSize: '16px', cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}>›</button>
-                                </div>
-                                {/* Day-of-week labels */}
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', marginBottom: '2px' }}>
-                                  {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
-                                    <div key={i} style={{ textAlign: 'center', fontSize: '10px', color: '#555', fontWeight: '700' }}>{d}</div>
-                                  ))}
-                                </div>
-                                {/* Day cells */}
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px' }}>
-                                  {cells.map((day, i) => {
-                                    if (!day) return <div key={i} />
-                                    const iso = `${yr}-${pad(mo + 1)}-${pad(day)}`
-                                    const cellDate = new Date(yr, mo, day)
-                                    const isPast = cellDate < today
-                                    const isAvail = pctChanceAvailExpiries.size > 0 ? pctChanceAvailExpiries.has(iso) : !isPast
-                                    const isSelected = pctChanceCustomDate === iso
-                                    return (
-                                      <div key={i} onClick={() => {
-                                        if (!isAvail || isPast) return
-                                        setPctChanceCustomDate(iso)
-                                        if (isPctChanceActive) {
-                                          setIsLoadingPctChance(true)
-                                          calculatePctChanceLevels(symbol, iso).then(result => {
-                                            setIsLoadingPctChance(false)
-                                            if (result) { pctChanceLevelsRef.current = result; setPctChanceLevels(result); requestAnimationFrame(() => renderChartRef.current()) }
-                                          })
-                                        }
-                                      }} style={{
-                                        textAlign: 'center',
-                                        fontSize: '11px',
-                                        fontWeight: isAvail ? '700' : '400',
-                                        padding: '3px 0',
-                                        borderRadius: '3px',
-                                        cursor: isPast || !isAvail ? 'default' : 'pointer',
-                                        color: isPast ? '#333' : isSelected ? '#000' : isAvail ? '#fff' : '#3a3a3a',
-                                        background: isSelected ? '#ff8500' : isAvail && !isPast ? 'rgba(255,133,0,0.12)' : 'transparent',
-                                        border: isAvail && !isPast && !isSelected ? '1px solid rgba(255,133,0,0.25)' : '1px solid transparent',
-                                      }}>{day}</div>
-                                    )
-                                  })}
-                                </div>
-                                {pctChanceAvailExpiries.size === 0 && (
-                                  <div style={{ textAlign: 'center', fontSize: '10px', color: '#555', marginTop: '4px' }}>Loading expiries...</div>
-                                )}
-                                {pctChanceCustomDate && (
-                                  <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                    <span style={{ fontSize: '11px', color: '#ff8500', fontWeight: '700' }}>{pctChanceCustomDate}</span>
-                                    <button onClick={() => { setPctChanceCustomDate('') }}
-                                      style={{ background: 'none', border: 'none', color: '#555', fontSize: '12px', cursor: 'pointer', padding: '0 2px' }}>✕ clear</button>
-                                  </div>
-                                )}
-                              </div>
-                            )
-                          })()}
-                          <button
-                            onClick={() => {
-                              const next = !isStdDevRangeActiveRef.current
-                              isStdDevRangeActiveRef.current = next
-                              setIsStdDevRangeActive(next)
-                              setIsExpectedRangeDropdownOpen(false)
-                            }}
-                            className={`btn-3d-carved ${isStdDevRangeActive ? 'active' : ''}`}
-                            style={{
-                              padding: '10px 16px',
-                              fontWeight: '700',
-                              fontSize: '14px',
-                              textAlign: 'left',
-                              borderRadius: '4px',
-                              width: '100%',
-                            }}
-                          >
-                            StdDev Range
                           </button>
                           <button
                             onClick={() => {
@@ -32293,11 +32375,183 @@ export default function TradingViewChart({
                               </button>
                             </div>
                           )}
+                          <div style={{ fontSize: '10px', fontWeight: 800, letterSpacing: '1.2px', color: '#8a8a8a', margin: '10px 2px 2px', textTransform: 'uppercase' }}>Volatility projection</div>
+                          <button
+                            onClick={() => {
+                              const next = !isATRRangeActiveRef.current
+                              isATRRangeActiveRef.current = next
+                              setIsATRRangeActive(next)
+                              setIsExpectedRangeDropdownOpen(false)
+                            }}
+                            className={`btn-3d-carved ${isATRRangeActive ? 'active' : ''}`}
+                            style={{
+                              padding: '10px 16px',
+                              fontWeight: '700',
+                              fontSize: '14px',
+                              textAlign: 'left',
+                              borderRadius: '4px',
+                              width: '100%',
+                            }}
+                          >
+                            ATR Range
+                          </button>
+                          <button
+                            onClick={() => {
+                              const next = !isStdDevRangeActiveRef.current
+                              isStdDevRangeActiveRef.current = next
+                              setIsStdDevRangeActive(next)
+                              setIsExpectedRangeDropdownOpen(false)
+                            }}
+                            className={`btn-3d-carved ${isStdDevRangeActive ? 'active' : ''}`}
+                            style={{
+                              padding: '10px 16px',
+                              fontWeight: '700',
+                              fontSize: '14px',
+                              textAlign: 'left',
+                              borderRadius: '4px',
+                              width: '100%',
+                            }}
+                          >
+                            StdDev Range
+                          </button>
+                          <div style={{ fontSize: '10px', fontWeight: 800, letterSpacing: '1.2px', color: '#8a8a8a', margin: '10px 2px 2px', textTransform: 'uppercase' }}>Probability · bias & odds</div>
+                          <button
+                            onClick={() => {
+                              if (isPctChanceActive) {
+                                setIsPctChanceActive(false)
+                                setPctChanceLevels(null)
+                                setIsExpectedRangeDropdownOpen(false)
+                                return
+                              }
+                              // Set active immediately so chart reacts; fetch levels in background
+                              setIsPctChanceActive(true)
+                              setIsLoadingPctChance(true)
+                              setIsExpectedRangeDropdownOpen(false)
+                              calculatePctChanceLevels(symbol, pctChanceCustomDate || undefined).then((result) => {
+                                setIsLoadingPctChance(false)
+                                if (result) {
+                                  // Set ref directly so next render frame picks it up immediately
+                                  pctChanceLevelsRef.current = result
+                                  setPctChanceLevels(result)
+                                  requestAnimationFrame(() => renderChartRef.current())
+                                } else {
+                                  isPctChanceActiveRef.current = false
+                                  setIsPctChanceActive(false)
+                                }
+                              })
+                            }}
+                            className={`btn-3d-carved ${isPctChanceActive ? 'active' : ''}`}
+                            style={{
+                              padding: '10px 16px',
+                              fontWeight: '700',
+                              fontSize: '14px',
+                              textAlign: 'left',
+                              borderRadius: '4px',
+                              width: '100%',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                            }}
+                          >
+                            {isLoadingPctChance ? (
+                              <>
+                                {'% Chance'}
+                                <svg width="14" height="14" viewBox="0 0 14 14" style={{ marginLeft: 4 }}>
+                                  <defs>
+                                    <linearGradient id="pctSpinnerGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                                      <stop offset="0%" stopColor="#FFD700" />
+                                      <stop offset="100%" stopColor="#FF8500" />
+                                    </linearGradient>
+                                  </defs>
+                                  <circle cx="7" cy="7" r="5" fill="none" stroke="url(#pctSpinnerGrad)" strokeWidth="2" strokeDasharray="20 12" strokeLinecap="round">
+                                    <animateTransform attributeName="transform" type="rotate" from="0 7 7" to="360 7 7" dur="0.8s" repeatCount="indefinite" />
+                                  </circle>
+                                </svg>
+                              </>
+                            ) : '% Chance'}
+                          </button>
+                          {/* % Chance expiry — custom calendar showing valid expiry dates */}
+                          {isPctChanceActive && (() => {
+                            const today = new Date(); today.setHours(0, 0, 0, 0)
+                            const yr = pctChanceCalMonth.getFullYear()
+                            const mo = pctChanceCalMonth.getMonth()
+                            const firstDay = new Date(yr, mo, 1).getDay() // 0=Sun
+                            const daysInMonth = new Date(yr, mo + 1, 0).getDate()
+                            const cells: (number | null)[] = []
+                            for (let i = 0; i < firstDay; i++) cells.push(null)
+                            for (let d = 1; d <= daysInMonth; d++) cells.push(d)
+                            while (cells.length % 7 !== 0) cells.push(null)
+                            const pad = (n: number) => String(n).padStart(2, '0')
+                            const monthLabel = pctChanceCalMonth.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+                            return (
+                              <div style={{ marginTop: '6px', background: '#0a0a0a', border: '1px solid rgba(255,133,0,0.35)', borderRadius: '6px', padding: '8px', userSelect: 'none' }}>
+                                {/* Header */}
+                                <div style={{ fontSize: '10px', fontWeight: 700, color: '#9a9a9a', textAlign: 'center', marginBottom: '4px' }}>Pick an expiry for % Chance</div>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                  <button onClick={() => { const d = new Date(pctChanceCalMonth); d.setMonth(d.getMonth() - 1); setPctChanceCalMonth(d) }}
+                                    style={{ background: 'none', border: 'none', color: '#ff8500', fontSize: '16px', cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}>‹</button>
+                                  <span style={{ color: '#ff8500', fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px' }}>{monthLabel}</span>
+                                  <button onClick={() => { const d = new Date(pctChanceCalMonth); d.setMonth(d.getMonth() + 1); setPctChanceCalMonth(d) }}
+                                    style={{ background: 'none', border: 'none', color: '#ff8500', fontSize: '16px', cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}>›</button>
+                                </div>
+                                {/* Day-of-week labels */}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', marginBottom: '2px' }}>
+                                  {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+                                    <div key={i} style={{ textAlign: 'center', fontSize: '10px', color: '#555', fontWeight: '700' }}>{d}</div>
+                                  ))}
+                                </div>
+                                {/* Day cells */}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px' }}>
+                                  {cells.map((day, i) => {
+                                    if (!day) return <div key={i} />
+                                    const iso = `${yr}-${pad(mo + 1)}-${pad(day)}`
+                                    const cellDate = new Date(yr, mo, day)
+                                    const isPast = cellDate < today
+                                    const isAvail = pctChanceAvailExpiries.size > 0 ? pctChanceAvailExpiries.has(iso) : !isPast
+                                    const isSelected = pctChanceCustomDate === iso
+                                    return (
+                                      <div key={i} onClick={() => {
+                                        if (!isAvail || isPast) return
+                                        setPctChanceCustomDate(iso)
+                                        if (isPctChanceActive) {
+                                          setIsLoadingPctChance(true)
+                                          calculatePctChanceLevels(symbol, iso).then(result => {
+                                            setIsLoadingPctChance(false)
+                                            if (result) { pctChanceLevelsRef.current = result; setPctChanceLevels(result); requestAnimationFrame(() => renderChartRef.current()) }
+                                          })
+                                        }
+                                      }} style={{
+                                        textAlign: 'center',
+                                        fontSize: '11px',
+                                        fontWeight: isAvail ? '700' : '400',
+                                        padding: '3px 0',
+                                        borderRadius: '3px',
+                                        cursor: isPast || !isAvail ? 'default' : 'pointer',
+                                        color: isPast ? '#333' : isSelected ? '#000' : isAvail ? '#fff' : '#3a3a3a',
+                                        background: isSelected ? '#ff8500' : isAvail && !isPast ? 'rgba(255,133,0,0.12)' : 'transparent',
+                                        border: isAvail && !isPast && !isSelected ? '1px solid rgba(255,133,0,0.25)' : '1px solid transparent',
+                                      }}>{day}</div>
+                                    )
+                                  })}
+                                </div>
+                                {pctChanceAvailExpiries.size === 0 && (
+                                  <div style={{ textAlign: 'center', fontSize: '10px', color: '#555', marginTop: '4px' }}>Loading expiries...</div>
+                                )}
+                                {pctChanceCustomDate && (
+                                  <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <span style={{ fontSize: '11px', color: '#ff8500', fontWeight: '700' }}>{pctChanceCustomDate}</span>
+                                    <button onClick={() => { setPctChanceCustomDate('') }}
+                                      style={{ background: 'none', border: 'none', color: '#555', fontSize: '12px', cursor: 'pointer', padding: '0 2px' }}>✕ clear</button>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })()}
 
                           {/* Future Expiries Date Picker */}
                           <div style={{ marginTop: '12px', borderTop: '1px solid rgba(255,133,0,0.2)', paddingTop: '12px' }}>
                             <div style={{ color: '#ff8500', fontSize: '11px', fontWeight: '700', marginBottom: '8px', letterSpacing: '0.5px' }}>
-                              FUTURE EXPIRIES UP TO
+                              SCAN ALL EXPIRIES · UP TO DATE
                             </div>
                             <input
                               type="date"
@@ -32453,15 +32707,26 @@ export default function TradingViewChart({
                             : 0,
                           zIndex: 100000,
                           animation: 'dropdownFadeIn 0.15s ease forwards',
-                          background: '#000000',
-                          border: '2px solid rgba(255, 133, 0, 0.3)',
+                          background: 'radial-gradient(circle at 0% 0%, rgba(255,133,0,0.22) 0%, rgba(255,133,0,0) 55%), repeating-linear-gradient(135deg, rgba(255,133,0,0.05) 0 2px, transparent 2px 10px), linear-gradient(180deg, #120a02 0%, #000000 100%)',
+                          border: '1px solid rgba(255, 133, 0, 0.55)',
+                          borderTop: '3px solid #ff8500',
                           borderRadius: '8px',
-                          boxShadow: '0 8px 32px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.1)',
+                          boxShadow: '0 8px 32px rgba(0,0,0,0.9), 0 0 24px rgba(255,133,0,0.18)',
                           padding: '12px',
                           width: 'max-content',
                         }}
                       >
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {/* Draw projections as candles or a line */}
+                          <div style={{ display: 'flex', gap: '4px', padding: '3px', background: '#000', borderRadius: '6px', border: '1px solid rgba(255,133,0,0.3)' }}>
+                            {(['candles', 'line'] as const).map(m => (
+                              <button
+                                key={m}
+                                onClick={() => chooseSeasonalDisplay(m)}
+                                style={{ flex: 1, padding: '7px 10px', borderRadius: '4px', border: 'none', cursor: 'pointer', fontWeight: 800, fontSize: '12px', letterSpacing: '1px', textTransform: 'uppercase', background: seasonalDisplay === m ? '#ff8500' : 'transparent', color: seasonalDisplay === m ? '#000' : '#aaa' }}
+                              >{m === 'candles' ? 'Candles' : 'Line'}</button>
+                            ))}
+                          </div>
                           {/* Single Seasonality toggle — 1D only, draws 20Y OHLC candles */}
                           <button
                             onClick={async () => {
@@ -33337,229 +33602,6 @@ export default function TradingViewChart({
 
                 </div>
 
-                {/* Technalysis Button */}
-                <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }} data-toolbar-btn>
-                  <button
-                    ref={technalysisButtonRef}
-                    onClick={() => { const wasOpen = isTechnalysisDropdownOpen; closeAllToolbarDropdowns(); if (!wasOpen) setIsTechnalysisDropdownOpen(true); }}
-                    className={`btn-3d-carved relative group flex items-center space-x-2 ${technalysisActive ? 'active' : ''}`}
-                    style={{
-                      padding: '10px 16px',
-                      fontWeight: '700',
-                      fontSize: '13px',
-                      borderRadius: '4px',
-                      color: 'white',
-                    }}
-                  >
-                    <span style={{ color: technalysisActive ? '#ff8500' : 'white' }}>TECHNALYSIS</span>
-                    {technalysisActive ? (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setTechnalysisActive(false)
-                          setTechnalysisFeatures({
-                            orderBlocks: false,
-                            fvg: false,
-                            liquidity: false,
-                            structure: false,
-                            premiumDiscount: false,
-                          })
-                        }}
-                        className="ml-1"
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: '#ff8500',
-                          fontSize: '20px',
-                          fontWeight: '700',
-                          cursor: 'pointer',
-                          padding: '0 4px',
-                          lineHeight: '1',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        ×
-                      </button>
-                    ) : (
-                      <svg
-                        className="w-4 h-4 ml-1"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 9l-7 7-7-7"
-                        />
-                      </svg>
-                    )}
-                    {technalysisActive && (
-                      <div
-                        className="absolute -top-1 -right-1 w-3 h-3 bg-blue-400 rounded-full"
-                        style={{
-                          boxShadow: '0 0 6px rgba(33, 150, 243, 0.8)',
-                          animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-                        }}
-                      />
-                    )}
-                  </button>
-
-                  {/* Technalysis Dropdown Menu */}
-                  {isTechnalysisDropdownOpen &&
-                    createPortal(
-                      <div
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                          position: 'fixed',
-                          top: technalysisButtonRef.current
-                            ? technalysisButtonRef.current.getBoundingClientRect().bottom + 10
-                            : 100,
-                          left: technalysisButtonRef.current
-                            ? technalysisButtonRef.current.getBoundingClientRect().left
-                            : 400,
-                          zIndex: 100000,
-                          animation: 'dropdownFadeIn 0.15s ease forwards',
-                          background: '#000000',
-                          minWidth: '180px',
-                          border: '2px solid rgba(255, 133, 0, 0.3)',
-                          borderRadius: '8px',
-                          boxShadow:
-                            '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-                          padding: '12px',
-                        }}
-                      >
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                          <button
-                            onClick={() => {
-                              setTechnalysisActive(!technalysisActive)
-                              setIsTechnalysisDropdownOpen(false)
-                            }}
-                            className={`btn-3d-carved ${technalysisActive ? 'active' : ''}`}
-                            style={{
-                              padding: '10px 16px',
-                              fontWeight: '700',
-                              fontSize: '14px',
-                              textAlign: 'left',
-                              borderRadius: '4px',
-                              width: '100%',
-                            }}
-                          >
-                            Enable All
-                          </button>
-
-                          <div
-                            style={{
-                              borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-                              margin: '4px 0',
-                            }}
-                          ></div>
-
-                          <button
-                            onClick={() => {
-                              setTechnalysisFeatures((prev) => ({
-                                ...prev,
-                                orderBlocks: !prev.orderBlocks,
-                              }))
-                            }}
-                            className={`btn-3d-carved ${technalysisFeatures.orderBlocks ? 'active' : ''}`}
-                            style={{
-                              padding: '10px 16px',
-                              fontWeight: '700',
-                              fontSize: '14px',
-                              textAlign: 'left',
-                              borderRadius: '4px',
-                              width: '100%',
-                            }}
-                          >
-                            Zones
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              setTechnalysisFeatures((prev) => ({ ...prev, fvg: !prev.fvg }))
-                            }}
-                            className={`btn-3d-carved ${technalysisFeatures.fvg ? 'active' : ''}`}
-                            style={{
-                              padding: '10px 16px',
-                              fontWeight: '700',
-                              fontSize: '14px',
-                              textAlign: 'left',
-                              borderRadius: '4px',
-                              width: '100%',
-                            }}
-                          >
-                            Fills
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              setTechnalysisFeatures((prev) => ({
-                                ...prev,
-                                liquidity: !prev.liquidity,
-                              }))
-                            }}
-                            className={`btn-3d-carved ${technalysisFeatures.liquidity ? 'active' : ''}`}
-                            style={{
-                              padding: '10px 16px',
-                              fontWeight: '700',
-                              fontSize: '14px',
-                              textAlign: 'left',
-                              borderRadius: '4px',
-                              width: '100%',
-                            }}
-                          >
-                            Hunting
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              setTechnalysisFeatures((prev) => ({
-                                ...prev,
-                                structure: !prev.structure,
-                              }))
-                            }}
-                            className={`btn-3d-carved ${technalysisFeatures.structure ? 'active' : ''}`}
-                            style={{
-                              padding: '10px 16px',
-                              fontWeight: '700',
-                              fontSize: '14px',
-                              textAlign: 'left',
-                              borderRadius: '4px',
-                              width: '100%',
-                            }}
-                          >
-                            Trend
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              setTechnalysisFeatures((prev) => ({
-                                ...prev,
-                                premiumDiscount: !prev.premiumDiscount,
-                              }))
-                            }}
-                            className={`btn-3d-carved ${technalysisFeatures.premiumDiscount ? 'active' : ''}`}
-                            style={{
-                              padding: '10px 16px',
-                              fontWeight: '700',
-                              fontSize: '14px',
-                              textAlign: 'left',
-                              borderRadius: '4px',
-                              width: '100%',
-                            }}
-                          >
-                            Premium/Discount
-                          </button>
-                        </div>
-                      </div>,
-                      document.body
-                    )}
-
-                </div>
               </div>
 
               {/* Live FlowMoves Button with Dropdown */}
@@ -36073,8 +36115,6 @@ export default function TradingViewChart({
                     isWeeklyActive={isWeeklyActive}
                     isMonthlyActive={isMonthlyActive}
                     isExpansionLiquidationActive={isExpansionLiquidationActive}
-                    technalysisActive={technalysisActive}
-                    technalysisFeatures={technalysisFeatures}
                     isFlowChartActive={isFlowChartActive}
                     flowChartData={flowChartData}
                     flowChartHeight={flowChartHeight}
@@ -36112,7 +36152,6 @@ export default function TradingViewChart({
                     detectExpansionLiquidation={detectExpansionLiquidation}
                     invalidateTouchedZones={invalidateTouchedZones}
                     renderExpansionLiquidationZone={renderExpansionLiquidationZone}
-                    renderTechnalysisIndicators={renderTechnalysisIndicators}
                     handleUnifiedMouseDown={handleUnifiedMouseDown}
                     handleCanvasMouseMove={handleCanvasMouseMove}
                     handleMouseLeave={handleMouseLeave}
@@ -37013,29 +37052,66 @@ export default function TradingViewChart({
                                 top: 0,
                                 left: 0,
                                 right: '80px', // leave space for Y-axis column
-                                height: '32px',
-                                background: 'linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.75) 100%)',
-                                borderTop: `2px solid ${panel.accentColor}55`,
-                                borderBottom: '1px solid rgba(255,255,255,0.08)',
+                                height: '48px',
+                                background: 'linear-gradient(90deg, #0d1220 0%, #070a10 60%, rgba(5,7,11,0.9) 100%)',
+                                borderTop: `2px solid ${panel.accentColor}`,
+                                borderBottom: '1px solid rgba(255,255,255,0.1)',
                                 paddingLeft: '50px',
-                                paddingRight: '6px',
+                                paddingRight: '8px',
                               }}
                             >
                               {/* Panel name */}
-                              <span style={{ color: panel.accentColor, fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
-                                {panel.label}
-                              </span>
+                              <span style={{ width: 4, height: 24, borderRadius: 2, background: panel.accentColor, boxShadow: `0 0 10px ${panel.accentColor}`, flexShrink: 0 }} />
+                              <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1, marginRight: 6 }}>
+                                <span style={{ color: '#FFFFFF', fontSize: '15px', fontWeight: 800, letterSpacing: '1.4px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+                                  {panel.label}
+                                </span>
+                                <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '10.5px', fontWeight: 600, letterSpacing: '0.6px', whiteSpace: 'nowrap' }}>
+                                  {symbol} · 1Y DAILY · OPTIONS-IMPLIED
+                                </span>
+                              </div>
+
+                              {(() => {
+                                const keyMap: Record<string, 'netIV' | 'ivRank' | 'ivPercentile' | 'hv'> = { iv: 'netIV', ivRank: 'ivRank', ivPercentile: 'ivPercentile', hv: 'hv' }
+                                const vals = ivData.map(d => d[keyMap[panel.key]]).filter((v): v is number => v !== null && v !== undefined)
+                                if (!vals.length) return null
+                                const now = vals[vals.length - 1]
+                                const prev = vals.length > 1 ? vals[vals.length - 2] : now
+                                const hi = Math.max(...vals), lo = Math.min(...vals)
+                                const avg = vals.reduce((a, b) => a + b, 0) / vals.length
+                                const chg = now - prev
+                                const f = (v: number) => `${v.toFixed(1)}%`
+                                const chip = (k: string, v: string, c = '#fff') => (
+                                  <div key={k} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '2px 10px', borderLeft: '1px solid rgba(255,255,255,0.12)', lineHeight: 1.15 }}>
+                                    <span style={{ fontSize: '9.5px', fontWeight: 700, letterSpacing: '0.9px', color: 'rgba(255,255,255,0.45)' }}>{k}</span>
+                                    <span style={{ fontSize: '13.5px', fontWeight: 800, color: c, fontFamily: 'JetBrains Mono, monospace' }}>{v}</span>
+                                  </div>
+                                )
+                                return (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, padding: '0 10px' }}>
+                                      <span style={{ fontSize: '22px', fontWeight: 900, color: panel.accentColor, fontFamily: 'JetBrains Mono, monospace', textShadow: `0 0 12px ${panel.accentColor}66` }}>{f(now)}</span>
+                                      <span style={{ fontSize: '12px', fontWeight: 800, color: chg >= 0 ? '#34D399' : '#F87171' }}>{chg >= 0 ? '▲' : '▼'} {Math.abs(chg).toFixed(2)}</span>
+                                    </div>
+                                    {chip('AVG', f(avg))}
+                                    {chip('HIGH', f(hi), '#F87171')}
+                                    {chip('LOW', f(lo), '#34D399')}
+                                    {chip('VS AVG', `${now >= avg ? '+' : ''}${(now - avg).toFixed(1)}`, now >= avg ? '#FBBF24' : '#60A5FA')}
+                                  </div>
+                                )
+                              })()}
 
                               {/* IV sub-line toggles (only for IV panel) */}
                               {panel.key === 'iv' && (
-                                <div className="flex items-center gap-1 ml-2">
+                                <div className="flex items-center gap-1.5 ml-3">
                                   {[
-                                    { label: 'Call IV', active: showCallIVLine, toggle: () => setShowCallIVLine(p => !p), activeColor: '#00FF00' },
-                                    { label: 'Put IV', active: showPutIVLine, toggle: () => setShowPutIVLine(p => !p), activeColor: '#FF0000' },
-                                    { label: 'Net IV', active: showNetIVLine, toggle: () => setShowNetIVLine(p => !p), activeColor: '#FF9500' },
+                                    { label: 'Call IV', active: showCallIVLine, toggle: () => setShowCallIVLine(p => !p), activeColor: callIVColor },
+                                    { label: 'Put IV', active: showPutIVLine, toggle: () => setShowPutIVLine(p => !p), activeColor: putIVColor },
+                                    { label: 'Net IV', active: showNetIVLine, toggle: () => setShowNetIVLine(p => !p), activeColor: netIVColor },
                                   ].map(({ label, active, toggle, activeColor }) => (
                                     <button key={label} onClick={toggle}
-                                      style={{ padding: '2px 10px', fontSize: '11px', fontWeight: '700', borderRadius: '3px', border: `1px solid ${active ? activeColor : 'rgba(255,255,255,0.3)'}`, background: '#000', color: active ? activeColor : '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 13px', fontSize: '12px', fontWeight: 700, borderRadius: '999px', border: `1px solid ${active ? activeColor : 'rgba(255,255,255,0.18)'}`, background: active ? `${activeColor}26` : 'rgba(255,255,255,0.04)', color: active ? '#fff' : 'rgba(255,255,255,0.55)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: active ? activeColor : 'rgba(255,255,255,0.3)' }} />
                                       {label}
                                     </button>
                                   ))}
@@ -37119,10 +37195,40 @@ export default function TradingViewChart({
                         <div className="absolute z-[1001] flex items-center pointer-events-none"
                           style={{ left: 0, right: 0, bottom: `${bottomPx}px`, height: `${ivPanelHeight}px` }}>
                           <div className="pointer-events-auto flex items-center gap-2 w-full"
-                            style={{ position: 'absolute', top: 0, left: 0, right: '80px', height: '32px', background: 'linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.75) 100%)', borderTop: `2px solid ${iv30DColor}55`, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingLeft: '50px', paddingRight: '6px' }}>
-                            <span style={{ color: iv30DColor, fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
-                              IMPLIED VOLATILITY  <span style={{ opacity: 0.7, fontSize: '10px' }}>30D</span>
-                            </span>
+                            style={{ position: 'absolute', top: 0, left: 0, right: '80px', height: '48px', background: 'linear-gradient(90deg, #0d1220 0%, #070a10 60%, rgba(5,7,11,0.9) 100%)', borderTop: `2px solid ${iv30DColor}`, borderBottom: '1px solid rgba(255,255,255,0.1)', paddingLeft: '50px', paddingRight: '8px' }}>
+                            <span style={{ width: 4, height: 24, borderRadius: 2, background: iv30DColor, boxShadow: `0 0 10px ${iv30DColor}`, flexShrink: 0 }} />
+                            <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1, marginRight: 6 }}>
+                              <span style={{ color: '#FFFFFF', fontSize: '15px', fontWeight: 800, letterSpacing: '1.4px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>IMPLIED VOLATILITY · 30D</span>
+                              <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '10.5px', fontWeight: 600, letterSpacing: '0.6px', whiteSpace: 'nowrap' }}>{symbol} · CONSTANT 30-DAY · OPTIONS-IMPLIED</span>
+                            </div>
+                            {(() => {
+                              const vals = iv30DData.map(d => d.netIV).filter((v): v is number => v !== null && v !== undefined)
+                              if (!vals.length) return null
+                              const now = vals[vals.length - 1]
+                              const prev = vals.length > 1 ? vals[vals.length - 2] : now
+                              const hi = Math.max(...vals), lo = Math.min(...vals)
+                              const avg = vals.reduce((a, b) => a + b, 0) / vals.length
+                              const chg = now - prev
+                              const f = (v: number) => `${v.toFixed(1)}%`
+                              const chip = (k: string, v: string, c = '#fff') => (
+                                <div key={k} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '2px 10px', borderLeft: '1px solid rgba(255,255,255,0.12)', lineHeight: 1.15 }}>
+                                  <span style={{ fontSize: '9.5px', fontWeight: 700, letterSpacing: '0.9px', color: 'rgba(255,255,255,0.45)' }}>{k}</span>
+                                  <span style={{ fontSize: '13.5px', fontWeight: 800, color: c, fontFamily: 'JetBrains Mono, monospace' }}>{v}</span>
+                                </div>
+                              )
+                              return (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, padding: '0 10px' }}>
+                                    <span style={{ fontSize: '22px', fontWeight: 900, color: iv30DColor, fontFamily: 'JetBrains Mono, monospace', textShadow: `0 0 12px ${iv30DColor}66` }}>{f(now)}</span>
+                                    <span style={{ fontSize: '12px', fontWeight: 800, color: chg >= 0 ? '#34D399' : '#F87171' }}>{chg >= 0 ? '▲' : '▼'} {Math.abs(chg).toFixed(2)}</span>
+                                  </div>
+                                  {chip('AVG', f(avg))}
+                                  {chip('HIGH', f(hi), '#F87171')}
+                                  {chip('LOW', f(lo), '#34D399')}
+                                  {chip('VS AVG', `${now >= avg ? '+' : ''}${(now - avg).toFixed(1)}`, now >= avg ? '#FBBF24' : '#60A5FA')}
+                                </div>
+                              )
+                            })()}
                             <div style={{ flex: 1 }} />
                             {/* Color picker */}
                             <div title="Line color" style={{ position: 'relative', width: '20px', height: '20px', flexShrink: 0 }}>

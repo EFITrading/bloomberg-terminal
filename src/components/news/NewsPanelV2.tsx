@@ -180,20 +180,118 @@ const _findStrike = (S: number, r: number, sigma: number, T: number, target: num
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Logo cache: one batched request per render burst, persisted in localStorage ──
+const LOGO_LS_KEY = 'efi-logo-cache-v1'
+const logoCache = new Map<string, string | null>() // data URI, or null = no logo exists
+const logoListeners = new Set<() => void>()
+const logoPending = new Set<string>()
+const logoSlowQueue: string[] = []
+let logoFlushTimer: ReturnType<typeof setTimeout> | null = null
+let logoSlowActive = 0
+let logoHydrated = false
+
+const notifyLogos = () => logoListeners.forEach((l) => l())
+
+const hydrateLogoCache = () => {
+  if (logoHydrated || typeof window === 'undefined') return
+  logoHydrated = true
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(LOGO_LS_KEY) || '{}') as Record<string, string | null>
+    for (const [t, v] of Object.entries(saved)) logoCache.set(t, v)
+  } catch { /* ignore corrupt cache */ }
+}
+
+const persistLogos = () => {
+  try {
+    const obj: Record<string, string | null> = {}
+    logoCache.forEach((v, k) => { obj[k] = v })
+    window.localStorage.setItem(LOGO_LS_KEY, JSON.stringify(obj))
+  } catch { /* storage full: in-memory cache still works */ }
+}
+
+const runSlowLogoQueue = () => {
+  while (logoSlowActive < 3 && logoSlowQueue.length > 0) {
+    const t = logoSlowQueue.shift() as string
+    logoSlowActive++
+    fetch(`/api/ticker-logo?ticker=${encodeURIComponent(t)}`)
+      .then(async (r) => {
+        if (r.status === 404) { logoCache.set(t, null); return }
+        if (!r.ok) return
+        const blob = await r.blob()
+        const uri: string = await new Promise((res, rej) => {
+          const fr = new FileReader()
+          fr.onload = () => res(fr.result as string)
+          fr.onerror = rej
+          fr.readAsDataURL(blob)
+        })
+        logoCache.set(t, uri)
+      })
+      .catch(() => { })
+      .finally(() => {
+        logoSlowActive--
+        notifyLogos()
+        persistLogos()
+        runSlowLogoQueue()
+      })
+  }
+}
+
+const flushLogoBatch = async () => {
+  logoFlushTimer = null
+  const tickers = Array.from(logoPending)
+  logoPending.clear()
+  for (let i = 0; i < tickers.length; i += 200) {
+    const chunk = tickers.slice(i, i + 200)
+    let found: Record<string, string | null> = {}
+    try {
+      const r = await fetch(`/api/ticker-logos?tickers=${chunk.join(',')}`)
+      if (r.ok) found = await r.json()
+    } catch { /* fall through to individual fetches */ }
+    for (const t of chunk) {
+      if (t in found) logoCache.set(t, found[t])
+      else logoSlowQueue.push(t)
+    }
+  }
+  notifyLogos()
+  persistLogos()
+  runSlowLogoQueue()
+}
+
+const requestLogo = (ticker: string) => {
+  if (logoCache.has(ticker) || logoPending.has(ticker) || logoSlowQueue.includes(ticker)) return
+  logoPending.add(ticker)
+  if (!logoFlushTimer) logoFlushTimer = setTimeout(flushLogoBatch, 40)
+}
+
 const CompanyLogo: React.FC<{ ticker: string; size?: number; className?: string; fluid?: boolean }> = ({
   ticker,
   size = 28,
   className = '',
   fluid = false,
 }) => {
-  // Logos are stored in the DB and served by /api/ticker-logo (browser-cached); no per-load Polygon scan
-  const [failed, setFailed] = React.useState(false)
-  const logoUrl = !ticker || failed ? null : `/api/ticker-logo?ticker=${encodeURIComponent(ticker)}`
-  React.useEffect(() => setFailed(false), [ticker])
+  const [, force] = React.useReducer((n: number) => n + 1, 0)
+  React.useEffect(() => {
+    hydrateLogoCache()
+    logoListeners.add(force)
+    if (ticker) requestLogo(ticker)
+    force()
+    return () => { logoListeners.delete(force) }
+  }, [ticker])
+  const logoUrl = ticker ? (logoCache.get(ticker) ?? null) : null
+  const loading = !!ticker && !logoCache.has(ticker)
 
   const fluidStyle: React.CSSProperties = fluid
     ? { width: '100%', height: '100%', aspectRatio: '1 / 1' }
     : { width: size, height: size }
+
+  if (loading) {
+    return (
+      <span
+        className={`inline-block rounded shrink-0 ${className}`}
+        style={{ ...fluidStyle, background: 'rgba(255,255,255,0.05)' }}
+      />
+    )
+  }
 
   if (!logoUrl) {
     const palette = [
@@ -230,12 +328,21 @@ const CompanyLogo: React.FC<{ ticker: string; size?: number; className?: string;
       {...(!fluid && { width: size, height: size })}
       className={`rounded object-contain shrink-0 ${className}`}
       style={{ ...fluidStyle, background: 'rgba(255,255,255,0.06)', padding: '2px' }}
-      onError={() => {
-        setFailed(true)
-      }}
     />
   )
 }
+
+const earningsMeta = (ev: CalendarEvent) => {
+  const hasResult = !!ev.actual
+  const resColor = ev.beat === true ? '#22c55e' : ev.beat === false ? '#ef4444' : '#9ca3af'
+  const eps = hasResult ? ev.actual : ev.forecast
+  const tip = `${ev.event}\n${ev.time}${ev.forecast ? `\nEPS est: ${ev.forecast}` : ''}${ev.prior ? `\nPrior: ${ev.prior}` : ''}${hasResult ? `\nActual: ${ev.actual}${ev.surprise ? ` (${ev.surprise})` : ''}` : ''}`
+  return { hasResult, resColor, eps, tip, beat: ev.beat }
+}
+
+const IMPORTANCE_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
+const sortByImportance = (evs: CalendarEvent[]) =>
+  [...evs].sort((a, b) => (IMPORTANCE_RANK[a.importance] ?? 9) - (IMPORTANCE_RANK[b.importance] ?? 9))
 
 const STATIC_CAL_EVENTS: CalendarEvent[] = [
   // ── US Market Holidays ──────────────────────────────────────────────────────
@@ -435,6 +542,8 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchTicker, setSearchTicker] = useState(symbol)
+  // `query` is the submitted search; `searchTicker` is just the text in the box
+  const [query, setQuery] = useState(symbol)
   const [expandedArticles, setExpandedArticles] = useState<Set<string>>(new Set())
   const [favorites, setFavorites] = useState<Set<string>>(new Set())
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
@@ -491,28 +600,62 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
   type MarketMover = { ticker: string; price: number; chg: number; pct: number; vol: number }
   const [bigMovers, setBigMovers] = useState<{ gainers: MarketMover[]; losers: MarketMover[] } | null>(null)
   const [bigMoversError, setBigMoversError] = useState(false)
+  // Catalyst headlines per mover ticker; null = looked up, nothing found
+  const [moverNews, setMoverNews] = useState<Record<string, NewsArticle | null>>({})
+  const moverNewsRequested = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    if (!bigMovers) return
+    const tickers = [...bigMovers.gainers, ...bigMovers.losers]
+      .map((m) => m.ticker)
+      .filter((t) => !moverNewsRequested.current.has(t))
+    if (tickers.length === 0) return
+    tickers.forEach((t) => moverNewsRequested.current.add(t))
+    let cancelled = false
+    const run = async (t: string) => {
+      try {
+        const res = await fetch(`/api/news?limit=10&ticker=${encodeURIComponent(t)}`, { cache: 'no-store' })
+        const data: NewsResponse = await res.json()
+        const cutoff = Date.now() - 72 * 3600 * 1000
+        const fresh = (data.articles ?? []).filter((a) => new Date(a.published_utc).getTime() > cutoff)
+        // Prefer headlines that actually name the ticker, then the most recent
+        const named = fresh.filter(
+          (a) => a.tickers?.includes(t) || new RegExp(`\\b${t}\\b`).test(a.title)
+        )
+        const pool = (named.length ? named : []).sort(
+          (a, b) => new Date(b.published_utc).getTime() - new Date(a.published_utc).getTime()
+        )
+        if (!cancelled) setMoverNews((p) => ({ ...p, [t]: pool[0] ?? null }))
+      } catch {
+        moverNewsRequested.current.delete(t)
+      }
+    }
+    // Small worker pool so we don't hit the news API with 20 requests at once
+    const queue = [...tickers]
+    const workers = Array.from({ length: 4 }, async () => {
+      while (queue.length && !cancelled) await run(queue.shift()!)
+    })
+    void Promise.all(workers)
+    return () => {
+      cancelled = true
+      tickers.forEach((t) => {
+        if (!(t in moverNewsRef.current)) moverNewsRequested.current.delete(t)
+      })
+    }
+  }, [bigMovers])
+  const moverNewsRef = useRef<Record<string, NewsArticle | null>>({})
+  moverNewsRef.current = moverNews
+  // Candidates come from the whole US market (server-filtered to liquid stocks with big moves)
   useEffect(() => {
     if (activeTab !== 'movers') return
     let cancelled = false
-    const parse = (j: any): MarketMover[] =>
-      (j?.tickers ?? [])
-        .map((t: any) => ({
-          ticker: t.ticker as string,
-          price: (t.lastTrade?.p || t.day?.c || t.prevDay?.c || 0) as number,
-          chg: (t.todaysChange ?? 0) as number,
-          pct: (t.todaysChangePerc ?? 0) as number,
-          vol: (t.day?.v || t.prevDay?.v || 0) as number,
-        }))
-        .filter((m: MarketMover) => m.price >= 3 && m.vol >= 300000)
-        .slice(0, 10)
     const load = async () => {
       try {
-        const [g, l] = await Promise.all([
-          fetch('/api/polygon/v2/snapshot/locale/us/markets/stocks/gainers').then((r) => r.json()),
-          fetch('/api/polygon/v2/snapshot/locale/us/markets/stocks/losers').then((r) => r.json()),
-        ])
+        const res = await fetch('/api/market-movers', { cache: 'no-store' })
+        const j = await res.json()
+        if (!j.success) throw new Error(j.error || 'movers failed')
         if (cancelled) return
-        setBigMovers({ gainers: parse(g), losers: parse(l) })
+        const top: MarketMover[] = j.movers
+        setBigMovers({ gainers: top.filter((m) => m.pct > 0), losers: top.filter((m) => m.pct < 0) })
         setBigMoversError(false)
       } catch {
         if (!cancelled) setBigMoversError(true)
@@ -1174,24 +1317,23 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
   }, [])
 
   useEffect(() => {
-    fetchNews(searchTicker)
-  }, [fetchNews, searchTicker])
+    fetchNews(query)
+  }, [fetchNews, query])
   useEffect(() => {
-    const id = setInterval(() => fetchNews(searchTicker), 5 * 60 * 1000)
+    const id = setInterval(() => fetchNews(query), 5 * 60 * 1000)
     return () => clearInterval(id)
-  }, [fetchNews, searchTicker])
+  }, [fetchNews, query])
 
-  // Breaking news auto-scan disabled — removed to prevent background API calls
-  // useEffect(() => {
-  //   fetchGeneralNews()
-  //   const id = setInterval(fetchGeneralNews, 5 * 60 * 1000)
-  //   return () => clearInterval(id)
-  // }, [fetchGeneralNews])
+  // Breaking tab: general (non-ticker) urgent news. Feed tab + ticker search use `articles`.
+  useEffect(() => {
+    fetchGeneralNews()
+    const id = setInterval(fetchGeneralNews, 2 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [fetchGeneralNews])
 
-  // Auto-scan historical breaking news disabled
-  // useEffect(() => {
-  //   fetchHistoricalBreaking()
-  // }, [fetchHistoricalBreaking])
+  useEffect(() => {
+    fetchHistoricalBreaking()
+  }, [fetchHistoricalBreaking])
 
   // ── Auto-scan mover charts whenever articles load ─────────────────────────
   useEffect(() => {
@@ -1370,7 +1512,11 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
-    fetchNews(searchTicker)
+    const q = searchTicker.trim()
+    // Search results are shown in the Live Feed tab; Breaking is always market-wide
+    if (q && activeTab !== 'feed') setActiveTab('feed')
+    if (q === query) fetchNews(q)
+    else setQuery(q)
   }
   const toggleExpanded = (id: string) => {
     const s = new Set(expandedArticles)
@@ -1389,8 +1535,8 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
   }
 
   // ── Derived ─────────────────────────────────────────────────────────────
-  const breakingArticles = (generalArticles.length ? generalArticles : articles).filter((a) => a.urgency >= 0.65 || a.category === 'breaking')
-  const leadStory = breakingArticles[0] ?? articles[0]
+  const breakingArticles = generalArticles.filter((a) => a.urgency >= 0.65 || a.category === 'breaking')
+  const leadStory = breakingArticles[0] ?? generalArticles[0] ?? articles[0]
   const otherBreaking = breakingArticles.slice(1, 7)
   const moversEvents = (marketSentiment?.market_moving_events ?? [])
     .filter((e) => Math.abs(e.estimated_price_impact) >= 0.5)
@@ -1449,7 +1595,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         <p className="text-red-400 font-black text-lg mb-2">Connection to news API failed</p>
         <p className="text-orange-300 font-bold text-base mb-8">{error}</p>
         <button
-          onClick={() => fetchNews(searchTicker)}
+          onClick={() => fetchNews(query)}
           className="px-8 py-4 bg-orange-500 hover:bg-orange-400 text-black font-black rounded-xl transition-all tracking-widest uppercase text-lg shadow-lg shadow-orange-500/30"
         >
           Reconnect
@@ -1492,7 +1638,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         )}
 
         {leadStory && (
-          <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
+          <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 items-start">
             {/* LEAD STORY */}
             <a
               href={leadStory.article_url}
@@ -1539,7 +1685,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                     ))}
                   </div>
                 )}
-                <div className="mt-auto pt-7">
+                <div className="pt-7">
                   <div className="pt-4 border-t border-white/10 flex items-center justify-between">
                     <span className="text-white/60 text-sm font-semibold">{leadStory.publisher?.name}</span>
                     <span className="flex items-center gap-1.5 text-white text-sm font-bold group-hover:text-orange-400 transition-colors">
@@ -1801,34 +1947,51 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
     const rows = Object.entries(byTicker).slice(0, 20)
 
     const MoverList = ({ title, list, up }: { title: string; list: MarketMover[]; up: boolean }) => {
-      const maxPct = Math.max(1, ...list.map((m) => Math.abs(m.pct)))
       const col = up ? 'text-emerald-400' : 'text-red-400'
-      const bar = up ? 'bg-emerald-500/70' : 'bg-red-500/70'
+      const edge = up ? 'border-l-emerald-500' : 'border-l-red-500'
+      // Only stocks with a real headline behind the move
+      const shown = list.filter((m) => moverNews[m.ticker])
+      const pendingCount = list.filter((m) => !(m.ticker in moverNews)).length
       return (
         <div className="rounded-2xl border border-white/10 bg-[#0b0b0b] overflow-hidden">
           <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-white/10 bg-white/[0.03]">
             {up ? <TbTrendingUp className="w-5 h-5 text-emerald-400" /> : <TbTrendingDown className="w-5 h-5 text-red-400" />}
             <span className="text-white font-extrabold text-[15px] tracking-[0.14em] uppercase">{title}</span>
+            <span className="ml-auto text-[12px] font-bold text-white/50">
+              {shown.length} on news{pendingCount > 0 ? ` · checking ${pendingCount}…` : ''}
+            </span>
           </div>
-          <div className="grid grid-cols-[28px_84px_1fr_92px_84px] gap-3 px-5 py-2 text-[12px] font-extrabold text-white/60 uppercase tracking-[0.12em] border-b border-white/[0.07]">
-            <span>#</span><span>Symbol</span><span /><span className="text-right">Price</span><span className="text-right">Change</span>
-          </div>
-          {list.length === 0 ? (
-            <div className="py-8 text-center text-white/55 text-sm font-semibold">No data</div>
+          {shown.length === 0 ? (
+            <div className="py-10 text-center text-white/55 text-sm font-semibold">
+              {pendingCount > 0 ? 'Scanning headlines…' : 'No large stocks moving on news right now'}
+            </div>
           ) : (
-            list.map((m, i) => (
-              <div key={m.ticker} className="grid grid-cols-[28px_84px_1fr_92px_84px] gap-3 items-center px-5 py-2.5 border-b border-white/[0.05] hover:bg-white/[0.04] transition-colors">
-                <span className="text-[13px] font-bold text-white/50 tabular-nums">{i + 1}</span>
-                <span className="text-white font-extrabold text-[17px] tracking-wide">{m.ticker}</span>
-                <div className="h-2 rounded-full bg-white/[0.07] overflow-hidden">
-                  <div className={`h-full rounded-full ${bar}`} style={{ width: `${(Math.abs(m.pct) / maxPct) * 100}%` }} />
-                </div>
-                <span className="text-right text-white font-bold text-[15px] tabular-nums">${m.price.toFixed(2)}</span>
-                <span className={`text-right font-extrabold text-[15px] tabular-nums ${col}`}>
-                  {m.pct >= 0 ? '+' : ''}{m.pct.toFixed(2)}%
-                </span>
-              </div>
-            ))
+            shown.map((m) => {
+              const news = moverNews[m.ticker]!
+              return (
+                <a
+                  key={m.ticker}
+                  href={news.article_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`group block px-5 py-3.5 border-b border-white/[0.05] border-l-4 ${edge} hover:bg-white/[0.04] transition-colors`}
+                >
+                  <div className="flex items-baseline gap-3">
+                    <span className="text-white font-extrabold text-[18px] tracking-wide">{m.ticker}</span>
+                    <span className={`font-extrabold text-[16px] tabular-nums ${col}`}>
+                      {m.pct >= 0 ? '+' : ''}{m.pct.toFixed(2)}%
+                    </span>
+                    <span className="text-white/60 font-semibold text-[14px] tabular-nums">${m.price.toFixed(2)}</span>
+                    <span className="ml-auto text-white/40 text-[12px] whitespace-nowrap">
+                      {news.publisher?.name} &middot; {news.time_ago}
+                    </span>
+                  </div>
+                  <p className="mt-1.5 text-white/90 group-hover:text-white text-[15px] font-semibold leading-snug line-clamp-2">
+                    {news.title}
+                  </p>
+                </a>
+              )
+            })
           )}
         </div>
       )
@@ -1861,264 +2024,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
       </div>
     )
 
-    if (rows.length === 0)
-      return <div className="p-5">{board}</div>
-
-    return (
-      <div className="p-5">
-        {board}
-        <div className="flex items-center gap-3 mb-4">
-          <span className="flex items-center justify-center w-8 h-8"><TbNews className="w-[22px] h-[22px] text-white/80" />
-          </span>
-          <h3 className="text-white font-extrabold text-lg tracking-[0.12em] uppercase">Movers in the news</h3>
-          <span className="ml-auto text-sm font-bold text-white/55">{rows.length} tickers</span>
-        </div>
-        <div className="rounded-2xl border border-white/10 bg-[#0b0b0b] overflow-hidden">
-        {/* TABLE HEADER */}
-        <div className="grid grid-cols-[130px_1fr_350px] gap-4 px-6 py-3 border-b border-white/10 bg-white/[0.04] sticky top-0 z-10">
-          <span className="text-[13px] font-extrabold text-white/80 uppercase tracking-[0.14em]">
-            Ticker
-          </span>
-          <span className="text-[13px] font-extrabold text-white/80 uppercase tracking-[0.14em]">
-            Top headline
-          </span>
-          <span className="text-[13px] font-extrabold text-white/80 uppercase tracking-[0.14em]">
-            Chart
-          </span>
-        </div>
-
-        {rows.map(([ticker, article]) => {
-          const isPos = article.sentiment === 'positive'
-          const isNeg = article.sentiment === 'negative'
-          const isNeut = !isPos && !isNeg
-          const bdrCol = isPos
-            ? 'border-l-emerald-500'
-            : isNeg
-              ? 'border-l-red-500'
-              : 'border-l-amber-400/60'
-          const tickerColor = isPos
-            ? 'text-emerald-400'
-            : isNeg
-              ? 'text-red-400'
-              : 'text-orange-400'
-          // undefined = not yet fetched (show spinner), [] = fetched but no data (show dash), array = has data
-          const chartData = moverCharts[ticker]
-          const isFetching = chartData === undefined
-
-          const rowBg = isPos
-            ? 'rgba(16,185,129,0.07)'
-            : isNeg
-              ? 'rgba(239,68,68,0.07)'
-              : 'rgba(251,191,36,0.05)'
-          const rowGlow = isPos
-            ? 'inset 0 1px 0 rgba(16,185,129,0.12), inset 0 -1px 0 rgba(16,185,129,0.06)'
-            : isNeg
-              ? 'inset 0 1px 0 rgba(239,68,68,0.12), inset 0 -1px 0 rgba(239,68,68,0.06)'
-              : 'inset 0 1px 0 rgba(251,191,36,0.10), inset 0 -1px 0 rgba(251,191,36,0.04)'
-
-          const timeStr = article.published_utc
-            ? new Date(article.published_utc).toLocaleTimeString('en-US', {
-              hour: 'numeric',
-              minute: '2-digit',
-              hour12: true,
-              timeZone: 'America/Los_Angeles',
-            })
-            : article.time_ago
-
-          // ── Tracking-tab-style sparkline chart (matches EFICharting exactly) ──
-          let chartNode: React.ReactNode
-
-          if (isFetching) {
-            chartNode = (
-              <div className="flex items-center justify-center w-full" style={{ height: 80 }}>
-                <div className="w-4 h-4 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
-              </div>
-            )
-          } else if (!chartData || chartData.length < 2) {
-            chartNode = (
-              <div
-                className="flex items-center justify-center text-white/20 font-black text-2xl w-full"
-                style={{ height: 80 }}
-              >
-                —
-              </div>
-            )
-          } else {
-            const prices = chartData.map((d) => d.price)
-            const minPrice = Math.min(...prices)
-            const maxPrice = Math.max(...prices)
-            const priceRange = maxPrice - minPrice || 1
-            const svgPad = 8
-            const svgH = 50 - svgPad * 2
-            const prevClose = moverPrevClose[ticker]
-
-            const points = chartData
-              .map((point, i) => {
-                const x = (i / (chartData.length - 1)) * 200
-                const y = svgPad + ((maxPrice - point.price) / priceRange) * svgH
-                return `${x.toFixed(1)},${y.toFixed(1)}`
-              })
-              .join(' ')
-
-            const prevDayY =
-              prevClose != null ? svgPad + ((maxPrice - prevClose) / priceRange) * svgH : null
-
-            // Shading zones algorithm — identical to EFICharting tracking tab
-            const shadingZones: Array<{ x: number; width: number; color: string }> = []
-            let curZone: { start: number; color: string } | null = null
-            chartData.forEach((point, i) => {
-              const m = point.etMinutes || 0
-              let fill: string | null = null
-              if (m >= 60 && m < 390)
-                fill = 'rgba(255,165,0,0.12)' // pre-market: orange
-              else if (m >= 780 && m < 1020) fill = 'rgba(0,174,239,0.12)' // after-hours: cyan
-              if (fill) {
-                if (!curZone || curZone.color !== fill) {
-                  if (curZone !== null) {
-                    const x = (curZone.start / (chartData.length - 1)) * 200
-                    shadingZones.push({
-                      x,
-                      width: (i / (chartData.length - 1)) * 200 - x,
-                      color: curZone.color,
-                    })
-                  }
-                  curZone = { start: i, color: fill }
-                }
-              } else if (curZone !== null) {
-                const x = (curZone.start / (chartData.length - 1)) * 200
-                shadingZones.push({
-                  x,
-                  width: (i / (chartData.length - 1)) * 200 - x,
-                  color: curZone.color,
-                })
-                curZone = null
-              }
-            })
-            if (curZone !== null) {
-              const zone = curZone as { start: number; color: string }
-              shadingZones.push({
-                x: (zone.start / (chartData.length - 1)) * 200,
-                width: 200 - (zone.start / (chartData.length - 1)) * 200,
-                color: zone.color,
-              })
-            }
-
-            // Market open/close label positions
-            let marketOpenIndex = -1,
-              marketCloseIndex = -1
-            chartData.forEach((point, i) => {
-              const m = point.etMinutes || 0
-              if (marketOpenIndex === -1 && m >= 390) marketOpenIndex = i
-              if (marketCloseIndex === -1 && m >= 780) marketCloseIndex = i
-            })
-
-            const curP = prices[prices.length - 1]
-            const changePct =
-              prevClose != null
-                ? ((curP - prevClose) / prevClose) * 100
-                : ((curP - prices[0]) / prices[0]) * 100
-            const priceLineColor = changePct >= 0 ? '#00ff00' : '#ff0000'
-            const pctClass = changePct >= 0 ? 'text-green-400' : 'text-red-400'
-            const openPct =
-              marketOpenIndex >= 0 ? (marketOpenIndex / (chartData.length - 1)) * 100 : -1
-            const closePct =
-              marketCloseIndex >= 0 ? (marketCloseIndex / (chartData.length - 1)) * 100 : -1
-
-            chartNode = (
-              <div className="flex items-center gap-3 w-full min-w-0">
-                <div className="flex-1 min-w-0 flex flex-col">
-                  <svg viewBox="0 0 200 50" preserveAspectRatio="none" className="w-full h-16">
-                    {shadingZones.map((zone, idx) => (
-                      <rect
-                        key={`shade-${idx}`}
-                        x={zone.x}
-                        y="0"
-                        width={zone.width}
-                        height="50"
-                        fill={zone.color}
-                      />
-                    ))}
-                    {prevDayY !== null && (
-                      <line
-                        x1="0"
-                        y1={prevDayY.toFixed(1)}
-                        x2="200"
-                        y2={prevDayY.toFixed(1)}
-                        stroke="#444444"
-                        strokeWidth="1"
-                        strokeDasharray="3,2"
-                        opacity="0.4"
-                        vectorEffect="non-scaling-stroke"
-                      />
-                    )}
-                    <polyline
-                      fill="none"
-                      stroke={priceLineColor}
-                      strokeWidth="1.5"
-                      points={points}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      vectorEffect="non-scaling-stroke"
-                    />
-                  </svg>
-                  <div className="relative mt-1" style={{ height: '14px' }}>
-                    {openPct >= 0 && (
-                      <span
-                        className="absolute text-[9px] text-yellow-400 font-mono font-semibold"
-                        style={{ left: `${openPct}%`, transform: 'translateX(-50%)' }}
-                      >
-                        6:30 AM
-                      </span>
-                    )}
-                    {closePct >= 0 && (
-                      <span
-                        className="absolute text-[9px] text-yellow-400 font-mono font-semibold"
-                        style={{ left: `${closePct}%`, transform: 'translateX(-50%)' }}
-                      >
-                        1:00 PM
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex-shrink-0 text-right w-20">
-                  <div className="font-bold text-white text-sm">${curP.toFixed(2)}</div>
-                  <div className={`text-xs font-bold ${pctClass}`}>
-                    {changePct >= 0 ? '+' : ''}
-                    {changePct.toFixed(2)}%
-                  </div>
-                </div>
-              </div>
-            )
-          }
-
-          return (
-            <a
-              key={ticker}
-              href={article.article_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`grid grid-cols-[130px_1fr_350px] gap-4 items-center px-6 py-4 border-l-[4px] ${bdrCol} border-b border-b-white/[0.07] group transition-colors hover:bg-white/[0.04]`}
-              style={{ background: rowBg }}
-            >
-              {/* Ticker + time */}
-              <div>
-                <span className={`text-2xl font-extrabold tracking-wide ${tickerColor}`}>{ticker}</span>
-                <span className="text-[13px] font-semibold text-white/65 block mt-0.5">{timeStr}</span>
-              </div>
-
-              {/* Headline */}
-              <p className="text-white font-bold text-[17px] leading-snug line-clamp-2 group-hover:text-orange-200 transition-colors">
-                {article.title}
-              </p>
-
-              {/* Chart — EFICharting tracking tab style */}
-              <div className="w-full min-w-0">{chartNode}</div>
-            </a>
-          )
-        })}
-        </div>
-      </div>
-    )
+    return <div className="p-5">{board}</div>
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -2194,6 +2100,56 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
     // ── WEEKLY VIEW ────────────────────────────────────────────────────────────
     const renderWeekly = () => {
       const DAY_FULL = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY']
+
+      const renderDayHeader = (day: Date, i: number, isToday: boolean, total: number) => (
+        <div
+          className="px-3 py-3 shrink-0 flex items-center justify-between gap-2"
+          style={{
+            borderBottom: '2px solid #d4af37',
+            background: isToday
+              ? 'linear-gradient(180deg, rgba(249,115,22,0.28) 0%, rgba(249,115,22,0.06) 100%)'
+              : 'linear-gradient(180deg, #141414 0%, #080808 100%)',
+            boxShadow: isToday ? 'inset 0 3px 0 #f97316' : undefined,
+          }}
+        >
+          <div className="flex items-baseline gap-2 min-w-0">
+            <span className={`text-[34px] leading-none font-black ${isToday ? 'text-orange-400' : 'text-white'}`}>{day.getDate()}</span>
+            <div className="flex flex-col leading-tight">
+              <span className={`text-[16px] font-black tracking-[0.14em] ${isToday ? 'text-orange-300' : 'text-white'}`}>{DAY_FULL[i]}</span>
+              <span className="text-[12px] font-bold tracking-widest text-white/45">{MONTH_SHORT[day.getMonth()].toUpperCase()}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {isToday && <span className="px-2 py-0.5 rounded bg-orange-500 text-black text-[11px] font-black tracking-widest">TODAY</span>}
+            <span className="px-2.5 py-1 rounded-md bg-white/10 text-white text-[14px] font-black font-mono">{total}</span>
+          </div>
+        </div>
+      )
+
+      const renderSectionHeaders = (preN: number, postN: number, cols: string) => (
+        <div className="grid shrink-0" style={{ gridTemplateColumns: cols, borderBottom: '2px solid #d4af37' }}>
+          <div
+            className="px-2.5 py-2 flex items-center justify-between gap-1"
+            style={{ background: 'linear-gradient(90deg, rgba(251,191,36,0.22) 0%, rgba(251,191,36,0.04) 100%)', borderRight: '2px solid #d4af37', borderTop: '3px solid #fbbf24' }}
+          >
+            <div className="flex flex-col leading-tight min-w-0">
+              <span className="text-[15px] font-black uppercase text-amber-300 truncate" style={{ letterSpacing: '0.08em', fontFamily: 'var(--font-geist-mono, monospace)' }}>Pre-Market</span>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-amber-200/50">Before open</span>
+            </div>
+            <span className="px-2 py-0.5 rounded bg-amber-400/20 text-amber-200 text-[13px] font-black font-mono">{preN}</span>
+          </div>
+          <div
+            className="px-2.5 py-2 flex items-center justify-between gap-1"
+            style={{ background: 'linear-gradient(90deg, rgba(34,211,238,0.22) 0%, rgba(34,211,238,0.04) 100%)', borderTop: '3px solid #22d3ee' }}
+          >
+            <div className="flex flex-col leading-tight min-w-0">
+              <span className="text-[15px] font-black uppercase text-cyan-300 truncate" style={{ letterSpacing: '0.08em', fontFamily: 'var(--font-geist-mono, monospace)' }}>After-Hours</span>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-cyan-200/50">After close</span>
+            </div>
+            <span className="px-2 py-0.5 rounded bg-cyan-400/20 text-cyan-200 text-[13px] font-black font-mono">{postN}</span>
+          </div>
+        </div>
+      )
 
       // Market-cap priority order — highest first; unknown tickers rank last
       const MCAP_RANK: Record<string, number> = {
@@ -2540,15 +2496,23 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
           if (!ticker) return null
           const isHyped = HYPED_TICKERS.has(ticker)
           const logoSize = isHyped ? NM_SIZE_HYPED : NM_SIZE
+          const m = earningsMeta(ev)
           return (
-            <div key={`${ticker}-${ev.date}-${ev.time}-${isPre ? 'pre' : 'post'}-${idx}`} className="flex flex-col items-center gap-1 cursor-default">
-              <div style={isHyped
-                ? { borderRadius: 18, padding: 3, border: '2px solid #f97316', boxShadow: '0 0 12px rgba(249,115,22,0.7), 0 0 24px rgba(249,115,22,0.25)' }
-                : { borderRadius: 18, padding: 2, border: '2px solid transparent' }
+            <div key={`${ticker}-${ev.date}-${ev.time}-${isPre ? 'pre' : 'post'}-${idx}`} title={m.tip} className="flex flex-col items-center gap-1 cursor-default transition-transform hover:scale-105">
+              <div className="relative" style={m.hasResult
+                ? { borderRadius: 18, padding: 3, border: `3px solid ${m.resColor}` }
+                : isHyped
+                  ? { borderRadius: 18, padding: 3, border: '2px solid #f97316', boxShadow: '0 0 12px rgba(249,115,22,0.7), 0 0 24px rgba(249,115,22,0.25)' }
+                  : { borderRadius: 18, padding: 2, border: '2px solid transparent' }
               }>
                 <div style={{ borderRadius: 14, overflow: 'hidden', width: logoSize, height: logoSize, flexShrink: 0 }}>
                   <CompanyLogo ticker={ticker} size={logoSize} />
                 </div>
+                {m.hasResult && m.beat != null && (
+                  <span className="absolute top-1 right-1 font-black leading-none rounded" style={{ background: m.resColor, color: '#000', fontSize: 12, padding: '3px 6px' }}>
+                    {m.beat ? 'BEAT' : 'MISS'}
+                  </span>
+                )}
               </div>
               <span className={`text-[18px] font-black ${isHyped ? 'text-orange-400' : 'text-white'}`} style={{ fontFamily: 'monospace' }}>{ticker}</span>
             </div>
@@ -2602,38 +2566,22 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                   const isToday = day.toDateString() === today.toDateString()
                   return (
                     <div key={i} className={`flex flex-col overflow-hidden ${isToday ? 'bg-orange-500/[0.04]' : ''}`} style={{ borderRight: '2px solid #d4af37' }}>
-                      {/* Day header */}
-                      <div className={`px-2 py-3 text-center shrink-0 ${isToday ? 'bg-orange-500/10' : 'bg-[#080808]'}`} style={{ borderBottom: '2px solid #d4af37' }}>
-                        <div className={`text-[19px] font-black tracking-widest uppercase ${isToday ? 'text-orange-400' : 'text-white'}`}>
-                          {DAY_FULL[i]} {MONTH_SHORT[day.getMonth()]} {day.getDate()}
-                        </div>
-                      </div>
+                      {renderDayHeader(day, i, isToday, preEvs.length + postEvs.length)}
                       <div className="flex flex-col flex-1">
-                        {/* Section headers */}
-                        <div className="grid shrink-0" style={{ gridTemplateColumns: '1fr 1fr', borderBottom: '2px solid #d4af37' }}>
-                          <div className="px-2 py-1.5 flex items-center gap-1" style={{ background: 'linear-gradient(90deg,rgba(251,191,36,0.10) 0%,transparent 100%)', borderRight: '2px solid #d4af37' }}>
-                            <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                            <span className="text-[16px] font-black uppercase text-amber-300" style={{ letterSpacing: '0.08em', fontFamily: 'var(--font-geist-mono, monospace)' }}>Pre-Market</span>
-                          </div>
-                          <div className="px-2 py-1.5 flex items-center gap-1" style={{ background: 'linear-gradient(90deg,rgba(0,174,239,0.10) 0%,transparent 100%)' }}>
-                            <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
-                            <span className="text-[16px] font-black uppercase text-cyan-300" style={{ letterSpacing: '0.08em', fontFamily: 'var(--font-geist-mono, monospace)' }}>After-Hours</span>
-                          </div>
-                        </div>
-                        {/* 2-col logo grids side by side */}
+                        {renderSectionHeaders(preEvs.length, postEvs.length, '1fr 1fr')}                        {/* 2-col logo grids side by side */}
                         <div className="flex-1 grid" style={{ gridTemplateColumns: '1fr 1fr', minHeight: '120px' }}>
                           {/* Pre-Market — 2 columns, round 144px logos */}
                           <div className="grid grid-cols-2 gap-3 p-2 content-start" style={{ borderRight: '2px solid #d4af37', background: 'linear-gradient(180deg, rgba(15,5,0,0.25) 0%, rgba(5,1,0,0.18) 40%, rgba(2,0,0,0.22) 100%)' }}>
                             {preEvs.length === 0
                               ? <span className="text-xs text-white/15 font-bold italic mt-1 col-span-2">—</span>
-                              : preEvs.map((ev, idx) => renderNotableLogo(ev, true, idx))
+                              : sortByImportance(preEvs).map((ev, idx) => renderNotableLogo(ev, true, idx))
                             }
                           </div>
                           {/* After-Hours — 2 columns, round 144px logos */}
                           <div className="grid grid-cols-2 gap-3 p-2 content-start" style={{ background: 'linear-gradient(180deg, rgba(2,8,20,0.25) 0%, rgba(0,3,8,0.18) 40%, rgba(0,1,4,0.22) 100%)' }}>
                             {postEvs.length === 0
                               ? <span className="text-xs text-white/15 font-bold italic mt-1 col-span-2">—</span>
-                              : postEvs.map((ev, idx) => renderNotableLogo(ev, false, idx))
+                              : sortByImportance(postEvs).map((ev, idx) => renderNotableLogo(ev, false, idx))
                             }
                           </div>
                         </div>
@@ -2648,6 +2596,30 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
       }
 
       // ── LOGOS view ──────────────────────────────────────────────────────────
+      const renderWeeklyTile = (ev: CalendarEvent, ei: number) => {
+        const ticker = extractTicker(ev.event)
+        if (!ticker) return null
+        const isHyped = HYPED_TICKERS.has(ticker)
+        const m = earningsMeta(ev)
+        const ring = m.hasResult
+          ? { borderRadius: 10, padding: 2, border: `2px solid ${m.resColor}` }
+          : isHyped
+            ? { borderRadius: 10, padding: 2, border: '2px solid #f97316', boxShadow: '0 0 8px rgba(249,115,22,0.65), 0 0 18px rgba(249,115,22,0.2)' }
+            : { borderRadius: 10, padding: 2, border: '2px solid transparent' }
+        return (
+          <div key={`${ticker}-${ei}`} title={m.tip} className="flex flex-col items-center gap-0.5 cursor-default transition-transform hover:scale-110">
+            <div className="relative" style={ring}>
+              <CompanyLogo ticker={ticker} size={72} />
+              {m.hasResult && m.beat != null && (
+                <span className="absolute -top-1 -right-1 font-black leading-none rounded-sm" style={{ background: m.resColor, color: '#000', fontSize: 9, padding: '2px 4px' }}>
+                  {m.beat ? 'BEAT' : 'MISS'}
+                </span>
+              )}
+            </div>
+            <span className={`text-[12px] font-black ${isHyped ? 'text-orange-400' : 'text-white'}`}>{ticker}</span>
+          </div>
+        )
+      }
       const mDay = weekDays[mobileDayIdx]
       const mPre = isMobile ? getWeekEarnings(mDay, 'Pre-Market') : []
       const mPost = isMobile ? getWeekEarnings(mDay, 'Post-Market') : []
@@ -2724,35 +2696,11 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                 const isToday = day.toDateString() === today.toDateString()
                 return (
                   <div key={i} className={`flex flex-col overflow-hidden ${isToday ? 'bg-orange-500/[0.04]' : ''}`} style={{ borderRight: '2px solid #d4af37' }}>
-                    {/* Day header */}
-                    <div
-                      className={`px-2 py-3 text-center shrink-0 ${isToday ? 'bg-orange-500/10' : 'bg-[#080808]'}`}
-                      style={{ borderBottom: '2px solid #d4af37' }}
-                    >
-                      <div className={`text-[19px] font-black tracking-widest uppercase ${isToday ? 'text-orange-400' : 'text-white'}`}>
-                        {DAY_FULL[i]} {MONTH_SHORT[day.getMonth()]} {day.getDate()}
-                      </div>
-                    </div>
+                    {renderDayHeader(day, i, isToday, preEvs.length + postEvs.length)}
 
-                    {/* Pre-Market | After-Hours side-by-side: 1 col pre + 2 col after */}
+                    {/* Pre-Market | After-Hours side-by-side */}
                     <div className="flex flex-col flex-1">
-                      {/* Section headers */}
-                      <div className="grid shrink-0" style={{ gridTemplateColumns: '2fr 3fr', borderBottom: '2px solid #d4af37' }}>
-                        <div
-                          className="px-2 py-1.5 flex items-center gap-1"
-                          style={{ background: 'linear-gradient(90deg,rgba(251,191,36,0.10) 0%,transparent 100%)', borderRight: '2px solid #d4af37' }}
-                        >
-                          <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                          <span className="text-[15px] font-black uppercase text-amber-300" style={{ letterSpacing: '0.10em', fontFamily: 'var(--font-geist-mono, monospace)' }}>Pre-Market</span>
-                        </div>
-                        <div
-                          className="px-2 py-1.5 flex items-center gap-1"
-                          style={{ background: 'linear-gradient(90deg,rgba(0,174,239,0.10) 0%,transparent 100%)' }}
-                        >
-                          <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
-                          <span className="text-[15px] font-black uppercase text-cyan-300" style={{ letterSpacing: '0.10em', fontFamily: 'var(--font-geist-mono, monospace)' }}>After-Hours</span>
-                        </div>
-                      </div>
+                      {renderSectionHeaders(preEvs.length, postEvs.length, '2fr 4fr')}
                       {/* Logo grid: pre + after side by side */}
                       <div className="flex-1 grid" style={{ gridTemplateColumns: '2fr 4fr', minHeight: '120px' }}>
                         {/* Pre-Market logos — 2 columns */}
@@ -2760,19 +2708,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                           {preEvs.length === 0 ? (
                             <span className="text-xs text-white/15 font-bold italic mt-1 col-span-2">—</span>
                           ) : (
-                            preEvs.map((ev, ei) => {
-                              const ticker = extractTicker(ev.event)
-                              if (!ticker) return null
-                              const isHyped = HYPED_TICKERS.has(ticker)
-                              return (
-                                <div key={ei} className="flex flex-col items-center gap-0.5 group cursor-default">
-                                  <div style={isHyped ? { borderRadius: 10, padding: 2, border: '2px solid #f97316', boxShadow: '0 0 8px rgba(249,115,22,0.65), 0 0 18px rgba(249,115,22,0.2)' } : undefined}>
-                                    <CompanyLogo ticker={ticker} size={72} />
-                                  </div>
-                                  <span className={`text-[11px] font-black ${isHyped ? 'text-orange-400' : 'text-white'}`}>{ticker}</span>
-                                </div>
-                              )
-                            })
+                            sortByImportance(preEvs).map(renderWeeklyTile)
                           )}
                         </div>
                         {/* After-Hours logos — 4 columns */}
@@ -2780,19 +2716,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                           {postEvs.length === 0 ? (
                             <span className="text-xs text-white/15 font-bold italic mt-1 col-span-4">—</span>
                           ) : (
-                            postEvs.map((ev, ei) => {
-                              const ticker = extractTicker(ev.event)
-                              if (!ticker) return null
-                              const isHyped = HYPED_TICKERS.has(ticker)
-                              return (
-                                <div key={ei} className="flex flex-col items-center gap-0.5 group cursor-default">
-                                  <div style={isHyped ? { borderRadius: 10, padding: 2, border: '2px solid #f97316', boxShadow: '0 0 8px rgba(249,115,22,0.65), 0 0 18px rgba(249,115,22,0.2)' } : undefined}>
-                                    <CompanyLogo ticker={ticker} size={72} />
-                                  </div>
-                                  <span className={`text-[11px] font-black ${isHyped ? 'text-orange-400' : 'text-white'}`}>{ticker}</span>
-                                </div>
-                              )
-                            })
+                            sortByImportance(postEvs).map(renderWeeklyTile)
                           )}
                         </div>
                       </div>
@@ -2807,63 +2731,101 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
     }
 
     // ── MONTHLY VIEW ───────────────────────────────────────────────────────────
+    const GRID_LINE = '1px solid rgba(255,255,255,0.08)'
+    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+    const busiestCount = Math.max(
+      1,
+      ...Object.values(monthEventMap).map((evs) => evs.filter((e) => e.type === 'earnings').length)
+    )
+
     const renderMonthly = () => (
-      <div className="flex-1">
-        <div className="grid grid-cols-5" style={{ borderBottom: '2px solid #d4af37' }}>
-          {(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] as const).map((d, i) => (
-            <div
-              key={d}
-              className="py-3 text-center font-black text-white uppercase bg-[#060606]"
-              style={{ fontSize: isMobile ? '11px' : '18px', letterSpacing: isMobile ? '0.04em' : '0.1em' }}
-            >
-              {isMobile ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'][i] : d}
-            </div>
-          ))}
+      <div className="flex-1 flex flex-col">
+        <div className="grid grid-cols-5 bg-[#080808]" style={{ borderBottom: '1px solid rgba(255,255,255,0.14)' }}>
+          {(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] as const).map((d, i) => {
+            const isTodayCol = isThisMonth && (new Date(year, month, todayNum).getDay() + 6) % 7 === i
+            return (
+              <div
+                key={d}
+                className="py-3 text-center font-black uppercase"
+                style={{
+                  fontSize: isMobile ? '11px' : '14px',
+                  letterSpacing: isMobile ? '0.04em' : '0.2em',
+                  color: isTodayCol ? '#fb923c' : 'rgba(255,255,255,0.75)',
+                  borderRight: i < 4 ? GRID_LINE : undefined,
+                }}
+              >
+                {isMobile ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'][i] : d}
+              </div>
+            )
+          })}
         </div>
 
         {weeks.map((wk, wi) => (
-          <div key={wi} className="grid grid-cols-5" style={{ borderBottom: '2px solid #d4af37' }}>
+          <div key={wi} className="grid grid-cols-5" style={{ borderBottom: GRID_LINE }}>
             {wk.slice(1, 6).map((day, di) => {
               if (!day)
                 return (
                   <div
                     key={di}
                     className="bg-[#030303] min-h-[200px]"
-                    style={{ borderRight: '2px solid #d4af37' }}
+                    style={{ borderRight: di < 4 ? GRID_LINE : undefined }}
                   />
                 )
               const dayEvs = monthEventMap[day] ?? []
               const isToday = day === todayNum
               const isSelected = day === selectedCalDate
+              const isPast = new Date(year, month, day) < startOfToday
               const earningEvs = dayEvs.filter((e) => e.type === 'earnings')
               const holidayEvs = dayEvs.filter((e) => e.type === 'holiday')
               const otherEvs = dayEvs.filter((e) => e.type !== 'earnings' && e.type !== 'holiday')
+              const preCount = earningEvs.filter((e) => e.time === 'Pre-Market').length
+              const postCount = earningEvs.filter((e) => e.time === 'Post-Market').length
+              const heat = earningEvs.length / busiestCount
               return (
                 <div
                   key={di}
                   onClick={() => setSelectedCalDate(isSelected ? null : day)}
-                  style={{ borderRight: '2px solid #d4af37' }}
-                  className={`relative min-h-[200px] p-1.5 cursor-pointer transition-all flex flex-col overflow-hidden ${isSelected
-                    ? 'bg-orange-500/10 ring-1 ring-inset ring-orange-500/50'
-                    : isToday
-                      ? 'bg-orange-500/5'
-                      : dayEvs.length > 0
-                        ? 'hover:bg-white/[0.02]'
-                        : 'hover:bg-white/[0.01]'
-                    }`}
+                  style={{
+                    borderRight: di < 4 ? GRID_LINE : undefined,
+                    opacity: isPast && !isSelected ? 0.6 : 1,
+                    background: isSelected
+                      ? 'rgba(249,115,22,0.10)'
+                      : isToday
+                        ? 'linear-gradient(180deg, rgba(249,115,22,0.14) 0%, rgba(249,115,22,0.02) 100%)'
+                        : calView === 'earnings' && heat > 0
+                          ? `rgba(255,255,255,${(0.01 + heat * 0.035).toFixed(3)})`
+                          : undefined,
+                    boxShadow: isToday
+                      ? 'inset 0 3px 0 #f97316'
+                      : isSelected
+                        ? 'inset 0 0 0 1px rgba(249,115,22,0.6)'
+                        : undefined,
+                  }}
+                  className="relative min-h-[240px] p-2 cursor-pointer transition-colors flex flex-col overflow-hidden hover:bg-white/[0.04]"
                 >
-                  {/* Day number */}
-                  <div className="mb-2">
+                  {/* Day number + counts */}
+                  <div className="mb-2 flex items-center justify-between gap-2">
                     {isToday ? (
-                      <span className="inline-flex items-center justify-center w-9 h-9 bg-orange-500 text-black rounded-full font-black text-[21px]">
+                      <span className="inline-flex items-center justify-center w-9 h-9 bg-orange-500 text-black rounded-full font-black text-[20px]">
                         {day}
                       </span>
                     ) : (
                       <span
-                        className={`text-[21px] font-black ${isSelected ? 'text-orange-400' : dayEvs.length > 0 ? 'text-white' : 'text-white/25'}`}
+                        className={`text-[20px] font-black ${isSelected ? 'text-orange-400' : dayEvs.length > 0 ? 'text-white' : 'text-white/25'}`}
                       >
                         {day}
                       </span>
+                    )}
+                    {calView === 'earnings' && earningEvs.length > 0 && !isMobile && (
+                      <div className="flex items-center gap-1.5 font-mono font-black text-[11px]">
+                        {preCount > 0 && (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-400/15 text-amber-300">{preCount} PRE</span>
+                        )}
+                        {postCount > 0 && (
+                          <span className="px-1.5 py-0.5 rounded bg-cyan-400/15 text-cyan-300">{postCount} AH</span>
+                        )}
+                        <span className="px-1.5 py-0.5 rounded bg-white/10 text-white">{earningEvs.length}</span>
+                      </div>
                     )}
                   </div>
 
@@ -2871,9 +2833,9 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                   {holidayEvs.map((ev, ei) => (
                     <div
                       key={`h${ei}`}
-                      className="text-[10px] font-black px-1 py-0.5 rounded mb-1 truncate bg-yellow-500/20 text-yellow-300 border border-yellow-500/30"
+                      className="text-[11px] font-black px-2 py-1 rounded mb-1 truncate bg-yellow-500/15 text-yellow-300 border border-yellow-500/30 tracking-widest"
                     >
-                      🚫 CLOSED
+                      MARKET CLOSED
                     </div>
                   ))}
 
@@ -2919,19 +2881,39 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                     // Layout: 6-col grid per row — col 1-2 = pre-market, col 3-6 = post-market
                     const PRE_COLS = 2
                     const POST_COLS = 4
-                    const FIXED_ROWS = 2
+                    const FIXED_ROWS = 3
 
                     const renderCell = (ev: typeof earningEvs[0] | undefined, key: string, accent?: string) => {
                       if (!ev) return <div key={key} style={{ aspectRatio: '1 / 1' }} />
                       const ticker = extractTicker(ev.event)
                       if (!ticker) return <div key={key} style={{ aspectRatio: '1 / 1' }} />
+                      const hasResult = !!ev.actual
+                      const resColor = ev.beat === true ? '#22c55e' : ev.beat === false ? '#ef4444' : '#9ca3af'
+                      const eps = hasResult ? ev.actual : ev.forecast
+                      const tip = `${ev.event}\n${ev.time}${ev.forecast ? `\nEPS est: ${ev.forecast}` : ''}${ev.prior ? `\nPrior: ${ev.prior}` : ''}${hasResult ? `\nActual: ${ev.actual}${ev.surprise ? ` (${ev.surprise})` : ''}` : ''}`
                       return (
-                        <div key={key} className="relative" style={{ aspectRatio: '1 / 1' }}>
+                        <div
+                          key={key}
+                          title={tip}
+                          className="relative transition-transform hover:scale-[1.06] hover:z-10"
+                          style={{
+                            aspectRatio: '1 / 1',
+                            boxShadow: hasResult ? `inset 0 0 0 2px ${resColor}` : ev.importance === 'critical' ? 'inset 0 0 0 2px #f97316' : undefined,
+                          }}
+                        >
                           <CompanyLogo ticker={ticker} fluid />
                           {accent && (
                             <div className="absolute top-0 left-0 w-1 h-full" style={{ background: accent, opacity: 0.7 }} />
                           )}
-                          <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.65)', padding: '1px 0' }}>
+                          {hasResult && ev.beat != null && (
+                            <div
+                              className="absolute top-0 right-0 font-black leading-none"
+                              style={{ background: resColor, color: '#000', fontSize: '9px', padding: '2px 4px' }}
+                            >
+                              {ev.beat ? 'BEAT' : 'MISS'}
+                            </div>
+                          )}
+                          <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.78)', padding: '2px 0' }}>
                             <span className="text-white font-black leading-none truncate px-0.5" style={{ fontSize: '12px' }}>{ticker}</span>
                           </div>
                         </div>
@@ -2976,9 +2958,9 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                           ))}
                         </div>
                         {(preOverflow > 0 || postOverflow > 0) && (
-                          <div className="flex gap-2 text-[9px] font-black pl-0.5 pt-0.5">
-                            {preOverflow > 0 && <span className="text-amber-400/60">+{preOverflow} pre</span>}
-                            {postOverflow > 0 && <span className="text-indigo-400/60">+{postOverflow} post</span>}
+                          <div className="flex gap-2 text-[11px] font-black font-mono pt-1">
+                            {preOverflow > 0 && <span className="px-1.5 py-0.5 rounded bg-amber-400/15 text-amber-300">+{preOverflow} more pre</span>}
+                            {postOverflow > 0 && <span className="px-1.5 py-0.5 rounded bg-cyan-400/15 text-cyan-300">+{postOverflow} more after</span>}
                           </div>
                         )}
                       </div>
@@ -3024,7 +3006,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
       <div className="flex flex-col" style={{ minHeight: '100%' }}>
 
         {/* ── HEADER ── */}
-        <div className="px-5 pt-5 pb-4 border-b border-white/[0.06] bg-[#080808] sticky top-0 z-10">
+        <div className="px-5 pt-2.5 pb-2.5 border-b border-white/[0.06] bg-[#080808] sticky top-0 z-10">
           {/* ── MOBILE: compact single-row calendar controls ── */}
           {isMobile && (
             <NewsPanelMobileCalendarControls
@@ -3052,7 +3034,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
             />
           )}
           {/* Row 1: view toggles + nav */}
-          <div className="flex items-center justify-between mb-4 gap-3 flex-wrap" style={{ display: isMobile ? 'none' : undefined }}>
+          <div className="flex items-center justify-between gap-3 flex-wrap" style={{ display: isMobile ? 'none' : undefined }}>
             {/* Left toggles */}
             <div className="flex items-center gap-3 flex-wrap">
               {/* Calendar company search */}
@@ -3436,10 +3418,10 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
   // MAIN RENDER
   // ══════════════════════════════════════════════════════════════════════════
   const tabs = [
-    { id: 'breaking' as const, label: 'Breaking', icon: LuRadioTower, sub: 'Top stories now', color: '#E5E7EB' },
-    { id: 'feed' as const, label: 'Live Feed', icon: LuNewspaper, sub: 'Real-time headlines', color: '#E5E7EB' },
-    { id: 'movers' as const, label: 'Movers', icon: LuTrendingUp, sub: 'Stocks on the move', color: '#E5E7EB' },
-    { id: 'calendar' as const, label: 'Calendar', icon: LuCalendarDays, sub: 'Earnings & events', color: '#E5E7EB' },
+    { id: 'breaking' as const, label: 'Breaking', icon: LuRadioTower, sub: 'Top stories now', color: '#ef4444' },
+    { id: 'feed' as const, label: 'Live Feed', icon: LuNewspaper, sub: 'Real-time headlines', color: '#38bdf8' },
+    { id: 'movers' as const, label: 'Movers', icon: LuTrendingUp, sub: 'Stocks on the move', color: '#34d399' },
+    { id: 'calendar' as const, label: 'Calendar', icon: LuCalendarDays, sub: 'Earnings & events', color: '#fb923c' },
   ]
 
   return (
@@ -3482,19 +3464,44 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
         className="shrink-0 border-b border-white/10"
         style={{ background: 'linear-gradient(180deg, #0d0d0d 0%, #070707 100%)' }}
       >
-        <div className="flex items-center gap-4 px-5 pt-4 pb-3 flex-wrap">
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="w-1.5 h-9 rounded-full bg-orange-500" />
-            <div className="leading-tight">
-              <div className="text-white font-extrabold text-2xl tracking-tight">News Center</div>
-              <div className="flex items-center gap-2 text-[12px] font-bold tracking-[0.18em] uppercase text-white/60">
-                <span className="relative flex h-2 w-2">
+        <div className="flex items-center gap-4 px-5 py-2.5 flex-nowrap">
+          <div className="flex items-center gap-2.5 shrink-0">
+            <div className="w-1 h-7 rounded-full bg-orange-500" />
+            <div className="leading-none">
+              <div className="text-white font-black text-[15px] tracking-[0.16em] uppercase">News Center</div>
+              <div className="flex items-center gap-1.5 mt-1 text-[10px] font-bold tracking-[0.14em] uppercase text-white/50 tabular-nums">
+                <span className="relative flex h-1.5 w-1.5">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
                 </span>
                 Live &middot; {clock}
               </div>
             </div>
+          </div>
+
+          {/* TABS */}
+          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-white/[0.04] border border-white/10 shrink-0" style={{ width: 'max-content' }}>
+            {tabs.map(({ id, label, icon: Icon, color }) => {
+              const isActive = activeTab === id
+              return (
+                <button
+                  key={id}
+                  onClick={() => {
+                    setActiveTab(id)
+                    onTabChange?.(id)
+                    savedScrollPos.current = 0
+                  }}
+                  className="relative flex items-center gap-2 h-9 px-4 rounded-lg text-[14px] font-extrabold tracking-wide transition-all"
+                  style={isActive
+                    ? { background: `${color}26`, color: '#fff', boxShadow: `inset 0 0 0 1px ${color}80, 0 0 14px ${color}30` }
+                    : { color: 'rgba(255,255,255,0.75)' }}
+                >
+                  <Icon className="w-[18px] h-[18px] shrink-0" style={{ color }} strokeWidth={2.25} />
+                  {label}
+                  {isActive && <span className="absolute left-3 right-3 -bottom-px h-[2px] rounded-full" style={{ background: color }} />}
+                </button>
+              )
+            })}
           </div>
 
           {activeTab !== 'calendar' && (
@@ -3511,7 +3518,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
                 {searchTicker && (
                   <button
                     type="button"
-                    onClick={() => setSearchTicker('')}
+                    onClick={() => { setSearchTicker(''); setQuery('') }}
                     className="text-white/50 hover:text-white transition-colors"
                     aria-label="Clear search"
                   >
@@ -3528,7 +3535,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
             </form>
           )}
 
-          <div className={`flex items-center gap-2 shrink-0 ${activeTab === 'calendar' ? 'ml-auto' : ''}`}>
+          <div className={`flex items-center gap-2 shrink-0 ml-auto`}>
             {marketSentiment && (
               <div
                 className={`flex items-center gap-1.5 h-9 px-3.5 rounded-full border text-[12px] font-black uppercase tracking-widest ${marketSentiment.overall_sentiment === 'bullish'
@@ -3550,7 +3557,7 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
             )}
             <button
               type="button"
-              onClick={() => fetchNews(searchTicker)}
+              onClick={() => fetchNews(query)}
               className="flex items-center justify-center w-9 h-9 rounded-full bg-white/[0.06] border border-white/15 hover:border-orange-500/60 transition-all group"
               title="Refresh feed"
               aria-label="Refresh feed"
@@ -3570,38 +3577,6 @@ const NewsPanelV2: React.FC<NewsTabProps> = ({ symbol = '', onClose, onTabChange
               </button>
             )}
           </div>
-        </div>
-
-        {/* TAB CARDS */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 px-5 pb-4">
-          {tabs.map(({ id, label, icon: Icon, sub, color }) => {
-            const isActive = activeTab === id
-            return (
-              <button
-                key={id}
-                onClick={() => {
-                  setActiveTab(id)
-                  onTabChange?.(id)
-                  savedScrollPos.current = 0
-                }}
-                className={`relative flex items-center gap-3 px-5 py-3.5 rounded-lg border text-left transition-all min-w-0 ${isActive
-                  ? 'border-white/30 bg-white/[0.09]'
-                  : 'border-white/10 bg-white/[0.02] hover:bg-white/[0.06] hover:border-white/25'
-                  }`}
-              >
-                <Icon className={`w-[22px] h-[22px] shrink-0 ${isActive ? 'text-white' : 'text-white/60'}`} strokeWidth={1.75} />
-                <span className="min-w-0 leading-tight">
-                  <span className={`block text-[16px] font-bold tracking-wide truncate ${isActive ? 'text-white' : 'text-white/85'}`}>
-                    {label}
-                  </span>
-                  <span className="block text-[12px] font-medium truncate text-white/55">
-                    {sub}
-                  </span>
-                </span>
-                {isActive && <span className="absolute left-4 right-4 -bottom-px h-[2px] rounded-full bg-orange-500" />}
-              </button>
-            )
-          })}
         </div>
       </div>
 

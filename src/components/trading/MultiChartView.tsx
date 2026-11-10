@@ -23,13 +23,13 @@ interface MultiChartViewProps {
   isSeasonal10YActive: boolean; isSeasonalElectionActive: boolean;
   isExpectedRangeActive: boolean; expectedRangeLevels: any;
   isWeeklyActive: boolean; isMonthlyActive: boolean; isExpansionLiquidationActive: boolean;
-  technalysisActive: boolean; technalysisFeatures: any; isFlowChartActive: boolean;
+  isFlowChartActive: boolean;
   flowChartData: any[]; flowChartHeight: number; isIVRankActive: boolean; isIVPercentileActive: boolean;
   isHVActive: boolean; showIVPanel: boolean; ivData: any[]; isIVLoading: boolean;
   showCallIVLine: boolean; showPutIVLine: boolean; showNetIVLine: boolean; hvWindow: number;
   ivPanelHeight: number; drawings: any[]; activeTool: string | null;
   renderExpectedRangeLines: any; detectExpansionLiquidation: any;
-  invalidateTouchedZones: any; renderExpansionLiquidationZone: any; renderTechnalysisIndicators: any;
+  invalidateTouchedZones: any; renderExpansionLiquidationZone: any;
   handleUnifiedMouseDown: any; handleCanvasMouseMove: any; handleMouseLeave: any;
   perChartIndicators?: Record<string, Record<string, any>>;
 }
@@ -43,12 +43,12 @@ export default function MultiChartView({
   isSeasonalActive, seasonal20YData, seasonal15YData, seasonal10YData, seasonalElectionData,
   isSeasonal20YActive, isSeasonal15YActive, isSeasonal10YActive, isSeasonalElectionActive,
   isExpectedRangeActive, expectedRangeLevels,
-  isWeeklyActive, isMonthlyActive, isExpansionLiquidationActive, technalysisActive, technalysisFeatures,
+  isWeeklyActive, isMonthlyActive, isExpansionLiquidationActive,
   isFlowChartActive, flowChartData, flowChartHeight, isIVRankActive, isIVPercentileActive,
   isHVActive, showIVPanel, ivData, isIVLoading, showCallIVLine, showPutIVLine, showNetIVLine,
   hvWindow, ivPanelHeight, drawings, activeTool,
   renderExpectedRangeLines, renderGEXLevels, detectExpansionLiquidation,
-  invalidateTouchedZones, renderExpansionLiquidationZone, renderTechnalysisIndicators,
+  invalidateTouchedZones, renderExpansionLiquidationZone,
   handleUnifiedMouseDown, handleCanvasMouseMove, handleMouseLeave,
   perChartIndicators = {},
 }: MultiChartViewProps) {
@@ -101,7 +101,6 @@ export default function MultiChartView({
     const s10A = d('isSeasonal10YActive', isSeasonal10YActive);
     const selA = d('isSeasonalElectionActive', isSeasonalElectionActive);
     const expA = d('isExpansionLiquidationActive', isExpansionLiquidationActive);
-    const tecA = d('technalysisActive', technalysisActive);
     const flwA = d('isFlowChartActive', isFlowChartActive);
 
     const timeAxisH = 30;
@@ -251,10 +250,6 @@ export default function MultiChartView({
       });
     }
 
-    // Technalysis
-    if ((tecA || Object.values(technalysisFeatures).some((f: any) => f)) && renderTechnalysisIndicators)
-      renderTechnalysisIndicators(ctx, chartData, chartW, priceCH, aMin, aMax, si, visCount, technalysisFeatures);
-
     // Volume
     const maxVol = Math.max(...vis.map(c2 => c2.volume).filter(v => v > 0), 1);
     const rgba = (hex: string, a: number) => {
@@ -340,10 +335,10 @@ export default function MultiChartView({
     isSeasonalActive, seasonal20YData, seasonal15YData, seasonal10YData,
     seasonalElectionData, isSeasonal20YActive, isSeasonal15YActive,
     isSeasonal10YActive, isSeasonalElectionActive,
-    isExpansionLiquidationActive, technalysisActive, technalysisFeatures,
+    isExpansionLiquidationActive,
     isFlowChartActive, flowChartHeight, isIVRankActive, isIVPercentileActive, isHVActive, ivPanelHeight,
     renderExpectedRangeLines, detectExpansionLiquidation,
-    invalidateTouchedZones, renderExpansionLiquidationZone, renderTechnalysisIndicators,
+    invalidateTouchedZones, renderExpansionLiquidationZone,
   ]);
 
   useEffect(() => {

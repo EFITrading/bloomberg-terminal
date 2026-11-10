@@ -3150,7 +3150,6 @@ export default function AnalysisSuitePage() {
             buttons.forEach((span: any) => {
               const text = span.textContent || ''
               if (
-                text.includes('TECHNALYSIS') ||
                 text.includes('IV & HV') ||
                 text.includes('FlowMoves') ||
                 text.includes('RRG')

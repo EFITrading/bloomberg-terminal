@@ -1,7 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
 
 // Allow up to 5 minutes for this API route
 export const maxDuration = 300;
+
+// Scanned IV days are stored per ticker so later scans only fetch what is missing.
+// status: OK = IV stored, HOLIDAY = no trading data that day (final), MISS = no usable options data (retried later).
+const RESCAN_RECENT_DAYS = 3;
+const MISS_RETRY_MS = 7 * 86400_000;
+
+let ivTableReady: Promise<unknown> | null = null
+const ensureIvTable = () =>
+  (ivTableReady ??= prisma
+    .$executeRawUnsafe(
+      `CREATE TABLE IF NOT EXISTS "IvDaily" ("ticker" TEXT NOT NULL, "date" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'OK', "callIV" DOUBLE PRECISION, "putIV" DOUBLE PRECISION, "price" DOUBLE PRECISION, "expiration" TEXT, "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY ("ticker", "date"))`
+    )
+    .catch((e) => {
+      ivTableReady = null
+      throw e
+    }))
+
+type StoredRow = { date: string; status: string; callIV: number | null; putIV: number | null; price: number | null; expiration: string | null; updatedAt: Date }
+
+async function saveIvRows(
+  ticker: string,
+  rows: Array<{ date: string; status: 'OK' | 'HOLIDAY' | 'MISS'; callIV?: number | null; putIV?: number | null; price?: number | null; expiration?: string | null }>
+) {
+  if (!rows.length) return
+  for (let i = 0; i < rows.length; i += 100) {
+    const chunk = rows.slice(i, i + 100)
+    const params: any[] = []
+    const values = chunk.map((r, j) => {
+      const o = j * 7
+      params.push(ticker, r.date, r.status, r.callIV ?? null, r.putIV ?? null, r.price ?? null, r.expiration ?? null)
+      return `($${o + 1},$${o + 2},$${o + 3},$${o + 4},$${o + 5},$${o + 6},$${o + 7},CURRENT_TIMESTAMP)`
+    })
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "IvDaily" ("ticker","date","status","callIV","putIV","price","expiration","updatedAt") VALUES ${values.join(',')} ON CONFLICT ("ticker","date") DO UPDATE SET "status"=EXCLUDED."status","callIV"=EXCLUDED."callIV","putIV"=EXCLUDED."putIV","price"=EXCLUDED."price","expiration"=EXCLUDED."expiration","updatedAt"=CURRENT_TIMESTAMP`,
+      ...params
+    )
+  }
+}
 
 // Black-Scholes IV calculation using Newton-Raphson method
 function calculateImpliedVolatility(
@@ -150,7 +189,7 @@ export async function GET(request: NextRequest) {
     };
 
     // Generate array of dates to fetch - go back the full requested period
-    const historicalDates: string[] = [];
+    const allDates: string[] = [];
     const endDate = new Date();
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days); // Go back exactly the number of days requested
@@ -159,12 +198,39 @@ export async function GET(request: NextRequest) {
       // Skip weekends
       const dayOfWeek = d.getDay();
       if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-        historicalDates.push(new Date(d).toISOString().split('T')[0]);
+        allDates.push(new Date(d).toISOString().split('T')[0]);
       }
     }
 
-    console.log(`📊 Calculating 45-day IV history for ${ticker} - ${historicalDates.length} trading days (${days} calendar days lookback)`);
-    console.log(`📅 Date range: ${historicalDates[0]} to ${historicalDates[historicalDates.length - 1]}`);
+    // Load what is already stored for this ticker and work out which days still need scanning
+    const tickerKey = ticker.toUpperCase();
+    let stored = new Map<string, StoredRow>();
+    let dbOk = true;
+    try {
+      await ensureIvTable();
+      const rows = await prisma.$queryRawUnsafe<StoredRow[]>(
+        `SELECT "date","status","callIV","putIV","price","expiration","updatedAt" FROM "IvDaily" WHERE "ticker"=$1 AND "date">=$2`,
+        tickerKey,
+        allDates[0] ?? '1970-01-01'
+      );
+      stored = new Map(rows.map((r) => [r.date, r]));
+    } catch (e) {
+      dbOk = false;
+      console.error('IV cache unavailable, scanning everything:', e);
+    }
+
+    const recentCutoff = new Date(Date.now() - RESCAN_RECENT_DAYS * 86400_000).toISOString().split('T')[0];
+    const historicalDates = allDates.filter((d) => {
+      const row = stored.get(d);
+      if (!row) return true;
+      if (d >= recentCutoff) return true; // latest days can still change, always rescan
+      if (row.status === 'MISS') return Date.now() - new Date(row.updatedAt).getTime() > MISS_RETRY_MS;
+      return false; // OK or HOLIDAY: final
+    });
+    const missKinds = new Map<string, 'HOLIDAY' | 'MISS'>();
+
+    console.log(`📊 Calculating 45-day IV history for ${ticker} - ${allDates.length} trading days, ${allDates.length - historicalDates.length} cached, ${historicalDates.length} to scan (${days} calendar days lookback)`);
+    console.log(`📅 Date range: ${allDates[0]} to ${allDates[allDates.length - 1]}`);
 
     const historicalData: any[] = [];
     let processedCount = 0;
@@ -204,6 +270,8 @@ export async function GET(request: NextRequest) {
 
           if (priceData.status !== 'OK' || !priceData.close) {
             console.log(`❌ [${dateStr}] No stock price data, skipping`);
+            // NOT_FOUND = market closed that day (final); anything else may be a transient API error
+            if (priceData.status === 'NOT_FOUND') missKinds.set(dateStr, 'HOLIDAY');
             return null;
           }
 
@@ -216,6 +284,7 @@ export async function GET(request: NextRequest) {
           if (expirations.length === 0) {
             console.log(`❌ [${dateStr}] No expirations found within 30-45 days, skipping`);
             skippedNoContracts++;
+            missKinds.set(dateStr, 'MISS');
             return null;
           }
 
@@ -384,6 +453,7 @@ export async function GET(request: NextRequest) {
           } else {
             console.log(`⚠️ [${dateStr}] No valid IV data calculated - skipping`);
             skippedNoIV++;
+            missKinds.set(dateStr, 'MISS');
             return null;
           }
 
@@ -397,12 +467,21 @@ export async function GET(request: NextRequest) {
       const batchResults = await Promise.all(batchPromises);
 
       // Add successful results to historicalData
-      batchResults.forEach(result => {
+      const toSave: Parameters<typeof saveIvRows>[1] = [];
+      batchResults.forEach((result, idx) => {
         if (result) {
           historicalData.push(result);
           processedCount++;
+          toSave.push({ date: result.date, status: 'OK', callIV: result.callIV, putIV: result.putIV, price: result.price, expiration: result.expiration });
+        } else {
+          const kind = missKinds.get(batch[idx]);
+          if (kind) toSave.push({ date: batch[idx], status: kind });
         }
       });
+      // Persist after every batch so an interrupted scan keeps its progress
+      if (dbOk) {
+        try { await saveIvRows(tickerKey, toSave); } catch (e) { console.error('Failed to save IV batch:', e); }
+      }
 
       const batchTime = ((Date.now() - batchStartTime) / 1000).toFixed(1);
       const progress = ((batchIndex / batches.length) * 100).toFixed(1);
@@ -413,7 +492,16 @@ export async function GET(request: NextRequest) {
       console.log(`⏱️  Estimated time remaining: ${estimatedRemaining} minutes`);
     }
 
-    console.log(`\n📊 SUMMARY: Processed ${processedCount}/${historicalDates.length} days`);
+    // Merge freshly scanned days with the cached ones
+    const scanned = new Set(historicalData.map((h) => h.date));
+    stored.forEach((row, date) => {
+      if (row.status === 'OK' && !scanned.has(date) && allDates.includes(date)) {
+        historicalData.push({ date, callIV: row.callIV, putIV: row.putIV, price: row.price, expiration: row.expiration ?? '' });
+      }
+    });
+    historicalData.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+    console.log(`\n📊 SUMMARY: Scanned ${processedCount}/${historicalDates.length} days, ${historicalData.length} total points`);
     console.log(`⚠️ Skipped: ${skippedNoContracts} (no contracts), ${skippedNoPrice} (no prices), ${skippedNoIV} (no valid IV)`);
 
     if (historicalData.length === 0) {

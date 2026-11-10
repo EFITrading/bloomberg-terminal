@@ -3,22 +3,28 @@ import { NextRequest, NextResponse } from 'next/server'
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY!
 
 // ─── RSS Sources ─────────────────────────────────────────────────────────────
-// NOTE: https://www.benzinga.com/feed is intentionally excluded — it returns
-// only crypto price predictions and "here's how much $100" evergreen clickbait.
-const RSS_SOURCES = [
-  { name: 'Benzinga News', url: 'https://www.benzinga.com/news/feed', format: 'rss' },
-  { name: 'Benzinga Markets', url: 'https://www.benzinga.com/markets/feed', format: 'rss' },
-  {
-    name: 'Benzinga Trading Ideas',
-    url: 'https://www.benzinga.com/trading-ideas/feed',
-    format: 'rss',
-  },
-  { name: 'Benzinga Movers', url: 'https://www.benzinga.com/movers/feed', format: 'rss' },
-  {
-    name: 'Benzinga Breaking',
-    url: 'https://www.benzinga.com/topic/breaking-news/feed',
-    format: 'atom',
-  },
+// Benzinga feeds return 403 to server requests (Cloudflare), so they are not used.
+// Sources below were verified with scripts/test-news-sources.js.
+const gnews = (q: string) =>
+  `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-US&gl=US&ceid=US:en`
+const RSS_SOURCES: { name: string; url: string; format: string }[] = [
+  { name: 'Google News Markets', url: gnews('stock market when:1d'), format: 'rss' },
+  { name: 'Google News Breaking', url: gnews('breaking news markets when:6h'), format: 'rss' },
+  { name: 'Google News CPI/Inflation', url: gnews('(CPI OR inflation OR PPI OR "jobs report" OR payrolls) when:1d'), format: 'rss' },
+  { name: 'Google News Fed/Rates', url: gnews('(Fed OR FOMC OR Powell OR "interest rates" OR "Treasury yields") when:1d'), format: 'rss' },
+  { name: 'Google News Government', url: gnews('(government OR Congress OR "shutdown" OR "debt ceiling" OR tariffs OR "executive order") markets when:1d'), format: 'rss' },
+  { name: 'Google News War/Geopolitics', url: gnews('(war OR ceasefire OR sanctions OR missile OR Iran OR Ukraine OR Israel) markets when:1d'), format: 'rss' },
+  { name: 'Google News Earnings', url: gnews('(earnings OR guidance OR "beats estimates" OR "misses estimates") stock when:1d'), format: 'rss' },
+  { name: 'Google News Oil/Commodities', url: gnews('(oil OR crude OR OPEC OR gold) prices when:1d'), format: 'rss' },
+  { name: 'Google News Business', url: 'https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en', format: 'rss' },
+  { name: 'CNBC', url: 'https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114', format: 'rss' },
+  { name: 'CNBC Markets', url: 'https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069', format: 'rss' },
+  { name: 'Nasdaq', url: 'https://www.nasdaq.com/feed/rssoutbound?category=Markets', format: 'rss' },
+  { name: 'Seeking Alpha', url: 'https://seekingalpha.com/market_currents.xml', format: 'rss' },
+  { name: 'MarketWatch', url: 'https://feeds.content.dowjones.io/public/rss/mw_topstories', format: 'rss' },
+  { name: 'ZeroHedge', url: 'https://feeds.feedburner.com/zerohedge/feed', format: 'rss' },
+  { name: 'BBC World', url: 'https://feeds.bbci.co.uk/news/world/rss.xml', format: 'rss' },
+  { name: 'NYT Business', url: 'https://rss.nytimes.com/services/xml/rss/nyt/Business.xml', format: 'rss' },
 ]
 
 function calcRSSUrgency(title: string, desc: string, published: Date): number {
@@ -36,17 +42,21 @@ function calcRSSUrgency(title: string, desc: string, published: Date): number {
             : hoursAgo < 12
               ? 0.15
               : 0.05
-  if (/ceasefire|cease.fire|truce|bombing|missile|nuclear|war|invasion/.test(c)) u += 0.4
-  if (/breaking|flash|alert|urgent/.test(c)) u += 0.35
-  if (/trump|tariff|tariffs|sanctions|executive order|white house/.test(c)) u += 0.3
-  if (/iran|israel|ukraine|russia|china|nato|gaza|middle east/.test(c)) u += 0.25
-  if (/fed|federal reserve|rate cut|rate hike|interest rates|cpi|gdp|inflation|jobs report/.test(c))
-    u += 0.25
-  if (/halt|suspend|crash|plunge|collapse|selloff|sell.off|rout/.test(c)) u += 0.25
-  if (/surge|soar|spike|rally|shoot|futures up|futures down/.test(c)) u += 0.2
-  if (/oil|crude|hormuz|opec|energy/.test(c)) u += 0.15
-  if (/earnings|revenue|merger|acquisition|ipo/.test(c)) u += 0.1
-  if (/sec|investigation|fraud|lawsuit|indictment/.test(c)) u += 0.1
+  let kw = 0
+  if (/ceasefire|cease.fire|truce|bombing|missile|nuclear|\bwar\b|invasion/.test(c)) kw += 0.4
+  if (/breaking|flash|alert|urgent/.test(c)) kw += 0.35
+  if (/trump|tariff|tariffs|sanctions|executive order|white house/.test(c)) kw += 0.3
+  if (/iran|israel|ukraine|russia|china|nato|gaza|middle east/.test(c)) kw += 0.25
+  if (/\bfed\b|fomc|powell|federal reserve|rate cut|rate hike|interest rates|\bcpi\b|\bppi\b|gdp|inflation|jobs report|payrolls|unemployment|recession|treasury yields?/.test(c))
+    kw += 0.3
+  if (/government|shutdown|congress|debt ceiling|senate|\bwar\b/.test(c)) kw += 0.2
+  if (/halt|suspend|crash|plunge|collapse|selloff|sell.off|rout/.test(c)) kw += 0.25
+  if (/surge|soar|spike|rally|shoot|futures up|futures down/.test(c)) kw += 0.2
+  if (/oil|crude|hormuz|opec|energy/.test(c)) kw += 0.15
+  if (/earnings|guidance|beats? estimates|misses? estimates|revenue|merger|acquisition|ipo/.test(c)) kw += 0.2
+  if (/\bsec\b|investigation|fraud|lawsuit|indictment/.test(c)) kw += 0.1
+  // Keyword boost is capped and fades with age so scores spread out instead of all hitting 1.0
+  u += Math.min(kw, 0.45) * (hoursAgo < 6 ? 1 : 0.6)
   return Math.min(1, u)
 }
 
@@ -158,30 +168,72 @@ function parseAtomXML(xml: string, sourceName: string): any[] {
     .filter(Boolean)
 }
 
-async function fetchAllRSS(): Promise<any[]> {
+async function fetchAllRSS(ticker?: string | null): Promise<any[]> {
+  // Ticker search: only ticker-specific feeds, so unrelated headlines don't leak in
+  const sources: { name: string; url: string; format: string }[] = ticker ? [] : [...RSS_SOURCES]
+  if (ticker) {
+    const t = ticker.toUpperCase()
+    // Index ETFs share names with common words, so search by what they track
+    const gq: Record<string, string> = {
+      SPY: '"SPY ETF" OR "S&P 500"',
+      QQQ: '"QQQ ETF" OR Nasdaq-100',
+      IWM: '"IWM ETF" OR "Russell 2000"',
+      DIA: '"DIA ETF" OR "Dow Jones"',
+    }
+    sources.unshift(
+      { name: `Google News ${t}`, url: gnews(`${gq[t] ?? `${t} stock`} when:3d`), format: 'rss' },
+      { name: `Yahoo Finance ${t}`, url: `https://feeds.finance.yahoo.com/rss/2.0/headline?s=${t}&region=US&lang=en-US`, format: 'rss' }
+    )
+  }
   const results = await Promise.allSettled(
-    RSS_SOURCES.map(async (src) => {
-      const res = await fetch(src.url, {
-        headers: { 'User-Agent': 'EFI-Bloomberg-Terminal/1.0' },
-        cache: 'no-store',
-        signal: AbortSignal.timeout(5000),
-      })
-      if (!res.ok) return []
-      const xml = await res.text()
-      return src.format === 'atom' ? parseAtomXML(xml, src.name) : parseRSSXML(xml, src.name)
+    sources.map(async (src) => {
+      const t0 = Date.now()
+      try {
+        const res = await fetch(src.url, {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+            Accept: 'application/rss+xml, application/xml, text/xml, */*',
+          },
+          cache: 'no-store',
+          signal: AbortSignal.timeout(6000),
+        })
+        if (!res.ok) {
+          console.log(`[news-rss] ${src.name}: HTTP ${res.status}`)
+          return []
+        }
+        const xml = await res.text()
+        const items = src.format === 'atom' ? parseAtomXML(xml, src.name) : parseRSSXML(xml, src.name)
+        console.log(`[news-rss] ${src.name}: ${items.length} items in ${Date.now() - t0}ms`)
+        return items.map((a: any) => {
+          // Google News titles end with " - Publisher"
+          if (src.name.startsWith('Google News')) {
+            const m = a.title.match(/^(.*) - ([^-]+)$/)
+            if (m) {
+              a.title = m[1]
+              a.publisher = { name: m[2].trim() }
+            }
+          }
+          if (ticker && /\b(Google News|Yahoo Finance) /.test(src.name) && src.name.endsWith(ticker.toUpperCase())) {
+            a.tickers = [ticker.toUpperCase()]
+          }
+          return a
+        })
+      } catch (e: any) {
+        console.log(`[news-rss] ${src.name}: FAILED ${e?.name}`)
+        return []
+      }
     })
   )
   const all = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
 
-  // Deduplicate by article URL — keep the copy with the highest urgency score
-  const byUrl = new Map<string, any>()
+  // Deduplicate by URL and by normalized title — keep the copy with the highest urgency
+  const seen = new Map<string, any>()
   for (const article of all) {
-    const key = article.article_url
-    if (!byUrl.has(key) || article.urgency > byUrl.get(key).urgency) {
-      byUrl.set(key, article)
-    }
+    const key = article.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().slice(0, 80)
+    if (!seen.has(key) || article.urgency > seen.get(key).urgency) seen.set(key, article)
   }
-  return Array.from(byUrl.values())
+  return Array.from(seen.values())
 }
 
 interface NewsArticle {
@@ -291,7 +343,10 @@ export async function GET(request: NextRequest) {
       time_ago: getTimeAgo(article.published_utc),
       category: categorizeNews(article),
       urgency: calculateUrgency(article),
-    }))
+    })).map((a) =>
+      // Zacks earnings recaps are low-value filler; keep them below real headlines
+      /zacks/i.test(a.publisher?.name || '') ? { ...a, urgency: Math.min(a.urgency, 0.3) } : a
+    )
 
     // Quality filter - remove blacklisted publishers and low-urgency "crab" articles
     const qualityFilteredArticles = enhancedArticles.filter((article) => {
@@ -398,7 +453,7 @@ export async function GET(request: NextRequest) {
     if (!category || !skipRSSCategories.includes(category)) {
       try {
         console.log(' Fetching RSS feeds directly...')
-        const rssArticles = await fetchAllRSS()
+        const rssArticles = await fetchAllRSS(ticker)
         console.log(' RSS articles fetched:', rssArticles.length)
         socialArticles = rssArticles
       } catch (error) {
@@ -408,7 +463,7 @@ export async function GET(request: NextRequest) {
 
     // Drop stale RSS articles — if the feed hasn't updated (e.g. holiday weekend)
     // old articles would dominate after Polygon blacklist filtering
-    const cutoff24h = Date.now() - 24 * 60 * 60 * 1000
+    const cutoff24h = Date.now() - (historical || ticker ? 72 : 24) * 60 * 60 * 1000
     const freshSocialArticles = socialArticles.filter(
       (a) => new Date(a.published_utc).getTime() > cutoff24h
     )
