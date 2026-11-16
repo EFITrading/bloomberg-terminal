@@ -609,7 +609,7 @@ function TrackingCard({ symbol, accent, globalTf, globalType, resetKey, livePric
       </div>
 
       {/* X axis labels */}
-      <div style={{ position: 'relative', height: 18, marginRight: 62, marginTop: 3 }}>
+      <div style={{ position: 'relative', height: 36, marginRight: 62, marginTop: 3 }}>
         {xLabels.map((l, k) => (
           <span
             key={k}
@@ -631,7 +631,7 @@ function TrackingCard({ symbol, accent, globalTf, globalType, resetKey, livePric
       {/* Low / High vs now */}
       <div style={{ marginTop: 8, borderTop: '1px solid #1f1f24', paddingTop: 6 }}>
         <div className="flex items-center" style={{ gap: 1, marginBottom: 5 }}>
-          <span style={{ fontSize: 11, color: '#FF8A33', fontWeight: 900, letterSpacing: '1px', marginRight: 6 }}>RANGE</span>
+          <span style={{ fontSize: 14, color: '#FF8A33', fontWeight: 900, letterSpacing: '1px', marginRight: 6 }}>RANGE</span>
           {PERIODS.map((p) => (
             <button key={p} style={btn(period === p)} onClick={() => update({ period: p })}>
               {p}
@@ -641,24 +641,24 @@ function TrackingCard({ symbol, accent, globalTf, globalType, resetKey, livePric
         {stats ? (
           <div className="grid grid-cols-2 gap-2" style={{ fontFamily: 'monospace' }}>
             <div style={{ background: 'rgba(239,68,68,0.07)', borderRadius: 5, padding: '4px 8px' }}>
-              <div style={{ fontSize: 9, color: '#ffffff', fontWeight: 800 }}>
+              <div style={{ fontSize: 13, color: '#ffffff', fontWeight: 800 }}>
                 LOW · {fmtDate(stats.lowT, true)}
               </div>
-              <div style={{ fontSize: 12, color: '#fff', fontWeight: 800 }}>
+              <div style={{ fontSize: 17, color: '#fff', fontWeight: 800 }}>
                 ${fmtPx(stats.low)}{' '}
-                <span style={{ color: UP, fontSize: 11 }}>
+                <span style={{ color: UP, fontSize: 14 }}>
                   {stats.fromLow >= 0 ? '+' : ''}
                   {stats.fromLow.toFixed(1)}%
                 </span>
               </div>
             </div>
             <div style={{ background: 'rgba(34,197,94,0.07)', borderRadius: 5, padding: '4px 8px' }}>
-              <div style={{ fontSize: 9, color: '#ffffff', fontWeight: 800 }}>
+              <div style={{ fontSize: 13, color: '#ffffff', fontWeight: 800 }}>
                 HIGH · {fmtDate(stats.highT, true)}
               </div>
-              <div style={{ fontSize: 12, color: '#fff', fontWeight: 800 }}>
+              <div style={{ fontSize: 17, color: '#fff', fontWeight: 800 }}>
                 ${fmtPx(stats.high)}{' '}
-                <span style={{ color: stats.fromHigh >= 0 ? UP : DOWN, fontSize: 11 }}>
+                <span style={{ color: stats.fromHigh >= 0 ? UP : DOWN, fontSize: 14 }}>
                   {stats.fromHigh >= 0 ? '+' : ''}
                   {stats.fromHigh.toFixed(1)}%
                 </span>
