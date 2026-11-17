@@ -666,6 +666,8 @@ interface EnhancedRegimeDisplayProps {
   selectedPeriod?: string
   watchlistData?: Record<string, any>
   sectorFlowData?: Record<string, number>
+  tableView?: 'table' | 'arena'
+  onTableViewChange?: (v: 'table' | 'arena') => void
 }
 
 function EnhancedRegimeDisplay({
@@ -673,6 +675,8 @@ function EnhancedRegimeDisplay({
   selectedPeriod = '1d',
   watchlistData = {},
   sectorFlowData = {},
+  tableView = 'table',
+  onTableViewChange,
 }: EnhancedRegimeDisplayProps) {
   const [selectedTimeframe, setSelectedTimeframe] = useState(selectedPeriod)
   const [expandedSectors, setExpandedSectors] = useState<string[]>([])
@@ -1193,7 +1197,10 @@ function EnhancedRegimeDisplay({
                 {(['gauge', 'chart'] as const).map((v) => (
                   <button
                     key={v}
-                    onClick={() => handleSetCompositeView(v)}
+                    onClick={() => {
+                      handleSetCompositeView(v)
+                      onTableViewChange?.('table')
+                    }}
                     style={{
                       padding: isMobile ? '3px 8px' : '5px 14px',
                       fontSize: '12px',
@@ -1204,14 +1211,35 @@ function EnhancedRegimeDisplay({
                       cursor: 'pointer',
                       border: 'none',
                       borderRadius: 6,
-                      background: compositeView === v ? '#FF6600' : 'transparent',
-                      color: compositeView === v ? '#000000' : '#FFFFFF',
+                      background: compositeView === v && tableView !== 'arena' ? '#FF6600' : 'transparent',
+                      color: compositeView === v && tableView !== 'arena' ? '#000000' : '#FFFFFF',
                       transition: 'all 0.2s',
                     }}
                   >
                     {v === 'gauge' ? 'GAUGE' : 'CHART'}
                   </button>
                 ))}
+                {onTableViewChange && (
+                  <button
+                    onClick={() => onTableViewChange('arena')}
+                    style={{
+                      padding: isMobile ? '3px 8px' : '5px 14px',
+                      fontSize: '12px',
+                      fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+                      fontWeight: '800',
+                      letterSpacing: '0.1em',
+                      textTransform: 'uppercase',
+                      cursor: 'pointer',
+                      border: 'none',
+                      borderRadius: 6,
+                      background: tableView === 'arena' ? '#FF6600' : 'transparent',
+                      color: tableView === 'arena' ? '#000000' : '#FFFFFF',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    FLOW ARENA
+                  </button>
+                )}
               </div>
             </div>
 

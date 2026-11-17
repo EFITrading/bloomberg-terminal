@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import {
   TbCalculator,
@@ -16,6 +16,9 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { polygonRateLimiter } from '@/lib/polygonRateLimiter'
 
 import ChainCalculator from './ChainCalculator'
+import OptionPremiumChart from './OptionPremiumChart'
+import ChainTableDesktop from './ChainTableDesktop'
+import { ChainDropdown, ColumnFilter, type ColumnDef, type DropdownOption } from './ChainControls'
 import { useChainPanelMobile } from './useChainPanelMobile'
 
 interface OptionContract {
@@ -186,11 +189,13 @@ function ChainPanel({
 
     breakeven: true,
 
+    chance: true,
+
     bid: true,
 
     ask: true,
 
-    watchlist: true,
+    watchlist: false,
   })
 
   // ── Mobile layout ────────────────────────────────────────────────────────────
@@ -553,7 +558,7 @@ function ChainPanel({
       let allResults: any[] = []
 
       let nextUrl: string | null =
-        `/api/polygon/v3/reference/options/contracts?underlying_ticker=${symbol}&limit=1000&apikey=${POLYGON_API_KEY}`
+        `/api/polygon/v3/reference/options/contracts?underlying_ticker=${symbol}&expiration_date.gte=${new Date().toLocaleDateString('en-CA')}&sort=expiration_date&order=asc&limit=1000&apikey=${POLYGON_API_KEY}`
 
       // Fetch all pages
 
@@ -566,11 +571,14 @@ function ChainPanel({
           allResults = allResults.concat(data.results)
         }
 
-        nextUrl = data.next_url ? `${data.next_url}&apikey=${POLYGON_API_KEY}` : null
+        // Route pagination through the server proxy (client has no API key)
+        nextUrl = data.next_url
+          ? `/api/polygon${new URL(data.next_url).pathname}${new URL(data.next_url).search}`
+          : null
 
         // Safety limit - stop after 10 pages (10,000 contracts)
 
-        if (allResults.length >= 10000) break
+        if (allResults.length >= 20000) break
       }
 
       if (allResults.length > 0) {
@@ -797,8 +805,10 @@ function ChainPanel({
         setPutOptions([...puts])
         setLastUpdate(new Date())
 
-        // next_url does NOT include the apikey — must append it
-        nextUrl = data.next_url ? `${data.next_url}&apikey=${POLYGON_API_KEY}` : null
+        // next_url has no apikey; route through the server proxy which adds it
+        nextUrl = data.next_url
+          ? `/api/polygon${new URL(data.next_url).pathname}${new URL(data.next_url).search}`
+          : null
       }
 
       if (calls.length === 0 && puts.length === 0) {
@@ -894,6 +904,9 @@ function ChainPanel({
     return strike === closestStrike
   }
 
+  // Heat-bar scaling for OI / volume cells
+  const maxOI = Math.max(1, ...[...callOptions, ...putOptions].map((o) => o.open_interest || 0))
+  const maxVolume = Math.max(1, ...[...callOptions, ...putOptions].map((o) => o.volume || 0))
   // Black-Scholes probability calculation methods
 
   const normalCDF = (x: number): number => {
@@ -1071,6 +1084,65 @@ function ChainPanel({
   }
 
   const probabilityStrikes = getProbabilityStrikes()
+
+  // Controls data for the expiry / OTM dropdowns and column filter
+  const dteOf = (date: string) => {
+    const [y, m, d] = date.split('-').map(Number)
+    const t = new Date()
+    const today = new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime()
+    return Math.round((new Date(y, m - 1, d).getTime() - today) / 86400000)
+  }
+  const expiryOptions: DropdownOption[] = expirationDates
+    .filter((date) => dteOf(date) >= 0)
+    .map((date) => {
+      const [y, m, d] = date.split('-').map(Number)
+      const dt = new Date(y, m - 1, d)
+      const dte = dteOf(date)
+      const monthly = dt.getDay() === 5 && d >= 15 && d <= 21
+      return {
+        value: date,
+        label: dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }),
+        hint: dte === 0 ? 'Today' : `${dte}d`,
+        group: dt.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).toUpperCase(),
+        tag: monthly ? 'MONTHLY' : undefined,
+      }
+    })
+  const otmOptions: DropdownOption[] = [2, 3, 5, 10, 15, 20, 30, 50, 80, 100, 200].map((v) => ({
+    value: v,
+    label: `±${v}% from spot`,
+    hint: stockPrice > 0 ? `$${(stockPrice * (1 - v / 100)).toFixed(0)} – $${(stockPrice * (1 + v / 100)).toFixed(0)}` : undefined,
+  }))
+  const columnDefs: ColumnDef[] = [
+    { key: 'openInterest', label: 'Open Interest', color: '#22c55e' },
+    { key: 'volume', label: 'Volume', color: '#38bdf8' },
+    { key: 'delta', label: 'Delta', color: '#67e8f9' },
+    { key: 'theta', label: 'Theta', color: '#fb923c' },
+    { key: 'iv', label: 'Implied Vol', color: '#c084fc' },
+    { key: 'change', label: 'Change %', color: '#4ade80' },
+    { key: 'breakeven', label: 'Breakeven %', color: '#f87171' },
+    { key: 'chance', label: 'Chance of Profit %', color: '#facc15' },
+    { key: 'bid', label: 'Bid', color: '#ffffff' },
+    { key: 'ask', label: 'Ask', color: '#ffffff' },
+    { key: 'watchlist', label: 'Watchlist Star', color: '#f59e0b' },
+  ]
+  const toggleColumn = (key: string, on: boolean) =>
+    setVisibleColumns((prev) => ({ ...prev, [key]: on }))
+  const setAllColumns = (on: boolean) =>
+    setVisibleColumns((prev) => {
+      const next = { ...prev } as Record<string, boolean>
+      Object.keys(next).forEach((k) => (next[k] = k === 'watchlist' ? false : on))
+      return next as typeof prev
+    })
+
+  // Chance of profit for a seller (finishing OTM at expiry), using the contract's own IV
+  const chanceOfProfitFor = (strike: number, side: 'call' | 'put', iv?: number): number | null => {
+    if (!selectedExpiration || stockPrice <= 0 || !iv || iv <= 0) return null
+    const days = Math.max(1, Math.ceil((new Date(selectedExpiration).getTime() - Date.now()) / 86400000))
+    const T = days / 365
+    return side === 'call'
+      ? chanceOfProfitSellCall(stockPrice, strike, 0.0387, iv, T)
+      : chanceOfProfitSellPut(stockPrice, strike, 0.0387, iv, T)
+  }
 
   // Helper to check if strike is a probability marker
 
@@ -1450,66 +1522,22 @@ function ChainPanel({
                 </div>
                 {/* Row 2: expiry · OTM · filter · calc */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {/* Expiry */}
-                  <div style={{ flex: 1, position: 'relative' }}>
-                    <select
-                      value={selectedExpiration}
-                      onChange={(e) => setSelectedExpiration(e.target.value)}
-                      disabled={expirationDates.length === 0}
-                      style={{ width: '100%', background: '#161616', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, padding: '4px 20px 4px 8px', fontSize: 11, fontWeight: 700, color: '#fff', appearance: 'none', cursor: 'pointer' }}
-                    >
-                      {expirationDates.length === 0 ? (
-                        <option>Loading...</option>
-                      ) : (
-                        expirationDates.map((date) => {
-                          const dte = Math.ceil((new Date(date).getTime() - Date.now()) / 86400000)
-                          return <option key={date} value={date} className="bg-gray-900">{date} ({dte}d)</option>
-                        })
-                      )}
-                    </select>
-                    <div style={{ position: 'absolute', right: 5, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#666', fontSize: 9 }}>▼</div>
-                  </div>
-                  {/* OTM */}
-                  <div style={{ position: 'relative', flexShrink: 0 }}>
-                    <select
-                      value={otmRange}
-                      onChange={(e) => setOtmRange(Number(e.target.value))}
-                      style={{ background: '#161616', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, padding: '4px 18px 4px 8px', fontSize: 11, fontWeight: 700, color: '#fff', appearance: 'none', cursor: 'pointer' }}
-                    >
-                      {[2, 3, 5, 10, 15, 20, 30, 50, 80, 100, 200].map((v) => <option key={v} value={v} className="bg-gray-900">±{v}%</option>)}
-                    </select>
-                    <div style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#666', fontSize: 9 }}>▼</div>
-                  </div>
-                  {/* Filter */}
-                  <div style={{ position: 'relative', flexShrink: 0 }}>
-                    <button
-                      onClick={() => setShowColumnFilter(!showColumnFilter)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 3, background: showColumnFilter ? 'rgba(245,158,11,0.12)' : '#161616', border: `1px solid ${showColumnFilter ? 'rgba(245,158,11,0.6)' : 'rgba(255,255,255,0.15)'}`, borderRadius: 6, padding: '4px 8px', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#fff' }}
-                    >
-                      <svg style={{ width: 13, height: 13 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                      </svg>
-                    </button>
-                    {showColumnFilter && (
-                      <div className="absolute top-full right-0 mt-1 rounded-lg border border-orange-500/30 z-50" style={{ background: 'linear-gradient(145deg, #0f0f0f, #000)', boxShadow: '0 20px 40px rgba(0,0,0,0.9)', width: 200 }}>
-                        <div style={{ padding: 12 }}>
-                          <div style={{ color: '#f97316', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8, paddingBottom: 6, borderBottom: '1px solid #1f2937' }}>Columns</div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            {[{ key: 'watchlist', label: '★ Watchlist' }, { key: 'openInterest', label: 'OI' }, { key: 'volume', label: 'VOL' }, { key: 'iv', label: 'IV%' }, { key: 'change', label: 'CHG%' }, { key: 'breakeven', label: 'B/E%' }, { key: 'bid', label: 'Bid' }, { key: 'ask', label: 'Ask' }].map(({ key, label }) => (
-                              <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '3px 4px', borderRadius: 4 }}>
-                                <input type="checkbox" checked={visibleColumns[key as keyof typeof visibleColumns]} onChange={(e) => setVisibleColumns((p) => ({ ...p, [key]: e.target.checked }))} style={{ width: 12, height: 12, cursor: 'pointer' }} />
-                                <span style={{ color: '#fff', fontSize: 11 }}>{label}</span>
-                              </label>
-                            ))}
-                          </div>
-                          <div style={{ display: 'flex', gap: 6, marginTop: 8, paddingTop: 8, borderTop: '1px solid #1f2937' }}>
-                            <button onClick={() => setVisibleColumns({ openInterest: true, volume: true, delta: false, theta: false, iv: true, change: true, breakeven: true, bid: true, ask: true, watchlist: true })} style={{ flex: 1, padding: '3px 6px', fontSize: 10, fontWeight: 700, color: '#fff', background: '#374151', border: 'none', borderRadius: 4, cursor: 'pointer' }}>ALL</button>
-                            <button onClick={() => setShowColumnFilter(false)} style={{ flex: 1, padding: '3px 6px', fontSize: 10, fontWeight: 700, color: '#fff', background: '#ea580c', border: 'none', borderRadius: 4, cursor: 'pointer' }}>CLOSE</button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <ChainDropdown
+                    label="EXP"
+                    value={selectedExpiration}
+                    options={expiryOptions}
+                    onChange={setSelectedExpiration}
+                    disabled={expiryOptions.length === 0}
+                    minWidth={150}
+                  />
+                  <ChainDropdown label="OTM" value={otmRange} options={otmOptions} onChange={(v) => setOtmRange(Number(v))} minWidth={110} />
+                  <ColumnFilter
+                    columns={columnDefs}
+                    visible={visibleColumns as Record<string, boolean>}
+                    onToggle={toggleColumn}
+                    onAll={() => setAllColumns(true)}
+                    onNone={() => setAllColumns(false)}
+                  />
                   {/* Calc */}
                   <button
                     onClick={() => setShowCalculator(!showCalculator)}
@@ -1606,262 +1634,30 @@ function ChainPanel({
                       </span>
                     </div>
 
-                    {/* Expiration Selector */}
+                    <ChainDropdown
+                      label="EXPIRY"
+                      value={selectedExpiration}
+                      options={expiryOptions}
+                      onChange={setSelectedExpiration}
+                      disabled={expiryOptions.length === 0}
+                      minWidth={260}
+                    />
 
-                    <div className="relative min-w-[200px]">
-                      <select
-                        value={selectedExpiration}
-                        onChange={(e) => setSelectedExpiration(e.target.value)}
-                        className="w-full rounded px-4 py-3 text-base font-bold text-white focus:outline-none transition-all appearance-none cursor-pointer"
-                        style={{
-                          background: '#161616',
-                          border: '1px solid rgba(255,255,255,0.15)',
-                          boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
-                        }}
-                        disabled={expirationDates.length === 0}
-                      >
-                        {expirationDates.length === 0 ? (
-                          <option>Loading expirations...</option>
-                        ) : (
-                          expirationDates.map((date) => {
-                            const daysUntil = Math.ceil(
-                              (new Date(date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
-                            )
+                    <ChainDropdown
+                      label="RANGE"
+                      value={otmRange}
+                      options={otmOptions}
+                      onChange={(v) => setOtmRange(Number(v))}
+                      minWidth={190}
+                    />
 
-                            return (
-                              <option key={date} value={date} className="bg-gray-900">
-                                {date} ({daysUntil}d DTE)
-                              </option>
-                            )
-                          })
-                        )}
-                      </select>
-
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                        <svg
-                          className="w-[18px] h-[18px] text-gray-400"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 9l-7 7-7-7"
-                          />
-                        </svg>
-                      </div>
-                    </div>
-
-                    {/* OTM Range Selector */}
-
-                    <div className="relative w-32">
-                      <select
-                        value={otmRange}
-                        onChange={(e) => setOtmRange(Number(e.target.value))}
-                        className="w-32 rounded px-3 py-3 text-base font-bold text-white focus:outline-none transition-all appearance-none cursor-pointer"
-                        style={{
-                          background: '#161616',
-                          border: '1px solid rgba(255,255,255,0.15)',
-                          boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
-                        }}
-                      >
-                        <option value={2} className="bg-gray-900">
-                          ±2% OTM
-                        </option>
-
-                        <option value={3} className="bg-gray-900">
-                          ±3% OTM
-                        </option>
-
-                        <option value={5} className="bg-gray-900">
-                          ±5% OTM
-                        </option>
-
-                        <option value={10} className="bg-gray-900">
-                          ±10% OTM
-                        </option>
-
-                        <option value={15} className="bg-gray-900">
-                          ±15% OTM
-                        </option>
-
-                        <option value={20} className="bg-gray-900">
-                          ±20% OTM
-                        </option>
-
-                        <option value={30} className="bg-gray-900">
-                          ±30% OTM
-                        </option>
-
-                        <option value={50} className="bg-gray-900">
-                          ±50% OTM
-                        </option>
-
-                        <option value={80} className="bg-gray-900">
-                          ±80% OTM
-                        </option>
-
-                        <option value={100} className="bg-gray-900">
-                          ±100% OTM
-                        </option>
-
-                        <option value={200} className="bg-gray-900">
-                          ±200% OTM
-                        </option>
-                      </select>
-
-                      <div className="absolute right-1 top-1/2 -translate-y-1/2 pointer-events-none">
-                        <svg
-                          className="w-[18px] h-[18px] text-gray-400"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 9l-7 7-7-7"
-                          />
-                        </svg>
-                      </div>
-                    </div>
-
-                    {/* Chain Filter Button */}
-
-                    <div className="relative">
-                      <button
-                        onClick={() => setShowColumnFilter(!showColumnFilter)}
-                        className="rounded px-4 py-3 text-base font-bold text-white focus:outline-none transition-all cursor-pointer flex items-center gap-2"
-                        style={{
-                          background: showColumnFilter ? 'rgba(245,158,11,0.12)' : '#161616',
-                          border: showColumnFilter
-                            ? '1px solid rgba(245,158,11,0.6)'
-                            : '1px solid rgba(255,255,255,0.15)',
-                          boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.5)',
-                        }}
-                      >
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
-                          />
-                        </svg>
-                        Filter
-                      </button>
-
-                      {/* Filter Dropdown Menu */}
-
-                      {showColumnFilter && (
-                        <div
-                          className="absolute top-full right-0 mt-2 w-72 rounded-lg border border-orange-500/30 shadow-2xl z-50"
-                          style={{
-                            background: 'linear-gradient(145deg, #0f0f0f, #000000)',
-
-                            boxShadow:
-                              '0 20px 40px rgba(0, 0, 0, 0.9), 0 0 20px rgba(249, 115, 22, 0.2)',
-                          }}
-                        >
-                          <div className="p-4">
-                            <div className="text-orange-400 font-bold text-sm uppercase tracking-wider mb-3 pb-2 border-b border-gray-800">
-                              Visible Columns
-                            </div>
-
-                            <div className="space-y-2.5">
-                              {[
-                                { key: 'watchlist', label: 'Watchlist Star' },
-
-                                { key: 'openInterest', label: 'Open Interest (OI)' },
-
-                                { key: 'volume', label: 'Volume (VOL)' },
-
-                                { key: 'delta', label: 'Delta' },
-
-                                { key: 'theta', label: 'Theta' },
-
-                                { key: 'iv', label: 'Implied Volatility (IV)' },
-
-                                { key: 'change', label: 'Change %' },
-
-                                { key: 'breakeven', label: 'Breakeven %' },
-
-                                { key: 'bid', label: 'Bid' },
-
-                                { key: 'ask', label: 'Ask' },
-                              ].map(({ key, label }) => (
-                                <label
-                                  key={key}
-                                  className="flex items-center gap-3 cursor-pointer group hover:bg-gray-900/50 p-2 rounded transition-colors"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={visibleColumns[key as keyof typeof visibleColumns]}
-                                    onChange={(e) =>
-                                      setVisibleColumns((prev) => ({
-                                        ...prev,
-                                        [key]: e.target.checked,
-                                      }))
-                                    }
-                                    className="w-4 h-4 rounded border-2 border-gray-600 bg-gray-900 checked:bg-orange-500 checked:border-orange-500 focus:ring-2 focus:ring-orange-500/30 cursor-pointer"
-                                  />
-
-                                  <span className="text-white text-sm group-hover:text-orange-300 transition-colors">
-                                    {label}
-                                  </span>
-                                </label>
-                              ))}
-                            </div>
-
-                            <div className="mt-4 pt-3 border-t border-gray-800 flex gap-2">
-                              <button
-                                onClick={() =>
-                                  setVisibleColumns({
-                                    openInterest: true,
-
-                                    volume: true,
-
-                                    delta: false,
-
-                                    theta: false,
-
-                                    iv: true,
-
-                                    change: true,
-
-                                    breakeven: true,
-
-                                    bid: true,
-
-                                    ask: true,
-
-                                    watchlist: true,
-                                  })
-                                }
-                                className="flex-1 px-3 py-2 text-xs font-bold text-white bg-gray-800 hover:bg-gray-700 rounded transition-colors"
-                              >
-                                SELECT ALL
-                              </button>
-
-                              <button
-                                onClick={() => setShowColumnFilter(false)}
-                                className="flex-1 px-3 py-2 text-xs font-bold text-white bg-orange-600 hover:bg-orange-500 rounded transition-colors"
-                              >
-                                CLOSE
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                    <ColumnFilter
+                      columns={columnDefs}
+                      visible={visibleColumns as Record<string, boolean>}
+                      onToggle={toggleColumn}
+                      onAll={() => setAllColumns(true)}
+                      onNone={() => setAllColumns(false)}
+                    />
 
                     {/* Calculator Button */}
 
@@ -1992,6 +1788,10 @@ function ChainPanel({
                     <div className="text-right text-green-400">B/E%</div>
                   )}
 
+                  {visibleColumns.chance && (
+                    <div className="text-right" style={{ color: '#facc15' }}>POP%</div>
+                  )}
+
                   {visibleColumns.bid && <div className="text-right text-green-400">BID</div>}
 
                   {visibleColumns.ask && <div className="text-right text-green-400">ASK</div>}
@@ -2000,8 +1800,9 @@ function ChainPanel({
                 {/* Strike Header */}
 
                 <div
-                  className="px-4 py-2.5 text-center min-w-[90px] flex items-center justify-center"
+                  className="py-2.5 text-center flex items-center justify-center"
                   style={{
+                    width: 130,
                     borderRight: '1px solid rgba(255,255,255,0.07)',
                     background: 'rgba(245,158,11,0.06)',
                   }}
@@ -2026,6 +1827,10 @@ function ChainPanel({
                   {visibleColumns.ask && <div className="text-left text-red-400">ASK</div>}
 
                   {visibleColumns.bid && <div className="text-left text-red-400">BID</div>}
+
+                  {visibleColumns.chance && (
+                    <div className="text-left" style={{ color: '#facc15' }}>POP%</div>
+                  )}
 
                   {visibleColumns.breakeven && <div className="text-left text-red-400">B/E%</div>}
 
@@ -2602,363 +2407,27 @@ function ChainPanel({
                 )
               })()
             ) : (
-              <div className="divide-y divide-gray-900/50">
-                {allStrikes.map((strike) => {
-                  const call = callOptions.find((c) => c.strike_price === strike)
-
-                  const put = putOptions.find((p) => p.strike_price === strike)
-
-                  const callITM = isITM(strike, 'call')
-
-                  const putITM = isITM(strike, 'put')
-
-                  const atm = isATM(strike)
-
-                  return (
-                    <div
-                      key={strike}
-                      className="grid grid-cols-[1fr_auto_1fr] gap-0 hover:bg-white/[0.02] transition-colors"
-                      style={{
-                        borderBottom: '1px solid rgba(255,255,255,0.05)',
-                      }}
-                    >
-                      {/* Call Option */}
-
-                      <div
-                        className="grid gap-2 px-3 py-2 text-lg"
-                        style={{
-                          gridTemplateColumns: `repeat(${Object.values(visibleColumns).filter(Boolean).length}, minmax(0, 1fr))`,
-                          borderRight: '1px solid rgba(255,255,255,0.06)',
-                          borderLeft: callITM
-                            ? '3px solid #22c55e'
-                            : getProbabilityType(strike).type === '80call'
-                              ? '3px solid #16a34a'
-                              : getProbabilityType(strike).type === '90call'
-                                ? '3px solid #15803d'
-                                : '3px solid transparent',
-                          background: callITM
-                            ? 'rgba(34,197,94,0.05)'
-                            : getProbabilityType(strike).type === '80call'
-                              ? 'rgba(22,163,74,0.08)'
-                              : getProbabilityType(strike).type === '90call'
-                                ? 'rgba(21,128,61,0.06)'
-                                : 'transparent',
-                        }}
-                      >
-                        {visibleColumns.watchlist && (
-                          <div className="flex items-center justify-center">
-                            {call &&
-                              (onContractSelect ? (
-                                <button
-                                  onDoubleClick={() => onContractSelect(call, stockPrice)}
-                                  className="transition-colors"
-                                  title="Double-click to autofill New Position Entry"
-                                  style={{ color: '#22c55e', fontSize: '1.1rem', fontWeight: 900 }}
-                                >
-                                  <TbCurrencyDollar className="w-5 h-5" />
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() =>
-                                    isInWatchlist(call.ticker)
-                                      ? removeFromWatchlist(
-                                        watchlist.find((w) => w.ticker === call.ticker)?.id || ''
-                                      )
-                                      : addToWatchlist(call)
-                                  }
-                                  className="text-white hover:text-orange-400 transition-colors"
-                                  title={
-                                    isInWatchlist(call.ticker)
-                                      ? 'Remove from watchlist'
-                                      : 'Add to watchlist'
-                                  }
-                                >
-                                  {isInWatchlist(call.ticker) ? (
-                                    <TbStarFilled className="w-4 h-4 text-orange-400" />
-                                  ) : (
-                                    <TbStar className="w-4 h-4" />
-                                  )}
-                                </button>
-                              ))}
-                          </div>
-                        )}
-
-                        {visibleColumns.openInterest && (
-                          <div className="text-right font-mono text-lg text-white">
-                            {call?.open_interest ? call.open_interest.toLocaleString() : '—'}
-                          </div>
-                        )}
-
-                        {visibleColumns.volume && (
-                          <div className="text-right font-mono text-lg text-white">
-                            {call?.volume ? call.volume.toLocaleString() : '—'}
-                          </div>
-                        )}
-
-                        {visibleColumns.delta && (
-                          <div className="text-right font-mono text-lg text-cyan-300">
-                            {call?.delta ? call.delta.toFixed(3) : '—'}
-                          </div>
-                        )}
-
-                        {visibleColumns.theta && (
-                          <div className="text-right font-mono text-lg text-orange-400">
-                            {call?.theta ? call.theta.toFixed(3) : '—'}
-                          </div>
-                        )}
-
-                        {visibleColumns.iv && (
-                          <div
-                            className="text-right font-mono font-bold text-lg"
-                            style={{ color: '#a855f7' }}
-                          >
-                            {call?.implied_volatility
-                              ? (call.implied_volatility * 100).toFixed(0) + '%'
-                              : '—'}
-                          </div>
-                        )}
-
-                        {visibleColumns.change && (
-                          <div className="text-right font-mono text-lg">
-                            {call?.change_percent !== undefined && call.change_percent !== 0 ? (
-                              <span
-                                className={`font-bold ${call.change_percent >= 0 ? 'text-green-500' : 'text-red-500'
-                                  }`}
-                              >
-                                {call.change_percent >= 0 ? '+' : ''}
-                                {call.change_percent.toFixed(1)}%
-                              </span>
-                            ) : (
-                              <span className="text-gray-600">—</span>
-                            )}
-                          </div>
-                        )}
-
-                        {visibleColumns.breakeven && (
-                          <div className="text-right font-mono text-lg">
-                            {call?.ask && stockPrice > 0 ? (
-                              <span
-                                className={`${((strike + call.ask - stockPrice) / stockPrice) * 100 > 0
-                                  ? 'text-red-500'
-                                  : 'text-green-500'
-                                  }`}
-                              >
-                                {(((strike + call.ask - stockPrice) / stockPrice) * 100).toFixed(1)}
-                                %
-                              </span>
-                            ) : (
-                              <span className="text-gray-600">—</span>
-                            )}
-                          </div>
-                        )}
-
-                        {visibleColumns.bid && (
-                          <div
-                            className="text-right font-mono font-bold text-lg text-green-500 cursor-pointer"
-                            onDoubleClick={() => call && handlePriceDoubleClick(call)}
-                            title="Double-click to view price chart"
-                          >
-                            {call?.bid ? call.bid.toFixed(2) : '—'}
-                          </div>
-                        )}
-
-                        {visibleColumns.ask && (
-                          <div
-                            className="text-right font-mono font-bold text-lg text-green-500 cursor-pointer"
-                            onDoubleClick={() => call && handlePriceDoubleClick(call)}
-                            title="Double-click to view price chart"
-                          >
-                            {call?.ask ? call.ask.toFixed(2) : '—'}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Strike Price */}
-
-                      <div
-                        className="px-3 py-2 text-center text-xl font-bold tabular-nums min-w-[90px]"
-                        style={{
-                          borderRight: '1px solid rgba(255,255,255,0.06)',
-                          background: atm
-                            ? 'rgba(245,158,11,0.15)'
-                            : getProbabilityType(strike).type === '80call' ||
-                              getProbabilityType(strike).type === '80put'
-                              ? 'rgba(34,197,94,0.06)'
-                              : getProbabilityType(strike).type === '90call' ||
-                                getProbabilityType(strike).type === '90put'
-                                ? 'rgba(34,197,94,0.04)'
-                                : 'transparent',
-                          color: atm
-                            ? '#f59e0b'
-                            : getProbabilityType(strike).type === '80call' ||
-                              getProbabilityType(strike).type === '80put'
-                              ? '#22c55e'
-                              : getProbabilityType(strike).type === '90call' ||
-                                getProbabilityType(strike).type === '90put'
-                                ? '#86efac'
-                                : '#ffffff',
-                          outline: atm ? '1px solid rgba(245,158,11,0.4)' : 'none',
-                          outlineOffset: '-1px',
-                        }}
-                      >
-                        ${strike.toFixed(2)}
-                      </div>
-
-                      {/* Put Option */}
-
-                      <div
-                        className="grid gap-2 px-3 py-2 text-lg"
-                        style={{
-                          gridTemplateColumns: `repeat(${Object.values(visibleColumns).filter(Boolean).length}, minmax(0, 1fr))`,
-                          borderRight: putITM
-                            ? '3px solid #ef4444'
-                            : getProbabilityType(strike).type === '80put'
-                              ? '3px solid #dc2626'
-                              : getProbabilityType(strike).type === '90put'
-                                ? '3px solid #b91c1c'
-                                : '3px solid transparent',
-                          background: putITM
-                            ? 'rgba(239,68,68,0.05)'
-                            : getProbabilityType(strike).type === '80put'
-                              ? 'rgba(220,38,38,0.08)'
-                              : getProbabilityType(strike).type === '90put'
-                                ? 'rgba(185,28,28,0.06)'
-                                : 'transparent',
-                        }}
-                      >
-                        {visibleColumns.ask && (
-                          <div
-                            className="text-left font-mono font-bold text-lg text-red-500 cursor-pointer"
-                            onDoubleClick={() => put && handlePriceDoubleClick(put)}
-                            title="Double-click to view price chart"
-                          >
-                            {put?.ask ? put.ask.toFixed(2) : '—'}
-                          </div>
-                        )}
-
-                        {visibleColumns.bid && (
-                          <div
-                            className="text-left font-mono font-bold text-lg text-red-500 cursor-pointer"
-                            onDoubleClick={() => put && handlePriceDoubleClick(put)}
-                            title="Double-click to view price chart"
-                          >
-                            {put?.bid ? put.bid.toFixed(2) : '—'}
-                          </div>
-                        )}
-
-                        {visibleColumns.breakeven && (
-                          <div className="text-left font-mono text-lg">
-                            {put?.ask && stockPrice > 0 ? (
-                              <span
-                                className={`${((stockPrice - (strike - put.ask)) / stockPrice) * 100 > 0
-                                  ? 'text-red-500'
-                                  : 'text-green-500'
-                                  }`}
-                              >
-                                {(((stockPrice - (strike - put.ask)) / stockPrice) * 100).toFixed(
-                                  1
-                                )}
-                                %
-                              </span>
-                            ) : (
-                              <span className="text-gray-600">—</span>
-                            )}
-                          </div>
-                        )}
-
-                        {visibleColumns.change && (
-                          <div className="text-left font-mono text-lg">
-                            {put?.change_percent !== undefined && put.change_percent !== 0 ? (
-                              <span
-                                className={`font-bold ${put.change_percent >= 0 ? 'text-green-500' : 'text-red-500'
-                                  }`}
-                              >
-                                {put.change_percent >= 0 ? '+' : ''}
-                                {put.change_percent.toFixed(1)}%
-                              </span>
-                            ) : (
-                              <span className="text-gray-600">—</span>
-                            )}
-                          </div>
-                        )}
-
-                        {visibleColumns.iv && (
-                          <div
-                            className="text-left font-mono font-bold text-lg"
-                            style={{ color: '#a855f7' }}
-                          >
-                            {put?.implied_volatility
-                              ? (put.implied_volatility * 100).toFixed(0) + '%'
-                              : '—'}
-                          </div>
-                        )}
-
-                        {visibleColumns.theta && (
-                          <div className="text-left font-mono text-lg text-orange-400">
-                            {put?.theta ? put.theta.toFixed(3) : '—'}
-                          </div>
-                        )}
-
-                        {visibleColumns.delta && (
-                          <div className="text-left font-mono text-lg text-cyan-300">
-                            {put?.delta ? put.delta.toFixed(3) : '—'}
-                          </div>
-                        )}
-
-                        {visibleColumns.volume && (
-                          <div className="text-left font-mono text-lg text-white">
-                            {put?.volume ? put.volume.toLocaleString() : '—'}
-                          </div>
-                        )}
-
-                        {visibleColumns.openInterest && (
-                          <div className="text-left font-mono text-lg text-white">
-                            {put?.open_interest ? put.open_interest.toLocaleString() : '—'}
-                          </div>
-                        )}
-
-                        {visibleColumns.watchlist && (
-                          <div className="flex items-center justify-center">
-                            {put &&
-                              (onContractSelect ? (
-                                <button
-                                  onDoubleClick={() => onContractSelect(put, stockPrice)}
-                                  className="transition-colors"
-                                  title="Double-click to autofill New Position Entry"
-                                  style={{ color: '#22c55e', fontSize: '1.1rem', fontWeight: 900 }}
-                                >
-                                  <TbCurrencyDollar className="w-5 h-5" />
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() =>
-                                    isInWatchlist(put.ticker)
-                                      ? removeFromWatchlist(
-                                        watchlist.find((w) => w.ticker === put.ticker)?.id || ''
-                                      )
-                                      : addToWatchlist(put)
-                                  }
-                                  className="text-white hover:text-orange-400 transition-colors"
-                                  title={
-                                    isInWatchlist(put.ticker)
-                                      ? 'Remove from watchlist'
-                                      : 'Add to watchlist'
-                                  }
-                                >
-                                  {isInWatchlist(put.ticker) ? (
-                                    <TbStarFilled className="w-4 h-4 text-orange-400" />
-                                  ) : (
-                                    <TbStar className="w-4 h-4" />
-                                  )}
-                                </button>
-                              ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
+              <ChainTableDesktop
+                strikes={allStrikes}
+                calls={callOptions}
+                puts={putOptions}
+                stockPrice={stockPrice}
+                visibleColumns={visibleColumns}
+                isITM={isITM}
+                isATM={isATM}
+                getProbabilityType={getProbabilityType}
+                isInWatchlist={isInWatchlist}
+                toggleWatchlist={(c) =>
+                  isInWatchlist(c.ticker)
+                    ? removeFromWatchlist(watchlist.find((w) => w.ticker === c.ticker)?.id || '')
+                    : addToWatchlist(c as OptionContract)
+                }
+                onContractSelect={onContractSelect}
+                onPriceChart={(c) => handlePriceDoubleClick(c as OptionContract)}
+                maxOI={maxOI}
+                maxVolume={maxVolume}
+                chanceOf={chanceOfProfitFor}
+              />
             )}
           </div>
 
@@ -4011,7 +3480,8 @@ function ChainPanel({
               onClick={() => setPriceChartModal(null)}
             >
               <div
-                className="bg-black border-2 border-orange-500/30 rounded-lg shadow-2xl w-[90vw] max-w-5xl h-[600px] flex flex-col"
+                className="rounded-xl shadow-2xl w-[92vw] max-w-6xl h-[680px] flex flex-col overflow-hidden"
+                style={{ background: '#07080b', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 30px 80px rgba(0,0,0,0.8)' }}
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* Header */}
@@ -4044,71 +3514,54 @@ function ChainPanel({
                   {/* Timeframe Selector */}
 
                   <div className="flex items-center gap-2">
-                    <div className="flex gap-2 bg-black/50 rounded-xl p-1.5 border border-gray-800/50">
-                      <button
-                        onClick={() => {
-                          setChartTimeframe('5m')
+                    <div
+                      className="flex items-center rounded-xl p-1"
+                      style={{
+                        background: 'linear-gradient(180deg, #14161c, #0a0b0f)',
+                        border: '1px solid rgba(255,255,255,0.14)',
+                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 4px 14px rgba(0,0,0,0.6)',
+                      }}
+                    >
+                      {([
+                        { tf: '5m', label: '5M', sub: 'Intraday' },
+                        { tf: '1h', label: '1H', sub: '3 Days' },
+                        { tf: '1d', label: '1D', sub: '30 Days' },
+                      ] as const).map(({ tf, label, sub }) => {
+                        const active = chartTimeframe === tf
+                        return (
+                          <button
+                            key={tf}
+                            onClick={() => {
+                              setChartTimeframe(tf)
 
-                          fetchOptionPriceHistory(priceChartModal.ticker, '5m')
-                        }}
-                        className="relative px-8 py-3.5 rounded-lg font-bold text-base tracking-wider transition-all duration-200"
-                        style={{
-                          background: '#000000',
-
-                          border: '1px solid rgba(255, 255, 255, 0.1)',
-
-                          color: chartTimeframe === '5m' ? '#f97316' : '#ffffff',
-
-                          opacity: 1,
-                        }}
-                      >
-                        <span className="relative z-10">5m</span>
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setChartTimeframe('1h')
-
-                          fetchOptionPriceHistory(priceChartModal.ticker, '1h')
-                        }}
-                        className="relative px-8 py-3.5 rounded-lg font-bold text-base tracking-wider transition-all duration-200"
-                        style={{
-                          background: '#000000',
-
-                          border: '1px solid rgba(255, 255, 255, 0.1)',
-
-                          color: chartTimeframe === '1h' ? '#f97316' : '#ffffff',
-
-                          opacity: 1,
-                        }}
-                      >
-                        <span className="relative z-10">1H</span>
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setChartTimeframe('1d')
-
-                          fetchOptionPriceHistory(priceChartModal.ticker, '1d')
-                        }}
-                        className="relative px-8 py-3.5 rounded-lg font-bold text-base tracking-wider transition-all duration-200"
-                        style={{
-                          background: '#000000',
-
-                          border: '1px solid rgba(255, 255, 255, 0.1)',
-
-                          color: chartTimeframe === '1d' ? '#f97316' : '#ffffff',
-
-                          opacity: 1,
-                        }}
-                      >
-                        <span className="relative z-10">1D</span>
-                      </button>
+                              fetchOptionPriceHistory(priceChartModal.ticker, tf)
+                            }}
+                            className="flex flex-col items-center px-6 py-2 rounded-lg transition-all duration-200"
+                            style={{
+                              background: active
+                                ? 'linear-gradient(180deg, #fb923c, #ea580c)'
+                                : 'transparent',
+                              color: active ? '#000000' : '#ffffff',
+                              boxShadow: active
+                                ? '0 0 16px rgba(249,115,22,0.55), inset 0 1px 0 rgba(255,255,255,0.4)'
+                                : 'none',
+                            }}
+                          >
+                            <span className="text-base font-black tracking-wider leading-none">{label}</span>
+                            <span
+                              className="text-[10px] font-bold tracking-wide mt-1 leading-none"
+                              style={{ color: active ? 'rgba(0,0,0,0.75)' : '#ffffff' }}
+                            >
+                              {sub}
+                            </span>
+                          </button>
+                        )
+                      })}
                     </div>
 
                     <button
                       onClick={() => setPriceChartModal(null)}
-                      className="text-gray-400 hover:text-white transition-colors p-2"
+                      className="text-white hover:text-orange-400 transition-colors p-2"
                     >
                       <svg
                         className="w-6 h-6"
@@ -4129,7 +3582,7 @@ function ChainPanel({
 
                 {/* Chart Content */}
 
-                <div className="flex-1 p-6 overflow-hidden">
+                <div className="flex-1 overflow-hidden">
                   {loadingChart ? (
                     <div className="flex items-center justify-center h-full">
                       <div className="text-center">
@@ -4147,7 +3600,7 @@ function ChainPanel({
                       </div>
                     </div>
                   ) : (
-                    <OptionPriceChart data={priceChartData} type={priceChartModal.type} />
+                    <OptionPremiumChart data={priceChartData} type={priceChartModal.type} />
                   )}
                 </div>
               </div>

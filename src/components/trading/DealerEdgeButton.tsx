@@ -1,18 +1,18 @@
 import React from 'react'
 
-interface DarkPoolButtonProps {
+interface DealerEdgeButtonProps {
   isActive?: boolean
   isLoading?: boolean
   progress?: number // 0-100
   onClick?: () => void
 }
 
-export default function DarkPoolButton({
+export default function DealerEdgeButton({
   isActive,
   isLoading,
   progress = 0,
   onClick,
-}: DarkPoolButtonProps) {
+}: DealerEdgeButtonProps) {
   return (
     <div className="ml-4 relative">
       <button
@@ -39,7 +39,7 @@ export default function DarkPoolButton({
             }}
           />
         )}
-        <span style={{ position: 'relative' }}>Pivot Point</span>
+        <span style={{ position: 'relative' }}>Dealer Edge</span>
         {isLoading && (
           <span
             style={{

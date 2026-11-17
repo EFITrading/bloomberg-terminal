@@ -9,20 +9,28 @@ export const maxDuration = 300;
 const RESCAN_RECENT_DAYS = 3;
 const MISS_RETRY_MS = 7 * 86400_000;
 
-let ivTableReady: Promise<unknown> | null = null
-const ensureIvTable = () =>
-  (ivTableReady ??= prisma
-    .$executeRawUnsafe(
-      `CREATE TABLE IF NOT EXISTS "IvDaily" ("ticker" TEXT NOT NULL, "date" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'OK', "callIV" DOUBLE PRECISION, "putIV" DOUBLE PRECISION, "price" DOUBLE PRECISION, "expiration" TEXT, "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY ("ticker", "date"))`
-    )
-    .catch((e) => {
-      ivTableReady = null
-      throw e
-    }))
+const ivTablesReady = new Map<string, Promise<unknown>>()
+// Weekly-expiry IV lives in its own table so it never mixes with the 30–45D blend
+const ensureIvTable = (table: string) => {
+  let p = ivTablesReady.get(table)
+  if (!p) {
+    p = prisma
+      .$executeRawUnsafe(
+        `CREATE TABLE IF NOT EXISTS "${table}" ("ticker" TEXT NOT NULL, "date" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'OK', "callIV" DOUBLE PRECISION, "putIV" DOUBLE PRECISION, "price" DOUBLE PRECISION, "expiration" TEXT, "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY ("ticker", "date"))`
+      )
+      .catch((e) => {
+        ivTablesReady.delete(table)
+        throw e
+      })
+    ivTablesReady.set(table, p)
+  }
+  return p
+}
 
 type StoredRow = { date: string; status: string; callIV: number | null; putIV: number | null; price: number | null; expiration: string | null; updatedAt: Date }
 
 async function saveIvRows(
+  table: string,
   ticker: string,
   rows: Array<{ date: string; status: 'OK' | 'HOLIDAY' | 'MISS'; callIV?: number | null; putIV?: number | null; price?: number | null; expiration?: string | null }>
 ) {
@@ -36,7 +44,7 @@ async function saveIvRows(
       return `($${o + 1},$${o + 2},$${o + 3},$${o + 4},$${o + 5},$${o + 6},$${o + 7},CURRENT_TIMESTAMP)`
     })
     await prisma.$executeRawUnsafe(
-      `INSERT INTO "IvDaily" ("ticker","date","status","callIV","putIV","price","expiration","updatedAt") VALUES ${values.join(',')} ON CONFLICT ("ticker","date") DO UPDATE SET "status"=EXCLUDED."status","callIV"=EXCLUDED."callIV","putIV"=EXCLUDED."putIV","price"=EXCLUDED."price","expiration"=EXCLUDED."expiration","updatedAt"=CURRENT_TIMESTAMP`,
+      `INSERT INTO "${table}" ("ticker","date","status","callIV","putIV","price","expiration","updatedAt") VALUES ${values.join(',')} ON CONFLICT ("ticker","date") DO UPDATE SET "status"=EXCLUDED."status","callIV"=EXCLUDED."callIV","putIV"=EXCLUDED."putIV","price"=EXCLUDED."price","expiration"=EXCLUDED."expiration","updatedAt"=CURRENT_TIMESTAMP`,
       ...params
     )
   }
@@ -125,6 +133,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const ticker = searchParams.get('ticker');
     const days = parseInt(searchParams.get('days') || '365'); // How many days of history to fetch (1 year default)
+    const weekly = searchParams.get('dte') === 'weekly';
+    const ivTable = weekly ? 'IvDailyWeekly' : 'IvDaily';
 
     if (!ticker) {
       return NextResponse.json({ error: 'Ticker is required' }, { status: 400 });
@@ -154,8 +164,8 @@ export async function GET(request: NextRequest) {
 
     // Find all available expirations within 30-45 days from a given date
     const getExpirations30to45Days = async (fromDate: Date, stockTicker: string): Promise<string[]> => {
-      const minDays = 30;
-      const maxDays = 45;
+      const minDays = weekly ? 5 : 30;
+      const maxDays = weekly ? 11 : 45;
 
       const minDate = new Date(fromDate);
       minDate.setDate(minDate.getDate() + minDays);
@@ -181,7 +191,8 @@ export async function GET(request: NextRequest) {
         const expirations = [...new Set(data.results.map((c: any) => c.expiration_date))] as string[];
         expirations.sort();
 
-        return expirations;
+        // Weekly mode prices only the nearest weekly expiry
+        return weekly ? expirations.slice(0, 1) : expirations;
       } catch (err) {
         console.log(`❌ Error fetching expirations for ${asOfDateStr}:`, err);
         return [];
@@ -207,9 +218,9 @@ export async function GET(request: NextRequest) {
     let stored = new Map<string, StoredRow>();
     let dbOk = true;
     try {
-      await ensureIvTable();
+      await ensureIvTable(ivTable);
       const rows = await prisma.$queryRawUnsafe<StoredRow[]>(
-        `SELECT "date","status","callIV","putIV","price","expiration","updatedAt" FROM "IvDaily" WHERE "ticker"=$1 AND "date">=$2`,
+        `SELECT "date","status","callIV","putIV","price","expiration","updatedAt" FROM "${ivTable}" WHERE "ticker"=$1 AND "date">=$2`,
         tickerKey,
         allDates[0] ?? '1970-01-01'
       );
@@ -467,7 +478,7 @@ export async function GET(request: NextRequest) {
       const batchResults = await Promise.all(batchPromises);
 
       // Add successful results to historicalData
-      const toSave: Parameters<typeof saveIvRows>[1] = [];
+      const toSave: Parameters<typeof saveIvRows>[2] = [];
       batchResults.forEach((result, idx) => {
         if (result) {
           historicalData.push(result);
@@ -480,7 +491,7 @@ export async function GET(request: NextRequest) {
       });
       // Persist after every batch so an interrupted scan keeps its progress
       if (dbOk) {
-        try { await saveIvRows(tickerKey, toSave); } catch (e) { console.error('Failed to save IV batch:', e); }
+        try { await saveIvRows(ivTable, tickerKey, toSave); } catch (e) { console.error('Failed to save IV batch:', e); }
       }
 
       const batchTime = ((Date.now() - batchStartTime) / 1000).toFixed(1);

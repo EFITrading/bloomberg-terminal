@@ -4,7 +4,7 @@ import React, { useRef, useEffect, useCallback } from 'react';
 import ChartDataCache from '../../lib/chartDataCache';
 
 interface ChartInstance { id: string; symbol: string; timeframe: string; }
-type ChartLayout = '1x1' | '1x2' | '2x2';
+type ChartLayout = '1x1' | '1x2' | '2x1' | '1x3' | '1+2' | '2x2';
 interface ChartDataPoint { timestamp: number; open: number; high: number; low: number; close: number; volume: number; date: string; time: string; }
 
 interface MultiChartViewProps {
@@ -32,6 +32,11 @@ interface MultiChartViewProps {
   invalidateTouchedZones: any; renderExpansionLiquidationZone: any;
   handleUnifiedMouseDown: any; handleCanvasMouseMove: any; handleMouseLeave: any;
   perChartIndicators?: Record<string, Record<string, any>>;
+  linked?: boolean;
+  dealerEdgeOn?: boolean;
+  drawDealerEdge?: (ctx: CanvasRenderingContext2D, p: { sym: string; candles: ChartDataPoint[]; si: number; visDates: string[]; chartW: number; totVis: number; W: number; y: number; h: number }) => void;
+  onInstanceChange?: (id: string, patch: { symbol?: string; timeframe?: string }) => void;
+  onMaximize?: (id: string) => void;
 }
 
 export default function MultiChartView({
@@ -50,7 +55,7 @@ export default function MultiChartView({
   renderExpectedRangeLines, renderGEXLevels, detectExpansionLiquidation,
   invalidateTouchedZones, renderExpansionLiquidationZone,
   handleUnifiedMouseDown, handleCanvasMouseMove, handleMouseLeave,
-  perChartIndicators = {},
+  perChartIndicators = {}, linked = false, dealerEdgeOn = false, drawDealerEdge, onInstanceChange, onMaximize,
 }: MultiChartViewProps) {
 
   const chartCanvasRefs = useRef<Map<string, HTMLCanvasElement>>(new Map());
@@ -107,8 +112,10 @@ export default function MultiChartView({
     const flowH = flwA ? flowChartHeight : 0;
     const ivCount = [isIVRankActive, isIVPercentileActive, isHVActive].filter(Boolean).length;
     const ivH = ivCount > 0 ? ivCount * ivPanelHeight : 0;
-    const volH = 80;
-    const botH = flowH + ivH + volH + timeAxisH;
+    const dePanelH = dealerEdgeOn && drawDealerEdge ? Math.max(90, Math.min(210, Math.floor(H * 0.2))) : 0;
+    const deH = dePanelH * 2;
+    const volH = dePanelH > 0 ? 50 : 80;
+    const botH = flowH + ivH + volH + deH + timeAxisH;
     const priceCH = H - botH;
     const chartW = W - 120;
 
@@ -264,6 +271,14 @@ export default function MultiChartView({
       ctx.fillRect(x, priceCH + volH - vh, Math.round(cw), vh);
     });
 
+    // Dealer Edge panels (coil + straddle edge) sit directly above the time axis
+    if (dePanelH > 0 && drawDealerEdge) {
+      drawDealerEdge(ctx, {
+        sym: inst.symbol, candles: chartData, si, visDates: vis.map((c2) => c2.date),
+        chartW, totVis, W, y: H - timeAxisH - deH, h: dePanelH,
+      });
+    }
+
     // Time axis — same adaptive logic as main chart drawTimeAxis
     const taxY = H - timeAxisH;
     ctx.strokeStyle = colors.grid || '#1a1a1a'; ctx.lineWidth = 1;
@@ -338,7 +353,7 @@ export default function MultiChartView({
     isExpansionLiquidationActive,
     isFlowChartActive, flowChartHeight, isIVRankActive, isIVPercentileActive, isHVActive, ivPanelHeight,
     renderExpectedRangeLines, detectExpansionLiquidation,
-    invalidateTouchedZones, renderExpansionLiquidationZone,
+    invalidateTouchedZones, renderExpansionLiquidationZone, dealerEdgeOn, drawDealerEdge,
   ]);
 
   useEffect(() => {
@@ -379,29 +394,91 @@ export default function MultiChartView({
 
   useEffect(() => {
     instances.forEach(ci => { if (chartDataMap.current.has(ci.id)) renderChartInstance(ci.id); });
-  }, [renderChartInstance, perChartIndicators]);
+  }, [renderChartInstance, perChartIndicators, dealerEdgeOn, drawDealerEdge]);
+
+  // When linked, panes share zoom and stay aligned by distance from the latest bar
+  const renderLinked = (srcId: string) => {
+    renderChartInstance(srcId);
+    if (!linked) return;
+    const sd = chartDataMap.current.get(srcId);
+    if (!sd) return;
+    const sz = chartZoomMap.current.get(srcId);
+    const fromEnd = sd.length - (chartScrollMap.current.get(srcId) || 0);
+    instances.forEach((o) => {
+      if (o.id === srcId) return;
+      const od = chartDataMap.current.get(o.id);
+      if (!od) return;
+      if (sz !== undefined) chartZoomMap.current.set(o.id, sz);
+      chartScrollMap.current.set(o.id, Math.max(0, od.length - fromEnd));
+      renderChartInstance(o.id);
+    });
+  };
+
+  const TF_OPTIONS: [string, string][] = [['5m', '5M'], ['15m', '15M'], ['30m', '30M'], ['1h', '1H'], ['4h', '4H'], ['1d', '1D'], ['1w', '1W'], ['1mo', '1M']];
 
   const getGrid = () => {
     if (layout === '1x2') return { gridTemplateColumns: '1fr', gridTemplateRows: '1fr 1fr' };
     if (layout === '2x2') return { gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr' };
+    if (layout === '2x1') return { gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr' };
+    if (layout === '1x3') return { gridTemplateColumns: '1fr 1fr 1fr', gridTemplateRows: '1fr' };
+    if (layout === '1+2') return { gridTemplateColumns: '2fr 1fr', gridTemplateRows: '1fr 1fr' };
     return { gridTemplateColumns: '1fr', gridTemplateRows: '1fr' };
   };
 
   return (
     <div className="w-full h-full grid gap-1" style={{ ...getGrid(), background: '#000000' }}>
-      {instances.map((inst) => (
+      {instances.map((inst, paneIdx) => (
         <div key={inst.id} className="relative"
-          style={{ border: activeChartId === inst.id ? '2px solid rgba(255,255,255,0.3)' : '1px solid #333333', background: '#000000' }}>
+          style={{ minWidth: 0, minHeight: 0, ...(layout === '1+2' && paneIdx === 0 ? { gridRow: '1 / span 2' } : {}), border: activeChartId === inst.id ? '2px solid rgba(255,255,255,0.3)' : '1px solid #333333', background: '#000000' }}>
 
-          {/* Symbol badge */}
+          {/* Pane header: symbol, timeframe, maximize */}
           <div style={{
-            position: 'absolute', top: 8, left: 8, zIndex: 30,
-            background: 'rgba(0,0,0,0.7)', color: activeChartId === inst.id ? '#ff8833' : '#ffffff',
-            padding: '6px 12px', borderRadius: 4, fontSize: 13, fontWeight: 'bold',
-            border: '1px solid rgba(255,255,255,0.2)', pointerEvents: 'none',
-            fontFamily: '"Segoe UI", system-ui, sans-serif', letterSpacing: '0.5px',
-          }}>
-            {inst.symbol} · {inst.timeframe.toUpperCase()}
+            position: 'absolute', top: 8, left: 8, zIndex: 30, display: 'flex', alignItems: 'center', gap: 6,
+            background: 'rgba(0,0,0,0.75)', padding: '4px 6px', borderRadius: 6,
+            border: `1px solid ${activeChartId === inst.id ? 'rgba(255,136,51,0.6)' : 'rgba(255,255,255,0.2)'}`,
+            fontFamily: '"Segoe UI", system-ui, sans-serif',
+          }}
+            onMouseDown={(e) => { e.stopPropagation(); onActiveChartChange(inst.id); }}>
+            <input
+              key={inst.symbol}
+              defaultValue={inst.symbol}
+              spellCheck={false}
+              maxLength={12}
+              onFocus={(e) => e.currentTarget.select()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+                if (e.key === 'Escape') { e.currentTarget.value = inst.symbol; e.currentTarget.blur(); }
+              }}
+              onBlur={(e) => {
+                const v = e.currentTarget.value.trim().toUpperCase();
+                if (!v) { e.currentTarget.value = inst.symbol; return; }
+                if (v !== inst.symbol) onInstanceChange?.(inst.id, { symbol: v });
+              }}
+              style={{
+                width: 70, background: 'transparent', border: 'none', outline: 'none',
+                color: activeChartId === inst.id ? '#ff8833' : '#ffffff', fontSize: 13, fontWeight: 700, letterSpacing: '0.5px',
+              }}
+            />
+            <select
+              value={inst.timeframe}
+              onChange={(e) => onInstanceChange?.(inst.id, { timeframe: e.target.value })}
+              style={{
+                background: '#14171c', color: '#d1d5db', border: '1px solid rgba(255,255,255,0.15)',
+                borderRadius: 4, fontSize: 12, fontWeight: 600, padding: '2px 4px', cursor: 'pointer', outline: 'none',
+              }}
+            >
+              {!TF_OPTIONS.some(([v]) => v === inst.timeframe) && <option value={inst.timeframe}>{inst.timeframe.toUpperCase()}</option>}
+              {TF_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+            <button
+              title="Maximize this chart"
+              onClick={() => onMaximize?.(inst.id)}
+              style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: 2, display: 'flex' }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = '#00D9FF')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = '#9ca3af')}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>
+            </button>
           </div>
 
           {/* Chart canvas */}
@@ -554,7 +631,8 @@ export default function MultiChartView({
                   const oc = chartComputedStateMap.current.get(oid);
                   if (!oc) return;
                   const oy = (1 - (price - oc.adjustedMin) / (oc.adjustedMax - oc.adjustedMin)) * oc.priceChartHeight;
-                  drawCH(ov, -1, oy, oid, true);
+                  const ox = linked ? (mx / rect.width) * ov.getBoundingClientRect().width : -1;
+                  drawCH(ov, ox, oy, oid, true);
                 });
               }
             }}
@@ -582,7 +660,7 @@ export default function MultiChartView({
               const maxS = chartData.length - newZoom + Math.min(fp, Math.ceil(newZoom * 0.2));
               chartZoomMap.current.set(inst.id, newZoom);
               chartScrollMap.current.set(inst.id, Math.max(0, Math.min(maxS, newStart)));
-              renderChartInstance(inst.id);
+              renderLinked(inst.id);
             }}
 
             onMouseDown={(e) => {
@@ -646,7 +724,7 @@ export default function MultiChartView({
                     chartPriceRangeMap.current.set(inst.id, { min: startPR.min + (dy / pch) * span, max: startPR.max + (dy / pch) * span });
                   }
                 }
-                renderChartInstance(inst.id);
+                renderLinked(inst.id);
               };
               const onUp = () => { canvas2.style.cursor = inYAxis ? 'ns-resize' : 'crosshair'; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
               document.addEventListener('mousemove', onMove);

@@ -8,6 +8,7 @@ import {
   calculateProfitLoss as calculatePnL,
 } from '../../lib/blackScholesCalculator'
 import { getDaysUntilExpiration, getExpirationDates } from '../../lib/optionsExpirationUtils'
+import { ChainDropdown } from './ChainControls'
 
 interface OptionData {
   strike: number
@@ -129,6 +130,23 @@ const calculateTheta = (
     const term2 = r * K * Math.exp(-r * T) * normalCDF(-d2)
     return (term1 + term2) / 365
   }
+}
+
+const CALC_H = 40
+
+const CalcField = ({ label, children, w }: { label: string; children: React.ReactNode; w?: string }) => (
+  <div style={{
+    display: 'flex', alignItems: 'center', gap: 10, height: CALC_H, padding: '0 12px', minWidth: 0, boxSizing: 'border-box',
+    flex: w ? `0 0 ${w}` : '1 1 0', background: '#0d0e12', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 6,
+  }}>
+    <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.06em', color: '#ffffff', whiteSpace: 'nowrap', opacity: 0.95 }}>{label}</span>
+    <div style={{ flex: 1, minWidth: 0, height: '100%', display: 'flex', alignItems: 'center' }}>{children}</div>
+  </div>
+)
+
+const calcInputStyle: React.CSSProperties = {
+  width: '100%', height: '100%', padding: 0, color: '#ffffff', fontSize: 15, fontWeight: 700, outline: 'none',
+  background: 'transparent', border: 'none', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
 }
 
 interface ChainCalculatorProps {
@@ -695,59 +713,25 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
       className="bg-black text-white overflow-y-auto"
       style={{ height: isMobile ? '100%' : 'calc(100vh - 180px)', minHeight: 0 }}
     >
-      {!isMobile && <div className="px-6 py-1 border-b border-gray-800 bg-black relative">
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="absolute top-1 right-3 text-gray-400 hover:text-white transition-colors z-50"
-            aria-label="Close panel"
-          >
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-          </button>
-        )}
-        <div className="text-center">
-          <h1
-            className="font-black text-white tracking-wider uppercase"
-            style={{
-              fontSize: '45px',
-              lineHeight: '1',
-              marginBottom: '5px',
-              textShadow: `
- 2px 2px 0px rgba(0, 0, 0, 0.9),
- -1px -1px 0px rgba(255, 255, 255, 0.1),
- 0px -2px 0px rgba(255, 255, 255, 0.05),
- 0px 2px 0px rgba(0, 0, 0, 0.8),
- inset 0 2px 4px rgba(0, 0, 0, 0.5)
- `,
-              background: 'linear-gradient(to bottom, #ffffff 0%, #cccccc 50%, #999999 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-            }}
-          >
-            Calculator
-          </h1>
-        </div>
-      </div>}
+      {!isMobile && onClose && (
+        <button
+          onClick={onClose}
+          className="absolute right-3 top-3 z-30 text-white hover:text-orange-400 transition-colors p-1.5 rounded hover:bg-white/10"
+          aria-label="Close panel"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      )}
       <div className={isMobile ? 'p-2' : 'p-4'}>
-        <div className={isMobile ? 'relative bg-black border border-gray-700 overflow-hidden mb-3' : 'relative bg-gradient-to-br from-gray-950 via-black to-gray-900 border-4 border-gray-600 shadow-2xl overflow-hidden mb-6'}>
+        <div className={isMobile ? 'relative bg-black border border-gray-700 overflow-hidden mb-3' : 'relative bg-black border border-white/15 rounded-xl shadow-2xl overflow-hidden mb-6'}>
           <div className="absolute inset-0 opacity-5 pointer-events-none">
             <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-r from-orange-600/10 to-transparent animate-pulse"></div>
           </div>
 
-          <div className={isMobile ? 'p-0 relative z-10' : 'p-6 relative z-10'}>
+          <div className={isMobile ? 'p-0 relative z-10' : 'py-3 pl-3 pr-12 relative z-10'}>
             {isMobile ? (
               /* ── MOBILE: compact 2-row pill bar ── */
               <div style={{ display: 'flex', flexDirection: 'column', gap: 0, background: '#0a0a0a', border: '1px solid rgba(255,102,0,0.25)' }}>
@@ -844,100 +828,122 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-12 gap-2 mb-4">
-                <div className="col-span-2">
-                  <div className="bg-black border border-gray-700 shadow-lg">
-                    <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
-                      <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">SYMBOL</label>
-                    </div>
-                    <div className="p-2 bg-black">
-                      <input type="text" value={symbol} onChange={(e) => handleSymbolChange(e.target.value)} onKeyPress={handleKeyPress} placeholder="SPY"
-                        className="w-full px-3 py-2 text-white text-xl font-black uppercase focus:outline-none"
-                        style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.2)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)' }} />
-                    </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%' }}>
+                <CalcField label="SYMBOL" w="150px">
+                  <input
+                    type="text"
+                    value={symbol}
+                    onChange={(e) => handleSymbolChange(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    placeholder="SPY"
+                    style={{ ...calcInputStyle, textTransform: 'uppercase', fontWeight: 800 }}
+                  />
+                </CalcField>
+
+                <CalcField label="SPOT" w="130px">
+                  <div style={{ ...calcInputStyle, display: 'flex', alignItems: 'center', color: '#fbbf24', fontWeight: 800 }}>
+                    {currentPrice > 0 ? `$${currentPrice.toFixed(2)}` : '—'}
                   </div>
-                </div>
-                <div className="col-span-2">
-                  <div className="bg-black border border-gray-700 shadow-lg">
-                    <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
-                      <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">STRIKE</label>
-                    </div>
-                    <div className="p-2 bg-black">
-                      <select value={selectedStrike || ''} onChange={(e) => { const newStrike = e.target.value ? Number(e.target.value) : null; setSelectedStrike(newStrike); setCustomPremium(null); if (newStrike && selectedExpiration) fetchIndividualOptionData(newStrike, selectedExpiration, optionType) }}
-                        className="w-full px-3 py-2 text-white text-base font-bold focus:outline-none appearance-none"
-                        style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.2)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)' }}>
-                        <option value="">Select Strike</option>
-                        {strikes.map((strike) => <option key={strike} value={strike}>${strike}</option>)}
-                      </select>
-                    </div>
+                </CalcField>
+
+                <div style={{ display: 'flex', height: CALC_H, boxSizing: 'border-box', flex: '0 0 110px', borderRadius: 6, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.14)' }}>
+                    {(['call', 'put'] as const).map((t) => {
+                      const on = optionType === t
+                      const rgb = t === 'call' ? '34,197,94' : '239,68,68'
+                      return (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => {
+                            setOptionType(t)
+                            setSelectedStrike(null)
+                            setCustomPremium(null)
+                          }}
+                          style={{
+                            flex: 1, fontSize: 13, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase',
+                            color: on ? '#000' : '#ffffff', background: on ? `rgb(${rgb})` : '#0d0e12', transition: 'background .15s',
+                          }}
+                        >
+                          {t}
+                        </button>
+                      )
+                    })}
                   </div>
-                </div>
-                <div className="col-span-2">
-                  <div className="bg-black border border-gray-700 shadow-lg relative z-10">
-                    <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
-                      <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">TYPE</label>
-                    </div>
-                    <div className="p-2 flex gap-1 bg-black relative z-20">
-                      <button type="button" onClick={() => { setOptionType('call'); setSelectedStrike(null); setCustomPremium(null) }}
-                        className="flex-1 py-2 px-2 text-lg font-black uppercase cursor-pointer transition-all focus:outline-none"
-                        style={{ background: optionType === 'call' ? 'rgba(34,197,94,0.15)' : '#0d0d0d', border: optionType === 'call' ? '1px solid #22c55e' : '1px solid rgba(255,255,255,0.15)', color: optionType === 'call' ? '#22c55e' : 'rgba(255,255,255,0.35)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5)' }}>CALL</button>
-                      <button type="button" onClick={() => { setOptionType('put'); setSelectedStrike(null); setCustomPremium(null) }}
-                        className="flex-1 py-2 px-2 text-lg font-black uppercase cursor-pointer transition-all focus:outline-none"
-                        style={{ background: optionType === 'put' ? 'rgba(239,68,68,0.15)' : '#0d0d0d', border: optionType === 'put' ? '1px solid #ef4444' : '1px solid rgba(255,255,255,0.15)', color: optionType === 'put' ? '#ef4444' : 'rgba(255,255,255,0.35)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5)' }}>PUT</button>
-                    </div>
+
+                <CalcField label="STRIKE" w="190px">
+                  <ChainDropdown
+                    label=""
+                    height={CALC_H}
+                    fill
+                    value={selectedStrike ?? ''}
+                    minWidth={0}
+                    options={strikes.map((s) => ({
+                      value: s,
+                      label: `$${s}`,
+                      hint: currentPrice > 0 ? `${(((s - currentPrice) / currentPrice) * 100).toFixed(1)}%` : undefined,
+                    }))}
+                    onChange={(v) => {
+                      const newStrike = v ? Number(v) : null
+                      setSelectedStrike(newStrike)
+                      setCustomPremium(null)
+                      if (newStrike && selectedExpiration) fetchIndividualOptionData(newStrike, selectedExpiration, optionType)
+                    }}
+                    renderValue={(o) => o?.label ?? 'Select'}
+                  />
+                </CalcField>
+
+                <CalcField label="EXPIRY" w="260px">
+                  {availableExpirations.length > 0 ? (
+                    <ChainDropdown
+                      label=""
+                      height={CALC_H}
+                      fill
+                      value={selectedExpiration}
+                      minWidth={0}
+                      options={availableExpirations.map((e) => ({
+                        value: e.date,
+                        label: e.date,
+                        hint: `${e.days}d`,
+                        group: new Date(e.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).toUpperCase(),
+                      }))}
+                      onChange={(newExp) => {
+                        setSelectedExpiration(newExp)
+                        if (selectedStrike && newExp) fetchIndividualOptionData(selectedStrike, newExp, optionType)
+                      }}
+                      renderValue={(o) => o?.label ?? 'Select'}
+                    />
+                  ) : (
+                    <input type="date" value={selectedExpiration} onChange={(e) => setSelectedExpiration(e.target.value)} min={new Date().toISOString().split('T')[0]} style={calcInputStyle} />
+                  )}
+                </CalcField>
+
+                <CalcField label="PREMIUM" w="150px">
+                  <div style={{ position: 'relative' }}>
+                    <span style={{ color: '#fbbf24', fontWeight: 800, fontSize: 15, marginRight: 4 }}>$</span>
+                    <input
+                      type="number"
+                      value={customPremium || ''}
+                      onChange={(e) => setCustomPremium(e.target.value ? Number(e.target.value) : null)}
+                      placeholder="0.00"
+                      step="0.01"
+                      min="0"
+                      style={{ ...calcInputStyle, fontWeight: 800 }}
+                    />
                   </div>
-                </div>
-                <div className="col-span-2">
-                  <div className="bg-black border border-gray-700 shadow-lg">
-                    <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
-                      <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">EXPIRY</label>
-                    </div>
-                    <div className="p-2 bg-black">
-                      {availableExpirations.length > 0 ? (
-                        <select value={selectedExpiration} onChange={(e) => { const newExp = e.target.value; setSelectedExpiration(newExp); if (selectedStrike && newExp) fetchIndividualOptionData(selectedStrike, newExp, optionType) }}
-                          className="w-full px-3 py-2 text-white text-base font-bold focus:outline-none appearance-none"
-                          style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.2)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)' }}>
-                          <option value="">Select</option>
-                          {availableExpirations.map((exp) => <option key={exp.date} value={exp.date}>{exp.date}</option>)}
-                        </select>
-                      ) : (
-                        <input type="date" value={selectedExpiration} onChange={(e) => setSelectedExpiration(e.target.value)} min={new Date().toISOString().split('T')[0]}
-                          className="w-full px-3 py-2 text-white text-base font-bold focus:outline-none"
-                          style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.2)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)' }} />
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div className="col-span-2">
-                  <div className="bg-black border border-gray-700 shadow-lg">
-                    <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
-                      <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">PREMIUM</label>
-                    </div>
-                    <div className="p-2 bg-black">
-                      <input type="number" value={customPremium || ''} onChange={(e) => setCustomPremium(e.target.value ? Number(e.target.value) : null)} placeholder="6.9" step="0.01" min="0"
-                        className="w-full px-3 py-2 text-white text-xl font-black focus:outline-none"
-                        style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.2)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)' }} />
-                    </div>
-                  </div>
-                </div>
-                <div className="col-span-2">
-                  <div className="bg-black border border-gray-700 shadow-lg">
-                    <div className="bg-gradient-to-r from-black via-gray-950 to-black px-2 py-1 border-b border-gray-700">
-                      <label className="text-orange-500 text-[18px] font-bold uppercase tracking-wider">OTM</label>
-                    </div>
-                    <div className="p-2 bg-black">
-                      <select value={otmPercentage} onChange={(e) => setOtmPercentage(Number(e.target.value))}
-                        className="w-full px-3 py-2 text-white text-base font-bold focus:outline-none appearance-none"
-                        style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.2)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.6)' }}>
-                        <option value={2}>±2%</option>
-                        <option value={5}>±5%</option>
-                        <option value={10}>±10%</option>
-                        <option value={15}>±15%</option>
-                        <option value={20}>±20%</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
+                </CalcField>
+
+                <CalcField label="RANGE" w="130px">
+                  <ChainDropdown
+                    label=""
+                    height={CALC_H}
+                    fill
+                    value={otmPercentage}
+                    minWidth={0}
+                    options={[2, 5, 10, 15, 20].map((v) => ({ value: v, label: `±${v}%` }))}
+                    onChange={(v) => setOtmPercentage(Number(v))}
+                    renderValue={(o) => o?.label}
+                  />
+                </CalcField>
               </div>
             )}
           </div>
@@ -1037,9 +1043,9 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                 )
               })()}
 
-              <div className="bg-black rounded-2xl p-8 border-2 border-gray-700 shadow-2xl">
+              <div className="bg-black rounded-2xl p-8 border border-white/15 shadow-2xl">
                 <div
-                  className="overflow-x-auto overflow-y-auto rounded-xl border-2 border-gray-700"
+                className="overflow-x-auto overflow-y-auto rounded-xl border border-white/20"
                   style={{ maxHeight: '78vh' }}
                 >
                   <div className="min-w-max bg-black">
@@ -1055,7 +1061,7 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                           background: viewMode === 'table' ? 'rgba(34,197,94,0.08)' : '#0a0a0a',
                           borderBottom:
                             viewMode === 'table' ? '3px solid #22c55e' : '3px solid transparent',
-                          color: viewMode === 'table' ? '#22c55e' : 'rgba(255,255,255,0.35)',
+                          color: viewMode === 'table' ? '#22c55e' : '#ffffff',
                         }}
                       >
                         {viewMode === 'table' && '● '}Table P/L
@@ -1068,7 +1074,7 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                           background: viewMode === 'line' ? 'rgba(34,197,94,0.08)' : '#0a0a0a',
                           borderBottom:
                             viewMode === 'line' ? '3px solid #22c55e' : '3px solid transparent',
-                          color: viewMode === 'line' ? '#22c55e' : 'rgba(255,255,255,0.35)',
+                          color: viewMode === 'line' ? '#22c55e' : '#ffffff',
                         }}
                       >
                         {viewMode === 'line' && '● '}Line P/L
@@ -1078,7 +1084,7 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                     {viewMode === 'table' && (
                       <>
                         <div className="text-center py-4 bg-black border-b border-gray-600">
-                          <span className="text-lg font-bold text-blue-300 uppercase tracking-wider">
+                          <span className="text-xl font-black text-white uppercase tracking-wider">
                             Time Till Expiration (Days)
                           </span>
                         </div>
@@ -1087,19 +1093,19 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                           <table className="w-full border-collapse bg-black">
                             <thead>
                               <tr>
-                                <th className="w-20 h-14 bg-gradient-to-b from-gray-900 to-black border-2 border-gray-800 text-lg font-black text-white shadow-xl">
+                                <th className="sticky top-0 left-0 z-20 w-24 h-14 bg-gradient-to-b from-gray-800 to-gray-950 border border-white/20 text-lg font-black text-amber-300 shadow-xl">
                                   <div className="drop-shadow-lg">Stock Price</div>
                                 </th>
                                 {heatMapTimeSeries.map((timePoint) => (
                                   <th
                                     key={timePoint.days}
-                                    className="w-20 h-14 bg-gradient-to-b from-gray-900 to-black border-2 border-gray-800 text-lg font-black px-1 text-white shadow-lg"
+                                    className="sticky top-0 z-10 w-24 h-14 bg-gradient-to-b from-gray-800 to-gray-950 border border-white/20 text-lg font-black px-1 text-white shadow-lg"
                                   >
                                     <div className="text-lg font-black drop-shadow-md">
                                       {timePoint.label}
                                     </div>
                                     {timePoint.days === 0 && (
-                                      <div className="text-xs text-gray-400 mt-1">
+                                      <div className="text-sm font-bold text-amber-300 mt-1">
                                         {selectedExpiration?.slice(5)}
                                       </div>
                                     )}
@@ -1115,9 +1121,9 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                                 return (
                                   <tr key={strike} className={isATM ? 'ring-2 ring-yellow-400' : ''}>
                                     <td
-                                      className={`h-12 border border-gray-600 text-center font-black text-lg ${isATM
-                                        ? 'bg-yellow-900 text-yellow-300 ring-1 ring-yellow-400'
-                                        : 'bg-black text-white'
+                                      className={`sticky left-0 z-10 h-12 border border-white/20 text-center font-black text-xl ${isATM
+                                        ? 'bg-yellow-900 text-yellow-200 ring-1 ring-yellow-400'
+                                        : 'bg-gray-950 text-white'
                                         }`}
                                     >
                                       ${strike} {isATM && '★'}
@@ -1125,7 +1131,7 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
 
                                     {heatMapTimeSeries.map((timePoint) => {
                                       let pnlData = { dollarPnL: 0, percentPnL: 0, optionPrice: 0 }
-                                      let cellColor = 'bg-gray-800 text-gray-500'
+                                      let cellColor = 'bg-gray-900 text-white'
                                       let displayText = '--'
 
                                       if (
@@ -1198,11 +1204,11 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                                             } else if (absPercentPnL >= 50) {
                                               cellColor = 'bg-green-700 text-green-100 font-semibold'
                                             } else if (absPercentPnL >= 25) {
-                                              cellColor = 'bg-green-800 text-green-200'
+                                              cellColor = 'bg-green-800 text-white font-semibold'
                                             } else if (absPercentPnL >= 10) {
-                                              cellColor = 'bg-green-900 text-green-300'
+                                              cellColor = 'bg-green-900 text-white font-semibold'
                                             } else if (absPercentPnL > 0) {
-                                              cellColor = 'bg-green-950 text-green-400'
+                                              cellColor = 'bg-green-950 text-green-300 font-semibold'
                                             }
                                           } else if (percentPnL < 0) {
                                             if (absPercentPnL >= 100) {
@@ -1210,14 +1216,14 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                                             } else if (absPercentPnL >= 50) {
                                               cellColor = 'bg-red-700 text-red-100 font-semibold'
                                             } else if (absPercentPnL >= 25) {
-                                              cellColor = 'bg-red-800 text-red-200'
+                                              cellColor = 'bg-red-800 text-white font-semibold'
                                             } else if (absPercentPnL >= 10) {
-                                              cellColor = 'bg-red-900 text-red-300'
+                                              cellColor = 'bg-red-900 text-white font-semibold'
                                             } else if (absPercentPnL > 0) {
-                                              cellColor = 'bg-red-950 text-red-400'
+                                              cellColor = 'bg-red-950 text-red-300 font-semibold'
                                             }
                                           } else {
-                                            cellColor = 'bg-gray-700 text-gray-300 font-medium'
+                                            cellColor = 'bg-gray-700 text-white font-bold'
                                           }
 
                                           displayText = `$${dollarPnL.toFixed(0)}`
@@ -1233,7 +1239,7 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                                       return (
                                         <td
                                           key={`${strike}-${timePoint.days}`}
-                                          className={`h-12 border text-center text-base font-bold cursor-pointer hover:opacity-80 transition-all duration-200 ${cellColor} ${isATM ? 'border-yellow-400 border-2' : 'border-gray-600'
+                                          className={`h-12 border text-center text-base font-bold cursor-pointer hover:opacity-80 transition-all duration-200 ${cellColor} ${isATM ? 'border-yellow-400 border-2' : 'border-white/15'
                                             }`}
                                           onClick={() => {
                                             setSelectedStrike(strike)
@@ -1241,7 +1247,7 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                                           }}
                                           title={`Stock @ $${strike} | Strike $${selectedStrike} | ${timePoint.days}d | P/L: ${displayText} | Option Price: $${pnlData.optionPrice.toFixed(2)}`}
                                         >
-                                          <div className="text-sm leading-tight">{displayText}</div>
+                                          <div className="text-base font-bold leading-tight">{displayText}</div>
                                         </td>
                                       )
                                     })}
@@ -1766,14 +1772,14 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
                               </svg>
 
                               <div className="absolute top-2 right-2 bg-black/80 rounded-lg px-3 py-2 border border-gray-700">
-                                <div className="text-xs text-gray-400">Now</div>
+                                <div className="text-sm font-bold text-white">Now</div>
                                 <div
                                   className={`text-lg font-bold ${currentDayData.pnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}
                                 >
                                   {currentDayData.pnlPercent >= 0 ? '+' : ''}
                                   {currentDayData.pnlPercent.toFixed(2)}%
                                 </div>
-                                <div className="text-xs text-gray-400 mt-1">
+                                <div className="text-sm font-bold text-white mt-1">
                                   ${currentDayData.pnl >= 0 ? '+' : ''}
                                   {currentDayData.pnl.toFixed(2)}
                                 </div>
@@ -1857,7 +1863,7 @@ const ChainCalculator: React.FC<ChainCalculatorProps> = ({ initialSymbol = 'SPY'
               <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent"></div>
               <div>
                 <div className="text-blue-300 text-lg font-bold">Loading Options Data</div>
-                <div className="text-sm text-gray-400 mt-1">Real-time options data</div>
+                <div className="text-base font-bold text-white mt-1">Real-time options data</div>
               </div>
             </div>
           </div>

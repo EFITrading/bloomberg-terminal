@@ -29,6 +29,8 @@ interface LWChartDrawingToolsProps {
   currentTool?: DrawingTool
   setCurrentTool?: (tool: DrawingTool) => void
   isToolLocked?: boolean
+  magnetEnabled?: boolean
+  snapCandles?: { timestamp: number; open: number; high: number; low: number; close: number }[]
   priceToScreen?: (price: number) => number
   screenToPrice?: (y: number) => number
   timeToScreen?: (index: number) => number
@@ -59,6 +61,7 @@ type DrawingTool =
   | 'elliottWave'
   | 'elliottWaveABC'
   | 'path'
+  | 'eraser'
 
 interface FibLevel {
   value: number
@@ -340,6 +343,8 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
   currentTool: externalCurrentTool,
   setCurrentTool: externalSetCurrentTool,
   isToolLocked = false,
+  magnetEnabled = false,
+  snapCandles,
   priceToScreen,
   screenToPrice,
   timeToScreen,
@@ -498,19 +503,94 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     canvas.style.height = `${height}px`
   }, [width, height])
 
-  // Handle keyboard shortcuts for deleting drawings
+  // Modifier keys read by the snapping logic (Ctrl = magnet, Shift = straight line)
+  const modKeysRef = useRef({ ctrl: false, shift: false })
+
+  // Keyboard: Delete removes, Esc cancels, Ctrl+D duplicates, arrows nudge the selection
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      modKeysRef.current = { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey }
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
       if ((e.key === 'Delete' || e.key === 'Backspace') && editingDrawing) {
         setDrawings(drawings.filter((d) => d.id !== editingDrawing))
         setEditingDrawing(null)
         setSelectedDrawing(null)
+      } else if (e.key === 'Escape') {
+        setCurrentPoints([])
+        setPreviewPoint(null)
+        setIsBrushing(false)
+        setEditingDrawing(null)
+        setSelectedDrawing(null)
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd' && editingDrawing) {
+        e.preventDefault()
+        const src = drawings.find((d) => d.id === editingDrawing)
+        if (src && screenToTime && priceToScreen && timeToScreen && screenToPrice) {
+          const id = `${Date.now()}_dup`
+          const dx = 20
+          const dy = 20
+          const points = src.points.map((p) => ({
+            ...p,
+            time: screenToTime(timeToScreen(p.time) + dx),
+            price: screenToPrice(priceToScreen(p.price) + dy),
+          }))
+          setDrawings([...drawings, { ...src, id, points }])
+          setEditingDrawing(id)
+          setSelectedDrawing(id)
+        }
       }
+    }
+    const handleKeyUp = (e: KeyboardEvent) => {
+      modKeysRef.current = { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey }
     }
 
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [editingDrawing, drawings, setDrawings])
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [editingDrawing, drawings, setDrawings, screenToTime, screenToPrice, priceToScreen, timeToScreen])
+
+  // Pointer → data point. Magnet snaps to the nearest candle open/high/low/close;
+  // Shift locks the line flat or vertical against the anchor point.
+  const snapPoint = (x: number, y: number, anchor?: DrawingPoint): DrawingPoint => {
+    let time = screenToTime ? screenToTime(x) : 0
+    let price = screenToPrice ? screenToPrice(y) : 0
+    if ((magnetEnabled || modKeysRef.current.ctrl) && snapCandles && snapCandles.length && priceToScreen && timeToScreen) {
+      let lo = 0, hi = snapCandles.length - 1
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1
+        if (snapCandles[mid].timestamp < time) lo = mid + 1
+        else hi = mid
+      }
+      let best = lo
+      if (lo > 0 && Math.abs(snapCandles[lo - 1].timestamp - time) < Math.abs(snapCandles[lo].timestamp - time)) best = lo - 1
+      const c = snapCandles[best]
+      if (c && Math.abs(timeToScreen(c.timestamp) - x) < 28) {
+        let bestPrice = price
+        let bestDist = 18
+        for (const p of [c.open, c.high, c.low, c.close]) {
+          const d = Math.abs(priceToScreen(p) - y)
+          if (d < bestDist) {
+            bestDist = d
+            bestPrice = p
+          }
+        }
+        if (bestDist < 18) {
+          time = c.timestamp
+          price = bestPrice
+        }
+      }
+    }
+    if (modKeysRef.current.shift && anchor && timeToScreen && priceToScreen) {
+      const dx = Math.abs(x - timeToScreen(anchor.time))
+      const dy = Math.abs(y - priceToScreen(anchor.price))
+      if (dx >= dy) price = anchor.price
+      else time = anchor.time
+    }
+    return { time, price }
+  }
 
   // Keep isDraggingRef in sync so the stable window listener can read current drag state
   useEffect(() => {
@@ -1618,6 +1698,23 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     return Math.max(1, count)
   }
 
+  // Eraser: removes the single topmost drawing under the pointer (10px hit zone)
+  const [eraserTarget, setEraserTarget] = useState<string | null>(null)
+  const findDrawingAt = (x: number, y: number): Drawing | null => {
+    for (let i = drawings.length - 1; i >= 0; i--) {
+      if (isPointNearDrawing(x, y, drawings[i])) return drawings[i]
+    }
+    return null
+  }
+  const eraseAt = (x: number, y: number) => {
+    const hit = findDrawingAt(x, y)
+    if (!hit) return
+    setDrawings(drawings.filter((d) => d.id !== hit.id))
+    setEraserTarget(null)
+    setEditingDrawing(null)
+    setSelectedDrawing(null)
+  }
+
   const handleCanvasClick = (e: React.MouseEvent<HTMLElement>) => {
     // In select mode, don't handle clicks (let them pass through)
     if (currentTool === 'select' || !screenToPrice || !screenToTime) return
@@ -1632,11 +1729,15 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
 
-    // Convert screen coordinates to data coordinates
-    const point: DrawingPoint = {
-      time: screenToTime(x),
-      price: screenToPrice(y),
+    if (currentTool === 'eraser') {
+      e.stopPropagation()
+      e.preventDefault()
+      eraseAt(x, y)
+      return
     }
+
+    // Convert screen coordinates to data coordinates
+    const point: DrawingPoint = snapPoint(x, y, currentPoints[0])
 
     if (currentTool === 'horizontal') {
       // Complete immediately for horizontal lines
@@ -1879,6 +1980,13 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
 
+    if (currentTool === 'eraser') {
+      const hit = findDrawingAt(x, y)
+      setEraserTarget(hit ? hit.id : null)
+      if (e.buttons === 1 && hit) eraseAt(x, y)
+      return
+    }
+
     // Handle brush tool - add points while mouse is down
     if (isBrushing && currentTool === 'brush') {
       // Minimum distance threshold to avoid noisy/jagged strokes
@@ -1924,10 +2032,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
 
       // Handle dragging control point to reshape drawing
       if (isDragging && draggedControlPoint !== null && editingDrawing) {
-        const newDataPoint = {
-          time: screenToTime(currentX),
-          price: screenToPrice(currentY),
-        }
+        const newDataPoint = snapPoint(currentX, currentY)
 
         const updatedDrawings = drawings.map((drawing) => {
           if (drawing.id === editingDrawing) {
@@ -2208,10 +2313,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
       }
 
       // Update preview point for visual feedback
-      setPreviewPoint({
-        time: screenToTime(currentX),
-        price: screenToPrice(currentY),
-      })
+      setPreviewPoint(snapPoint(currentX, currentY, currentPoints[0]))
     })
   }
 
@@ -3233,7 +3335,7 @@ export const LWChartDrawingTools: React.FC<LWChartDrawingToolsProps> = ({
           height: '100%',
           pointerEvents:
             currentTool !== 'select' || isDragging || !!editingDrawing ? 'auto' : 'none',
-          cursor: currentTool === 'select' ? (isDragging ? 'grabbing' : 'default') : 'crosshair',
+          cursor: currentTool === 'eraser' ? (eraserTarget ? 'pointer' : 'not-allowed') : currentTool === 'select' ? (isDragging ? 'grabbing' : 'default') : 'crosshair',
           zIndex: 1001,
           touchAction: currentTool !== 'select' ? 'none' : 'auto',
         }}

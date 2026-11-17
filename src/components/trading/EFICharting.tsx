@@ -81,7 +81,6 @@ import {
 import PolygonService from '../../lib/polygonService'
 import { polygonStocksWS } from '../../lib/polygonStocksWS'
 import { getRiskFreeRate, getCachedRiskFreeRate } from '../../lib/riskFreeRate'
-import { useChatStore } from '../../store/chatStore'
 import ETFHoldingsModal from '../ETFHoldingsModal'
 import FlowTrackingPanel from '../FlowTrackingPanel'
 import { useOptionsFlowLive } from '../../hooks/useOptionsFlowLive'
@@ -101,15 +100,15 @@ import RRGAnalytics from '../analytics/RRGAnalytics'
 import StraddleTownScreener from '../analytics/StraddleTownScreener'
 import SeasonalityChart from '../analytics/SeasonalityChart'
 import PerformanceDashboard from '../charts/PerformanceDashboard'
-import GuideChatbot from '../chatbot/GuideChatbot'
 import NewsPanel from '../news/NewsPanelV2'
 import SeasonaxLanding from '../seasonax/SeasonaxLanding'
+import FlowArena from '../terminal/FlowArena'
 import EnhancedRegimeDisplay, { prefetchCompositeHistory } from '../terminal/EnhancedRegimeDisplay'
 import ChainPanel from './ChainPanel'
 import TrackingCard, { type TrackingChartType, type TrackingTf } from './TrackingCard'
 import TrackingToolbar, { useTrackingScan, type TrackingScan } from './TrackingToolbar'
 import MarketDataLoader from '../loading/MarketDataLoader'
-import DarkPoolButton from './DarkPoolButton'
+import DealerEdgeButton from './DealerEdgeButton'
 import InsightPanel from './InsightPanel'
 import LWChartDrawingTools from './LWChartDrawingTools'
 import MultiChartView from './MultiChartView'
@@ -6398,60 +6397,625 @@ const FlowPanel = React.memo(
 FlowPanel.displayName = 'FlowPanel'
 
 // ── Contraction detection helpers (copied from StraddleTownScreener) ─────────
-const _MIN_AVG_HV = 1.5
-const _CONTRACTION_THRESHOLD = 40
+const PIVOT_LOOKBACK = 120
+const PIVOT_WINDOW = 5
+const PIVOT_THRESHOLD = 40
+const PIVOT_FWD_BARS = 5
+const PIVOT_MIN_BARS = 3
+const PIVOT_BREAK_WINDOW = 10
+const PIVOT_MIN_BASELINE = 0.05
 
-function _calcHV4D(bars: { high: number; low: number }[], lookback = 120): number {
-  if (bars.length < lookback) return 0
-  const rb = bars.slice(-lookback)
-  const moves: number[] = []
-  for (let i = 4; i < rb.length; i++) {
-    const h = Math.max(...rb.slice(i - 4, i + 1).map((b) => b.high))
-    const l = Math.min(...rb.slice(i - 4, i + 1).map((b) => b.low))
-    moves.push(((h - l) / l) * 100)
-  }
-  return moves.length ? moves.reduce((s, m) => s + m, 0) / moves.length : 0
+type PivotBar = { timestamp: number; high: number; low: number; close: number }
+type PivotPoint = { score: number; rangePct: number; baseline: number; qualifies: boolean }
+type PivotEvent = {
+  idx: number; startIdx: number; peakIdx: number; peak: number; bars: number
+  zoneHigh: number; zoneLow: number
+  expansion: number | null; win: boolean | null
+}
+type PivotState = 'WARMING UP' | 'WAIT' | 'COILING' | 'BUY STRADDLE' | 'EXPANDING'
+type PivotResult = {
+  series: (PivotPoint | null)[]
+  events: PivotEvent[]
+  state: PivotState
+  current: PivotPoint | null
+  barsSince: number | null
+  livePeak: number | null
+  stats: { count: number; wins: number; winRate: number | null; avgExp: number | null }
 }
 
-function _detectContraction(bars: { high: number; low: number; close: number }[]): { qualifies: boolean; compressionPct: number } {
-  if (bars.length < 120) return { qualifies: false, compressionPct: 0 }
-  const lb = bars.slice(-4)
-  if (lb.length < 4) return { qualifies: false, compressionPct: 0 }
-  const avgHV = _calcHV4D(bars)
-  if (!avgHV || avgHV < _MIN_AVG_HV) return { qualifies: false, compressionPct: 0 }
-  const high = Math.max(...lb.map((b) => b.high))
-  const low = Math.min(...lb.map((b) => b.low))
-  const currentRange = high - low
-  const rangePercent = (currentRange / low) * 100
-  const compressionPct = ((avgHV - rangePercent) / avgHV) * 100
-  const netMove = Math.abs(lb[lb.length - 1].close - lb[0].close)
-  const notTrending = currentRange > 0 ? netMove / currentRange < 0.8 : false
-  const avgBarRange = lb.reduce((s, b) => s + (b.high - b.low), 0) / lb.length
-  const curBarTight = avgBarRange > 0 && lb[lb.length - 1].high - lb[lb.length - 1].low <= avgBarRange * 2.0
-  const qualifies = compressionPct > _CONTRACTION_THRESHOLD && notTrending && curBarTight
-  return { qualifies, compressionPct }
-}
-
-function _scanHistory(allBars: { date: string; high: number; low: number; close: number }[]): { date: string; compressionPct: number }[] {
-  const events: { date: string; compressionPct: number }[] = []
-  let inC = false, peakC = 0, lastIdx = -1
-  const emit = () => {
-    if (!inC || lastIdx < 0) return
-    events.push({ date: allBars[lastIdx].date, compressionPct: peakC })
-    inC = false; peakC = 0; lastIdx = -1
+// Compression = how much tighter the latest 5-bar range is than its own 116-sample average.
+// A bar qualifies as a pivot when compression > 40%, price is not trending through the window
+// and the current bar is not an outlier; consecutive qualifying bars form one signal.
+function _computePivots(bars: PivotBar[]): PivotResult {
+  const n = bars.length
+  const W = PIVOT_WINDOW
+  const series: (PivotPoint | null)[] = new Array(n).fill(null)
+  const r = new Array<number>(n).fill(NaN)
+  for (let i = W - 1; i < n; i++) {
+    let h = -Infinity, l = Infinity
+    for (let j = i - W + 1; j <= i; j++) {
+      if (bars[j].high > h) h = bars[j].high
+      if (bars[j].low < l) l = bars[j].low
+    }
+    r[i] = l > 0 ? ((h - l) / l) * 100 : NaN
   }
-  for (let i = 120; i < allBars.length; i++) {
-    const r = _detectContraction(allBars.slice(0, i + 1))
-    if (r.qualifies) {
-      if (!inC) { inC = true; peakC = r.compressionPct }
-      else if (r.compressionPct > peakC) peakC = r.compressionPct
+
+  const events: PivotEvent[] = []
+  let inC = false, startIdx = -1, peak = 0, peakIdx = -1, lastIdx = -1
+  const flush = () => {
+    if (inC && lastIdx >= 0 && lastIdx - startIdx + 1 >= PIVOT_MIN_BARS) {
+      let zh = -Infinity, zl = Infinity
+      for (let j = Math.max(0, startIdx - W + 1); j <= lastIdx; j++) {
+        if (bars[j].high > zh) zh = bars[j].high
+        if (bars[j].low < zl) zl = bars[j].low
+      }
+      events.push({ idx: lastIdx, startIdx, peakIdx, peak, bars: lastIdx - startIdx + 1, zoneHigh: zh, zoneLow: zl, expansion: null, win: null })
+    }
+    inC = false; startIdx = -1; peak = 0; peakIdx = -1; lastIdx = -1
+  }
+
+  const span = PIVOT_LOOKBACK - W + 1
+  let sum = 0, cnt = 0
+  let baseSum = 0, baseCnt = 0
+  for (let i = 0; i < n; i++) {
+    if (!Number.isNaN(r[i])) { sum += r[i]; cnt++ }
+    const out = i - span
+    if (out >= 0 && !Number.isNaN(r[out])) { sum -= r[out]; cnt-- }
+    if (i < PIVOT_LOOKBACK - 1 || cnt === 0 || Number.isNaN(r[i])) { if (inC) flush(); continue }
+    const baseline = sum / cnt
+    if (baseline < PIVOT_MIN_BASELINE) { if (inC) flush(); continue }
+    baseSum += r[i]; baseCnt++
+
+    const score = ((baseline - r[i]) / baseline) * 100
+    let hi = -Infinity, lo = Infinity, barRangeSum = 0
+    for (let j = i - W + 1; j <= i; j++) {
+      if (bars[j].high > hi) hi = bars[j].high
+      if (bars[j].low < lo) lo = bars[j].low
+      barRangeSum += bars[j].high - bars[j].low
+    }
+    const range = hi - lo
+    const notTrending = range > 0 ? Math.abs(bars[i].close - bars[i - W + 1].close) / range < 0.8 : false
+    const avgBar = barRangeSum / W
+    const curTight = avgBar > 0 && bars[i].high - bars[i].low <= avgBar * 2
+    const qualifies = score > PIVOT_THRESHOLD && notTrending && curTight
+    series[i] = { score, rangePct: r[i], baseline, qualifies }
+
+    if (qualifies) {
+      if (!inC) { inC = true; startIdx = i; peak = score; peakIdx = i }
+      else if (score > peak) { peak = score; peakIdx = i }
       lastIdx = i
-    } else {
-      if (inC) emit()
+    } else if (inC) flush()
+  }
+  const inLiveCluster = inC
+  const livePeakScore = peak
+  if (inC) flush()
+  // A straddle is entered at the cluster's maximum coil (peakIdx). It "expands" when the
+  // following 5 bars cover at least 1.25x the normal 5-bar range.
+  let wins = 0, scored = 0, expSum = 0
+  for (const ev of events) {
+    const e = ev.peakIdx
+    if (e + PIVOT_FWD_BARS >= n) continue
+    let h = -Infinity, l = Infinity
+    for (let j = e + 1; j <= e + PIVOT_FWD_BARS; j++) {
+      if (bars[j].high > h) h = bars[j].high
+      if (bars[j].low < l) l = bars[j].low
+    }
+    const base = series[e]?.baseline
+    if (!(l > 0) || !base) continue
+    ev.expansion = (((h - l) / l) * 100) / base
+    ev.win = ev.expansion >= 1.25
+    scored++; expSum += ev.expansion
+    if (ev.win) wins++
+  }
+  const current = n > 0 ? series[n - 1] : null
+  const lastEv = events.length ? events[events.length - 1] : null
+  const livePeak = inLiveCluster ? livePeakScore : null
+  const state: PivotState = !current ? 'WARMING UP'
+    : current.qualifies ? (current.score >= 55 && current.score >= (livePeak ?? 0) - 3 ? 'BUY STRADDLE' : 'COILING')
+      : current.score < 0 ? 'EXPANDING' : 'WAIT'
+
+  return {
+    series,
+    events,
+    state,
+    current,
+    barsSince: lastEv ? n - 1 - lastEv.peakIdx : null,
+    livePeak,
+    stats: {
+      count: events.length,
+      wins,
+      winRate: scored ? (wins / scored) * 100 : null,
+      avgExp: scored ? expSum / scored : null,
+    },
+  }
+}
+
+function _drawPivotPanel(
+  ctx: CanvasRenderingContext2D,
+  res: PivotResult | null,
+  startIndex: number,
+  visibleCount: number,
+  chartWidth: number,
+  canvasWidth: number,
+  panelY: number,
+  panelH: number,
+  visibleCandleCount: number
+) {
+  const font = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
+  const left = CHART_LEFT_MARGIN
+  const bg = ctx.createLinearGradient(0, panelY, 0, panelY + panelH)
+  bg.addColorStop(0, '#111113')
+  bg.addColorStop(0.35, '#08080a')
+  bg.addColorStop(1, '#000000')
+  ctx.save()
+  ctx.fillStyle = bg
+  ctx.fillRect(0, panelY, canvasWidth, panelH)
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)'
+  ctx.lineWidth = 1
+  ctx.beginPath(); ctx.moveTo(0, panelY + 0.5); ctx.lineTo(canvasWidth, panelY + 0.5); ctx.stroke()
+
+  const stateColors: Record<PivotState, string> = {
+    'WARMING UP': '#8b8f98', WAIT: '#7d838f', COILING: '#ffb020', 'BUY STRADDLE': '#22c55e', EXPANDING: '#f05252',
+  }
+  const accent = res ? stateColors[res.state] : stateColors['WARMING UP']
+
+  // Header band
+  const headH = 44
+  const hg = ctx.createLinearGradient(0, panelY, 0, panelY + headH)
+  hg.addColorStop(0, '#1c1c20'); hg.addColorStop(0.55, '#0a0a0c'); hg.addColorStop(1, '#000000')
+  ctx.fillStyle = hg
+  ctx.fillRect(0, panelY + 1, canvasWidth, headH)
+  ctx.fillStyle = accent
+  ctx.fillRect(0, panelY, canvasWidth, 2)
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)'
+  ctx.beginPath(); ctx.moveTo(0, panelY + headH + 0.5); ctx.lineTo(canvasWidth, panelY + headH + 0.5); ctx.stroke()
+
+  ctx.textBaseline = 'alphabetic'
+  ctx.textAlign = 'left'
+  ctx.fillStyle = '#ffffff'
+  ctx.font = `800 15px ${font}`
+  ctx.fillText('STRADDLE COIL', left + 12, panelY + 28)
+
+  let x = left + 150
+  if (res) {
+    // State pill
+    ctx.font = `800 12px ${font}`
+    const pw = ctx.measureText(res.state).width + 22
+    const px = x, py = panelY + 11, ph = 24, rad = 12
+    ctx.beginPath()
+    ctx.moveTo(px + rad, py); ctx.arcTo(px + pw, py, px + pw, py + ph, rad); ctx.arcTo(px + pw, py + ph, px, py + ph, rad)
+    ctx.arcTo(px, py + ph, px, py, rad); ctx.arcTo(px, py, px + pw, py, rad); ctx.closePath()
+    const pg = ctx.createLinearGradient(0, py, 0, py + ph)
+    pg.addColorStop(0, 'rgba(255,255,255,0.10)'); pg.addColorStop(1, 'rgba(255,255,255,0.02)')
+    ctx.fillStyle = pg; ctx.fill()
+    ctx.strokeStyle = accent; ctx.lineWidth = 1.2; ctx.stroke()
+    ctx.fillStyle = accent
+    ctx.textBaseline = 'middle'
+    ctx.fillText(res.state, px + 11, py + ph / 2 + 0.5)
+    ctx.textBaseline = 'alphabetic'
+    x = px + pw + 26
+
+    const cur = res.current
+    const st = res.stats
+    const items: { label: string; value: string; color?: string }[] = [
+      { label: 'COIL SCORE', value: cur ? `${cur.score.toFixed(0)}%` : '--', color: accent },
+    ]
+    for (const it of items) {
+      ctx.font = `700 12px ${font}`
+      const lw = ctx.measureText(it.label).width
+      ctx.font = `800 17px ${font}`
+      const vw = ctx.measureText(it.value).width
+      const w = Math.max(lw, vw)
+      if (x + w > chartWidth - 10) break
+      ctx.fillStyle = 'rgba(255,255,255,0.85)'
+      ctx.font = `700 12px ${font}`
+      ctx.fillText(it.label, x, panelY + 18)
+      ctx.fillStyle = it.color ?? '#ffffff'
+      ctx.font = `800 17px ${font}`
+      ctx.fillText(it.value, x, panelY + 38)
+      x += w + 30
     }
   }
-  if (inC) emit()
-  return events
+
+  // Plot area
+  const plotTop = panelY + headH + 12
+  const plotBottom = panelY + panelH - 10
+  const plotH = plotBottom - plotTop
+  const SC_MAX = 100, SC_MIN = -60
+  const toY = (v: number) => plotBottom - ((Math.max(SC_MIN, Math.min(SC_MAX, v)) - SC_MIN) / (SC_MAX - SC_MIN)) * plotH
+  const zeroY = toY(0)
+  const thrY = toY(PIVOT_THRESHOLD)
+
+  if (!res || res.current === null && res.events.length === 0 && res.series.every((p) => p === null)) {
+    ctx.fillStyle = 'rgba(255,255,255,0.45)'
+    ctx.font = `600 13px ${font}`
+    ctx.textAlign = 'center'
+    ctx.fillText(res ? `Needs ${PIVOT_LOOKBACK}+ bars of history` : 'Computing…', chartWidth / 2, plotTop + plotH / 2)
+    ctx.restore()
+    return
+  }
+
+  // Threshold zone and grid
+  ctx.fillStyle = 'rgba(255,176,32,0.05)'
+  ctx.fillRect(left, toY(SC_MAX), chartWidth - left, thrY - toY(SC_MAX))
+  ctx.lineWidth = 1
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)'
+  for (const v of [80, 20, -40]) {
+    const gy = Math.round(toY(v)) + 0.5
+    ctx.beginPath(); ctx.moveTo(left, gy); ctx.lineTo(chartWidth, gy); ctx.stroke()
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,0.28)'
+  ctx.beginPath(); ctx.moveTo(left, Math.round(zeroY) + 0.5); ctx.lineTo(chartWidth, Math.round(zeroY) + 0.5); ctx.stroke()
+  ctx.strokeStyle = 'rgba(255,176,32,0.55)'
+  ctx.setLineDash([5, 4])
+  ctx.beginPath(); ctx.moveTo(left, Math.round(thrY) + 0.5); ctx.lineTo(chartWidth, Math.round(thrY) + 0.5); ctx.stroke()
+  ctx.setLineDash([])
+
+  const spacing = chartWidth / visibleCandleCount
+
+  ctx.save()
+  ctx.beginPath(); ctx.rect(left, panelY + headH + 1, chartWidth - left, panelH - headH - 1); ctx.clip()
+
+  const pts: { x: number; y: number; p: PivotPoint }[] = []
+  for (let vi = 0; vi < visibleCount; vi++) {
+    const p = res.series[startIndex + vi]
+    if (!p) continue
+    pts.push({ x: left + vi * spacing + spacing / 2, y: toY(p.score), p })
+  }
+  if (pts.length > 1) {
+    // Area above the zero line fades gold, area below fades red
+    const area = (clipTop: number, clipBottom: number, c0: string, c1: string, gy0: number, gy1: number) => {
+      ctx.save()
+      ctx.beginPath(); ctx.rect(left, clipTop, chartWidth - left, clipBottom - clipTop); ctx.clip()
+      ctx.beginPath()
+      ctx.moveTo(pts[0].x, zeroY)
+      for (const q of pts) ctx.lineTo(q.x, q.y)
+      ctx.lineTo(pts[pts.length - 1].x, zeroY)
+      ctx.closePath()
+      const g = ctx.createLinearGradient(0, gy0, 0, gy1)
+      g.addColorStop(0, c0); g.addColorStop(1, c1)
+      ctx.fillStyle = g; ctx.fill()
+      ctx.restore()
+    }
+    area(plotTop, zeroY, 'rgba(255,176,32,0.55)', 'rgba(255,176,32,0.04)', toY(100), zeroY)
+    area(zeroY, plotBottom + 2, 'rgba(239,68,68,0.04)', 'rgba(239,68,68,0.50)', zeroY, plotBottom)
+    // Line coloured by regime: gold = coiled, red = expanding, white = neutral
+    ctx.lineWidth = 2.2
+    ctx.lineJoin = 'round'
+    for (let k = 1; k < pts.length; k++) {
+      const a = pts[k - 1], b = pts[k]
+      ctx.strokeStyle = b.p.qualifies ? '#ffc23d' : b.p.score < 0 ? '#ff5a5a' : 'rgba(255,255,255,0.75)'
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke()
+    }
+    const last = pts[pts.length - 1]
+    ctx.fillStyle = '#ffffff'
+    ctx.beginPath(); ctx.arc(last.x, last.y, 3.5, 0, Math.PI * 2); ctx.fill()
+  }
+
+  // Entry markers at each cluster's max coil: green = expanded after, red = fizzled, gold = still open
+  for (const ev of res.events) {
+    const vi = ev.peakIdx - startIndex
+    if (vi < 0 || vi >= visibleCount) continue
+    const cx = left + vi * spacing + spacing / 2
+    const rgb = ev.win === true ? '34,197,94' : ev.win === false ? '239,68,68' : '255,176,32'
+    const cy = toY(res.series[ev.peakIdx]?.score ?? 0)
+    ctx.strokeStyle = `rgba(${rgb},0.30)`
+    ctx.lineWidth = 1
+    ctx.beginPath(); ctx.moveTo(Math.round(cx) + 0.5, plotTop); ctx.lineTo(Math.round(cx) + 0.5, plotBottom); ctx.stroke()
+    ctx.fillStyle = `rgb(${rgb})`
+    ctx.strokeStyle = '#000'
+    ctx.lineWidth = 1.5
+    ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+  }
+
+  // Zone labels
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'middle'
+  ctx.font = `800 14px ${font}`
+  ctx.fillStyle = 'rgba(255,194,61,0.95)'
+  ctx.fillText('COILED', left + 12, plotTop + 12)
+  ctx.fillStyle = 'rgba(255,90,90,0.95)'
+  ctx.fillText('EXPANDING', left + 12, plotBottom - 12)
+  ctx.restore()
+
+  // Right-hand axis
+  ctx.textAlign = 'right'
+  ctx.textBaseline = 'middle'
+  ctx.font = `700 14px ${font}`
+  const axisX = canvasWidth - 12
+  for (const [v, c] of [[80, 'rgba(255,255,255,0.9)'], [PIVOT_THRESHOLD, '#ffc23d'], [0, 'rgba(255,255,255,0.9)'], [-40, 'rgba(255,255,255,0.9)']] as [number, string][]) {
+    ctx.fillStyle = c
+    ctx.fillText(`${v}%`, axisX, toY(v))
+  }
+  ctx.restore()
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ───────── Straddle Edge: priced ATM straddle vs realized move ─────────
+type EdgeRow = { date: string; netIV: number | null; price: number; expiration: string }
+// Last drawn plot geometry, read by the crosshair to turn a y position into a %
+let _edgeAxis: { top: number; bottom: number; max: number } | null = null
+// Weekly IV history per ticker, kept for the page session so re-renders/remounts never rescan
+const _edgeIvCache = new Map<string, EdgeRow[]>()
+const _edgeIvInflight = new Set<string>()
+// Loads weekly IV history for any ticker into the shared cache (used by multi-chart panes)
+function _loadEdgeRows(sym: string, onDone: () => void) {
+  if (_edgeIvCache.has(sym) || _edgeIvInflight.has(sym)) return
+  _edgeIvInflight.add(sym)
+  fetch(`/api/calculate-historical-iv?ticker=${sym}&days=365&dte=weekly`)
+    .then((r) => r.json())
+    .then((res) => {
+      if (!res?.success) return
+      const rows: EdgeRow[] = res.data.history.map((h: any) => ({
+        date: h.date,
+        netIV: h.callIV && h.putIV ? (h.callIV + h.putIV) / 2 : h.callIV || h.putIV || null,
+        price: h.price,
+        expiration: h.expiration,
+      }))
+      _edgeIvCache.set(sym, rows)
+      onDone()
+    })
+    .catch((e) => console.error('Straddle Edge IV fetch failed:', e))
+    .finally(() => _edgeIvInflight.delete(sym))
+}
+type EdgeResult = {
+  idxByDate: Map<string, number>
+  cost: (number | null)[]
+  realized: (number | null)[]
+  open: (number | null)[]
+  verdict: 'CHEAP' | 'NORMAL' | 'EXPENSIVE'
+  curCost: number
+  curCostUsd: number
+  expLabel: string
+  monthly: { date: string; cost: number; usd: number; expLabel: string } | null
+  expensiveLevel: number
+  cheapLevel: number
+}
+
+// ATM straddle ≈ 0.798 · σ · √T of spot. Realized = |move| over the same horizon, read from stored prices.
+function _computeStraddleEdge(rows: EdgeRow[], monthlyRows: EdgeRow[] = []): EdgeResult | null {
+  const r = rows.filter((x) => x.netIV !== null && x.price > 0 && !isNaN(Date.parse(x.date)))
+  if (r.length < 30) return null
+  const ts = r.map((x) => Date.parse(x.date))
+  const cost: (number | null)[] = []
+  const realized: (number | null)[] = []
+  const open: (number | null)[] = []
+  const days: number[] = []
+  let j = 0
+  for (let i = 0; i < r.length; i++) {
+    // Weekly expiry = the next Friday after the buy date (Mon–Thu → this Friday, Fri → next Friday)
+    const dow = new Date(ts[i]).getUTCDay()
+    const T = ((5 - dow + 7) % 7) || 7
+    days.push(T)
+    cost.push(0.798 * (r[i].netIV as number) * Math.sqrt(T / 365))
+    const target = ts[i] + T * 86400000
+    if (j < i) j = i
+    while (j < r.length && ts[j] < target) j++
+    realized.push(j < r.length ? (Math.abs(r[j].price / r[i].price - 1) * 100) : null)
+    open.push(j < r.length ? null : Math.abs(r[r.length - 1].price / r[i].price - 1) * 100)
+  }
+  const sorted = (cost as number[]).slice().sort((a, b) => a - b)
+  const rankOf = (v: number) => {
+    let lo = 0, hi = sorted.length
+    while (lo < hi) { const m = (lo + hi) >> 1; if (sorted[m] <= v) lo = m + 1; else hi = m }
+    return (lo / sorted.length) * 100
+  }
+  const last = r.length - 1
+  const curCost = cost[last] as number
+  const rank = rankOf(curCost)
+  const q = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))]
+  const idxByDate = new Map<string, number>()
+  r.forEach((x, i) => idxByDate.set(x.date, i))
+  const price = r[last].price
+  const verdict: EdgeResult['verdict'] = rank <= 35 ? 'CHEAP' : rank >= 70 ? 'EXPENSIVE' : 'NORMAL'
+  const fmt = (s: string) => new Date(Date.parse(s.trim())).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+  const exps = String(r[last].expiration ?? '').split(',').filter((s) => !isNaN(Date.parse(s.trim())))
+  const expLabel = exps.length === 0 ? '' : exps.length === 1 ? fmt(exps[0]) : `${fmt(exps[0])} – ${fmt(exps[exps.length - 1])}`
+  // Latest 30–45D straddle: plotted as the single final point so today's trade can be compared with the weekly history
+  let monthly: EdgeResult['monthly'] = null
+  const mr = monthlyRows.filter((x) => x.netIV !== null && x.price > 0 && !isNaN(Date.parse(x.date)))
+  if (mr.length) {
+    const m = mr[mr.length - 1]
+    const mTs = Date.parse(m.date)
+    const mExps = String(m.expiration ?? '').split(',').filter((s) => !isNaN(Date.parse(s.trim())))
+    const mDays = mExps.length ? mExps.reduce((a, s) => a + (Date.parse(s.trim()) - mTs) / 86400000, 0) / mExps.length : 37
+    const mCost = 0.798 * (m.netIV as number) * Math.sqrt(Math.max(1, mDays) / 365)
+    monthly = {
+      date: m.date,
+      cost: mCost,
+      usd: m.price * mCost / 100,
+      expLabel: mExps.length === 0 ? '' : mExps.length === 1 ? fmt(mExps[0]) : `${fmt(mExps[0])} – ${fmt(mExps[mExps.length - 1])}`,
+    }
+  }
+  return {
+    idxByDate, cost, realized, open, verdict, curCost,
+    curCostUsd: price * curCost / 100,
+    expLabel,
+    monthly,
+    cheapLevel: q(35),
+    expensiveLevel: q(70),
+  }
+}
+
+function _drawStraddleEdgePanel(
+  ctx: CanvasRenderingContext2D,
+  res: EdgeResult | null,
+  visibleDates: string[],
+  chartWidth: number,
+  canvasWidth: number,
+  panelY: number,
+  panelH: number,
+  visibleCandleCount: number
+) {
+  const font = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
+  const left = CHART_LEFT_MARGIN
+  const bg = ctx.createLinearGradient(0, panelY, 0, panelY + panelH)
+  bg.addColorStop(0, '#111113'); bg.addColorStop(0.35, '#08080a'); bg.addColorStop(1, '#000000')
+  ctx.save()
+  ctx.fillStyle = bg
+  ctx.fillRect(0, panelY, canvasWidth, panelH)
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)'
+  ctx.lineWidth = 1
+  ctx.beginPath(); ctx.moveTo(0, panelY + 0.5); ctx.lineTo(canvasWidth, panelY + 0.5); ctx.stroke()
+
+  if (!res) {
+    ctx.fillStyle = 'rgba(255,255,255,0.6)'
+    ctx.font = `600 14px ${font}`
+    ctx.textAlign = 'center'
+    ctx.fillText('Loading straddle history…', chartWidth / 2, panelY + panelH / 2)
+    ctx.restore()
+    return
+  }
+
+  const accent = res.verdict === 'CHEAP' ? '#22c55e' : res.verdict === 'EXPENSIVE' ? '#f05252' : '#ffc23d'
+  const headH = 52
+  let x = left + 12
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'alphabetic'
+  ctx.font = `800 13px ${font}`
+  const label = res.verdict === 'NORMAL' ? 'NORMAL PRICE' : `${res.verdict} NOW`
+  const pw = ctx.measureText(label).width + 22
+  const py = panelY + 14, ph = 24, rad = 12
+  ctx.beginPath()
+  ctx.moveTo(x + rad, py); ctx.arcTo(x + pw, py, x + pw, py + ph, rad); ctx.arcTo(x + pw, py + ph, x, py + ph, rad)
+  ctx.arcTo(x, py + ph, x, py, rad); ctx.arcTo(x, py, x + pw, py, rad); ctx.closePath()
+  ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fill()
+  ctx.strokeStyle = accent; ctx.lineWidth = 1.2; ctx.stroke()
+  ctx.fillStyle = accent
+  ctx.textBaseline = 'middle'
+  ctx.fillText(label, x + 11, py + ph / 2 + 0.5)
+  ctx.textBaseline = 'alphabetic'
+  x += pw + 26
+
+  const items: { label: string; value: string; color?: string }[] = [
+    { label: res.monthly ? `STRADDLE · EXPIRES ${(res.monthly.expLabel || '').toUpperCase()}` : (res.expLabel ? `STRADDLE · EXPIRES ${res.expLabel.toUpperCase()}` : 'STRADDLE'), value: res.monthly ? `$${res.monthly.usd.toFixed(2)} · ${res.monthly.cost.toFixed(1)}%` : `$${res.curCostUsd.toFixed(2)} · ${res.curCost.toFixed(1)}%`, color: '#ffc23d' },
+  ]
+  for (const it of items) {
+    ctx.font = `700 12px ${font}`
+    const lw = ctx.measureText(it.label).width
+    ctx.font = `800 17px ${font}`
+    const w = Math.max(lw, ctx.measureText(it.value).width)
+    if (x + w > chartWidth - 10) break
+    ctx.fillStyle = 'rgba(255,255,255,0.85)'
+    ctx.font = `700 12px ${font}`
+    ctx.fillText(it.label, x, panelY + 22)
+    ctx.fillStyle = it.color ?? '#ffffff'
+    ctx.font = `800 17px ${font}`
+    ctx.fillText(it.value, x, panelY + 42)
+    x += w + 30
+  }
+
+  const plotTop = panelY + headH + 22
+  const plotBottom = panelY + panelH - 12
+  const plotH = plotBottom - plotTop
+  const spacing = chartWidth / visibleCandleCount
+  const pts: { x: number; c: number | null; r: number | null; o: number | null }[] = []
+  let maxV = 0.5
+  visibleDates.forEach((d, k) => {
+    const i = res.idxByDate.get(d)
+    if (i === undefined) return
+    const c = res.cost[i], r = res.realized[i], o = res.open[i]
+    if (c !== null) maxV = Math.max(maxV, c)
+    if (r !== null) maxV = Math.max(maxV, r)
+    if (o !== null) maxV = Math.max(maxV, o)
+    pts.push({ x: left + k * spacing + spacing / 2, c, r, o })
+  })
+  const nowCost = res.monthly ? res.monthly.cost : res.curCost
+  maxV = Math.max(maxV, res.expensiveLevel * 1.15, nowCost * 1.1)
+  maxV = Math.min(maxV * 1.1, Math.max(res.expensiveLevel * 2.2, nowCost * 1.3))
+  const toY = (v: number) => plotBottom - (Math.min(v, maxV) / maxV) * plotH
+  _edgeAxis = { top: plotTop, bottom: plotBottom, max: maxV }
+
+  ctx.save()
+  ctx.beginPath(); ctx.rect(left, panelY + headH, chartWidth, panelH - headH); ctx.clip()
+  // Price zones: below the cheap line a straddle costs little, above the expensive line it costs a lot
+  const cheapY = toY(res.cheapLevel), richY = toY(res.expensiveLevel)
+  ctx.fillStyle = 'rgba(34,197,94,0.10)'
+  ctx.fillRect(left, cheapY, chartWidth, plotBottom - cheapY)
+  ctx.fillStyle = 'rgba(239,68,68,0.10)'
+  ctx.fillRect(left, plotTop, chartWidth, richY - plotTop)
+  ctx.lineWidth = 1
+  ctx.setLineDash([6, 4])
+  ctx.strokeStyle = 'rgba(34,197,94,0.75)'
+  ctx.beginPath(); ctx.moveTo(left, Math.round(cheapY) + 0.5); ctx.lineTo(left + chartWidth, Math.round(cheapY) + 0.5); ctx.stroke()
+  ctx.strokeStyle = 'rgba(239,68,68,0.75)'
+  ctx.beginPath(); ctx.moveTo(left, Math.round(richY) + 0.5); ctx.lineTo(left + chartWidth, Math.round(richY) + 0.5); ctx.stroke()
+  ctx.setLineDash([])
+
+  // Fill between realized and cost: green where the straddle paid, red where it lost
+  for (let k = 1; k < pts.length; k++) {
+    const a = pts[k - 1], b = pts[k]
+    if (a.c === null || b.c === null || a.r === null || b.r === null) continue
+    const win = (a.r - a.c) + (b.r - b.c) >= 0
+    ctx.fillStyle = win ? 'rgba(34,197,94,0.28)' : 'rgba(239,68,68,0.22)'
+    ctx.beginPath()
+    ctx.moveTo(a.x, toY(a.c)); ctx.lineTo(b.x, toY(b.c)); ctx.lineTo(b.x, toY(b.r)); ctx.lineTo(a.x, toY(a.r))
+    ctx.closePath(); ctx.fill()
+  }
+  const line = (key: 'c' | 'r' | 'o', color: string, w: number, dash: number[] = []) => {
+    ctx.strokeStyle = color; ctx.lineWidth = w; ctx.lineJoin = 'round'
+    ctx.setLineDash(dash)
+    ctx.beginPath()
+    let started = false
+    for (const p of pts) {
+      const v = p[key]
+      if (v === null) { started = false; continue }
+      if (!started) { ctx.moveTo(p.x, toY(v)); started = true } else ctx.lineTo(p.x, toY(v))
+    }
+    ctx.stroke()
+    ctx.setLineDash([])
+  }
+  line('r', '#ffffff', 1.6)
+  line('o', 'rgba(255,255,255,0.85)', 1.6, [5, 4])
+  line('c', '#ffc23d', 2.4)
+  const lastPt = pts[pts.length - 1]
+  if (lastPt && lastPt.c !== null) {
+    ctx.fillStyle = '#ffc23d'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5
+    ctx.beginPath(); ctx.arc(lastPt.x, toY(lastPt.c), 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+    if (res.monthly) {
+      // Final point: today's 30–45D straddle, joined to the weekly history by a dashed link
+      const mx = lastPt.x + Math.min(spacing * 1.5, 18)
+      ctx.strokeStyle = '#ffc23d'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3])
+      ctx.beginPath(); ctx.moveTo(lastPt.x, toY(lastPt.c)); ctx.lineTo(mx, toY(res.monthly.cost)); ctx.stroke()
+      ctx.setLineDash([])
+      ctx.fillStyle = '#ffc23d'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2
+      ctx.beginPath(); ctx.arc(mx, toY(res.monthly.cost), 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+    }
+  }
+  ctx.textAlign = 'right'
+  ctx.textBaseline = 'middle'
+  ctx.font = `800 14px ${font}`
+  const zx = left + chartWidth - 10
+  ctx.fillStyle = '#ef4444'
+  ctx.fillText('EXPENSIVE', zx, richY - 10)
+  ctx.fillStyle = '#22c55e'
+  ctx.fillText('CHEAP', zx, cheapY + 12)
+  ctx.restore()
+
+  // Axis: evenly spaced ticks, skipping any that would collide with the zone/current tags
+  ctx.textAlign = 'right'
+  ctx.textBaseline = 'middle'
+  const tags = [
+    { v: res.expensiveLevel, c: '#ef4444' },
+    { v: res.cheapLevel, c: '#22c55e' },
+    { v: nowCost, c: '#ffc23d' },
+  ].map((t) => ({ ...t, y: toY(t.v) })).sort((a, b) => a.y - b.y)
+  // Nudge tags apart so no two labels overlap
+  for (let k = 1; k < tags.length; k++) if (tags[k].y - tags[k - 1].y < 17) tags[k].y = tags[k - 1].y + 17
+  const step = maxV / 4
+  ctx.font = `600 13px ${font}`
+  ctx.fillStyle = 'rgba(255,255,255,0.75)'
+  for (let g = 1; g <= 4; g++) {
+    const ty = toY(g * step)
+    if (ty < plotTop - 4 || tags.some((t) => Math.abs(t.y - ty) < 17)) continue
+    ctx.fillText(`${(g * step).toFixed(1)}%`, canvasWidth - 12, ty)
+  }
+  ctx.font = `800 14px ${font}`
+  for (const t of tags) {
+    ctx.fillStyle = t.c
+    ctx.fillText(`${t.v.toFixed(1)}%`, canvasWidth - 12, t.y)
+  }
+  ctx.restore()
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -6833,7 +7397,6 @@ export default function TradingViewChart({
   const gexButtonRef = useRef<HTMLButtonElement>(null)
   const rrgButtonRef = useRef<HTMLButtonElement>(null) // Chart state
   const flowMovesButtonRef = useRef<HTMLButtonElement>(null)
-  const peButtonRef = useRef<HTMLButtonElement>(null)
   const dropdownHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const closeAllToolbarDropdowns = () => {
     setIsTimeframeDropdownOpen(false)
@@ -6846,7 +7409,6 @@ export default function TradingViewChart({
     setIsIVHVDropdownOpen(false)
     setIsFlowMovesDropdownOpen(false)
     setIsRrgDropdownOpen(false)
-    setIsPEDropdownOpen(false)
   }
   // Close all toolbar dropdowns when clicking outside any dropdown
   useEffect(() => {
@@ -6869,7 +7431,6 @@ export default function TradingViewChart({
       setIsIVHVDropdownOpen(false)
       setIsFlowMovesDropdownOpen(false)
       setIsRrgDropdownOpen(false)
-      setIsPEDropdownOpen(false)
     }
     document.addEventListener('click', handleDocumentClick)
     return () => document.removeEventListener('click', handleDocumentClick)
@@ -6956,8 +7517,6 @@ export default function TradingViewChart({
     setIsMobileGroup3Open,
   } = useEFIChartingMobile()
 
-  // Chat store for Guide AI panel
-  const { isOpen: isGuideAIOpen, setIsOpen: setGuideAIOpen } = useChatStore()
   // Mobile standalone panel toggles for Range and Gex buttons
   const [isMobileRangeOpen, setIsMobileRangeOpen] = useState(false)
   const [showMobileCustomRange, setShowMobileCustomRange] = useState(false)
@@ -7206,6 +7765,7 @@ export default function TradingViewChart({
     | 'elliottWave'
     | 'elliottWaveABC'
     | 'path'
+    | 'eraser'
   >('select')
   const [isDrawingToolLocked, setIsDrawingToolLocked] = useState(false)
 
@@ -7255,6 +7815,47 @@ export default function TradingViewChart({
     setLwChartDrawings((prev) => ({ ...prev, [sym]: newDrawings }))
   }
 
+  // Drawing hotkeys: Ctrl+Z / Ctrl+Y undo-redo, Esc back to cursor, Alt+letter picks a tool
+  const drawingHotkeyRef = useRef<(e: KeyboardEvent) => void>(() => {})
+  drawingHotkeyRef.current = (e: KeyboardEvent) => {
+    const t = e.target as HTMLElement | null
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+    const sym = currentSymbol
+    const key = e.key.toLowerCase()
+    if ((e.ctrlKey || e.metaKey) && key === 'z' && !e.shiftKey) {
+      if (currentHistoryIndex > 0) {
+        e.preventDefault()
+        const ni = currentHistoryIndex - 1
+        setHistoryIndex((p) => ({ ...p, [sym]: ni }))
+        setLwChartDrawings((p) => ({ ...p, [sym]: currentHistory[ni] }))
+      }
+    } else if ((e.ctrlKey || e.metaKey) && (key === 'y' || (key === 'z' && e.shiftKey))) {
+      if (currentHistoryIndex < currentHistory.length - 1) {
+        e.preventDefault()
+        const ni = currentHistoryIndex + 1
+        setHistoryIndex((p) => ({ ...p, [sym]: ni }))
+        setLwChartDrawings((p) => ({ ...p, [sym]: currentHistory[ni] }))
+      }
+    } else if (e.key === 'Escape') {
+      setCurrentDrawingTool('select' as any)
+    } else if (e.altKey && !e.ctrlKey && !e.metaKey) {
+      const map: Record<string, string> = {
+        t: 'trendline', h: 'horizontal', v: 'vertical', c: 'parallelChannel', b: 'rectangle',
+        r: 'priceRange', f: 'fib', p: 'path', n: 'text', m: 'brush', e: 'eraser',
+      }
+      const tool = map[key]
+      if (tool) {
+        e.preventDefault()
+        setCurrentDrawingTool((cur: any) => (cur === tool ? 'select' : tool) as any)
+      }
+    }
+  }
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => drawingHotkeyRef.current(e)
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [])
+
 
   // Parallel Channel Dragging State
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null)
@@ -7287,13 +7888,58 @@ export default function TradingViewChart({
     config: ChartConfig
   }
 
-  type ChartLayout = '1x1' | '1x2' | '2x2'
+  type ChartLayout = '1x1' | '1x2' | '2x1' | '1x3' | '1+2' | '2x2'
 
   const [chartLayout, setChartLayout] = useState<ChartLayout>('1x1')
+  const [showLayoutMenu, setShowLayoutMenu] = useState(false)
+  const [layoutMenuPos, setLayoutMenuPos] = useState({ top: 0, right: 0 })
+  const [linkCharts, setLinkCharts] = useState(true)
+
   const [chartInstances, setChartInstances] = useState<ChartInstance[]>([
     { id: 'chart-1', symbol, timeframe: initialTimeframe, config },
   ])
   const [activeChartId, setActiveChartId] = useState<string>('chart-1')
+
+  // Guard: instance ids must be unique (stale state or old saves could repeat one)
+  useEffect(() => {
+    const ids = chartInstances.map((ci) => ci.id)
+    if (new Set(ids).size === ids.length) return
+    const seen = new Set<string>()
+    const fixed = chartInstances.map((ci, i) => {
+      let id = ci.id
+      let n = i + 1
+      while (seen.has(id)) id = `chart-${n++}`
+      seen.add(id)
+      return id === ci.id ? ci : { ...ci, id }
+    })
+    setChartInstances(fixed)
+    if (!fixed.some((ci) => ci.id === activeChartId)) setActiveChartId(fixed[0].id)
+  }, [chartInstances, activeChartId])
+
+  // Restore the saved multi-chart layout once on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('efi-multichart-v1')
+      if (!raw) return
+      const saved = JSON.parse(raw) as { layout: ChartLayout; link?: boolean; instances: { id: string; symbol: string; timeframe: string }[] }
+      if (typeof saved.link === 'boolean') setLinkCharts(saved.link)
+      if (!saved.layout || saved.layout === '1x1' || !Array.isArray(saved.instances) || saved.instances.length < 2) return
+      setChartInstances(saved.instances.map((s, i) => ({ ...s, id: `chart-${i + 1}`, config: { ...config, symbol: s.symbol, timeframe: s.timeframe } })))
+      setActiveChartId('chart-1')
+      setChartLayout(saved.layout)
+    } catch { }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('efi-multichart-v1', JSON.stringify({
+        layout: chartLayout,
+        link: linkCharts,
+        instances: chartInstances.map(({ id, symbol: s, timeframe }) => ({ id, symbol: s, timeframe })),
+      }))
+    } catch { }
+  }, [chartLayout, linkCharts, chartInstances])
 
   // Per-chart indicator overrides: only populated when in multi-chart mode
   // Each chart stores its own toggle state independently of global state
@@ -7326,19 +7972,22 @@ export default function TradingViewChart({
     (newLayout: ChartLayout) => {
       setChartLayout(newLayout)
 
-      const layouts = { '1x1': 1, '1x2': 2, '2x2': 4 }
+      const layouts: Record<ChartLayout, number> = { '1x1': 1, '1x2': 2, '2x1': 2, '1x3': 3, '1+2': 3, '2x2': 4 }
       const numCharts = layouts[newLayout]
       const newInstances: ChartInstance[] = []
+      const activeInst = chartInstances.find((ci) => ci.id === activeChartId) ?? chartInstances[0]
 
       for (let i = 0; i < numCharts; i++) {
         const existingInstance = chartInstances[i]
         if (existingInstance) {
           newInstances.push(existingInstance)
         } else {
+          let n = i + 1
+          while (newInstances.some((ci) => ci.id === `chart-${n}`) || chartInstances.some((ci) => ci.id === `chart-${n}`)) n++
           newInstances.push({
-            id: `chart-${i + 1}`,
-            symbol: symbol,
-            timeframe: config.timeframe,
+            id: `chart-${n}`,
+            symbol: activeInst?.symbol ?? symbol,
+            timeframe: activeInst?.timeframe ?? config.timeframe,
             config: { ...config },
           })
         }
@@ -7473,10 +8122,10 @@ export default function TradingViewChart({
   }
 
   // Shared processing helper: convert raw trades array into FlowMoves chart data and set state
-  const processFlowMovesTradesIntoChart = (allTrades: any[], timeframe: '1D' | '3D' | '1W', bucketMinutes: number = 5, tradingDaysOverride?: string[]) => {
+  const processFlowMovesTradesIntoChart = (allTrades: any[], _requestedTimeframe: '1D' | '3D' | '1W', bucketMinutes: number = 5, tradingDaysOverride?: string[]) => {
     // Store raw trades so we can re-process when chart timeframe changes
     rawFlowTradesRef.current = allTrades
-    rawFlowMovesTimeframeRef.current = timeframe
+    rawFlowMovesTimeframeRef.current = _requestedTimeframe
 
     // US Market Holidays (2025-2026)
     const US_MARKET_HOLIDAYS = [
@@ -7513,7 +8162,20 @@ export default function TradingViewChart({
     }
 
     // Use the override (dates actually fetched) when provided, otherwise fall back to calculating from now
-    const tradingDays = tradingDaysOverride && tradingDaysOverride.length > 0 ? tradingDaysOverride : getTradingDays(timeframe)
+    // Flow chart always spans every day present in the data; the bucket size follows the chart timeframe
+    const derivedTradingDays = (() => {
+      const set = new Set<string>()
+      allTrades.forEach((t) => {
+        if (!t.trade_timestamp) return
+        const d = new Date(new Date(t.trade_timestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+        set.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`)
+      })
+      return [...set].sort()
+    })()
+    const tradingDays = tradingDaysOverride && tradingDaysOverride.length > 0
+      ? tradingDaysOverride
+      : derivedTradingDays.length > 0 ? derivedTradingDays : getTradingDays('1D')
+    const timeframe: '1D' | '1W' = tradingDays.length > 1 ? '1W' : '1D'
 
     const intervalData = new Map<string, { callsPlus: number; callsMinus: number; putsPlus: number; putsMinus: number }>()
 
@@ -7691,87 +8353,69 @@ export default function TradingViewChart({
     setIsFlowChartActive(true)
   }
 
-  // Live FlowMoves handler - Fetches and displays 4-line flow chart
-  const handleLiveFlowMovesClick = async (timeframe: '1D' | '3D' | '1W' = '1D') => {
+  // Flow chart handler - loads every saved flow day from the DB for the symbol (plus today's live scan when the market is open).
+  // Bucket size follows the chart timeframe, so there is no separate flow timeframe.
+  const handleLiveFlowMovesClick = async (_legacyTimeframe?: '1D' | '3D' | '1W') => {
     try {
-      const US_MARKET_HOLIDAYS_FM = [
-        '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18', '2025-05-26',
-        '2025-07-04', '2025-09-01', '2025-11-27', '2025-12-25',
-        '2026-01-01', '2026-01-19', '2026-02-16', '2026-04-03', '2026-05-25',
-        '2026-06-19', '2026-07-03', '2026-09-07', '2026-11-26', '2026-12-25',
-      ]
-      const getRequiredTradingDays = (tf: '1D' | '3D' | '1W'): string[] => {
-        const days: string[] = []
-        const now = new Date()
-        const pstNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-        const daysNeeded = tf === '1D' ? 1 : tf === '3D' ? 3 : 5
-        const cur = new Date(pstNow)
-        cur.setDate(cur.getDate() - 1)
-        while (days.length < daysNeeded) {
-          const d = cur.getDay()
-          const dateStr = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`
-          if (d !== 0 && d !== 6 && !US_MARKET_HOLIDAYS_FM.includes(dateStr)) days.push(dateStr)
-          cur.setDate(cur.getDate() - 1)
-        }
-        return days.reverse()
-      }
-
       const nowPST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
       const dow = nowPST.getDay(); const hour = nowPST.getHours(); const minute = nowPST.getMinutes()
       const marketOpen = (dow >= 1 && dow <= 5) && (hour > 6 || (hour === 6 && minute >= 30)) && hour < 13
-
-      // For 1D when market is open, skip DB and go straight to live stream
-      if (!(timeframe === '1D' && marketOpen)) {
-        try {
-          const requiredDays = getRequiredTradingDays(timeframe)
-
-          const datesResp = await fetch('/api/flows/dates')
-          if (datesResp.ok) {
-            const dates: { date: string }[] = await datesResp.json()
-            const dbDaySet = new Set(dates.map(d => new Date(d.date).toISOString().split('T')[0]))
-
-            const availableDays = requiredDays.filter(d => dbDaySet.has(d))
-            const missingDays = requiredDays.filter(d => !dbDaySet.has(d))
-
-            if (availableDays.length > 0) {
-              // Fetch all available days in parallel
-              const dayFetches = await Promise.all(availableDays.map(async (day) => {
-                const entry = dates.find(d => new Date(d.date).toISOString().split('T')[0] === day)
-                if (!entry) return []
-                const resp = await fetch(`/api/flows/${encodeURIComponent(entry.date)}`)
-                if (!resp.ok) return []
-                const fd = await resp.json()
-                const all: any[] = Array.isArray(fd.data) ? fd.data : []
-                const sym = all.filter((t: any) => t.underlying_ticker?.toUpperCase() === symbol?.toUpperCase())
-                // Verify at least one trade has a timestamp matching this day
-                const match = sym.some((t: any) => {
-                  if (!t.trade_timestamp) return false
-                  const d2 = new Date(new Date(t.trade_timestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-                  return `${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, '0')}-${String(d2.getDate()).padStart(2, '0')}` === day
-                })
-                return match ? sym : []
-              }))
-
-              const combinedTrades = dayFetches.flat()
-
-              if (combinedTrades.length > 0) {
-                if (missingDays.length > 0) {
-                  // Some days missing — show popup so user can decide to scan or skip
-                  setFlowMovesMissingDays({ days: missingDays, pendingTrades: combinedTrades, pendingTimeframe: timeframe })
-                  setIsFlowMovesLoading(false)
-                  return
-                }
-                // All days available — render immediately
-                processFlowMovesTradesIntoChart(combinedTrades, timeframe, getFlowBucketMinutes(config.timeframe) ?? 5, requiredDays)
-                setIsFlowMovesLoading(false)
-                return
-              }
-            }
-          }
-        } catch (dbErr) { /* DB path failed, fall through to stream */ }
+      const pstDateStr = (v: string | number | Date) => {
+        const d = new Date(new Date(v).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
       }
-
+      const todayStr = pstDateStr(Date.now())
+      const bucket = getFlowBucketMinutes(config.timeframe) ?? 5
+      let dbTrades: any[] = []
       setIsFlowMovesLoading(true)
+
+      try {
+        // In-memory cache so switching timeframes / reopening the same ticker is instant
+        const histCache: Map<string, { at: number; trades: any[] }> =
+          ((globalThis as any).__flowHistCache ??= new Map())
+        const cacheKey = (symbol || '').toUpperCase()
+        const hit = histCache.get(cacheKey)
+        if (hit && Date.now() - hit.at < 5 * 60 * 1000) {
+          dbTrades = hit.trades
+        } else {
+          // One server-side streamed request covers every saved day (server caches per ticker/day)
+          const resp = await fetch(`/api/flows/ticker-history?ticker=${encodeURIComponent(symbol)}&days=365`)
+          if (resp.ok && resp.body) {
+            const reader = resp.body.getReader()
+            const decoder = new TextDecoder()
+            const perDay = new Map<string, any[]>()
+            let buf = ''
+            const handleLine = (line: string) => {
+              if (!line.trim()) return
+              try {
+                const msg = JSON.parse(line)
+                if (msg.day && Array.isArray(msg.trades)) {
+                  perDay.set(msg.day, msg.trades.filter((t: any) => t.trade_timestamp))
+                }
+              } catch { /* ignore bad line */ }
+            }
+            for (; ;) {
+              const { done, value } = await reader.read()
+              if (done) break
+              buf += decoder.decode(value, { stream: true })
+              const lines = buf.split('\n')
+              buf = lines.pop() ?? ''
+              lines.forEach(handleLine)
+            }
+            handleLine(buf)
+            dbTrades = [...perDay.values()].flat()
+            if (dbTrades.length > 0) histCache.set(cacheKey, { at: Date.now(), trades: dbTrades })
+          }
+        }
+      } catch (dbErr) { /* DB path failed, fall through to stream */ }
+
+      const dbHasToday = dbTrades.some((t) => pstDateStr(t.trade_timestamp) === todayStr)
+      if (dbTrades.length > 0 && !(marketOpen && !dbHasToday)) {
+        processFlowMovesTradesIntoChart(dbTrades, '1W', bucket)
+        setIsFlowMovesLoading(false)
+        return
+      }
+      const timeframe = '1D'
       // Close any previous FlowMoves stream before opening a new one
       flowMovesEventSourceRef.current?.close()
       flowMovesEventSourceRef.current = null
@@ -7785,25 +8429,20 @@ export default function TradingViewChart({
         try {
           const data = JSON.parse(event.data)
           if (data.type === 'complete' && data.trades?.length > 0) {
-            allTrades = data.trades
+            allTrades = [...dbTrades, ...data.trades]
             eventSource.close()
             setIsFlowMovesLoading(false)
-            // Derive the actual trade dates from the data so timestamps align with candles
-            const tradeDateSet = new Set(allTrades.map((t: any) => {
-              const d = new Date(new Date(t.trade_timestamp).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-              return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-            }))
-            const derivedDays = [...tradeDateSet].sort()
-            processFlowMovesTradesIntoChart(allTrades, timeframe, getFlowBucketMinutes(config.timeframe) ?? 5, derivedDays)
+            processFlowMovesTradesIntoChart(allTrades, timeframe, bucket)
           }
         } catch (error) {
           console.error('❌ Error processing FlowMoves data:', error)
         }
       }
 
-      eventSource.onerror = (error) => {
-        console.error('❌ FlowMoves EventSource error:', error)
+      eventSource.onerror = () => {
+        console.warn('FlowMoves live stream unavailable; using saved data only')
         eventSource.close()
+        if (dbTrades.length > 0) processFlowMovesTradesIntoChart(dbTrades, '1W', bucket)
         setIsFlowMovesLoading(false)
       }
     } catch (error) {
@@ -11459,7 +12098,7 @@ export default function TradingViewChart({
   const [hvColor, setHVColor] = useState('#00D4FF')
   const [ivPanelHeight, setIVPanelHeight] = useState(190) // Height per indicator panel
   const [isDraggingIVPanel, setIsDraggingIVPanel] = useState(false) // For resize dragging
-  const [ivLookbackPeriod, setIVLookbackPeriod] = useState(365) // Default 1 year
+  const [ivLookbackPeriod] = useState(1460) // Fixed 4 year lookback
   const [hvWindow, setHVWindow] = useState(20) // Historical Volatility window (10, 20, 30, 60 days)
 
   // IV 30D state - separate 30-day IV panel
@@ -11483,10 +12122,6 @@ export default function TradingViewChart({
   >([])
   // Fullscreen state for IV panels
   const [ivFullscreenPanel, setIVFullscreenPanel] = useState<'iv' | 'ivRank' | 'ivPercentile' | 'hv' | null>(null)
-  // Fullscreen state for PE / PEG panels
-  const [peFullscreen, setPeFullscreen] = useState(false)
-  const [pegFullscreen, setPegFullscreen] = useState(false)
-
   // Event Panel settings
   const eventPanelHeight = 360 // Height for event projection panel
 
@@ -11509,46 +12144,6 @@ export default function TradingViewChart({
     callIV: number | null
     putIV: number | null
   }>({ currentPrice: null, callIV: null, putIV: null })
-
-  // P/E Ratio state — declared here so isAnyIVHVActive can reference it
-  const [showPEPanel, setShowPEPanel] = useState(false)
-  const [peLoading, setPeLoading] = useState(false)
-  const [pePanelHeight, setPePanelHeight] = useState(120)
-  const [isDraggingPEPanel, setIsDraggingPEPanel] = useState(false)
-  const peDragStartRef = useRef<{ y: number; height: number } | null>(null)
-  const [peData, setPeData] = useState<{
-    current: number | null
-    avg5y: number | null
-    avg10y: number | null
-    history: { date: string; pe: number }[]
-    error: string | null
-  } | null>(null)
-  const peFetchedSymbolRef = useRef<string>('')
-
-  // PEG Ratio state
-  const [showPEGPanel, setShowPEGPanel] = useState(false)
-  const [pegLoading, setPegLoading] = useState(false)
-  const [pegPanelHeight, setPegPanelHeight] = useState(120)
-  const [isDraggingPEGPanel, setIsDraggingPEGPanel] = useState(false)
-  const pegDragStartRef = useRef<{ y: number; height: number } | null>(null)
-  const [pegData, setPegData] = useState<{
-    currentPE: number | null
-    pegBasic: number | null
-    pegComposite: number | null
-    epsGrowth1y: number | null
-    epsGrowth3y: number | null
-    epsGrowth5y: number | null
-    revGrowth3y: number | null
-    fcfGrowth3y: number | null
-    compositeGrowth: number | null
-    history: { date: string; peg: number | null; pe: number; epsGrowth: number | null }[]
-    avg3y: number | null
-    avg5y: number | null
-    error?: string | null
-  } | null>(null)
-  const pegFetchedSymbolRef = useRef<string>('')
-  const [isPEDropdownOpen, setIsPEDropdownOpen] = useState(false)
-  const peDropdownRef = useRef<HTMLDivElement>(null)
 
   // Check if any IV/HV indicator is active - showIVPanel controls the IV panel visibility
   const showIVIndicator = showIVPanel // IV panel is shown when toggled, line visibility controlled inside panel
@@ -11652,8 +12247,52 @@ export default function TradingViewChart({
   const [showDarkPoolIndicator, setShowDarkPoolIndicator] = useState(false)
   const [darkPoolLoading, setDarkPoolLoading] = useState(false)
   const [darkPoolProgress, setDarkPoolProgress] = useState(0) // 0-100 fetch progress
-  const [contractionEvents, setContractionEvents] = useState<{ date: string; compressionPct: number }[]>([])
-  const contractionEventsRef = useRef<{ date: string; compressionPct: number }[]>([])
+  const [pivotResult, setPivotResult] = useState<PivotResult | null>(null)
+  const pivotResultRef = useRef<PivotResult | null>(null)
+  const PIVOT_PANEL_HEIGHT = 210
+  const EDGE_PANEL_HEIGHT = 210
+  const [showStraddleEdge, setShowStraddleEdge] = useState(false)
+  const coilPanelHeight = showDarkPoolIndicator ? PIVOT_PANEL_HEIGHT : 0
+  const edgePanelHeight = showStraddleEdge ? EDGE_PANEL_HEIGHT : 0
+  const pivotPanelHeight = coilPanelHeight + edgePanelHeight
+  const [edgeIvRows, setEdgeIvRows] = useState<EdgeRow[]>(() => _edgeIvCache.get(symbol) ?? [])
+  useEffect(() => {
+    if (!showStraddleEdge) return
+    const cached = _edgeIvCache.get(symbol)
+    if (cached) {
+      setEdgeIvRows((prev) => (prev === cached ? prev : cached))
+      return
+    }
+    let cancelled = false
+    setEdgeIvRows([])
+    fetch(`/api/calculate-historical-iv?ticker=${symbol}&days=365&dte=weekly`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (cancelled || !res?.success) return
+        const rows: EdgeRow[] = res.data.history.map((h: any) => ({
+          date: h.date,
+          netIV: h.callIV && h.putIV ? (h.callIV + h.putIV) / 2 : h.callIV || h.putIV || null,
+          price: h.price,
+          expiration: h.expiration,
+        }))
+        _edgeIvCache.set(symbol, rows)
+        setEdgeIvRows(rows)
+      })
+      .catch((e) => console.error('Straddle Edge IV fetch failed:', e))
+    return () => {
+      cancelled = true
+    }
+  }, [showStraddleEdge, symbol])
+  const edgeResult = useMemo(
+    () => (showStraddleEdge && edgeIvRows.length > 0 ? _computeStraddleEdge(edgeIvRows, ivData) : null),
+    [showStraddleEdge, edgeIvRows, ivData]
+  )
+  const edgeResultRef = useRef<EdgeResult | null>(null)
+  edgeResultRef.current = edgeResult
+  const setDealerEdge = (on: boolean) => {
+    setShowDarkPoolIndicator(on)
+    setShowStraddleEdge(on)
+  }
   const showDarkPoolIndicatorRef = useRef(showDarkPoolIndicator)
   showDarkPoolIndicatorRef.current = showDarkPoolIndicator
   // Persistent cache: keyed by "symbol:YYYY-MM-DD" — survives timeframe switches
@@ -11715,11 +12354,10 @@ export default function TradingViewChart({
       const mouseY = e.clientY
       const bottomOfContainer = rect.bottom
 
-      // Subtract everything below flow chart: IV + PE + PEG + time axis
+      // Subtract everything below flow chart: IV + time axis
       const belowFlow =
         (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) +
-        (showPEPanel ? pePanelHeight : 0) +
-        (showPEGPanel ? pegPanelHeight : 0) +
+        pivotPanelHeight +
         35
       const newHeight = bottomOfContainer - mouseY - belowFlow
 
@@ -11729,12 +12367,9 @@ export default function TradingViewChart({
     [
       isDraggingFlowChart,
       isAnyIVHVActive,
+      pivotPanelHeight,
       activeIVPanelCount,
       ivPanelHeight,
-      showPEPanel,
-      pePanelHeight,
-      showPEGPanel,
-      pegPanelHeight,
     ]
   )
 
@@ -11773,8 +12408,8 @@ export default function TradingViewChart({
       const mouseY = e.clientY
       const bottomOfContainer = rect.bottom
 
-      const volumeAndTimeHeight = 35 + (showPEPanel ? pePanelHeight : 0) + (showPEGPanel ? pegPanelHeight : 0)
-      const flowChartSpace = isFlowChartActive ? flowChartHeight : 0
+      const volumeAndTimeHeight = 35
+      const flowChartSpace = (isFlowChartActive ? flowChartHeight : 0) + pivotPanelHeight
       const distanceFromBottom = bottomOfContainer - mouseY - volumeAndTimeHeight - flowChartSpace
 
       const newHeightPerPanel = Math.floor(distanceFromBottom / Math.max(1, activeIVPanelCount))
@@ -11787,11 +12422,8 @@ export default function TradingViewChart({
       isDraggingIVPanel,
       isFlowChartActive,
       flowChartHeight,
+      pivotPanelHeight,
       activeIVPanelCount,
-      showPEPanel,
-      pePanelHeight,
-      showPEGPanel,
-      pegPanelHeight,
     ]
   )
 
@@ -11813,88 +12445,11 @@ export default function TradingViewChart({
     }
   }, [isDraggingIVPanel, handleIVPanelDragMove, handleIVPanelDragEnd])
 
-  // P/E panel resize handlers
-  const handlePEPanelDragStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    peDragStartRef.current = { y: e.clientY, height: pePanelHeight }
-    setIsDraggingPEPanel(true)
-  }, [pePanelHeight])
-
-  const handlePEPanelDragMove = useCallback(
-    (e: MouseEvent) => {
-      if (!isDraggingPEPanel || !peDragStartRef.current) return
-      // Dragging UP (lower clientY) should INCREASE height
-      const delta = peDragStartRef.current.y - e.clientY
-      const newHeight = Math.max(80, Math.min(600, peDragStartRef.current.height + delta))
-      setPePanelHeight(newHeight)
-    },
-    [isDraggingPEPanel]
-  )
-
-  const handlePEPanelDragEnd = useCallback(() => {
-    setIsDraggingPEPanel(false)
-  }, [])
-
-  useEffect(() => {
-    if (isDraggingPEPanel) {
-      window.addEventListener('mousemove', handlePEPanelDragMove)
-      window.addEventListener('mouseup', handlePEPanelDragEnd)
-      return () => {
-        window.removeEventListener('mousemove', handlePEPanelDragMove)
-        window.removeEventListener('mouseup', handlePEPanelDragEnd)
-      }
-    }
-  }, [isDraggingPEPanel, handlePEPanelDragMove, handlePEPanelDragEnd])
-
-  // PEG panel resize handlers
-  const handlePEGPanelDragStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    pegDragStartRef.current = { y: e.clientY, height: pegPanelHeight }
-    setIsDraggingPEGPanel(true)
-  }, [pegPanelHeight])
-
-  const handlePEGPanelDragMove = useCallback(
-    (e: MouseEvent) => {
-      if (!isDraggingPEGPanel || !pegDragStartRef.current) return
-      const delta = pegDragStartRef.current.y - e.clientY
-      const newHeight = Math.max(80, Math.min(600, pegDragStartRef.current.height + delta))
-      setPegPanelHeight(newHeight)
-    },
-    [isDraggingPEGPanel]
-  )
-
-  const handlePEGPanelDragEnd = useCallback(() => {
-    setIsDraggingPEGPanel(false)
-  }, [])
-
-  useEffect(() => {
-    if (isDraggingPEGPanel) {
-      window.addEventListener('mousemove', handlePEGPanelDragMove)
-      window.addEventListener('mouseup', handlePEGPanelDragEnd)
-      return () => {
-        window.removeEventListener('mousemove', handlePEGPanelDragMove)
-        window.removeEventListener('mouseup', handlePEGPanelDragEnd)
-      }
-    }
-  }, [isDraggingPEGPanel, handlePEGPanelDragMove, handlePEGPanelDragEnd])
-
-  // Auto-fetch P/E data when panel is open and symbol changes
-  useEffect(() => {
-    if (showPEPanel && config.symbol && peFetchedSymbolRef.current !== config.symbol) {
-      fetchPEData(config.symbol)
-    }
-  }, [showPEPanel, config.symbol])
-
-  // Auto-fetch PEG data when panel is open and symbol changes
-  useEffect(() => {
-    if (showPEGPanel && config.symbol && pegFetchedSymbolRef.current !== config.symbol) {
-      fetchPEGData(config.symbol)
-    }
-  }, [showPEGPanel, config.symbol])
-
   // IV & HV Data Fetch Handler - Fetches historical IV data and calculates metrics
+  const ivLoadingRef = useRef(false)
   const fetchIVData = useCallback(async () => {
-    if (isIVLoading) return
+    if (ivLoadingRef.current) return
+    ivLoadingRef.current = true
 
     setIsIVLoading(true)
     setIVProgress(0)
@@ -11982,9 +12537,10 @@ export default function TradingViewChart({
     } catch (error) {
       console.error('❌ IV Fetch Error:', error)
     } finally {
+      ivLoadingRef.current = false
       setIsIVLoading(false)
     }
-  }, [symbol, ivLookbackPeriod, hvWindow, isIVLoading])
+  }, [symbol, ivLookbackPeriod, hvWindow])
 
   // Recalculate HV when window changes
   const recalculateHV = useCallback(
@@ -12023,10 +12579,10 @@ export default function TradingViewChart({
 
   // Auto-fetch IV data when any indicator is activated
   useEffect(() => {
-    if (isAnyIVHVActive && ivData.length === 0) {
+    if ((isAnyIVHVActive || showStraddleEdge) && ivData.length === 0) {
       fetchIVData()
     }
-  }, [isAnyIVHVActive, ivData.length, fetchIVData])
+  }, [isAnyIVHVActive, showStraddleEdge, ivData.length, fetchIVData])
 
   // Clear stale IV data when symbol changes so a refetch happens for the new ticker
   // (without this, switching symbols kept showing the previous ticker's IV/Rank/Percentile)
@@ -12126,7 +12682,6 @@ export default function TradingViewChart({
 
   // Alerts state
   const [alerts, setAlerts] = useState<PriceAlert[]>([])
-  const [quickNotes, setQuickNotes] = useState<string>('')
   const [isAlertPlacementMode, setIsAlertPlacementMode] = useState(false)
   const [newAlertPrice, setNewAlertPrice] = useState<number | null>(null)
   const [showAlertDialog, setShowAlertDialog] = useState(false)
@@ -12777,6 +13332,7 @@ export default function TradingViewChart({
           performance: string
           performanceColor: string
           score: number
+          bars?: number[][]
         }
       } = {}
 
@@ -12870,6 +13426,7 @@ export default function TradingViewChart({
                 performance: 'Neutral',
                 performanceColor: 'text-white',
                 score,
+                bars: data.slice(-260).map((b: any) => [b.t, b.c, b.h, b.l, b.v ?? 0]),
               },
             }
           } catch {
@@ -14913,7 +15470,6 @@ export default function TradingViewChart({
       darkPoolCacheRef.current = {}
       darkPoolCacheSymbolRef.current = ''
       setDarkPoolData({})
-      setContractionEvents([])
       return
     }
 
@@ -15173,89 +15729,19 @@ export default function TradingViewChart({
     }
   }, [showDarkPoolIndicator, config.symbol])
 
-  // ── Contraction scan — reactive to data so diamonds appear as soon as candles load ──
+  // Pivot Point (volatility compression) analysis — recomputed when candles change
   useEffect(() => {
     if (!showDarkPoolIndicator || data.length === 0) {
-      contractionEventsRef.current = []
-      setContractionEvents([])
+      pivotResultRef.current = null
+      setPivotResult(null)
       renderChartRef.current()
       return
     }
-    const bars = data.map((c) => ({
-      date: new Date(c.timestamp).toISOString().split('T')[0],
-      high: c.high,
-      low: c.low,
-      close: c.close,
-    }))
-    const events = _scanHistory(bars)
-    contractionEventsRef.current = events
-    setContractionEvents(events)
+    const res = _computePivots(data)
+    pivotResultRef.current = res
+    setPivotResult(res)
     renderChartRef.current()
   }, [showDarkPoolIndicator, data])
-
-  // ============================================================================
-  // P/E RATIO FETCH — routes ETFs to /api/etf-pe (constituent aggregate method),
-  // stocks to /api/pe-ratio (split-adjusted EPS history)
-  // ============================================================================
-  const ETF_TICKERS = new Set([
-    'SPY', 'QQQ', 'IWM', 'DIA', 'VTI',
-    'XLK', 'XLF', 'XLE', 'XLV', 'XLI', 'XLC', 'XLY', 'XLP', 'XLU', 'XLRE', 'XLB',
-    'GLD', 'SLV', 'TLT', 'HYG', 'LQD', 'EEM', 'EFA', 'VNQ', 'ARKK', 'SMH', 'SOXX',
-    'XBI', 'IBB', 'KWEB', 'FXI', 'EWZ', 'VXX', 'UVXY',
-  ])
-
-  const fetchPEData = useCallback(async (sym: string) => {
-    if (!sym || peLoading) return
-    peFetchedSymbolRef.current = sym
-    setPeLoading(true)
-    setPeData(null)
-    try {
-      const upper = sym.toUpperCase()
-      const url = ETF_TICKERS.has(upper)
-        ? `/api/etf-pe?ticker=${encodeURIComponent(upper)}`
-        : `/api/pe-ratio?ticker=${encodeURIComponent(upper)}`
-      const res = await fetch(url)
-      const json = await res.json()
-      if (json.error) {
-        setPeData({ current: null, avg5y: null, avg10y: null, history: [], error: json.error })
-      } else {
-        setPeData({
-          current: json.current ?? null,
-          avg5y: json.avg5y ?? null,
-          avg10y: json.avg10y ?? null,
-          history: json.history ?? [],
-          error: null,
-        })
-      }
-    } catch (err: any) {
-      setPeData({ current: null, avg5y: null, avg10y: null, history: [], error: err?.message ?? 'Failed to load P/E data' })
-    } finally {
-      setPeLoading(false)
-    }
-  }, [peLoading])
-
-  const fetchPEGData = useCallback(async (sym: string) => {
-    if (!sym || pegLoading) return
-    pegFetchedSymbolRef.current = sym
-    setPegLoading(true)
-    setPegData(null)
-    try {
-      const upper = sym.toUpperCase()
-      const res = await fetch(`/api/peg-ratio?ticker=${encodeURIComponent(upper)}`)
-      const json = await res.json()
-      if (json.error) {
-        setPegData({ currentPE: null, pegBasic: null, pegComposite: null, epsGrowth1y: null, epsGrowth3y: null, epsGrowth5y: null, revGrowth3y: null, fcfGrowth3y: null, compositeGrowth: null, history: [], avg3y: null, avg5y: null, error: json.error })
-      } else {
-        setPegData({ ...json, error: null })
-      }
-    } catch (err: any) {
-      setPegData({ currentPE: null, pegBasic: null, pegComposite: null, epsGrowth1y: null, epsGrowth3y: null, epsGrowth5y: null, revGrowth3y: null, fcfGrowth3y: null, compositeGrowth: null, history: [], avg3y: null, avg5y: null, error: err?.message ?? 'Failed to load PEG data' })
-    } finally {
-      setPegLoading(false)
-    }
-  }, [pegLoading])
-
-  // (PE dropdown click-outside handled by portal overlay)
 
   // ============================================================================
   // CHART DRAG & PAN — TRADINGVIEW-STYLE (NO TELEPORTS)
@@ -16833,7 +17319,8 @@ export default function TradingViewChart({
         !overlayCanvas.contains(target) &&
         !chartCanvas.contains(target) &&
         target !== overlayCanvas &&
-        target !== chartCanvas
+        target !== chartCanvas &&
+        !target.closest?.('[data-chart-passthrough]')
       ) {
         return
       }
@@ -16973,6 +17460,8 @@ export default function TradingViewChart({
     // calling preventDefault a second time is harmless (idempotent).
     const handleWheelContainer = (e: WheelEvent) => {
       e.preventDefault()
+      // IV panel header bars sit above the canvas; forward their wheel to the chart zoom/scroll
+      if ((e.target as Element).closest?.('[data-chart-passthrough]')) handleWheelEvent(e)
     }
 
     if (container) {
@@ -17131,8 +17620,6 @@ export default function TradingViewChart({
     const timeAxisHeight = 35
     const actualFlowChartHeight = isFlowChartActive ? flowChartHeight : 0 // Reserve space for flow chart when active
     const actualIVPanelHeight = (isAnyIVHVActive || isAnyIV30DActive) ? activeIVPanelCount * ivPanelHeight : 0 // Reserve space for IV indicator panels
-    const actualPEPanelHeight = showPEPanel ? pePanelHeight : 0 // P/E panel — independent from IV system
-    const actualPEGPanelHeight = showPEGPanel ? pegPanelHeight : 0 // PEG panel — independent from IV system
     const actualEventPanelHeight = 0 // No event panel needed
     const volumeAreaHeight = 80 // Volume bars area (overlaid on price chart bottom, not reserved)
     // Adjust price chart height based on active indicators
@@ -17140,9 +17627,8 @@ export default function TradingViewChart({
     const totalBottomSpace =
       actualFlowChartHeight +
       actualIVPanelHeight +
-      actualPEPanelHeight +
-      actualPEGPanelHeight +
       actualEventPanelHeight +
+      pivotPanelHeight +
       timeAxisHeight
     const priceChartHeight = height - totalBottomSpace
 
@@ -19071,65 +19557,26 @@ export default function TradingViewChart({
       ctx.restore()
     }
 
-    // ── CONTRACTION DIAMOND OVERLAY ──────────────────────────────────────────
-    if (showDarkPoolIndicatorRef.current && contractionEventsRef.current.length > 0) {
-      const contractionEvents = contractionEventsRef.current
+    // ── PIVOT POINT SQUEEZE ZONES (price chart) ─────────────────────────────
+    if (showDarkPoolIndicatorRef.current && pivotResultRef.current && visibleData.length > 0) {
+      const pv = pivotResultRef.current
+      const toY = (p: number) => priceChartHeight - ((p - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight
       ctx.save()
-      // Map each visible candle date → its index
-      const dateToIdx = new Map<string, number>()
-      for (let i = 0; i < visibleData.length; i++) {
-        const d = new Date(visibleData[i].timestamp).toISOString().split('T')[0]
-        dateToIdx.set(d, i)
-      }
-      const maxComp = Math.max(...contractionEvents.map((e) => e.compressionPct))
-      for (const ev of contractionEvents) {
-        const idx = dateToIdx.get(ev.date)
-        if (idx === undefined) continue
-        const cx = CHART_LEFT_MARGIN + idx * candleSpacing + candleSpacing / 2
-        const candleLowY =
-          priceChartHeight -
-          ((visibleData[idx].low - adjustedMin) / (adjustedMax - adjustedMin)) * priceChartHeight
-        const norm = Math.sqrt(ev.compressionPct / maxComp)
-        const r = Math.max(5, Math.min(22, norm * 22))
-        const cy = candleLowY + r + 4
-        if (cy - r < 0 || cy > priceChartHeight + r) continue
-        // Fill
-        const baseG = ctx.createLinearGradient(cx, cy - r, cx, cy + r)
-        baseG.addColorStop(0, 'rgba(255,200,60,0.95)')
-        baseG.addColorStop(0.5, 'rgba(255,120,0,0.80)')
-        baseG.addColorStop(1, 'rgba(180,50,0,0.60)')
-        ctx.beginPath()
-        ctx.moveTo(cx, cy - r)
-        ctx.lineTo(cx + r, cy)
-        ctx.lineTo(cx, cy + r)
-        ctx.lineTo(cx - r, cy)
-        ctx.closePath()
-        ctx.fillStyle = baseG
-        ctx.fill()
-        // Rim
-        ctx.strokeStyle = 'rgba(255,220,80,0.95)'
-        ctx.lineWidth = 1.5
-        ctx.stroke()
-        // Gloss
-        const gloss = ctx.createRadialGradient(cx - r * 0.25, cy - r * 0.3, r * 0.05, cx, cy - r * 0.1, r * 0.6)
-        gloss.addColorStop(0, 'rgba(255,255,255,0.65)')
-        gloss.addColorStop(0.5, 'rgba(255,255,255,0.15)')
-        gloss.addColorStop(1, 'rgba(255,255,255,0)')
-        ctx.beginPath()
-        ctx.moveTo(cx, cy - r)
-        ctx.lineTo(cx + r, cy)
-        ctx.lineTo(cx, cy + r)
-        ctx.lineTo(cx - r, cy)
-        ctx.closePath()
-        ctx.fillStyle = gloss
-        ctx.fill()
-        // Label
-        const fs = Math.max(9, r * 0.85)
-        ctx.fillStyle = '#000'
-        ctx.font = `900 ${fs}px "JetBrains Mono",monospace`
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
-        ctx.fillText(`${ev.compressionPct.toFixed(0)}%`, cx, cy)
+      ctx.beginPath(); ctx.rect(CHART_LEFT_MARGIN, 0, chartWidth - CHART_LEFT_MARGIN, priceChartHeight); ctx.clip()
+      for (const ev of pv.events) {
+        if (ev.idx < startIndex || ev.startIdx > startIndex + visibleData.length) continue
+        const x1 = CHART_LEFT_MARGIN + (ev.startIdx - startIndex) * candleSpacing
+        const x2 = CHART_LEFT_MARGIN + (ev.idx - startIndex + 1) * candleSpacing
+        const yT = toY(ev.zoneHigh), yB = toY(ev.zoneLow)
+        const rgb = ev.win === true ? '34,197,94' : ev.win === false ? '239,68,68' : '255,176,32'
+        ctx.fillStyle = `rgba(${rgb},0.10)`
+        ctx.fillRect(x1, yT, x2 - x1, yB - yT)
+        ctx.strokeStyle = `rgba(${rgb},0.55)`
+        ctx.lineWidth = 1
+        ctx.strokeRect(Math.round(x1) + 0.5, Math.round(yT) + 0.5, x2 - x1, yB - yT)
+        const ex = CHART_LEFT_MARGIN + (ev.peakIdx - startIndex) * candleSpacing + candleSpacing / 2
+        ctx.fillStyle = `rgb(${rgb})`
+        ctx.beginPath(); ctx.moveTo(ex - 5, yT - 12); ctx.lineTo(ex + 5, yT - 12); ctx.lineTo(ex, yT - 3); ctx.closePath(); ctx.fill()
       }
       ctx.restore()
     }
@@ -19317,66 +19764,31 @@ export default function TradingViewChart({
       }
     }
 
-    // P/E RATIO panel — sits below IV panel
-    if (showPEPanel) {
-      const pePanelY = priceChartHeight + actualFlowChartHeight + actualIVPanelHeight
-      if (peData && peData.history.length > 0) {
-        drawPEPanel(
-          ctx,
-          peData.history,
-          visibleData,
-          chartWidth,
-          pePanelY,
-          visibleCandleCount,
-          pePanelHeight,
-          peData.current
-        )
-      } else {
-        // Loading placeholder
-        ctx.fillStyle = 'rgba(0,0,0,0.85)'
-        ctx.fillRect(CHART_LEFT_MARGIN, pePanelY, chartWidth - 120, pePanelHeight)
-        ctx.strokeStyle = 'rgba(0, 229, 255, 0.3)'
-        ctx.lineWidth = 1
-        ctx.beginPath()
-        ctx.moveTo(CHART_LEFT_MARGIN, pePanelY)
-        ctx.lineTo(chartWidth - 80, pePanelY)
-        ctx.stroke()
-        ctx.font = 'bold 10px JetBrains Mono, monospace'
-        ctx.fillStyle = '#00E5FF'
-        ctx.textAlign = 'left'
-        ctx.fillText(peLoading ? 'Loading P/E data…' : 'No P/E data', (CHART_LEFT_MARGIN + chartWidth - 80) / 2, pePanelY + pePanelHeight / 2 + 4)
-      }
+    // Pivot Point panel sits above the Straddle Edge panel, both directly above the time axis
+    if (coilPanelHeight > 0) {
+      _drawPivotPanel(
+        ctx,
+        pivotResultRef.current,
+        startIndex,
+        visibleData.length,
+        chartWidth,
+        width,
+        height - timeAxisHeight - pivotPanelHeight,
+        coilPanelHeight,
+        visibleCandleCount
+      )
     }
-
-    // PEG RATIO panel — sits below P/E panel
-    if (showPEGPanel) {
-      const pegPanelY = priceChartHeight + actualFlowChartHeight + actualIVPanelHeight + actualPEPanelHeight
-      if (pegData && pegData.history && pegData.history.some(h => h.peg !== null)) {
-        drawPEGPanel(
-          ctx,
-          pegData,
-          visibleData,
-          chartWidth,
-          pegPanelY,
-          visibleCandleCount,
-          pegPanelHeight
-        )
-      } else {
-        // Loading / error placeholder
-        ctx.fillStyle = 'rgba(0,0,0,0.85)'
-        ctx.fillRect(CHART_LEFT_MARGIN, pegPanelY, chartWidth - 120, pegPanelHeight)
-        ctx.strokeStyle = 'rgba(167, 139, 250, 0.35)'
-        ctx.lineWidth = 1
-        ctx.beginPath()
-        ctx.moveTo(CHART_LEFT_MARGIN, pegPanelY)
-        ctx.lineTo(chartWidth - 80, pegPanelY)
-        ctx.stroke()
-        ctx.font = 'bold 10px JetBrains Mono, monospace'
-        ctx.fillStyle = '#a78bfa'
-        ctx.textAlign = 'center'
-        const pegMsg = pegLoading ? 'Loading PEG data…' : (pegData?.error ?? 'No PEG data (ETFs not supported)')
-        ctx.fillText(pegMsg, (CHART_LEFT_MARGIN + chartWidth - 80) / 2, pegPanelY + pegPanelHeight / 2 + 4)
-      }
+    if (edgePanelHeight > 0) {
+      _drawStraddleEdgePanel(
+        ctx,
+        edgeResultRef.current,
+        visibleData.map((c) => c.date),
+        chartWidth,
+        width,
+        height - timeAxisHeight - edgePanelHeight,
+        edgePanelHeight,
+        visibleCandleCount
+      )
     }
 
     // Draw volume bars as overlay on the price chart bottom (TradingView style)
@@ -19427,6 +19839,11 @@ export default function TradingViewChart({
     flowChartViewMode,
     flowChartHeight,
     flowLineColors,
+    pivotPanelHeight,
+    pivotResult,
+    coilPanelHeight,
+    edgePanelHeight,
+    edgeResult,
     isAnyIVHVActive,
     ivData,
     ivData.length,
@@ -19471,14 +19888,6 @@ export default function TradingViewChart({
     rrgMode,
     isExpansionLiquidationActive,
     drawings.length,
-    showPEPanel,
-    peData,
-    peLoading,
-    pePanelHeight,
-    showPEGPanel,
-    pegData,
-    pegLoading,
-    pegPanelHeight,
     config.backgroundColor,
     config.gridLineColor,
     config.colors.bullish.body,
@@ -19495,464 +19904,6 @@ export default function TradingViewChart({
     config.axisStyle.yAxis.textColor,
     config.axisStyle.yAxis.textSize,
   ]) // Draw volume bars above the x-axis (TradingView style)
-
-  // P/E RATIO bottom panel — trailing TTM P/E (cyan)
-  const drawPEPanel = (
-    ctx: CanvasRenderingContext2D,
-    history: { date: string; pe: number }[],
-    visibleData: ChartDataPoint[],
-    chartWidth: number,
-    panelStartY: number,
-    visibleCandleCount: number,
-    panelHeight: number,
-    current: number | null
-  ) => {
-    if (!visibleData.length) return
-
-    const padLeft = CHART_LEFT_MARGIN
-    const rightEdge = chartWidth - 80
-    const headerH = 36
-    const panelContentTop = panelStartY + headerH
-    const panelContentBottom = panelStartY + panelHeight - 6
-
-    // Background
-    ctx.fillStyle = '#000000'
-    ctx.fillRect(padLeft, panelStartY, chartWidth - 120, panelHeight)
-
-    // Top border
-    ctx.strokeStyle = 'rgba(255, 140, 0, 0.35)'
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    ctx.moveTo(padLeft, panelStartY)
-    ctx.lineTo(rightEdge, panelStartY)
-    ctx.stroke()
-    // Title rendered in HTML header overlay
-
-    // Build sorted array and binary-search helper
-    const trailingSorted = history.slice().sort((a, b) => a.date.localeCompare(b.date))
-    const findLatest = (arr: { date: string; pe: number }[], target: string): number | null => {
-      let lo = 0, hi = arr.length - 1, result: number | null = null
-      while (lo <= hi) {
-        const mid = (lo + hi) >> 1
-        if (arr[mid].date <= target) { result = arr[mid].pe; lo = mid + 1 }
-        else hi = mid - 1
-      }
-      return result
-    }
-
-    // Match IV panel's candle-aligned X calculation exactly
-    const candleSpacing = chartWidth / visibleCandleCount
-    const pts: { x: number; v: number }[] = []
-
-    for (let i = 0; i < visibleData.length; i++) {
-      const d = visibleData[i].date ?? new Date(visibleData[i].timestamp).toISOString().split('T')[0]
-      const x = CHART_LEFT_MARGIN + i * candleSpacing + candleSpacing / 2
-      const v = findLatest(trailingSorted, d)
-      if (v != null) pts.push({ x, v })
-    }
-
-    if (pts.length < 2) {
-      ctx.font = '11px JetBrains Mono, monospace'
-      ctx.fillStyle = 'rgba(0, 229, 255, 0.4)'
-      ctx.textAlign = 'center'
-      ctx.fillText('No P/E data for visible range', (padLeft + rightEdge) / 2, panelStartY + panelHeight / 2 + 4)
-      return
-    }
-
-    // --- 5-year avg high / avg low ---
-    const cutoff3y = new Date()
-    cutoff3y.setFullYear(cutoff3y.getFullYear() - 3)
-    const cutoff3yStr = cutoff3y.toISOString().split('T')[0]
-    const last3y = trailingSorted.filter(e => e.date >= cutoff3yStr)
-
-    let avgHigh: number | null = null
-    let avgLow: number | null = null
-    if (last3y.length >= 4) {
-      const byYear: Record<string, number[]> = {}
-      for (const e of last3y) {
-        const yr = e.date.slice(0, 4)
-        if (!byYear[yr]) byYear[yr] = []
-        byYear[yr].push(e.pe)
-      }
-      const yearlyHighs = Object.values(byYear).map(arr => Math.max(...arr))
-      const yearlyLows = Object.values(byYear).map(arr => Math.min(...arr))
-      avgHigh = yearlyHighs.reduce((a, b) => a + b, 0) / yearlyHighs.length
-      avgLow = yearlyLows.reduce((a, b) => a + b, 0) / yearlyLows.length
-    }
-
-    const vals = pts.map(p => p.v)
-    const allForRange = [...vals, ...(avgHigh != null ? [avgHigh] : []), ...(avgLow != null ? [avgLow] : [])]
-    const minV = Math.min(...allForRange) * 0.97
-    const maxV = Math.max(...allForRange) * 1.015
-    const vRange = maxV - minV || 1
-    const toY = (v: number) => panelContentBottom - ((v - minV) / vRange) * (panelContentBottom - panelContentTop)
-
-    ctx.save()
-    ctx.beginPath()
-    ctx.rect(padLeft, panelContentTop, rightEdge - padLeft, panelContentBottom - panelContentTop)
-    ctx.clip()
-
-    // Gradient fill
-    const grad = ctx.createLinearGradient(0, panelContentTop, 0, panelContentBottom)
-    grad.addColorStop(0, 'rgba(0, 229, 255, 0.12)')
-    grad.addColorStop(1, 'rgba(0, 229, 255, 0.0)')
-    ctx.fillStyle = grad
-    ctx.beginPath()
-    ctx.moveTo(pts[0].x, panelContentBottom)
-    for (const pt of pts) ctx.lineTo(pt.x, toY(pt.v))
-    ctx.lineTo(pts[pts.length - 1].x, panelContentBottom)
-    ctx.closePath()
-    ctx.fill()
-
-    // Main P/E line (cyan) — thicker
-    ctx.strokeStyle = '#00E5FF'
-    ctx.lineWidth = 2.5
-    ctx.lineJoin = 'round'
-    ctx.beginPath()
-    ctx.moveTo(pts[0].x, toY(pts[0].v))
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, toY(pts[i].v))
-    ctx.stroke()
-
-    // Avg High dashed line — solid red, thicker
-    if (avgHigh != null) {
-      const y = toY(avgHigh)
-      ctx.strokeStyle = '#ef4444'
-      ctx.lineWidth = 2
-      ctx.setLineDash([6, 4])
-      ctx.beginPath()
-      ctx.moveTo(padLeft, y)
-      ctx.lineTo(rightEdge, y)
-      ctx.stroke()
-      ctx.setLineDash([])
-    }
-
-    // Avg Low dashed line — solid green, thicker
-    if (avgLow != null) {
-      const y = toY(avgLow)
-      ctx.strokeStyle = '#22c55e'
-      ctx.lineWidth = 2
-      ctx.setLineDash([6, 4])
-      ctx.beginPath()
-      ctx.moveTo(padLeft, y)
-      ctx.lineTo(rightEdge, y)
-      ctx.stroke()
-      ctx.setLineDash([])
-    }
-
-    ctx.restore()
-
-    // Right-edge value label for P/E line
-    const last = pts[pts.length - 1]
-    ctx.font = 'bold 24px JetBrains Mono, monospace'
-    ctx.fillStyle = '#00E5FF'
-    ctx.textAlign = 'left'
-    ctx.fillText(`${last.v.toFixed(1)}x`, rightEdge + 2, Math.max(panelContentTop + 20, Math.min(panelContentBottom - 4, toY(last.v) + 8)))
-
-    if (avgHigh != null) {
-      const y = toY(avgHigh)
-      ctx.font = 'bold 24px JetBrains Mono, monospace'
-      ctx.fillStyle = '#ef4444'
-      ctx.textAlign = 'left'
-      ctx.fillText(`${avgHigh.toFixed(1)}x`, rightEdge + 2, Math.max(panelContentTop + 20, Math.min(panelContentBottom - 28, y + 8)))
-    }
-    if (avgLow != null) {
-      const y = toY(avgLow)
-      ctx.font = 'bold 24px JetBrains Mono, monospace'
-      ctx.fillStyle = '#22c55e'
-      ctx.textAlign = 'left'
-      ctx.fillText(`${avgLow.toFixed(1)}x`, rightEdge + 2, Math.max(panelContentTop + 48, Math.min(panelContentBottom, y + 8)))
-    }
-
-  }
-
-  // PEG RATIO panel — draws historical PEG line chart below the main chart
-  const drawPEGPanel = (
-    ctx: CanvasRenderingContext2D,
-    peg: NonNullable<typeof pegData>,
-    visibleData: ChartDataPoint[],
-    chartWidth: number,
-    panelStartY: number,
-    visibleCandleCount: number,
-    panelHeight: number
-  ) => {
-    if (!visibleData.length || !peg.history || peg.history.length < 2) return
-
-    const padLeft = CHART_LEFT_MARGIN
-    const rightEdge = chartWidth - 80
-    const headerH = 36
-    const panelContentTop = panelStartY + headerH
-    const panelContentBottom = panelStartY + panelHeight - 6
-
-    // Background
-    ctx.fillStyle = '#000000'
-    ctx.fillRect(padLeft, panelStartY, chartWidth - 120, panelHeight)
-
-    // Top border — purple
-    ctx.strokeStyle = 'rgba(167, 139, 250, 0.45)'
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    ctx.moveTo(padLeft, panelStartY)
-    ctx.lineTo(rightEdge, panelStartY)
-    ctx.stroke()
-    // Title rendered in HTML header overlay
-
-    // Sort history ascending
-    const sorted = peg.history.slice().sort((a, b) => a.date.localeCompare(b.date))
-
-    // Binary search: find last history entry with date <= target, return its peg (may be null)
-    const findPeg = (target: string): number | null | undefined => {
-      let lo = 0, hi = sorted.length - 1
-      let result: (typeof sorted[0]) | undefined
-      while (lo <= hi) {
-        const mid = (lo + hi) >> 1
-        if (sorted[mid].date <= target) { result = sorted[mid]; lo = mid + 1 }
-        else hi = mid - 1
-      }
-      return result?.peg // number | null | undefined
-    }
-
-    // Build per-candle array — null = negative-growth gap, undefined = no data
-    const candleSpacing = chartWidth / visibleCandleCount
-    interface CandlePt { x: number; v: number | null }
-    const pts: CandlePt[] = []
-
-    for (let i = 0; i < visibleData.length; i++) {
-      const d = visibleData[i].date ?? new Date(visibleData[i].timestamp).toISOString().split('T')[0]
-      const x = CHART_LEFT_MARGIN + i * candleSpacing + candleSpacing / 2
-      const v = findPeg(d)
-      if (v === undefined) continue        // no history at all for this date
-      if (v !== null && v > 30) continue   // cap extreme outliers from display
-      pts.push({ x, v })
-    }
-
-    // Collect only numeric values for scaling
-    const numericVals = pts.map(p => p.v).filter((v): v is number => v !== null)
-
-    if (numericVals.length < 2) {
-      ctx.font = '11px JetBrains Mono, monospace'
-      ctx.fillStyle = 'rgba(167, 139, 250, 0.5)'
-      ctx.textAlign = 'center'
-      ctx.fillText('No PEG data for visible range', (padLeft + rightEdge) / 2, panelStartY + panelHeight / 2 + 4)
-      return
-    }
-
-    // Scale — include avg lines in range
-    const refVals = [...numericVals]
-    if (peg.avg3y != null) refVals.push(peg.avg3y)
-    if (peg.avg5y != null) refVals.push(peg.avg5y)
-
-    // 3Y avg high / avg low (same logic as P/E panel — yearly high/low of PEG, averaged)
-    const cutoff3y = new Date()
-    cutoff3y.setFullYear(cutoff3y.getFullYear() - 3)
-    const cutoff3yStr = cutoff3y.toISOString().split('T')[0]
-    const last3yPts = sorted.filter(h => h.date >= cutoff3yStr && h.peg !== null && h.peg <= 30)
-    let avgHigh: number | null = null
-    let avgLow: number | null = null
-    if (last3yPts.length >= 4) {
-      const byYear: Record<string, number[]> = {}
-      for (const h of last3yPts) {
-        const yr = h.date.slice(0, 4)
-        if (!byYear[yr]) byYear[yr] = []
-        byYear[yr].push(h.peg as number)
-      }
-      const yearlyHighs = Object.values(byYear).map(arr => Math.max(...arr))
-      const yearlyLows = Object.values(byYear).map(arr => Math.min(...arr))
-      avgHigh = yearlyHighs.reduce((a, b) => a + b, 0) / yearlyHighs.length
-      avgLow = yearlyLows.reduce((a, b) => a + b, 0) / yearlyLows.length
-    }
-    if (avgHigh != null) refVals.push(avgHigh)
-    if (avgLow != null) refVals.push(avgLow)
-    const minV = Math.min(...refVals) * 0.93
-    const maxV = Math.max(...refVals) * 1.04
-    const vRange = maxV - minV || 1
-    const toY = (v: number) =>
-      panelContentBottom - ((v - minV) / vRange) * (panelContentBottom - panelContentTop)
-
-    ctx.save()
-    ctx.beginPath()
-    ctx.rect(padLeft, panelContentTop, rightEdge - padLeft, panelContentBottom - panelContentTop)
-    ctx.clip()
-
-    // ── Reference lines (drawn first, behind the data line) ──────────────────
-
-    // PEG = 1 "fair value" line — yellow dashed
-    if (minV <= 1 && maxV >= 1) {
-      const y1 = toY(1)
-      ctx.strokeStyle = 'rgba(250, 204, 21, 0.55)'
-      ctx.lineWidth = 1.5
-      ctx.setLineDash([5, 4])
-      ctx.beginPath(); ctx.moveTo(padLeft, y1); ctx.lineTo(rightEdge, y1); ctx.stroke()
-      ctx.setLineDash([])
-      ctx.font = 'bold 10px JetBrains Mono, monospace'
-      ctx.fillStyle = 'rgba(250, 204, 21, 0.75)'
-      ctx.textAlign = 'left'
-      ctx.fillText('1.0 fair', padLeft + 4, y1 - 3)
-    }
-
-    // PEG = 2 "expensive" line — red dashed
-    if (minV <= 2 && maxV >= 2) {
-      const y2 = toY(2)
-      ctx.strokeStyle = 'rgba(239, 68, 68, 0.45)'
-      ctx.lineWidth = 1.5
-      ctx.setLineDash([5, 4])
-      ctx.beginPath(); ctx.moveTo(padLeft, y2); ctx.lineTo(rightEdge, y2); ctx.stroke()
-      ctx.setLineDash([])
-      ctx.font = 'bold 10px JetBrains Mono, monospace'
-      ctx.fillStyle = 'rgba(239, 68, 68, 0.65)'
-      ctx.textAlign = 'left'
-      ctx.fillText('2.0', padLeft + 4, y2 - 3)
-    }
-
-    // 3Y avg PEG — solid red dashed
-    if (peg.avg3y != null) {
-      const yAvg = toY(peg.avg3y)
-      ctx.strokeStyle = '#ef4444'
-      ctx.lineWidth = 2
-      ctx.setLineDash([6, 4])
-      ctx.beginPath(); ctx.moveTo(padLeft, yAvg); ctx.lineTo(rightEdge, yAvg); ctx.stroke()
-      ctx.setLineDash([])
-    }
-
-    // 3Y avg HIGH line — red solid (same as P/E panel)
-    if (avgHigh != null) {
-      const yH = toY(avgHigh)
-      ctx.strokeStyle = '#ef4444'
-      ctx.lineWidth = 2
-      ctx.setLineDash([6, 4])
-      ctx.beginPath(); ctx.moveTo(padLeft, yH); ctx.lineTo(rightEdge, yH); ctx.stroke()
-      ctx.setLineDash([])
-    }
-
-    // 3Y avg LOW line — green solid
-    if (avgLow != null) {
-      const yL = toY(avgLow)
-      ctx.strokeStyle = '#22c55e'
-      ctx.lineWidth = 2
-      ctx.setLineDash([6, 4])
-      ctx.beginPath(); ctx.moveTo(padLeft, yL); ctx.lineTo(rightEdge, yL); ctx.stroke()
-      ctx.setLineDash([])
-    }
-
-    // ── Gradient fill — segment by segment, skipping null gaps ───────────────
-    const grad = ctx.createLinearGradient(0, panelContentTop, 0, panelContentBottom)
-    grad.addColorStop(0, 'rgba(167, 139, 250, 0.18)')
-    grad.addColorStop(1, 'rgba(167, 139, 250, 0.0)')
-
-    let segStart = -1
-    for (let i = 0; i <= pts.length; i++) {
-      const pt = pts[i]
-      const isValid = pt && pt.v !== null
-      if (isValid && segStart === -1) {
-        segStart = i
-      } else if (!isValid && segStart !== -1) {
-        // draw fill for segment [segStart, i-1]
-        const seg = pts.slice(segStart, i) as { x: number; v: number }[]
-        ctx.fillStyle = grad
-        ctx.beginPath()
-        ctx.moveTo(seg[0].x, panelContentBottom)
-        for (const p of seg) ctx.lineTo(p.x, toY(p.v))
-        ctx.lineTo(seg[seg.length - 1].x, panelContentBottom)
-        ctx.closePath()
-        ctx.fill()
-        segStart = -1
-      }
-    }
-
-    // ── PEG line — draw segments, lift pen at null gaps ───────────────────────
-    ctx.strokeStyle = '#a78bfa'
-    ctx.lineWidth = 2.5
-    ctx.lineJoin = 'round'
-    ctx.setLineDash([])
-
-    let inStroke = false
-    ctx.beginPath()
-    for (const pt of pts) {
-      if (pt.v === null) {
-        inStroke = false
-        continue
-      }
-      if (!inStroke) { ctx.moveTo(pt.x, toY(pt.v)); inStroke = true }
-      else { ctx.lineTo(pt.x, toY(pt.v)) }
-    }
-    ctx.stroke()
-
-    // ── Mark null-gap zones with a subtle grey dashed line at mid-panel ───────
-    let gapStart: number | null = null
-    for (let i = 0; i <= pts.length; i++) {
-      const pt = pts[i]
-      if (pt && pt.v === null && gapStart === null) gapStart = pt.x
-      if ((!pt || pt.v !== null) && gapStart !== null) {
-        const gapEnd = pt ? pt.x : pts[pts.length - 1].x
-        const midY = (panelContentTop + panelContentBottom) / 2
-        ctx.strokeStyle = 'rgba(100,116,139,0.3)'
-        ctx.lineWidth = 1
-        ctx.setLineDash([3, 3])
-        ctx.beginPath(); ctx.moveTo(gapStart, midY); ctx.lineTo(gapEnd, midY); ctx.stroke()
-        ctx.setLineDash([])
-        ctx.font = '9px JetBrains Mono, monospace'
-        ctx.fillStyle = 'rgba(100,116,139,0.6)'
-        ctx.textAlign = 'center'
-        ctx.fillText('N/A', (gapStart + gapEnd) / 2, midY - 3)
-        gapStart = null
-      }
-    }
-
-    ctx.restore()
-
-    // ── Right-edge value labels ───────────────────────────────────────────────
-    // Find last numeric point for the current PEG label
-    const lastNumeric = [...pts].reverse().find(p => p.v !== null) as { x: number; v: number } | undefined
-    if (lastNumeric) {
-      const pegColor = lastNumeric.v < 1 ? '#22c55e' : lastNumeric.v < 2 ? '#f59e0b' : '#ef4444'
-      ctx.font = 'bold 24px JetBrains Mono, monospace'
-      ctx.fillStyle = pegColor
-      ctx.textAlign = 'left'
-      ctx.fillText(
-        lastNumeric.v.toFixed(2),
-        rightEdge + 2,
-        Math.max(panelContentTop + 20, Math.min(panelContentBottom - 4, toY(lastNumeric.v) + 8))
-      )
-    }
-
-    // 3Y avg label
-    if (peg.avg3y != null) {
-      const yAvg = toY(peg.avg3y)
-      ctx.font = 'bold 18px JetBrains Mono, monospace'
-      ctx.fillStyle = '#ef4444'
-      ctx.textAlign = 'left'
-      ctx.fillText(
-        `${peg.avg3y.toFixed(2)}`,
-        rightEdge + 2,
-        Math.max(panelContentTop + 44, Math.min(panelContentBottom - 4, yAvg + 8))
-      )
-    }
-
-    // Avg High label — red
-    if (avgHigh != null) {
-      const yH = toY(avgHigh)
-      ctx.font = 'bold 24px JetBrains Mono, monospace'
-      ctx.fillStyle = '#ef4444'
-      ctx.textAlign = 'left'
-      ctx.fillText(
-        `${avgHigh.toFixed(2)}x`,
-        rightEdge + 2,
-        Math.max(panelContentTop + 20, Math.min(panelContentBottom - 28, yH + 8))
-      )
-    }
-
-    // Avg Low label — green
-    if (avgLow != null) {
-      const yL = toY(avgLow)
-      ctx.font = 'bold 24px JetBrains Mono, monospace'
-      ctx.fillStyle = '#22c55e'
-      ctx.textAlign = 'left'
-      ctx.fillText(
-        `${avgLow.toFixed(2)}x`,
-        rightEdge + 2,
-        Math.max(panelContentTop + 48, Math.min(panelContentBottom, yL + 8))
-      )
-    }
-  }
 
   /* __DEAD_CODE_REMOVED_START
 
@@ -20396,109 +20347,155 @@ export default function TradingViewChart({
       ctx.setLineDash([])
     }
 
-    // ── Daily chart mode: one vertical bar per day (zero → final value) ──────
-    if (candleIntervalMs >= 12 * 60 * 60 * 1000) {
-      // candleIntervalMs ≥ 12h means we're on a daily (or slower) chart
-      const barHalfWidth = Math.max(candleSpacing * 0.25, 3)
-      flowData.forEach((point) => {
-        const x = getNearestX(point.time)
-        if (x === undefined) return
-        const isPositive = point.netFlow >= 0
-        const value = point.netFlow
-        const yTop = valueToY(value)
-        const yBase = zeroY
+    // ── Advanced line rendering: grid, day separators, smooth gradient-filled lines, end tags ──
+    const fmtFlow = (v: number) => {
+      const abs = Math.abs(v)
+      const sign = v < 0 ? '-' : ''
+      if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(2)}B`
+      if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(1)}M`
+      if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(0)}K`
+      return `${sign}$${abs.toFixed(0)}`
+    }
+    const panelLeft = CHART_LEFT_MARGIN
+    const panelRight = chartWidth
 
-        // Fill bar
-        ctx.fillStyle = isPositive ? 'rgba(0,255,0,0.25)' : 'rgba(255,0,0,0.25)'
-        ctx.fillRect(x - barHalfWidth, Math.min(yTop, yBase), barHalfWidth * 2, Math.abs(yTop - yBase))
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(panelLeft, flowStartY + 40, panelRight - panelLeft, flowChartHeight - 40)
+    ctx.clip()
 
-        // Stroke outline
-        ctx.strokeStyle = isPositive ? '#00FF00' : '#FF0000'
-        ctx.lineWidth = 2
-        ctx.strokeRect(x - barHalfWidth, Math.min(yTop, yBase), barHalfWidth * 2, Math.abs(yTop - yBase))
-
-        // Value label above/below bar
-        const formatVal = (v: number) => {
-          const abs = Math.abs(v); const sign = v < 0 ? '-' : '+'
-          if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`
-          if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(0)}K`
-          return `${sign}$${abs.toFixed(0)}`
-        }
-        ctx.font = 'bold 11px Arial'
-        ctx.textAlign = 'center'
-        ctx.fillStyle = isPositive ? '#00FF00' : '#FF0000'
-        const labelY = isPositive ? yTop - 5 : yTop + 13
-        ctx.fillText(formatVal(value), x, labelY)
-      })
-      ctx.globalAlpha = 1.0
-      return  // skip line-drawing below for daily mode
+    // Horizontal grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)'
+    ctx.lineWidth = 1
+    for (let i = 0; i <= 4; i++) {
+      const gy = Math.round(valueToY(bottomVal + (yRange / 4) * i)) + 0.5
+      if (gy < flowStartY + 46) continue
+      ctx.beginPath(); ctx.moveTo(panelLeft, gy); ctx.lineTo(panelRight, gy); ctx.stroke()
     }
 
-    // Draw lines
-    linesToDraw.forEach((line) => {
-      if (flowChartViewMode === 'net') {
-        // For net flow mode, draw segment by segment with color based on value
-        let firstPoint = true
-        let prevX: number | null = null
-        let prevY: number | null = null
-        let prevValue: number | null = null
+    // Day separators with date labels (intraday only)
+    if (candleIntervalMs < 12 * 60 * 60 * 1000) {
+      let prevDay = ''
+      ctx.font = '600 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+      ctx.textAlign = 'left'
+      flowData.forEach((p) => {
+        const x = getNearestX(p.time)
+        if (x === undefined) return
+        const day = new Date(p.time).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric' })
+        if (prevDay && day !== prevDay) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.12)'
+          ctx.setLineDash([3, 4])
+          ctx.beginPath(); ctx.moveTo(x, effectiveFlowStartY); ctx.lineTo(x, flowEndY); ctx.stroke()
+          ctx.setLineDash([])
+        }
+        prevDay = day
+      })
+    }
 
-        flowData.forEach((point, index) => {
-          const x = getNearestX(point.time)
+    const baseY = Math.max(effectiveFlowStartY, Math.min(effectiveFlowEndY, zeroY))
+    const zeroFrac = Math.max(0, Math.min(1, (baseY - effectiveFlowStartY) / (effectiveFlowHeight || 1)))
 
-          if (x !== undefined) {
-            const value = (point as any)[line.key]
-            const y = valueToY(value)
-
-            if (!firstPoint && prevX !== null && prevY !== null && prevValue !== null) {
-              // Draw segment with color based on current value
-              ctx.strokeStyle = value >= 0 ? '#00FF00' : '#FF0000'
-              ctx.lineWidth = 3
-              ctx.lineCap = 'round'
-              ctx.lineJoin = 'round'
-              ctx.globalAlpha = 1.0
-              ctx.beginPath()
-              ctx.moveTo(prevX, prevY)
-              ctx.lineTo(x, y)
-              ctx.stroke()
-            }
-
-            prevX = x
-            prevY = y
-            prevValue = value
-            firstPoint = false
-          }
-        })
-      } else {
-        // Original logic for detailed and simplified modes
-        ctx.strokeStyle = line.color
-        ctx.lineWidth = 3
-        ctx.lineCap = 'round'
-        ctx.lineJoin = 'round'
-        ctx.globalAlpha = 1.0
-        ctx.beginPath()
-
-        let firstPoint = true
-        flowData.forEach((point) => {
-          const x = getNearestX(point.time)
-
-          if (x !== undefined) {
-            const value = (point as any)[line.key]
-
-            const y = valueToY(value)
-
-            if (firstPoint) {
-              ctx.moveTo(x, y)
-              firstPoint = false
-            } else {
-              ctx.lineTo(x, y)
-            }
-          }
-        })
-
-        ctx.stroke()
+    const seriesPts = (key: string) => {
+      const m = new Map<number, { x: number; y: number; v: number }>()
+      flowData.forEach((p) => {
+        const x = getNearestX(p.time)
+        if (x === undefined) return
+        const v = (p as any)[key] as number
+        m.set(x, { x, y: valueToY(v), v })
+      })
+      return [...m.values()].sort((a, b) => a.x - b.x)
+    }
+    const tracePath = (pts: { x: number; y: number }[]) => {
+      ctx.moveTo(pts[0].x, pts[0].y)
+      for (let i = 1; i < pts.length - 1; i++) {
+        const mx = (pts[i].x + pts[i + 1].x) / 2
+        const my = (pts[i].y + pts[i + 1].y) / 2
+        ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my)
       }
+      if (pts.length > 1) ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y)
+    }
+
+    const endTags: Array<{ y: number; text: string; color: string }> = []
+
+    linesToDraw.forEach((line) => {
+      const pts = seriesPts(line.key)
+      if (!pts.length) return
+      const isNet = flowChartViewMode === 'net'
+      const last = pts[pts.length - 1]
+
+      let strokeStyle: string | CanvasGradient = line.color
+      let fillStyle: string | CanvasGradient | null = null
+      if (isNet) {
+        const sg = ctx.createLinearGradient(0, effectiveFlowStartY, 0, effectiveFlowEndY)
+        sg.addColorStop(0, '#00FF66'); sg.addColorStop(zeroFrac, '#00FF66')
+        sg.addColorStop(zeroFrac, '#FF3355'); sg.addColorStop(1, '#FF3355')
+        strokeStyle = sg
+        const fg = ctx.createLinearGradient(0, effectiveFlowStartY, 0, effectiveFlowEndY)
+        fg.addColorStop(0, 'rgba(0,255,102,0.34)'); fg.addColorStop(zeroFrac, 'rgba(0,255,102,0.02)')
+        fg.addColorStop(zeroFrac, 'rgba(255,51,85,0.02)'); fg.addColorStop(1, 'rgba(255,51,85,0.34)')
+        fillStyle = fg
+      } else {
+        const extY = pts.reduce((best, p) => (Math.abs(p.y - baseY) > Math.abs(best - baseY) ? p.y : best), baseY)
+        if (Math.abs(extY - baseY) > 1) {
+          const fg = ctx.createLinearGradient(0, baseY, 0, extY)
+          fg.addColorStop(0, hexToRgbaStr(line.color, 0.02))
+          fg.addColorStop(1, hexToRgbaStr(line.color, 0.3))
+          fillStyle = fg
+        }
+      }
+
+      if (fillStyle && pts.length > 1) {
+        ctx.beginPath()
+        tracePath(pts)
+        ctx.lineTo(last.x, baseY)
+        ctx.lineTo(pts[0].x, baseY)
+        ctx.closePath()
+        ctx.fillStyle = fillStyle
+        ctx.fill()
+      }
+
+      ctx.save()
+      ctx.shadowColor = isNet ? (last.v >= 0 ? '#00FF66' : '#FF3355') : line.color
+      ctx.shadowBlur = 8
+      ctx.strokeStyle = strokeStyle
+      ctx.lineWidth = 2.4
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      ctx.beginPath()
+      tracePath(pts)
+      ctx.stroke()
+      ctx.restore()
+
+      const tagColor = isNet ? (last.v >= 0 ? '#00FF66' : '#FF3355') : line.color
+      ctx.beginPath()
+      ctx.arc(last.x, last.y, 3.5, 0, Math.PI * 2)
+      ctx.fillStyle = tagColor
+      ctx.fill()
+      endTags.push({ y: last.y, text: fmtFlow(last.v), color: tagColor })
     })
+    ctx.restore()
+
+    // Last-value tags on the right axis, nudged apart so they never overlap
+    {
+      endTags.sort((a, b) => a.y - b.y)
+      for (let i = 1; i < endTags.length; i++) {
+        if (endTags[i].y - endTags[i - 1].y < 22) endTags[i].y = endTags[i - 1].y + 22
+      }
+      ctx.font = 'bold 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+      ctx.textAlign = 'center'
+      endTags.forEach((t) => {
+        const w = 78
+        const x0 = yAxisXPosition - w + 4
+        const ty = Math.max(flowStartY + 52, Math.min(flowEndY - 12, t.y))
+        t.y = ty
+        ctx.fillStyle = t.color
+        ctx.beginPath()
+        ctx.roundRect(x0, ty - 10, w, 20, 4)
+        ctx.fill()
+        ctx.fillStyle = '#000000'
+        ctx.fillText(t.text, x0 + w / 2, ty + 5)
+      })
+    }
 
     // Reset alpha
     ctx.globalAlpha = 1.0
@@ -20506,7 +20503,7 @@ export default function TradingViewChart({
     // Line labels are shown in the React toolbar legend overlay (not on canvas)
 
     // Draw scale labels (always visible)
-    ctx.font = 'bold 18px Arial'
+    ctx.font = 'bold 14px Arial'
     ctx.textAlign = 'right'
     ctx.globalAlpha = 1.0
 
@@ -20525,6 +20522,7 @@ export default function TradingViewChart({
         const y = valueToY(valueLevel)
         // Skip ticks that fall inside the top toolbar area (46px reserved for buttons)
         if (y < flowStartY + 46) continue
+        if (endTags.some((t) => Math.abs(t.y - y) < 24)) continue
         if (valueLevel > 0) {
           ctx.fillStyle = '#00FF00'
         } else if (valueLevel < 0) {
@@ -20575,8 +20573,9 @@ export default function TradingViewChart({
 
     // Panel background - deep navy gradient
     const bgGrad = ctx.createLinearGradient(0, panelStartY, 0, panelEndY)
-    bgGrad.addColorStop(0, '#0a0f1a')
-    bgGrad.addColorStop(1, '#030507')
+    bgGrad.addColorStop(0, '#111113')
+    bgGrad.addColorStop(0.5, '#08080a')
+    bgGrad.addColorStop(1, '#000000')
     ctx.fillStyle = bgGrad
     ctx.fillRect(CHART_LEFT_MARGIN, panelStartY, chartWidth, panelHeight)
 
@@ -20620,6 +20619,8 @@ export default function TradingViewChart({
       let maxValue = -Infinity
 
       ivDataArray.forEach((item) => {
+        // Scale only to what is visible so the line fills the panel
+        if (!datePositions.has(item.date)) return
         if (showCallIVLine && item.callIV !== null) {
           minValue = Math.min(minValue, item.callIV)
           maxValue = Math.max(maxValue, item.callIV)
@@ -20635,8 +20636,8 @@ export default function TradingViewChart({
       })
 
       const range = maxValue - minValue
-      const paddedMin = minValue - range * 0.1
-      const paddedMax = maxValue + range * 0.1
+      const paddedMin = minValue - range * 0.12
+      const paddedMax = maxValue + range * 0.3
       const paddedRange = paddedMax - paddedMin
 
       // Define line configs for IV
@@ -20746,7 +20747,7 @@ export default function TradingViewChart({
 
       ctx.restore()
       const yAxisX = chartWidth + CHART_LEFT_MARGIN - 5
-      ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+      ctx.font = '700 15px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
       ctx.textAlign = 'left'
       ctx.textBaseline = 'middle'
 
@@ -20754,7 +20755,7 @@ export default function TradingViewChart({
         const value = paddedMin + (paddedRange / 3) * i
         const y = effectivePanelEndY - (i * effectivePanelHeight) / 3
         if (y < panelStartY + yAxisPadding + 4) continue
-        ctx.fillStyle = 'rgba(255,255,255,0.75)'
+        ctx.fillStyle = 'rgba(255,255,255,0.92)'
         ctx.fillText(`${value.toFixed(1)}%`, yAxisX + 6, y)
       }
 
@@ -20795,7 +20796,9 @@ export default function TradingViewChart({
     let minValue = Infinity
     let maxValue = -Infinity
 
+    const visibleDateSet = new Set(visibleData.map((c) => c.date))
     ivDataArray.forEach((item) => {
+      if (!visibleDateSet.has(item.date)) return
       const value = getDataValue(item)
       if (value !== null) {
         minValue = Math.min(minValue, value)
@@ -20812,9 +20815,9 @@ export default function TradingViewChart({
     // Add padding to the range
     const range = maxValue - minValue
     const paddedMin =
-      panelType === 'ivRank' || panelType === 'ivPercentile' ? 0 : minValue - range * 0.1
+      panelType === 'ivRank' || panelType === 'ivPercentile' ? 0 :       minValue - range * 0.12
     const paddedMax =
-      panelType === 'ivRank' || panelType === 'ivPercentile' ? 100 : maxValue + range * 0.1
+            panelType === 'ivRank' || panelType === 'ivPercentile' ? 100 : maxValue + range * 0.3
     const paddedRange = paddedMax - paddedMin
 
     // Draw 50% reference line for rank and percentile
@@ -20924,7 +20927,7 @@ export default function TradingViewChart({
     // Exit clip region, then axis labels and the last-value chip
     ctx.restore()
     const yAxisX2 = chartWidth + CHART_LEFT_MARGIN - 5
-    ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    ctx.font = '700 15px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
     ctx.textAlign = 'left'
     ctx.textBaseline = 'middle'
 
@@ -20932,7 +20935,7 @@ export default function TradingViewChart({
       const value = paddedMin + (paddedRange / 3) * i
       const y = effectivePanelEndY - (i * effectivePanelHeight) / 3
       if (y < panelStartY + yAxisPadding + 4) continue
-      ctx.fillStyle = 'rgba(255,255,255,0.75)'
+      ctx.fillStyle = 'rgba(255,255,255,0.92)'
       ctx.fillText(
         panelType === 'ivRank' || panelType === 'ivPercentile' ? `${value.toFixed(0)}%` : `${value.toFixed(1)}%`,
         yAxisX2 + 6,
@@ -22176,22 +22179,6 @@ export default function TradingViewChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rrgCandleColors, isRRGCandleActive, rrgMode, rrgLookbackPeriod, chartLayout])
 
-  // Re-render when P/E panel changes (data, toggle, or drag resize)
-  useEffect(() => {
-    if (chartLayout === '1x1') {
-      renderChart()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showPEPanel, peData, pePanelHeight, chartLayout])
-
-  // Re-render when PEG panel changes (data, toggle, or resize)
-  useEffect(() => {
-    if (chartLayout === '1x1') {
-      renderChart()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showPEGPanel, pegData, pegPanelHeight, chartLayout])
-
   // Re-render when IV/HV data arrives or panels are toggled
   useEffect(() => {
     if (chartLayout === '1x1') renderChart()
@@ -22210,7 +22197,7 @@ export default function TradingViewChart({
       renderChartRef.current()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [darkPoolData, contractionEvents, showDarkPoolIndicator, chartLayout])
+  }, [darkPoolData, pivotResult, edgeResult, showStraddleEdge, showDarkPoolIndicator, chartLayout])
 
   // Re-render when drawings change
   useEffect(() => {
@@ -23129,9 +23116,7 @@ export default function TradingViewChart({
         const _timeAxisH = 35
         const _flowH = isFlowChartActive ? flowChartHeight : 0
         const _ivH = isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0
-        const _peH = showPEPanel ? pePanelHeight : 0
-        const _pegH = showPEGPanel ? pegPanelHeight : 0
-        const _realPriceChartHeight = dimensions.height - (_flowH + _ivH + _peH + _pegH + _timeAxisH)
+        const _realPriceChartHeight = dimensions.height - (_flowH + _ivH + pivotPanelHeight + _timeAxisH)
         const ivPanelBaseY = _realPriceChartHeight + _flowH
         let ivCrosshairLabel: string | null = null
         if (isAnyIVHVActive && ivData.length > 0 && y >= ivPanelBaseY) {
@@ -23155,12 +23140,14 @@ export default function TradingViewChart({
             let panelMin = (panelType === 'ivRank' || panelType === 'ivPercentile') ? 0 : Infinity
             let panelMax = (panelType === 'ivRank' || panelType === 'ivPercentile') ? 100 : -Infinity
             if (panelType !== 'ivRank' && panelType !== 'ivPercentile') {
-              ivData.forEach(item => keys.forEach(k => {
+              const visStart = Math.max(0, Math.floor(scrollOffset))
+              const visDates = new Set(data.slice(visStart, Math.min(data.length, visStart + visibleCandleCount)).map(c => c.date))
+              ivData.forEach(item => { if (!visDates.has(item.date)) return; keys.forEach(k => {
                 const v = (item as any)[k] as number | null
                 if (v !== null) { panelMin = Math.min(panelMin, v); panelMax = Math.max(panelMax, v) }
-              }))
+              }) })
               const r = panelMax - panelMin
-              panelMin -= r * 0.1; panelMax += r * 0.1
+              panelMin -= r * 0.12; panelMax += r * 0.3
             }
             const paddedRange = panelMax - panelMin
             if (paddedRange > 0 && y >= effectivePanelStartY && y <= effectivePanelEndY) {
@@ -23170,6 +23157,16 @@ export default function TradingViewChart({
               ivCrosshairLabel = `${value.toFixed(1)}%`
             } else {
             }
+          }
+        }
+
+        // Straddle Edge panel (bottom of the stack): map y to the panel's % scale
+        let edgeCrosshairLabel: string | null = null
+        if (showStraddleEdge && _edgeAxis) {
+          const _edgeTop = dimensions.height - _timeAxisH - edgePanelHeight
+          if (y >= _edgeTop && y <= dimensions.height - _timeAxisH) {
+            const _v = ((_edgeAxis.bottom - y) / (_edgeAxis.bottom - _edgeAxis.top)) * _edgeAxis.max
+            edgeCrosshairLabel = `${Math.max(0, _v).toFixed(2)}%`
           }
         }
 
@@ -23272,7 +23269,9 @@ export default function TradingViewChart({
         })
 
         const nextCrosshairInfo = {
-          price: ivCrosshairLabel
+          price: edgeCrosshairLabel
+            ? edgeCrosshairLabel
+            : ivCrosshairLabel
             ? ivCrosshairLabel
             : volumeCrosshairLabel
               ? volumeCrosshairLabel
@@ -23417,6 +23416,9 @@ export default function TradingViewChart({
       manualPriceRange,
       isFlowChartActive,
       flowChartHeight,
+      pivotPanelHeight,
+      showStraddleEdge,
+      edgePanelHeight,
       flowChartData,
       flowChartViewMode,
       isAnyIVHVActive,
@@ -23646,6 +23648,59 @@ export default function TradingViewChart({
   const handleChartTypeChange = (chartType: ChartConfig['chartType']) => {
     setConfig((prev) => ({ ...prev, chartType }))
   }
+
+  // Per-pane symbol/timeframe edit from the pane header
+  const handleInstanceChange = (id: string, patch: { symbol?: string; timeframe?: string }) => {
+    setChartInstances((prev) =>
+      prev.map((inst) =>
+        inst.id === id
+          ? { ...inst, ...patch, config: { ...inst.config, ...patch } }
+          : inst
+      )
+    )
+  }
+
+  // Expand one pane into the single full-size chart
+  const handleMaximizeInstance = (id: string) => {
+    const inst = chartInstances.find((ci) => ci.id === id)
+    if (!inst) return
+    setChartInstances([inst])
+    setActiveChartId(inst.id)
+    setChartLayout('1x1')
+    setConfig((prev) => ({ ...prev, symbol: inst.symbol, timeframe: inst.timeframe }))
+    if (inst.symbol !== symbol) onSymbolChange?.(inst.symbol)
+    if (inst.timeframe !== config.timeframe) onTimeframeChange?.(inst.timeframe)
+    fetchData(inst.symbol, inst.timeframe)
+  }
+
+  // Dealer Edge (coil + straddle edge) for multi-chart panes, computed per pane symbol
+  const [paneEdgeVersion, setPaneEdgeVersion] = useState(0)
+  const paneDealerCache = useRef<Map<string, { len: number; last: number; pivot: PivotResult }>>(new Map())
+  const drawPaneDealerEdge = useCallback(
+    (
+      ctx: CanvasRenderingContext2D,
+      p: { sym: string; candles: ChartDataPoint[]; si: number; visDates: string[]; chartW: number; totVis: number; W: number; y: number; h: number }
+    ) => {
+      const last = p.candles[p.candles.length - 1]
+      let pc = paneDealerCache.current.get(p.sym)
+      if (!pc || pc.len !== p.candles.length || pc.last !== last?.timestamp) {
+        pc = { len: p.candles.length, last: last?.timestamp ?? 0, pivot: _computePivots(p.candles) }
+        paneDealerCache.current.set(p.sym, pc)
+      }
+      _loadEdgeRows(p.sym, () => setPaneEdgeVersion((v) => v + 1))
+      const rows = _edgeIvCache.get(p.sym)
+      const edge = rows && rows.length > 0 ? _computeStraddleEdge(rows, p.sym === symbol ? ivData : []) : null
+      // Panels are laid out for the main chart's left margin; shift to the pane's candle origin
+      const shift = 40 - CHART_LEFT_MARGIN
+      ctx.save()
+      ctx.translate(shift, 0)
+      _drawPivotPanel(ctx, pc.pivot, p.si, p.visDates.length, p.chartW, p.W - shift, p.y, p.h, p.totVis)
+      _drawStraddleEdgePanel(ctx, edge, p.visDates, p.chartW, p.W - shift, p.y + p.h, p.h, p.totVis)
+      ctx.restore()
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [symbol, ivData, paneEdgeVersion]
+  )
 
   // Handle symbol change with instant preloading
   const handleSymbolChange = (newSymbol: string) => {
@@ -24546,6 +24601,8 @@ export default function TradingViewChart({
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTab, pdTimeframe, stableSymbols])
 
+    const [watchlistTableView, setWatchlistTableView] = useState<'table' | 'arena'>('table')
+
     // For Watchlist tab, show Markets symbols; otherwise use activeTab
     const symbolKey = activeTab === 'Watchlist' ? 'Markets' : activeTab
     const currentSymbols = marketSymbols[symbolKey as keyof typeof marketSymbols] || []
@@ -24968,10 +25025,30 @@ export default function TradingViewChart({
                   selectedPeriod="1d"
                   watchlistData={watchlistData}
                   sectorFlowData={sectorFlowData}
+                  tableView={watchlistTableView}
+                  onTableViewChange={setWatchlistTableView}
                 />
               </div>
             )}
 
+            {watchlistTableView === 'arena' ? (
+              <FlowArena
+                symbols={allSymbols.map((i) => ('symbol' in i ? i.symbol : ''))}
+                names={tickerNames}
+                groups={{
+                  sectors: currentSymbols,
+                  industries: marketSymbols.Industries,
+                  special: marketSymbols.Special,
+                }}
+                watchlistData={watchlistData}
+                sectorFlowData={sectorFlowData}
+                onPick={(symbol) => {
+                  if (onSymbolChange) onSymbolChange(symbol)
+                  setConfig((prev) => ({ ...prev, symbol }))
+                }}
+              />
+            ) : (
+            <>
             {/* Bloomberg-style Column Headers - 11 Columns */}
             <div
               className="grid gap-px border-b border-gray-700 bg-black md:text-sm text-[8px] font-bold uppercase shadow-inner"
@@ -25347,6 +25424,8 @@ export default function TradingViewChart({
                 </div>
               )}
             </div>
+            </>
+            )}
           </>
         )}
 
@@ -30435,11 +30514,7 @@ export default function TradingViewChart({
           className="h-full flex flex-col rounded-lg overflow-hidden transition-all duration-300"
           style={{
             backgroundColor: colors.background,
-            width: (isMobile || hideDesktopSidebar)
-              ? '100%'
-              : isGuideAIOpen
-                ? '70%'
-                : '100%',
+            width: '100%',
             transition: 'width 0.3s ease',
           }}
         >
@@ -31128,7 +31203,7 @@ export default function TradingViewChart({
                     <div className="mobile-dtd-group">
                       {(() => {
                         const dataActive = (isExpectedRangeActive || isGexMapActive || isGexMap45dActive || isDexMapActive || isDexMap45dActive || isAnyIVHVActive || showDarkPoolIndicator || isRRGCandleActive)
-                        const toolsActive = (isSeasonalActive || isFlowChartActive || showPEPanel || showPEGPanel)
+                        const toolsActive = (isSeasonalActive || isFlowChartActive)
                         const drawActive = currentDrawingTool !== 'select' // kept for ref
                         const dtdBtnBase: React.CSSProperties = {
                           position: 'relative', overflow: 'hidden',
@@ -31162,10 +31237,8 @@ export default function TradingViewChart({
                             <button onClick={() => setIsMobileFlowsOpen(false)} style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#555', fontSize: '20px', cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
                           </div>
                           <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>IntraFlow</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
-                            <button onClick={() => { if (isFlowChartActive && flowMovesTimeframe === '1D') { setIsFlowChartActive(false); setFlowMovesTimeframe('1D'); } else { setFlowMovesTimeframe('1D'); setIsFlowChartActive(true); handleLiveFlowMovesClick('1D'); } }} className={`btn-3d-carved ${isFlowChartActive && flowMovesTimeframe === '1D' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>1D{isFlowChartActive && flowMovesTimeframe === '1D' ? ' ✓' : ''}</button>
-                            <button onClick={() => { if (isFlowChartActive && flowMovesTimeframe === '3D') { setIsFlowChartActive(false); setFlowMovesTimeframe('1D'); } else { setFlowMovesTimeframe('3D'); setIsFlowChartActive(true); handleLiveFlowMovesClick('3D'); } }} className={`btn-3d-carved ${isFlowChartActive && flowMovesTimeframe === '3D' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>3D{isFlowChartActive && flowMovesTimeframe === '3D' ? ' ✓' : ''}</button>
-                            <button onClick={() => { if (isFlowChartActive && flowMovesTimeframe === '1W') { setIsFlowChartActive(false); setFlowMovesTimeframe('1D'); } else { setFlowMovesTimeframe('1W'); setIsFlowChartActive(true); handleLiveFlowMovesClick('1W'); } }} className={`btn-3d-carved ${isFlowChartActive && flowMovesTimeframe === '1W' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>1W{isFlowChartActive && flowMovesTimeframe === '1W' ? ' ✓' : ''}</button>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '6px' }}>
+                            <button onClick={() => { if (isFlowChartActive) { setIsFlowChartActive(false); } else { setIsFlowChartActive(true); handleLiveFlowMovesClick(); } }} className={`btn-3d-carved ${isFlowChartActive ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>OptionsFlow{isFlowChartActive ? ' ✓' : ''}</button>
                           </div>
                           {isFlowChartActive && <button onClick={() => { setIsFlowChartActive(false); setFlowMovesTimeframe('1D'); }} style={{ marginTop: '2px', width: '100%', padding: '7px', fontSize: '11px', fontWeight: 700, color: '#ff4444', background: 'transparent', border: '1px solid rgba(255,68,68,0.3)', borderRadius: '8px', cursor: 'pointer' }}>Clear Flows</button>}
                         </div>
@@ -31270,19 +31343,13 @@ export default function TradingViewChart({
                             <button onClick={() => setShowIVRankIndicator(v => !v)} className={`btn-3d-carved ${showIVRankIndicator ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>IV Rank{showIVRankIndicator ? ' ✓' : ''}</button>
                             <button onClick={() => setShowIVPercentileIndicator(v => !v)} className={`btn-3d-carved ${showIVPercentileIndicator ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>IV %ile{showIVPercentileIndicator ? ' ✓' : ''}</button>
                             <button onClick={() => { const n = !showHVIndicator; setShowHVIndicator(n); if (n && ivData.length === 0) fetchIVData(); }} className={`btn-3d-carved ${showHVIndicator ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Hist Vol{showHVIndicator ? ' ✓' : ''}</button>
-                            <button onClick={() => setShowDarkPoolIndicator(v => !v)} className={`btn-3d-carved ${showDarkPoolIndicator ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>POI{showDarkPoolIndicator ? ' ✓' : ''}</button>
+                            <button onClick={() => setDealerEdge(!showDarkPoolIndicator)} className={`btn-3d-carved ${showDarkPoolIndicator ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>POI{showDarkPoolIndicator ? ' ✓' : ''}</button>
                           </div>
                           <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px' }}>RRG Candle</div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
                             <button onClick={() => { if (isRRGCandleActive && rrgMode === 'price') { setIsRRGCandleActive(false); setRrgCandleColors(new Map()); setRrgMode('price'); setRrgLookbackPeriod(10); } else { setRrgMode('price'); handleRRGCandleClick(rrgLookbackPeriod, 'price'); } }} className={`btn-3d-carved ${isRRGCandleActive && rrgMode === 'price' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>Price{isRRGCandleActive && rrgMode === 'price' ? ' ✓' : ''}</button>
                             <button onClick={() => { if (isRRGCandleActive && rrgMode === 'iv') { setIsRRGCandleActive(false); setRrgCandleColors(new Map()); } else { setRrgMode('iv'); handleRRGCandleClick(rrgIvLookbackPeriod, 'iv'); } }} className={`btn-3d-carved ${isRRGCandleActive && rrgMode === 'iv' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>IV{isRRGCandleActive && rrgMode === 'iv' ? ' ✓' : ''}</button>
                             <button onClick={() => { if (isRRGCandleActive && rrgMode === 'ivspy') { setIsRRGCandleActive(false); setRrgCandleColors(new Map()); } else { setRrgMode('ivspy'); handleRRGCandleClick(rrgIvLookbackPeriod, 'ivspy'); } }} className={`btn-3d-carved ${isRRGCandleActive && rrgMode === 'ivspy' ? 'active' : ''}`} style={{ padding: '9px 4px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center' }}>IV/SPY{isRRGCandleActive && rrgMode === 'ivspy' ? ' ✓' : ''}</button>
-                          </div>
-                          {/* ── OTHER ── */}
-                          <div style={{ color: '#fff', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', marginTop: '4px' }}>Other</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-                            <button onClick={() => { const n = !showPEPanel; setShowPEGPanel(false); setShowPEPanel(n); if (n && (!peData || peFetchedSymbolRef.current !== config.symbol)) fetchPEData(config.symbol); }} className={`btn-3d-carved ${showPEPanel ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: showPEPanel ? undefined : '#00E5FF' }}>P/E{showPEPanel && peData?.current != null ? ` (${peData.current.toFixed(0)}x) ✓` : showPEPanel ? ' ✓' : ''}</button>
-                            <button onClick={() => { const n = !showPEGPanel; setShowPEPanel(false); setShowPEGPanel(n); if (n && (!pegData || pegFetchedSymbolRef.current !== config.symbol)) fetchPEGData(config.symbol); }} className={`btn-3d-carved ${showPEGPanel ? 'active' : ''}`} style={{ padding: '9px 6px', fontWeight: 700, fontSize: '11px', borderRadius: '6px', textAlign: 'center', color: showPEGPanel ? undefined : '#a78bfa' }}>PEG{showPEGPanel && pegData?.pegBasic != null ? ` (${pegData.pegBasic.toFixed(1)}) ✓` : showPEGPanel ? ' ✓' : ''}</button>
                           </div>
                         </div>
                       </>,
@@ -33559,32 +33626,6 @@ export default function TradingViewChart({
                           {/* Divider */}
                           <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', margin: '8px 0' }} />
 
-                          {/* Lookback Period */}
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0' }}>
-                            <span style={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '11px' }}>Lookback:</span>
-                            <select
-                              value={ivLookbackPeriod}
-                              onChange={(e) => {
-                                setIVLookbackPeriod(Number(e.target.value))
-                                if (isAnyIVHVActive) { setIVData([]) }
-                              }}
-                              style={{
-                                background: '#000000',
-                                border: '1px solid rgba(255, 255, 255, 0.2)',
-                                borderRadius: '4px',
-                                color: '#fff',
-                                padding: '4px 8px',
-                                fontSize: '11px',
-                                cursor: 'pointer',
-                              }}
-                            >
-                              <option value={365}>1 Year</option>
-                              <option value={730}>2 Years</option>
-                              <option value={1095}>3 Years</option>
-                              <option value={1460}>4 Years</option>
-                            </select>
-                          </div>
-
                           {/* Refresh Button */}
                           {isAnyIVHVActive && (
                             <button
@@ -33619,7 +33660,10 @@ export default function TradingViewChart({
               <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }} data-toolbar-btn>
                 <button
                   ref={flowMovesButtonRef}
-                  onClick={() => { const wasOpen = isFlowMovesDropdownOpen; closeAllToolbarDropdowns(); if (!wasOpen) setIsFlowMovesDropdownOpen(true); }}
+                  onClick={() => {
+                    if (!isFlowChartActive) { closeAllToolbarDropdowns(); setIsFlowChartActive(true); handleLiveFlowMovesClick(); return }
+                    const wasOpen = isFlowMovesDropdownOpen; closeAllToolbarDropdowns(); if (!wasOpen) setIsFlowMovesDropdownOpen(true)
+                  }}
                   className={`btn-3d-carved relative group flex items-center space-x-2 ${isFlowChartActive ? 'btn-drawings active' : ''}`}
                   style={{
                     padding: '10px 14px',
@@ -33628,7 +33672,7 @@ export default function TradingViewChart({
                     borderRadius: '4px',
                   }}
                 >
-                  <span style={{ color: isFlowChartActive ? '#ff8500' : undefined }}>{isFlowMovesLoading ? 'Loading…' : isFlowChartActive ? `OptionsFlow ${flowMovesTimeframe}` : 'OptionsFlow'}</span>
+                  <span style={{ color: isFlowChartActive ? '#ff8500' : undefined }}>{isFlowMovesLoading ? 'Loading…' : isFlowChartActive ? `OptionsFlow ${String(config.timeframe).toUpperCase()}` : 'OptionsFlow'}</span>
                   {isFlowMovesLoading ? (
                     <svg
                       className="animate-spin"
@@ -33668,21 +33712,7 @@ export default function TradingViewChart({
                         ×
                       </span>
                     </>
-                  ) : (
-                    <svg
-                      className="w-4 h-4 ml-1"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M19 9l-7 7-7-7"
-                      />
-                    </svg>
-                  )}
+                  ) : null}
                 </button>
 
                 {/* FlowMoves Timeframe Dropdown - Using Portal */}
@@ -33713,12 +33743,11 @@ export default function TradingViewChart({
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         <button
                           onClick={() => {
-                            setFlowMovesTimeframe('1D')
                             setIsFlowMovesDropdownOpen(false)
                             setIsFlowChartActive(true)
-                            handleLiveFlowMovesClick('1D')
+                            handleLiveFlowMovesClick()
                           }}
-                          className={`btn-3d-carved ${flowMovesTimeframe === '1D' ? 'active' : ''}`}
+                          className="btn-3d-carved"
                           style={{
                             padding: '10px 16px',
                             fontWeight: '700',
@@ -33728,47 +33757,7 @@ export default function TradingViewChart({
                             width: '100%',
                           }}
                         >
-                          1 Day
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            setFlowMovesTimeframe('3D')
-                            setIsFlowMovesDropdownOpen(false)
-                            setIsFlowChartActive(true)
-                            handleLiveFlowMovesClick('3D')
-                          }}
-                          className={`btn-3d-carved ${flowMovesTimeframe === '3D' ? 'active' : ''}`}
-                          style={{
-                            padding: '10px 16px',
-                            fontWeight: '700',
-                            fontSize: '14px',
-                            textAlign: 'left',
-                            borderRadius: '4px',
-                            width: '100%',
-                          }}
-                        >
-                          3 Days
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            setFlowMovesTimeframe('1W')
-                            setIsFlowMovesDropdownOpen(false)
-                            setIsFlowChartActive(true)
-                            handleLiveFlowMovesClick('1W')
-                          }}
-                          className={`btn-3d-carved ${flowMovesTimeframe === '1W' ? 'active' : ''}`}
-                          style={{
-                            padding: '10px 16px',
-                            fontWeight: '700',
-                            fontSize: '14px',
-                            textAlign: 'left',
-                            borderRadius: '4px',
-                            width: '100%',
-                          }}
-                        >
-                          1 Week
+                          ↻ Reload saved flow
                         </button>
 
                         <div style={{ height: '1px', background: 'rgba(255,133,0,0.2)', margin: '4px 0' }} />
@@ -33906,13 +33895,14 @@ export default function TradingViewChart({
                           : 0,
                         zIndex: 100000,
                         animation: 'dropdownFadeIn 0.15s ease forwards',
-                        background: '#000000',
-                        border: '2px solid rgba(255, 133, 0, 0.3)',
-                        borderRadius: '8px',
+                        background: 'linear-gradient(180deg, #131316 0%, #000000 100%)',
+                        border: '1px solid rgba(255, 255, 255, 0.14)',
+                        borderRadius: '12px',
                         boxShadow:
-                          '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-                        padding: '12px',
+                          '0 12px 40px rgba(0, 0, 0, 0.95), inset 0 1px 0 rgba(255, 255, 255, 0.12)',
+                        padding: '16px',
                         width: 'max-content',
+                        minWidth: '280px',
                       }}
                     >
                       {/* Mode Selection */}
@@ -33939,13 +33929,14 @@ export default function TradingViewChart({
                             }}
                             style={{
                               flex: 1,
-                              padding: '8px 12px',
-                              fontSize: '12px',
-                              fontWeight: '600',
-                              borderRadius: '4px',
-                              border: `2px solid ${rrgMode === 'price' ? '#ffffff' : '#444'}`,
-                              background: 'transparent',
-                              color: rrgMode === 'price' ? '#ffffff' : '#ffffff',
+                              padding: '10px 14px',
+                              fontSize: '14px',
+                              fontWeight: '700',
+                              borderRadius: '8px',
+                              border: `1px solid ${rrgMode === 'price' ? '#ff8500' : 'rgba(255,255,255,0.14)'}`,
+                              background: rrgMode === 'price' ? 'linear-gradient(180deg, rgba(255,133,0,0.24), rgba(255,133,0,0.05))' : 'linear-gradient(180deg,#202026,#111114)',
+                              boxShadow: rrgMode === 'price' ? '0 0 14px rgba(255,133,0,0.35), inset 0 1px 0 rgba(255,255,255,0.15)' : 'inset 0 1px 0 rgba(255,255,255,0.06)',
+                              color: rrgMode === 'price' ? '#ffa23a' : '#ffffff',
                               cursor: 'pointer',
                             }}
                           >
@@ -33958,13 +33949,14 @@ export default function TradingViewChart({
                             }}
                             style={{
                               flex: 1,
-                              padding: '8px 12px',
-                              fontSize: '12px',
-                              fontWeight: '600',
-                              borderRadius: '4px',
-                              border: `2px solid ${rrgMode === 'iv' ? '#a855f7' : '#444'}`,
-                              background: 'transparent',
-                              color: rrgMode === 'iv' ? '#a855f7' : '#ffffff',
+                              padding: '10px 14px',
+                              fontSize: '14px',
+                              fontWeight: '700',
+                              borderRadius: '8px',
+                              border: `1px solid ${rrgMode === 'iv' ? '#ff8500' : 'rgba(255,255,255,0.14)'}`,
+                              background: rrgMode === 'iv' ? 'linear-gradient(180deg, rgba(255,133,0,0.24), rgba(255,133,0,0.05))' : 'linear-gradient(180deg,#202026,#111114)',
+                              boxShadow: rrgMode === 'iv' ? '0 0 14px rgba(255,133,0,0.35), inset 0 1px 0 rgba(255,255,255,0.15)' : 'inset 0 1px 0 rgba(255,255,255,0.06)',
+                              color: rrgMode === 'iv' ? '#ffa23a' : '#ffffff',
                               cursor: 'pointer',
                             }}
                           >
@@ -33978,91 +33970,19 @@ export default function TradingViewChart({
                             }}
                             style={{
                               flex: 1,
-                              padding: '8px 12px',
-                              fontSize: '12px',
-                              fontWeight: '600',
-                              borderRadius: '4px',
-                              border: `2px solid ${rrgMode === 'ivspy' ? '#ff8500' : '#444'}`,
-                              background: 'transparent',
-                              color: rrgMode === 'ivspy' ? '#ff8500' : '#ffffff',
+                              padding: '10px 14px',
+                              fontSize: '14px',
+                              fontWeight: '700',
+                              borderRadius: '8px',
+                              border: `1px solid ${rrgMode === 'ivspy' ? '#ff8500' : 'rgba(255,255,255,0.14)'}`,
+                              background: rrgMode === 'ivspy' ? 'linear-gradient(180deg, rgba(255,133,0,0.24), rgba(255,133,0,0.05))' : 'linear-gradient(180deg,#202026,#111114)',
+                              boxShadow: rrgMode === 'ivspy' ? '0 0 14px rgba(255,133,0,0.35), inset 0 1px 0 rgba(255,255,255,0.15)' : 'inset 0 1px 0 rgba(255,255,255,0.06)',
+                              color: rrgMode === 'ivspy' ? '#ffa23a' : '#ffffff',
                               cursor: 'pointer',
                             }}
                           >
                             IV/SPY
                           </button>
-                        </div>
-                      </div>
-
-                      {/* Period Selection */}
-                      <div style={{ marginBottom: '12px' }}>
-                        <div
-                          style={{
-                            fontSize: '11px',
-                            color: '#ffffff',
-                            marginBottom: '6px',
-                            fontWeight: '600',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.5px',
-                          }}
-                        >
-                          Lookback Period
-                        </div>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          {rrgMode === 'price'
-                            ? // Price mode: 10d, 31d, 87d
-                            [
-                              { value: 10, label: '10d' },
-                              { value: 31, label: '31d' },
-                              { value: 87, label: '87d' },
-                            ].map(({ value, label }) => (
-                              <button
-                                key={value}
-                                onClick={() => {
-                                  setRrgLookbackPeriod(value as 10 | 31 | 87)
-                                  if (isRRGCandleActive) handleRRGCandleClick(value, rrgMode)
-                                }}
-                                style={{
-                                  flex: 1,
-                                  padding: '8px',
-                                  fontSize: '12px',
-                                  fontWeight: '600',
-                                  borderRadius: '4px',
-                                  border: `2px solid ${rrgLookbackPeriod === value ? '#ff8500' : '#444'}`,
-                                  background: 'transparent',
-                                  color: rrgLookbackPeriod === value ? '#ff8500' : '#ffffff',
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                {label}
-                              </button>
-                            ))
-                            : // IV mode: 1mo, 4mo, 1yr
-                            [
-                              { value: 30, label: '1mo' },
-                              { value: 120, label: '4mo' },
-                              { value: 365, label: '1yr' },
-                            ].map(({ value, label }) => (
-                              <button
-                                key={value}
-                                onClick={() => {
-                                  setRrgIvLookbackPeriod(value as 30 | 120 | 365)
-                                  if (isRRGCandleActive) handleRRGCandleClick(value, rrgMode)
-                                }}
-                                style={{
-                                  flex: 1,
-                                  padding: '8px',
-                                  fontSize: '12px',
-                                  fontWeight: '600',
-                                  borderRadius: '4px',
-                                  border: `2px solid ${rrgIvLookbackPeriod === value ? '#ff8500' : '#444'}`,
-                                  background: 'transparent',
-                                  color: rrgIvLookbackPeriod === value ? '#ff8500' : '#ffffff',
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                {label}
-                              </button>
-                            ))}
                         </div>
                       </div>
 
@@ -34114,161 +34034,14 @@ export default function TradingViewChart({
               {/* DARK POOL Button */}
               {!isMobile && (
                 <div data-compact-hide>
-                  <DarkPoolButton
+                  <DealerEdgeButton
                     isActive={showDarkPoolIndicator}
                     isLoading={darkPoolLoading}
                     progress={darkPoolProgress}
-                    onClick={() => setShowDarkPoolIndicator((v) => !v)}
+                    onClick={() => setDealerEdge(!showDarkPoolIndicator)}
                   />
                 </div>
               )}
-
-              {/* P/E | PEG Dropdown — toggles canvas bottom panel */}
-              <div className="ml-4 relative" style={{ display: isMobile ? 'none' : undefined }} data-toolbar-btn>
-                <button
-                  ref={peButtonRef}
-                  onClick={() => { const wasOpen = isPEDropdownOpen; closeAllToolbarDropdowns(); if (!wasOpen) setIsPEDropdownOpen(true); }}
-                  disabled={peLoading || pegLoading}
-                  className={`btn-3d-carved relative group flex items-center space-x-2 ${showPEPanel || showPEGPanel ? 'active' : ''}`}
-                  style={{
-                    padding: '10px 14px',
-                    fontWeight: '700',
-                    fontSize: '13px',
-                    borderRadius: '4px',
-                    opacity: peLoading || pegLoading ? 0.6 : 1,
-                  }}
-                >
-                  <span style={{ color: (showPEPanel || showPEGPanel) ? '#ff8500' : undefined }}>
-                    {(peLoading || pegLoading)
-                      ? `LOADING…`
-                      : showPEGPanel ? 'PEG' : 'P/E +G Ratio'}
-                  </span>
-                  {(showPEPanel || showPEGPanel) ? (
-                    <span
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setShowPEPanel(false)
-                        setShowPEGPanel(false)
-                      }}
-                      className="ml-1"
-                      style={{
-                        background: 'transparent',
-                        border: 'none',
-                        color: '#ff8500',
-                        fontSize: '20px',
-                        fontWeight: '700',
-                        cursor: 'pointer',
-                        padding: '0 4px',
-                        lineHeight: '1',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      ×
-                    </span>
-                  ) : (
-                    <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  )}
-                  {(showPEPanel || showPEGPanel) && (
-                    <div
-                      className="absolute -top-1 -right-1 w-3 h-3 rounded-full"
-                      style={{
-                        background: '#00E5FF',
-                        boxShadow: '0 0 6px rgba(0, 229, 255, 0.8)',
-                        animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-                      }}
-                    />
-                  )}
-                </button>
-
-                {/* P/E | PEG Dropdown Menu — Portal */}
-                {isPEDropdownOpen &&
-                  createPortal(
-                    <div
-                      className="toolbar-dropdown"
-                      onClick={(e) => e.stopPropagation()}
-                      style={{
-                        position: 'fixed',
-                        top: peButtonRef.current
-                          ? peButtonRef.current.getBoundingClientRect().bottom + 10
-                          : 0,
-                        left: peButtonRef.current
-                          ? peButtonRef.current.getBoundingClientRect().left
-                          : 0,
-                        zIndex: 100000,
-                        animation: 'dropdownFadeIn 0.15s ease forwards',
-                        background: '#000000',
-                        border: '2px solid rgba(255, 133, 0, 0.3)',
-                        borderRadius: '8px',
-                        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-                        padding: '12px',
-                        width: 'max-content',
-                      }}
-                    >
-                      <div
-                        style={{
-                          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-                          paddingBottom: '6px',
-                          marginBottom: '8px',
-                        }}
-                      >
-                        <span style={{ color: '#ff8c00', fontWeight: '700', fontSize: '12px', letterSpacing: '0.5px' }}>
-                          VALUATION PANELS
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <button
-                          onClick={() => {
-                            setShowPEGPanel(false)
-                            const next = !showPEPanel
-                            setShowPEPanel(next)
-                            if (next && (!peData || peFetchedSymbolRef.current !== config.symbol)) {
-                              fetchPEData(config.symbol)
-                            }
-                            setIsPEDropdownOpen(false)
-                          }}
-                          className={`btn-3d-carved ${showPEPanel ? 'active' : ''}`}
-                          style={{
-                            padding: '10px 16px',
-                            fontWeight: '700',
-                            fontSize: '14px',
-                            textAlign: 'left',
-                            borderRadius: '4px',
-                            width: '100%',
-                          }}
-                        >
-                          P/E Ratio
-                        </button>
-                        <button
-                          onClick={() => {
-                            setShowPEPanel(false)
-                            const next = !showPEGPanel
-                            setShowPEGPanel(next)
-                            if (next && (!pegData || pegFetchedSymbolRef.current !== config.symbol)) {
-                              fetchPEGData(config.symbol)
-                            }
-                            setIsPEDropdownOpen(false)
-                          }}
-                          className={`btn-3d-carved ${showPEGPanel ? 'active' : ''}`}
-                          style={{
-                            padding: '10px 16px',
-                            fontWeight: '700',
-                            fontSize: '14px',
-                            textAlign: 'left',
-                            borderRadius: '4px',
-                            width: '100%',
-                          }}
-                        >
-                          PEG Ratio
-                        </button>
-                      </div>
-                    </div>,
-                    document.body
-                  )}
-              </div>
 
               {/* Drawing Tools - Individual Buttons (hidden when sidebar mode active) */}
               {false && !isMobile && (
@@ -35118,82 +34891,96 @@ export default function TradingViewChart({
                 <div className="flex items-center space-x-4"></div>
 
 
-                {/* GUIDE AI Button - Matches toolbar button style */}
-                <button
-                  data-compact-hide
-                  onClick={() => setGuideAIOpen(!isGuideAIOpen)}
-                  className={`btn-3d-carved relative group ${isGuideAIOpen ? 'active' : ''}`}
-                  style={{
-                    padding: '10px 14px',
-                    fontWeight: '700',
-                    fontSize: '13px',
-                    borderRadius: '4px',
-                    color: isGuideAIOpen ? '#FF8833' : '#888',
-                    marginRight: '12px',
-                    display: isMobile ? 'none' : undefined,
-                  }}
-                >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
-                  </svg>
-                </button>
-
                 {/* MULTICHART LAYOUT Button - Matches toolbar button style */}
-                {!isMobile && <div data-compact-hide className="relative group" style={{ marginRight: '12px' }}>
-                  <button
-                    onClick={() => {
-                      const layouts: ('1x1' | '1x2' | '2x2')[] = ['1x1', '1x2', '2x2']
-                      const currentIndex = layouts.indexOf(chartLayout)
-                      const nextIndex = (currentIndex + 1) % layouts.length
-                      changeChartLayout(layouts[nextIndex])
-                    }}
-                    className="btn-3d-carved relative group"
-                    style={{
-                      padding: '10px 14px',
-                      fontWeight: '700',
-                      fontSize: '13px',
-                      borderRadius: '4px',
-                      color: chartLayout !== '1x1' ? '#00D9FF' : '#888',
-                    }}
-                    title={`Current: ${chartLayout} - Click to cycle layouts`}
-                  >
-                    <svg
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      {chartLayout === '1x1' ? (
-                        <rect x="3" y="3" width="18" height="18" rx="2" />
-                      ) : chartLayout === '1x2' ? (
-                        <>
-                          <rect x="3" y="3" width="8" height="18" rx="2" />
-                          <rect x="13" y="3" width="8" height="18" rx="2" />
-                        </>
-                      ) : (
-                        <>
-                          <rect x="3" y="3" width="8" height="8" rx="2" />
-                          <rect x="13" y="3" width="8" height="8" rx="2" />
-                          <rect x="3" y="13" width="8" height="8" rx="2" />
-                          <rect x="13" y="13" width="8" height="8" rx="2" />
-                        </>
-                      )}
+                {!isMobile && (() => {
+                  const layoutOptions: { id: ChartLayout; label: string; rects: [number, number, number, number][] }[] = [
+                    { id: '1x1', label: 'Single', rects: [[3, 3, 18, 18]] },
+                    { id: '2x1', label: 'Side by side', rects: [[3, 3, 8, 18], [13, 3, 8, 18]] },
+                    { id: '1x2', label: 'Stacked', rects: [[3, 3, 18, 8], [3, 13, 18, 8]] },
+                    { id: '1x3', label: 'Three columns', rects: [[2, 3, 5, 18], [9.5, 3, 5, 18], [17, 3, 5, 18]] },
+                    { id: '1+2', label: 'Main + 2', rects: [[3, 3, 11, 18], [16, 3, 5, 8], [16, 13, 5, 8]] },
+                    { id: '2x2', label: 'Grid of 4', rects: [[3, 3, 8, 8], [13, 3, 8, 8], [3, 13, 8, 8], [13, 13, 8, 8]] },
+                  ]
+                  const icon = (rects: [number, number, number, number][], size: number) => (
+                    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      {rects.map((r, i) => <rect key={i} x={r[0]} y={r[1]} width={r[2]} height={r[3]} rx="1.5" />)}
                     </svg>
-                  </button>
-                </div>}
+                  )
+                  const current = layoutOptions.find((o) => o.id === chartLayout) ?? layoutOptions[0]
+                  return (
+                    <div data-compact-hide className="relative" style={{ marginRight: '12px' }}>
+                      <button
+                        onClick={(e) => {
+                          const r = e.currentTarget.getBoundingClientRect()
+                          setLayoutMenuPos({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) })
+                          setShowLayoutMenu((v) => !v)
+                        }}
+                        className="btn-3d-carved relative group"
+                        style={{
+                          padding: '10px 14px',
+                          fontWeight: '700',
+                          fontSize: '13px',
+                          borderRadius: '4px',
+                          color: chartLayout !== '1x1' ? '#00D9FF' : '#888',
+                        }}
+                        title={`Chart layout: ${current.label}`}
+                      >
+                        {icon(current.rects, 20)}
+                      </button>
+                      {showLayoutMenu && (
+                        createPortal(<>
+                          <div style={{ position: 'fixed', inset: 0, zIndex: 2147483646 }} onClick={() => setShowLayoutMenu(false)} />
+                          <div
+                            style={{
+                              position: 'fixed', top: layoutMenuPos.top, right: layoutMenuPos.right, zIndex: 2147483647,
+                              width: 190, padding: 6, borderRadius: 8,
+                              background: 'linear-gradient(180deg,#14171c 0%,#0a0c0f 100%)',
+                              border: '1px solid rgba(255,255,255,0.12)',
+                              boxShadow: '0 12px 32px rgba(0,0,0,0.7)',
+                            }}
+                          >
+                            {layoutOptions.map((o) => {
+                              const on = o.id === chartLayout
+                              return (
+                                <button
+                                  key={o.id}
+                                  onClick={() => { changeChartLayout(o.id); setShowLayoutMenu(false) }}
+                                  style={{
+                                    display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                                    padding: '8px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                                    background: on ? 'rgba(0,217,255,0.14)' : 'transparent',
+                                    color: on ? '#00D9FF' : '#d1d5db', fontSize: 13, fontWeight: 600, textAlign: 'left',
+                                  }}
+                                  onMouseEnter={(e) => { if (!on) e.currentTarget.style.background = 'rgba(255,255,255,0.07)' }}
+                                  onMouseLeave={(e) => { if (!on) e.currentTarget.style.background = 'transparent' }}
+                                >
+                                  {icon(o.rects, 22)}
+                                  <span>{o.label}</span>
+                                </button>
+                              )
+                            })}
+                            {chartLayout !== '1x1' && (
+                              <button
+                                onClick={() => setLinkCharts((v) => !v)}
+                                style={{
+                                  display: 'flex', alignItems: 'center', gap: 10, width: '100%', marginTop: 4,
+                                  padding: '8px 10px', borderRadius: 6, cursor: 'pointer',
+                                  border: '1px solid rgba(255,255,255,0.1)',
+                                  background: linkCharts ? 'rgba(0,217,255,0.14)' : 'transparent',
+                                  color: linkCharts ? '#00D9FF' : '#d1d5db', fontSize: 13, fontWeight: 600, textAlign: 'left',
+                                }}
+                                title="Pan, zoom and crosshair move together across all charts"
+                              >
+                                <span>{linkCharts ? '🔗' : '⛓'}</span>
+                                <span>Link charts: {linkCharts ? 'On' : 'Off'}</span>
+                              </button>
+                            )}
+                          </div>
+                        </>, document.body)
+                      )}
+                    </div>
+                  )
+                })()}
 
                 {/* SETTINGS Button - Matches toolbar button style */}
                 {compactToolbar && (
@@ -35719,6 +35506,7 @@ export default function TradingViewChart({
                     { tool: 'elliottWave' as const, title: 'Elliott Wave 12345', dim: '#0C4A6E', bright: '#38BEF8', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="2,20 6,8 10,16 15,5 19,12" /></svg> },
                     { tool: 'elliottWaveABC' as const, title: 'Elliott Wave ABC', dim: '#2e1065', bright: '#a78bfa', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="2,20 8,6 15,16 22,5" /></svg> },
                     { tool: 'path' as const, title: 'Path', dim: '#7C2D12', bright: '#FB923C', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="2,20 7,9 13,15 20,4" /><circle cx="2" cy="20" r="2" fill="currentColor" /><circle cx="7" cy="9" r="2" fill="currentColor" /><circle cx="13" cy="15" r="2" fill="currentColor" /><circle cx="20" cy="4" r="2" fill="currentColor" /></svg> },
+                                        { tool: 'eraser' as const, title: 'Eraser', dim: '#7F1D1D', bright: '#F87171', icon: <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 20H9l-5-5a2 2 0 0 1 0-2.8l8.2-8.2a2 2 0 0 1 2.8 0l5.8 5.8a2 2 0 0 1 0 2.8L13 20" /></svg> },
                   ]).map(({ tool, title, dim, bright, icon }) => {
                     const isActive = currentDrawingTool === tool
                     const glossBg = 'linear-gradient(175deg, #252525 0%, #111 40%, #070707 100%)'
@@ -35732,7 +35520,7 @@ export default function TradingViewChart({
                           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 6px ${bright}44` }}
                           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = isActive ? `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px ${bright}66` : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
                         >{icon}<span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.02em', lineHeight: 1, color: '#ffffff', opacity: 0.92, whiteSpace: 'nowrap' }}>{({ trendline: 'Trend', horizontal: 'H-Line', vertical: 'V-Line', parallelChannel: 'Channel', rectangle: 'Box', priceRange: 'Range', buyZone: 'Buy Zone', sellZone: 'Sell Zone', brush: 'Brush', text: 'Text', fib: 'Fib', elliottWave: 'Elliott 12345', elliottWaveABC: 'Elliott ABC', path: 'Path' } as Record<string, string>)[tool] ?? title}</span></button>
-                        <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: `1px solid ${bright}`, borderRadius: '5px', padding: '3px 9px', color: bright, fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>{title}</div>
+                        <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: `1px solid ${bright}`, borderRadius: '5px', padding: '3px 9px', color: bright, fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>{title}{tool === 'eraser' ? '  ·  click or drag over a drawing  ·  Alt+E' : ({ trendline: 'T', horizontal: 'H', vertical: 'V', parallelChannel: 'C', rectangle: 'B', priceRange: 'R', fib: 'F', path: 'P', text: 'N', brush: 'M' } as Record<string, string>)[tool] ? `  ·  Alt+${({ trendline: 'T', horizontal: 'H', vertical: 'V', parallelChannel: 'C', rectangle: 'B', priceRange: 'R', fib: 'F', path: 'P', text: 'N', brush: 'M' } as Record<string, string>)[tool]}` : ''}</div>
                       </div>
                     )
                   })}
@@ -35751,6 +35539,23 @@ export default function TradingViewChart({
                           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = on ? '#FCD34D' : '#78450A'; (e.currentTarget as HTMLElement).style.boxShadow = on ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #FCD34D66' : 'inset 0 1px 0 rgba(255,255,255,0.07)' }}
                         >{on ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg> : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 9.9-1" /></svg>}<span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.02em', lineHeight: 1, color: '#ffffff', opacity: 0.92, whiteSpace: 'nowrap' }}>{on ? 'Locked' : 'Lock'}</span></button>
                         <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: '1px solid #FCD34D', borderRadius: '5px', padding: '3px 9px', color: '#FCD34D', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>{on ? 'Lock: ON' : 'Lock: OFF'}</div>
+                      </div>
+                    )
+                  })()}
+                  {/* Magnet */}
+                  {(() => {
+                    const on = magnetMode
+                    const glossBg = 'linear-gradient(175deg, #252525 0%, #111 40%, #070707 100%)'
+                    return (
+                      <div style={{ position: 'relative' }}
+                        onMouseEnter={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '1' }}
+                        onMouseLeave={e => { const t = (e.currentTarget as HTMLElement).querySelector('.draw-tip') as HTMLElement; if (t) t.style.opacity = '0' }}
+                      >
+                        <button onClick={() => setMagnetMode(!on)} style={{ width: '72px', height: '50px', flexDirection: 'column', gap: '3px', borderRadius: '7px', background: glossBg, border: 'none', color: on ? '#F472B6' : '#831843', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'color 0.12s', boxShadow: on ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 0 8px #F472B666' : 'inset 0 1px 0 rgba(255,255,255,0.07)', filter: on ? 'drop-shadow(0 0 5px #F472B6)' : 'none' }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#F472B6' }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = on ? '#F472B6' : '#831843' }}
+                        ><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3v8a6 6 0 0 0 12 0V3" /><line x1="6" y1="7" x2="10" y2="7" /><line x1="14" y1="7" x2="18" y2="7" /></svg><span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.02em', lineHeight: 1, color: '#ffffff', opacity: 0.92, whiteSpace: 'nowrap' }}>{on ? 'Magnet ON' : 'Magnet'}</span></button>
+                        <div className="draw-tip" style={{ position: 'absolute', right: 'calc(100% + 8px)', top: '50%', transform: 'translateY(-50%)', background: '#0d0d0d', border: '1px solid #F472B6', borderRadius: '5px', padding: '3px 9px', color: '#F472B6', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.12s', zIndex: 99999 }}>Snap to candle O/H/L/C  ·  hold Ctrl for a one-off · Shift = straight line</div>
                       </div>
                     )
                   })()}
@@ -36169,6 +35974,11 @@ export default function TradingViewChart({
                     isDraggingYAxis={isDraggingYAxisZoom}
                     setIsDraggingYAxis={setIsDraggingYAxisZoom}
                     perChartIndicators={perChartIndicators}
+                    linked={linkCharts}
+                    dealerEdgeOn={showDarkPoolIndicator && showStraddleEdge}
+                    drawDealerEdge={drawPaneDealerEdge}
+                    onInstanceChange={handleInstanceChange}
+                    onMaximize={handleMaximizeInstance}
                   />
                 ) : (
                   <>
@@ -36185,7 +35995,7 @@ export default function TradingViewChart({
                         { key: 'dex', label: 'DEX Map', active: isDexMapActive, set: setIsDexMapActive },
                         { key: 'iv', label: 'IV', active: showIVPanel, set: setShowIVPanel },
                         { key: 'flow', label: 'Flow', active: isFlowChartActive, set: setIsFlowChartActive },
-                        { key: 'dp', label: 'Pivot Point', active: showDarkPoolIndicator, set: setShowDarkPoolIndicator },
+                        { key: 'dp', label: 'Dealer Edge', active: showDarkPoolIndicator, set: setDealerEdge },
                       ]
                       const rows = indicators.filter(i => i.active || mobileHiddenIndicators.includes(i.key))
                       const toggle = (i: typeof indicators[number]) => {
@@ -36476,6 +36286,8 @@ export default function TradingViewChart({
                         currentTool={(currentDrawingTool === 'buySellZone' ? 'select' : currentDrawingTool) as any}
                         setCurrentTool={setCurrentDrawingTool}
                         isToolLocked={isDrawingToolLocked}
+                        magnetEnabled={magnetMode}
+                        snapCandles={data}
                         priceToScreen={priceToScreen}
                         screenToPrice={screenToPrice}
                         toolbarPosition={lwToolbarPosition}
@@ -36531,7 +36343,7 @@ export default function TradingViewChart({
                           position: 'absolute',
                           left: 0,
                           right: 0,
-                          bottom: `${flowChartHeight + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + (showPEPanel ? pePanelHeight : 0) + (showPEGPanel ? pegPanelHeight : 0) + 35}px`,
+                          bottom: `${flowChartHeight + pivotPanelHeight + (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + 35}px`,
                           height: '3px',
                           cursor: 'ns-resize',
                           backgroundColor: isDraggingFlowChart
@@ -36572,7 +36384,7 @@ export default function TradingViewChart({
                           position: 'absolute',
                           left: 0,
                           right: 0,
-                          bottom: `${activeIVPanelCount * ivPanelHeight + (showPEPanel ? pePanelHeight : 0) + (showPEGPanel ? pegPanelHeight : 0) + 35}px`,
+                          bottom: `${activeIVPanelCount * ivPanelHeight + pivotPanelHeight + 35}px`,
                           height: '4px',
                           cursor: 'ns-resize',
                           backgroundColor: isDraggingIVPanel ? '#FF9500' : 'rgba(255, 149, 0, 0.3)',
@@ -36603,423 +36415,10 @@ export default function TradingViewChart({
                       </div>
                     )}
 
-                    {/* P/E Panel Resize Handle */}
-                    {showPEPanel && (
-                      <div
-                        onMouseDown={handlePEPanelDragStart}
-                        style={{
-                          position: 'absolute',
-                          left: 0,
-                          right: 0,
-                          bottom: `${pePanelHeight + (showPEGPanel ? pegPanelHeight : 0) + 35}px`,
-                          height: '4px',
-                          cursor: 'ns-resize',
-                          backgroundColor: isDraggingPEPanel ? '#ffffff' : 'rgba(255, 255, 255, 0.3)',
-                          transition: isDraggingPEPanel ? 'none' : 'background-color 0.2s',
-                          zIndex: 1000,
-                        }}
-                        onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#ffffff' }}
-                        onMouseLeave={(e) => { if (!isDraggingPEPanel) e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.3)' }}
-                      >
-                        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '40px', height: '2px', backgroundColor: '#ffffff', borderRadius: '1px' }} />
-                      </div>
-                    )}
-
-                    {/* PEG Panel Resize Handle */}
-                    {showPEGPanel && (
-                      <div
-                        onMouseDown={handlePEGPanelDragStart}
-                        style={{
-                          position: 'absolute',
-                          left: 0,
-                          right: 0,
-                          bottom: `${pegPanelHeight + 35}px`,
-                          height: '4px',
-                          cursor: 'ns-resize',
-                          backgroundColor: isDraggingPEGPanel ? '#a78bfa' : 'rgba(167, 139, 250, 0.3)',
-                          transition: isDraggingPEGPanel ? 'none' : 'background-color 0.2s',
-                          zIndex: 1000,
-                        }}
-                        onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#a78bfa' }}
-                        onMouseLeave={(e) => { if (!isDraggingPEGPanel) e.currentTarget.style.backgroundColor = 'rgba(167, 139, 250, 0.3)' }}
-                      >
-                        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '40px', height: '2px', backgroundColor: '#a78bfa', borderRadius: '1px' }} />
-                      </div>
-                    )}
-
-                    {/* Flow Chart View Mode Toggle - FIXED: Always visible at stable position */}
-                    {isFlowChartActive && (
-                      <div
-                        className="absolute z-[1001]"
-                        style={{
-                          left: isMobile ? '4px' : '60px',
-                          bottom: `${Math.max(30, (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + flowChartHeight + 25 - (isMobile ? 381 : 465))}px`,
-                          transition: isDraggingFlowChart ? 'none' : 'bottom 0.1s ease-out',
-                        }}
-                      >
-                        {/* Glossy pill container */}
-                        <div
-                          style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'flex-start',
-                            gap: isMobile ? 4 : 6,
-                            padding: isMobile ? '3px' : '5px',
-                            borderRadius: '14px',
-                            background: 'linear-gradient(180deg, rgba(10,10,10,0.98) 0%, rgba(3,3,3,0.99) 100%)',
-                            border: '1px solid rgba(255,255,255,0.1)',
-                            boxShadow: '0 6px 20px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.07)',
-                            backdropFilter: 'blur(16px)',
-                          }}
-                        >
-                          {/* Mode buttons row */}
-                          <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: isMobile ? 2 : 5 }}>
-                            {/* Net Flow */}
-                            <button
-                              onClick={() => setFlowChartViewMode('net')}
-                              title="Show 1 line: Net Flow (combines all bullish and bearish flows)"
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4,
-                                padding: isMobile ? '4px 7px' : '8px 16px',
-                                borderRadius: '9px',
-                                border: 'none',
-                                cursor: 'pointer',
-                                fontSize: isMobile ? 11 : 14,
-                                fontWeight: 700,
-                                letterSpacing: '0.4px',
-                                transition: 'all 0.15s ease',
-                                background: '#000000',
-                                color: flowChartViewMode === 'net' ? '#FF8800' : '#ffffff',
-                              }}
-                            >
-                              {!isMobile && <svg width={16} height={16} viewBox="0 0 12 12" fill="none">
-                                <path d="M1 8 Q3 4 6 6 Q9 8 11 3" stroke={flowChartViewMode === 'net' ? '#FF8800' : '#ffffff'} strokeWidth="1.5" strokeLinecap="round" fill="none" />
-                              </svg>}
-                              {isMobile ? 'NET' : 'Net Flow'}
-                            </button>
-
-                            {/* Divider */}
-                            <div style={{ width: '1px', height: '26px', background: 'rgba(255,255,255,0.1)' }} />
-
-                            {/* Bull/Bear (was Simplified) */}
-                            <button
-                              onClick={() => setFlowChartViewMode('simplified')}
-                              title="Show 2 lines: Bullish Total (positive) and Bearish Total (negative)"
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4,
-                                padding: isMobile ? '4px 7px' : '8px 16px',
-                                borderRadius: '9px',
-                                border: 'none',
-                                cursor: 'pointer',
-                                fontSize: isMobile ? 11 : 14,
-                                fontWeight: 700,
-                                letterSpacing: '0.4px',
-                                transition: 'all 0.15s ease',
-                                background: '#000000',
-                                color: flowChartViewMode === 'simplified' ? '#FF8800' : '#ffffff',
-                              }}
-                            >
-                              {!isMobile && <svg width={16} height={16} viewBox="0 0 12 12" fill="none">
-                                <path d="M6 10 L6 2 M3 5 L6 2 L9 5" stroke={flowChartViewMode === 'simplified' ? '#FF8800' : '#ffffff'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>}
-                              {isMobile ? 'B/B' : 'Bull/Bear'}
-                            </button>
-
-                            {/* Divider */}
-                            <div style={{ width: '1px', height: '26px', background: 'rgba(255,255,255,0.1)' }} />
-
-                            {/* BUY/SELL+ (was Detailed) */}
-                            <button
-                              onClick={() => setFlowChartViewMode('detailed')}
-                              title="Show all 4 lines: Bullish Calls, Bearish Calls, Bullish Puts, Bearish Puts"
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4,
-                                padding: isMobile ? '4px 7px' : '8px 16px',
-                                borderRadius: '9px',
-                                border: 'none',
-                                cursor: 'pointer',
-                                fontSize: isMobile ? 11 : 14,
-                                fontWeight: 700,
-                                letterSpacing: '0.4px',
-                                transition: 'all 0.15s ease',
-                                background: '#000000',
-                                color: flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff',
-                              }}
-                            >
-                              {!isMobile && <svg width={16} height={16} viewBox="0 0 12 12" fill="none">
-                                <rect x="1" y="7" width="2.5" height="4" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff'} />
-                                <rect x="4.75" y="4" width="2.5" height="7" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff'} />
-                                <rect x="8.5" y="1" width="2.5" height="10" rx="0.5" fill={flowChartViewMode === 'detailed' ? '#FF8800' : '#ffffff'} />
-                              </svg>}
-                              {isMobile ? '4L' : 'BUY/SELL+'}
-                            </button>
-                          </div>
-
-                          {/* 4 Liquid Fill Boxes — 2×2 grid */}
-                          {(() => {
-                            const last = flowChartData.length > 0 ? flowChartData[flowChartData.length - 1] : null
-                            if (!last) return null
-                            const total = (last.callsPlus + last.callsMinus + last.putsPlus + last.putsMinus) || 1
-                            const boxes = [
-                              { lbl: 'BULL CALLS', val: last.callsPlus, color: '#10b981' },
-                              { lbl: 'BEAR CALLS', val: last.callsMinus, color: '#4da6ff' },
-                              { lbl: 'BULL PUTS', val: last.putsPlus, color: '#ffcc00' },
-                              { lbl: 'BEAR PUTS', val: last.putsMinus, color: '#ff2222' },
-                            ]
-                            const W = isMobile ? 78 : 94, H = isMobile ? 69 : 81, amp = 2.5
-                            const speeds = [2.0, 2.6, 1.8, 2.3]
-                            return (
-                              <div style={{ display: 'flex', flexDirection: 'row', gap: isMobile ? 3 : 4 }}>
-                                <style>{`
-                                @keyframes efi-fqw0{from{transform:translateX(0)}to{transform:translateX(-${W}px)}}
-                                @keyframes efi-fqw1{from{transform:translateX(0)}to{transform:translateX(-${W}px)}}
-                                @keyframes efi-fqw2{from{transform:translateX(0)}to{transform:translateX(-${W}px)}}
-                                @keyframes efi-fqw3{from{transform:translateX(0)}to{transform:translateX(-${W}px)}}
-                              `}</style>
-                                {boxes.map((box, i) => {
-                                  const fill = Math.max(0, Math.min(1, box.val / total))
-                                  const liquidH = fill * H
-                                  const waveY = H - liquidH
-                                  const wx = -W
-                                  const wp = `M${wx} ${waveY} ` +
-                                    `q${W / 4} ${-amp} ${W / 2} 0 q${W / 4} ${amp} ${W / 2} 0 ` +
-                                    `q${W / 4} ${-amp} ${W / 2} 0 q${W / 4} ${amp} ${W / 2} 0 ` +
-                                    `q${W / 4} ${-amp} ${W / 2} 0 q${W / 4} ${amp} ${W / 2} 0 ` +
-                                    `V${H} H${wx} Z`
-                                  const clipId = `efi-fq-${i}`
-                                  return (
-                                    <svg key={box.lbl} width={W} height={H} style={{ display: 'block', overflow: 'visible' }}>
-                                      <defs><clipPath id={clipId}><rect x={0} y={0} width={W} height={H} rx="3" /></clipPath></defs>
-                                      <rect x={0} y={0} width={W} height={H} rx="3" fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.07)" strokeWidth="0.5" />
-                                      <g clipPath={`url(#${clipId})`}>
-                                        {fill > 0.005 && (
-                                          <>
-                                            <rect x={0} y={Math.max(0, waveY + amp)} width={W} height={Math.max(0, H - Math.max(0, waveY + amp))} fill={box.color} opacity={0.3} />
-                                            <g style={{ animationName: `efi-fqw${i}`, animationDuration: `${speeds[i]}s`, animationTimingFunction: 'linear', animationIterationCount: 'infinite' }}>
-                                              <path d={wp} fill={box.color} opacity={0.65} />
-                                            </g>
-                                          </>
-                                        )}
-                                      </g>
-                                      <text x={W / 2} y={14} textAnchor="middle" fill="#ffffff" fontSize={isMobile ? 10 : 12} fontFamily="JetBrains Mono,monospace" fontWeight="700" letterSpacing="0.3">{box.lbl}</text>
-                                      <text x={W / 2} y={H - 6} textAnchor="middle" fill="#ffffff" fontSize={isMobile ? 14 : 17} fontFamily="JetBrains Mono,monospace" fontWeight="800">{(fill * 100).toFixed(0)}%</text>
-                                    </svg>
-                                  )
-                                })}
-                              </div>
-                            )
-                          })()}
-
-                          {/* Flow Sentiment Gauge */}
-                          {(() => {
-                            const last = flowChartData.length > 0 ? flowChartData[flowChartData.length - 1] : null
-                            if (!last) return null
-                            const total = (last.callsPlus + last.callsMinus + last.putsPlus + last.putsMinus) || 1
-                            const bc = last.callsPlus / total, rc = last.callsMinus / total
-                            const bp = last.putsPlus / total, rp = last.putsMinus / total
-                            const score = Math.max(-1, Math.min(1, (bc * 0.8 + bp * 0.6 - rc * 0.6 - rp * 0.8) / 0.8))
-                            const gaugePercent = (score + 1) / 2
-
-                            const zones = [
-                              { start: 0, end: 0.2, color: '#ef4444', label: 'Bear Trend' },
-                              { start: 0.2, end: 0.4, color: '#f97316', label: 'Bear Chop' },
-                              { start: 0.4, end: 0.6, color: '#eab308', label: 'Neutral' },
-                              { start: 0.6, end: 0.8, color: '#84cc16', label: 'Bull Chop' },
-                              { start: 0.8, end: 1.0, color: '#22c55e', label: 'Bull Trend' },
-                            ]
-                            const zone = zones.find(z => gaugePercent >= z.start && gaugePercent <= z.end) ?? zones[4]
-
-                            const W2 = isMobile ? 78 : 94
-                            const gaugeW = 4 * W2 + 3 * (isMobile ? 3 : 4)
-                            const tk = isMobile ? 20 : 28
-                            const radius = (gaugeW - tk) / 2
-                            const C = Math.PI * radius
-
-                            // Full-size viewBox coords, rendered 30% shorter via preserveAspectRatio=none
-                            const vbW = gaugeW
-                            const vbH = Math.round(gaugeW / 2) + 20
-                            const svgW = gaugeW
-                            const svgH = Math.round(vbH * 0.70)   // 30% shorter
-                            const arcCY = Math.round(gaugeW / 2)
-                            const arcCX = gaugeW / 2
-
-                            const x0 = tk / 2, x1 = vbW - tk / 2
-                            const arcPath = `M ${x0} ${arcCY} A ${radius} ${radius} 0 0 1 ${x1} ${arcCY}`
-
-                            // Needle angle: gaugePercent=0→points left(π), 1→points right(0)
-                            const needleAngle = (1 - gaugePercent) * Math.PI
-                            const needleLen = radius * 0.76
-                            const nx = arcCX + needleLen * Math.cos(needleAngle)
-                            const ny = arcCY - needleLen * Math.sin(needleAngle)
-
-                            const pctStr = `${score >= 0 ? '+' : ''}${(score * 100).toFixed(0)}%`
-                            const lfs = isMobile ? 9 : 11   // label font size
-
-                            return (
-                              <div style={{ paddingTop: isMobile ? 4 : 6 }}>
-                                <svg
-                                  width={svgW} height={svgH}
-                                  viewBox={`0 0 ${vbW} ${vbH}`}
-                                  preserveAspectRatio="none"
-                                  style={{ display: 'block', overflow: 'visible' }}
-                                >
-                                  <defs>
-                                    {/* Glossy sheen gradient — top-bright, bottom-dark */}
-                                    <linearGradient id="efi-g-sheen" x1="0%" y1="0%" x2="0%" y2="100%">
-                                      <stop offset="0%" stopColor="rgba(255,255,255,0.22)" />
-                                      <stop offset="55%" stopColor="rgba(255,255,255,0.04)" />
-                                      <stop offset="100%" stopColor="rgba(0,0,0,0.25)" />
-                                    </linearGradient>
-                                    {/* Per-zone active gradient */}
-                                    <linearGradient id="efi-g-act" x1="0%" y1="0%" x2="0%" y2="100%">
-                                      <stop offset="0%" stopColor="rgba(255,255,255,0.30)" />
-                                      <stop offset="100%" stopColor="rgba(0,0,0,0.20)" />
-                                    </linearGradient>
-                                    <filter id="efi-glow" x="-20%" y="-20%" width="140%" height="140%">
-                                      <feGaussianBlur stdDeviation="4" result="b" />
-                                      <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
-                                    </filter>
-                                    <filter id="efi-glow-sm" x="-15%" y="-15%" width="130%" height="130%">
-                                      <feGaussianBlur stdDeviation="2" result="b" />
-                                      <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
-                                    </filter>
-                                  </defs>
-
-                                  {/* === TRACK === */}
-                                  {/* Outer rim shadow */}
-                                  <path d={arcPath} fill="none" stroke="rgba(0,0,0,0.6)" strokeWidth={tk + 6} strokeLinecap="round" />
-                                  {/* Dark background track */}
-                                  <path d={arcPath} fill="none" stroke="#0d1117" strokeWidth={tk} strokeLinecap="round" />
-                                  {/* Inner bevel highlight */}
-                                  <path d={arcPath} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={tk - 4} strokeLinecap="round" />
-
-                                  {/* === ZONE BANDS (dim) === */}
-                                  {zones.map(z => (
-                                    <path key={z.start} d={arcPath} fill="none"
-                                      stroke={z.color} strokeWidth={tk - 4} strokeLinecap="butt"
-                                      strokeDasharray={`${(z.end - z.start) * C} ${C * 10}`}
-                                      strokeDashoffset={z.start * C}
-                                      opacity={0.22}
-                                    />
-                                  ))}
-
-                                  {/* === SEPARATORS === */}
-                                  {[0.2, 0.4, 0.6, 0.8].map(f => {
-                                    const a = (1 - f) * Math.PI
-                                    const r1 = radius - tk / 2 - 2, r2 = radius + tk / 2 + 2
-                                    return (
-                                      <line key={f}
-                                        x1={arcCX + r1 * Math.cos(a)} y1={arcCY - r1 * Math.sin(a)}
-                                        x2={arcCX + r2 * Math.cos(a)} y2={arcCY - r2 * Math.sin(a)}
-                                        stroke="rgba(0,0,0,0.8)" strokeWidth={isMobile ? 3 : 4}
-                                      />
-                                    )
-                                  })}
-
-                                  {/* === ACTIVE FILL === */}
-                                  {/* Base colored fill */}
-                                  <path d={arcPath} fill="none"
-                                    stroke={zone.color} strokeWidth={tk - 2} strokeLinecap="round"
-                                    strokeDasharray={`${Math.max(0.1, gaugePercent * C)} ${C * 10}`}
-                                    strokeDashoffset={0}
-                                    opacity={0.95}
-                                    filter="url(#efi-glow)"
-                                  />
-                                  {/* Glossy sheen overlay on active fill — top-half brighter */}
-                                  <path d={arcPath} fill="none"
-                                    stroke="url(#efi-g-act)" strokeWidth={Math.round((tk - 2) * 0.55)} strokeLinecap="round"
-                                    strokeDasharray={`${Math.max(0.1, gaugePercent * C)} ${C * 10}`}
-                                    strokeDashoffset={0}
-                                    opacity={0.7}
-                                  />
-
-                                  {/* === TRACK GLOSS (outer rim highlight over whole track) === */}
-                                  <path d={arcPath} fill="none"
-                                    stroke="url(#efi-g-sheen)" strokeWidth={tk - 2} strokeLinecap="round"
-                                    opacity={0.55}
-                                  />
-                                  {/* Outer edge bright rim */}
-                                  <path d={arcPath} fill="none"
-                                    stroke="rgba(255,255,255,0.12)" strokeWidth={3} strokeLinecap="round"
-                                    style={{ transform: `translate(0, -${tk / 2 - 2}px)` }}
-                                    opacity={0.8}
-                                  />
-
-                                  {/* === ZONE LABELS (solid color, on top of arc) === */}
-                                  {zones.map(z => {
-                                    const f = (z.start + z.end) / 2
-                                    const a = (1 - f) * Math.PI
-                                    const lx = arcCX + radius * Math.cos(a)
-                                    const ly = arcCY - radius * Math.sin(a)
-                                    const parts = z.label.split(' ')
-                                    const lh = lfs + 2
-                                    return parts.map((word, wi) => {
-                                      const yo = parts.length > 1 ? (wi - (parts.length - 1) / 2) * lh : 0
-                                      return (
-                                        <text key={`${z.start}-${wi}`}
-                                          x={lx} y={ly + yo}
-                                          textAnchor="middle" dominantBaseline="middle"
-                                          fill={z.color} fontSize={lfs}
-                                          fontFamily="JetBrains Mono,monospace" fontWeight="900"
-                                          style={{ textShadow: `0 1px 3px rgba(0,0,0,0.9)` }}
-                                        >{word}</text>
-                                      )
-                                    })
-                                  })}
-
-                                  {/* === NEEDLE === */}
-                                  {/* Needle shadow */}
-                                  <line x1={arcCX + 1} y1={arcCY + 1} x2={nx + 1} y2={ny + 1}
-                                    stroke="rgba(0,0,0,0.5)" strokeWidth={isMobile ? 3 : 4} strokeLinecap="round"
-                                  />
-                                  {/* Needle body */}
-                                  <line x1={arcCX} y1={arcCY} x2={nx} y2={ny}
-                                    stroke={zone.color} strokeWidth={isMobile ? 2.5 : 3.5} strokeLinecap="round"
-                                    filter="url(#efi-glow-sm)"
-                                  />
-                                  {/* Needle tip highlight */}
-                                  <line x1={arcCX} y1={arcCY} x2={nx} y2={ny}
-                                    stroke="rgba(255,255,255,0.35)" strokeWidth={isMobile ? 1 : 1.5} strokeLinecap="round"
-                                  />
-
-                                  {/* === PIVOT === */}
-                                  <circle cx={arcCX} cy={arcCY} r={isMobile ? 11 : 13} fill="rgba(0,0,0,0.95)" stroke="rgba(255,255,255,0.15)" strokeWidth="1.5" />
-                                  <circle cx={arcCX} cy={arcCY} r={isMobile ? 7 : 8.5} fill={zone.color} filter="url(#efi-glow-sm)" />
-                                  {/* Pivot gloss dot */}
-                                  <circle cx={arcCX - (isMobile ? 2 : 2.5)} cy={arcCY - (isMobile ? 2 : 2.5)} r={isMobile ? 2.5 : 3} fill="rgba(255,255,255,0.5)" />
-
-                                  {/* === BEAR / BULL CORNER LABELS === */}
-                                  <text x={x0 + 4} y={arcCY + 17} fill="#ef4444" fontSize={isMobile ? 9 : 10} fontFamily="JetBrains Mono,monospace" fontWeight="900">BEAR</text>
-                                  <text x={x1 - 4} y={arcCY + 17} textAnchor="end" fill="#22c55e" fontSize={isMobile ? 9 : 10} fontFamily="JetBrains Mono,monospace" fontWeight="900">BULL</text>
-
-                                  {/* === SCORE === */}
-                                  <text x={arcCX} y={arcCY + 17} textAnchor="middle"
-                                    fill="#ffffff" fontSize={isMobile ? 12 : 14}
-                                    fontFamily="JetBrains Mono,monospace" fontWeight="900"
-                                  >{pctStr}</text>
-                                </svg>
-
-                                {/* Zone state caption */}
-                                <div style={{ textAlign: 'center', fontSize: isMobile ? 9 : 11, fontFamily: 'JetBrains Mono,monospace', fontWeight: 900, color: zone.color, letterSpacing: '0.12em', paddingBottom: isMobile ? 2 : 3, textShadow: `0 0 8px ${zone.color}55` }}>
-                                  {zone.label.toUpperCase()}
-                                </div>
-                              </div>
-                            )
-                          })()}
-                        </div>
-                      </div>
-                    )}
-
                     {/* ── IV/HV Panel Header Toolbars — one per active panel ────────────────── */}
                     {(() => {
                       const flowBase = isFlowChartActive ? flowChartHeight : 0
-                      const bsBase = 0
+                      const bsBase = pivotPanelHeight
                       // Build ordered list of active panels bottom→top same order as canvas draw
                       const panels: Array<{
                         key: 'iv' | 'ivRank' | 'ivPercentile' | 'hv'
@@ -37034,13 +36433,11 @@ export default function TradingViewChart({
 
                       return panels.map((panel, idx) => {
                         // correct bottom = all panels below this IV panel + timeAxis
-                        // stacking (bottom→top): time(35) + PEG + PE + IV30D + IV1yr panels
+                        // stacking (bottom→top): time(35) + IV30D + IV1yr panels
                         const iv30DCount = isAnyIV30DActive ? 1 : 0
                         const panelsBelow = panels.length - 1 - idx // IV panels strictly below this one
                         const bottomPx = (panelsBelow + iv30DCount) * ivPanelHeight
                           + bsBase
-                          + (showPEPanel ? pePanelHeight : 0)
-                          + (showPEGPanel ? pegPanelHeight : 0)
                           + 35
                         const isFullscreen = ivFullscreenPanel === panel.key
 
@@ -37057,6 +36454,7 @@ export default function TradingViewChart({
                           >
                             {/* Header bar at top of this panel */}
                             <div
+                              data-chart-passthrough
                               className="pointer-events-auto flex items-center gap-2 w-full"
                               style={{
                                 position: 'absolute',
@@ -37064,7 +36462,7 @@ export default function TradingViewChart({
                                 left: 0,
                                 right: '80px', // leave space for Y-axis column
                                 height: '48px',
-                                background: 'linear-gradient(90deg, #0d1220 0%, #070a10 60%, rgba(5,7,11,0.9) 100%)',
+                                background: 'linear-gradient(180deg, #1c1c20 0%, #0a0a0c 55%, #000000 100%)',
                                 borderTop: `2px solid ${panel.accentColor}`,
                                 borderBottom: '1px solid rgba(255,255,255,0.1)',
                                 paddingLeft: '50px',
@@ -37196,17 +36594,15 @@ export default function TradingViewChart({
                     {/* IV 30D Panel Header Toolbar */}
                     {showIV30DPanel && (() => {
                       const flowBase = isFlowChartActive ? flowChartHeight : 0
-                      const bsBase = 0
+                      const bsBase = pivotPanelHeight
                       // IV 30D sits directly below all 1yr IV panels, above PE/PEG
                       const bottomPx = bsBase
-                        + (showPEPanel ? pePanelHeight : 0)
-                        + (showPEGPanel ? pegPanelHeight : 0)
                         + 35
                       return (
                         <div className="absolute z-[1001] flex items-center pointer-events-none"
                           style={{ left: 0, right: 0, bottom: `${bottomPx}px`, height: `${ivPanelHeight}px` }}>
-                          <div className="pointer-events-auto flex items-center gap-2 w-full"
-                            style={{ position: 'absolute', top: 0, left: 0, right: '80px', height: '48px', background: 'linear-gradient(90deg, #0d1220 0%, #070a10 60%, rgba(5,7,11,0.9) 100%)', borderTop: `2px solid ${iv30DColor}`, borderBottom: '1px solid rgba(255,255,255,0.1)', paddingLeft: '50px', paddingRight: '8px' }}>
+                          <div data-chart-passthrough className="pointer-events-auto flex items-center gap-2 w-full"
+                            style={{ position: 'absolute', top: 0, left: 0, right: '80px', height: '48px', background: 'linear-gradient(180deg, #1c1c20 0%, #0a0a0c 55%, #000000 100%)', borderTop: `2px solid ${iv30DColor}`, borderBottom: '1px solid rgba(255,255,255,0.1)', paddingLeft: '50px', paddingRight: '8px' }}>
                             <span style={{ width: 4, height: 24, borderRadius: 2, background: iv30DColor, boxShadow: `0 0 10px ${iv30DColor}`, flexShrink: 0 }} />
                             <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1, marginRight: 6 }}>
                               <span style={{ color: '#FFFFFF', fontSize: '15px', fontWeight: 800, letterSpacing: '1.4px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>IMPLIED VOLATILITY · 30D</span>
@@ -37379,315 +36775,238 @@ export default function TradingViewChart({
                       )
                     })()}
 
-                    {/* ── P/E Panel Header Toolbar ──────────────────────────────────────────── */}
-                    {showPEPanel && (() => {
-                      const peBotPx = (showPEGPanel ? pegPanelHeight : 0) + 35
-                      return (
-                        <div className="absolute z-[1001] pointer-events-none"
-                          style={{ left: 0, right: 0, bottom: `${peBotPx}px`, height: `${pePanelHeight}px` }}>
-                          <div className="pointer-events-auto flex items-center gap-2 w-full"
-                            style={{ position: 'absolute', top: 0, left: 0, right: '80px', height: '32px', background: 'linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.75) 100%)', borderTop: '2px solid rgba(255,140,0,0.45)', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingLeft: '50px', paddingRight: '6px' }}>
-                            <span style={{ color: '#FF8C00', fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
-                              P/E RATIO{peData?.current != null ? `  ${peData.current.toFixed(1)}x` : ''}
-                            </span>
-                            <div style={{ flex: 1 }} />
-                            <button onClick={() => setPeFullscreen(f => !f)} title={peFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-                              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '14px', lineHeight: 1, marginLeft: '4px' }}
-                              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff' }}
-                              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}>
-                              {peFullscreen ? '⊡' : '⛶'}
-                            </button>
-                            <button onClick={() => setShowPEPanel(false)} title="Close P/E panel"
-                              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '18px', fontWeight: '700', lineHeight: 1, marginLeft: '2px' }}
-                              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,40,40,0.25)'; e.currentTarget.style.color = '#ff4444'; e.currentTarget.style.borderColor = 'rgba(255,40,40,0.5)' }}
-                              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}>
-                              ×
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    })()}
-
-                    {/* P/E fullscreen overlay */}
-                    {peFullscreen && showPEPanel && peData && peData.history.length > 0 && (() => {
-                      const W = 900, H = 420, PL = 60, PR = 80, PT = 40, PB = 40
-                      const chartW = W - PL - PR, chartH = H - PT - PB
-                      const pts = peData.history.slice().sort((a, b) => a.date.localeCompare(b.date))
-                      const vals = pts.map(p => p.pe)
-                      const minV = Math.min(...vals) * 0.97, maxV = Math.max(...vals) * 1.015
-                      const toX = (i: number) => PL + (i / (pts.length - 1)) * chartW
-                      const toY = (v: number) => PT + chartH - ((v - minV) / (maxV - minV)) * chartH
-                      const ySteps = 5
-                      return (
-                        <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                          onClick={() => setPeFullscreen(false)}>
-                          <div style={{ background: '#0a0a0a', border: '2px solid rgba(255,140,0,0.45)', borderRadius: '10px', overflow: 'hidden', width: `${W + 40}px`, maxWidth: '98vw' }}
-                            onClick={e => e.stopPropagation()}>
-                            <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,140,0,0.2)', background: 'linear-gradient(90deg,#111,#0a0a0a)' }}>
-                              <span style={{ color: '#FF8C00', fontWeight: '800', fontSize: '13px', letterSpacing: '1px', fontFamily: 'JetBrains Mono, monospace', flex: 1 }}>P/E RATIO</span>
-                              <button onClick={() => setPeFullscreen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '22px', fontWeight: '700', lineHeight: 1 }}
-                                onMouseEnter={e => (e.currentTarget.style.color = '#ff4444')} onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}>×</button>
-                            </div>
-                            <div style={{ padding: '8px 16px 16px' }}>
-                              <svg width={W} height={H} style={{ display: 'block', maxWidth: '100%' }}>
-                                {Array.from({ length: ySteps + 1 }, (_, i) => {
-                                  const v = minV + (i / ySteps) * (maxV - minV)
-                                  const y = toY(v)
-                                  return (<g key={i}><line x1={PL} y1={y} x2={PL + chartW} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="1" /><text x={PL - 6} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize="11" fontFamily="JetBrains Mono, monospace" textAnchor="end">{v.toFixed(1)}x</text></g>)
-                                })}
-                                <polyline points={pts.map((p, i) => `${toX(i)},${toY(p.pe)}`).join(' ')} fill="none" stroke="#00E5FF" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-                              </svg>
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    })()}
-
-                    {/* ── PEG Panel Header Toolbar ───────────────────────────────────────────── */}
-                    {showPEGPanel && (() => {
-                      const pegBotPx = 35 // PEG is at very bottom, right above time axis
-                      return (
-                        <div className="absolute z-[1001] pointer-events-none"
-                          style={{ left: 0, right: 0, bottom: `${pegBotPx}px`, height: `${pegPanelHeight}px` }}>
-                          <div className="pointer-events-auto flex items-center gap-2 w-full"
-                            style={{ position: 'absolute', top: 0, left: 0, right: '80px', height: '32px', background: 'linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.75) 100%)', borderTop: '2px solid rgba(167,139,250,0.45)', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingLeft: '50px', paddingRight: '6px' }}>
-                            <span style={{ color: '#a78bfa', fontSize: '12px', fontWeight: '800', letterSpacing: '0.8px', whiteSpace: 'nowrap', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
-                              PEG RATIO{pegData?.pegBasic != null ? `  ${pegData.pegBasic.toFixed(2)}` : ''}
-                            </span>
-                            <div style={{ flex: 1 }} />
-                            <button onClick={() => setPegFullscreen(f => !f)} title={pegFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-                              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '14px', lineHeight: 1, marginLeft: '4px' }}
-                              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff' }}
-                              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}>
-                              {pegFullscreen ? '⊡' : '⛶'}
-                            </button>
-                            <button onClick={() => setShowPEGPanel(false)} title="Close PEG panel"
-                              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '3px 7px', fontSize: '18px', fontWeight: '700', lineHeight: 1, marginLeft: '2px' }}
-                              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,40,40,0.25)'; e.currentTarget.style.color = '#ff4444'; e.currentTarget.style.borderColor = 'rgba(255,40,40,0.5)' }}
-                              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}>
-                              ×
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    })()}
-
-                    {/* PEG fullscreen overlay */}
-                    {pegFullscreen && showPEGPanel && pegData && pegData.history.length > 0 && (() => {
-                      const W = 900, H = 420, PL = 60, PR = 80, PT = 40, PB = 40
-                      const chartW = W - PL - PR, chartH = H - PT - PB
-                      const pts = pegData.history.slice().sort((a, b) => a.date.localeCompare(b.date)).filter(p => p.peg !== null && (p.peg as number) <= 30) as { date: string; peg: number }[]
-                      const vals = pts.map(p => p.peg)
-                      const minV = Math.min(...vals) * 0.93, maxV = Math.max(...vals) * 1.04
-                      const toX = (i: number) => PL + (i / (pts.length - 1)) * chartW
-                      const toY = (v: number) => PT + chartH - ((v - minV) / (maxV - minV)) * chartH
-                      const ySteps = 5
-                      return (
-                        <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                          onClick={() => setPegFullscreen(false)}>
-                          <div style={{ background: '#0a0a0a', border: '2px solid rgba(167,139,250,0.45)', borderRadius: '10px', overflow: 'hidden', width: `${W + 40}px`, maxWidth: '98vw' }}
-                            onClick={e => e.stopPropagation()}>
-                            <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(167,139,250,0.2)', background: 'linear-gradient(90deg,#111,#0a0a0a)' }}>
-                              <span style={{ color: '#a78bfa', fontWeight: '800', fontSize: '13px', letterSpacing: '1px', fontFamily: 'JetBrains Mono, monospace', flex: 1 }}>PEG RATIO  (P/E ÷ EPS 3Y CAGR)</span>
-                              <button onClick={() => setPegFullscreen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '22px', fontWeight: '700', lineHeight: 1 }}
-                                onMouseEnter={e => (e.currentTarget.style.color = '#ff4444')} onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}>×</button>
-                            </div>
-                            <div style={{ padding: '8px 16px 16px' }}>
-                              <svg width={W} height={H} style={{ display: 'block', maxWidth: '100%' }}>
-                                {Array.from({ length: ySteps + 1 }, (_, i) => {
-                                  const v = minV + (i / ySteps) * (maxV - minV)
-                                  const y = toY(v)
-                                  return (<g key={i}><line x1={PL} y1={y} x2={PL + chartW} y2={y} stroke="rgba(255,255,255,0.07)" strokeWidth="1" /><text x={PL - 6} y={y + 4} fill="rgba(255,255,255,0.5)" fontSize="11" fontFamily="JetBrains Mono, monospace" textAnchor="end">{v.toFixed(2)}</text></g>)
-                                })}
-                                {/* PEG=1 fair value line */}
-                                {minV <= 1 && maxV >= 1 && <line x1={PL} y1={toY(1)} x2={PL + chartW} y2={toY(1)} stroke="rgba(250,204,21,0.5)" strokeWidth="1.5" strokeDasharray="5,4" />}
-                                <polyline points={pts.map((p, i) => `${toX(i)},${toY(p.peg)}`).join(' ')} fill="none" stroke="#a78bfa" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-                              </svg>
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    })()}
-
-                    {/* Inline legend centered between left & right flow toolbar pills */}
+                    {isFlowMovesLoading && (
+                      <div className="absolute inset-0 z-[2000] flex flex-col items-center justify-center" style={{ background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(3px)' }}>
+                        <div style={{ width: 44, height: 44, borderRadius: '50%', border: '4px solid rgba(255,255,255,0.15)', borderTopColor: '#ff8500', animation: 'spin 0.8s linear infinite' }} />
+                        <div style={{ marginTop: 14, color: '#fff', fontSize: 16, fontWeight: 700, letterSpacing: '0.5px' }}>Loading OptionsFlow…</div>
+                      </div>
+                    )}
+                    {/* IntraFlow header strip: view mode, legend values, sentiment, panel controls */}
                     {isFlowChartActive && (() => {
-                      const legendItems: { label: string; color: string }[] =
+                      const last = flowChartData.length > 0 ? flowChartData[flowChartData.length - 1] : null
+                      const fmt = (v: number) => {
+                        const a = Math.abs(v)
+                        const s = v < 0 ? '-' : ''
+                        if (a >= 1e9) return `${s}$${(a / 1e9).toFixed(2)}B`
+                        if (a >= 1e6) return `${s}$${(a / 1e6).toFixed(1)}M`
+                        if (a >= 1e3) return `${s}$${(a / 1e3).toFixed(0)}K`
+                        return `${s}$${a.toFixed(0)}`
+                      }
+                      const legendItems: { label: string; color: string; value: number | null }[] =
                         flowChartViewMode === 'detailed'
                           ? [
-                            { label: isMobile ? 'B.Calls' : 'Bullish Calls', color: flowLineColors.callsPlus },
-                            { label: isMobile ? 'Br.Calls' : 'Bearish Calls', color: flowLineColors.callsMinus },
-                            { label: isMobile ? 'B.Puts' : 'Bullish Puts', color: flowLineColors.putsPlus },
-                            { label: isMobile ? 'Br.Puts' : 'Bearish Puts', color: flowLineColors.putsMinus },
+                            { label: isMobile ? 'B.Calls' : 'Bullish Calls', color: flowLineColors.callsPlus, value: last ? last.callsPlus : null },
+                            { label: isMobile ? 'Br.Calls' : 'Bearish Calls', color: flowLineColors.callsMinus, value: last ? last.callsMinus : null },
+                            { label: isMobile ? 'B.Puts' : 'Bullish Puts', color: flowLineColors.putsPlus, value: last ? last.putsPlus : null },
+                            { label: isMobile ? 'Br.Puts' : 'Bearish Puts', color: flowLineColors.putsMinus, value: last ? last.putsMinus : null },
                           ]
                           : flowChartViewMode === 'simplified'
                             ? [
-                              { label: isMobile ? 'Bull' : 'Bull Total', color: flowLineColors.bullishTotal },
-                              { label: isMobile ? 'Bear' : 'Bear Total', color: flowLineColors.bearishTotal },
+                              { label: isMobile ? 'Bull' : 'Bull Total', color: flowLineColors.bullishTotal, value: last ? last.bullishTotal : null },
+                              { label: isMobile ? 'Bear' : 'Bear Total', color: flowLineColors.bearishTotal, value: last ? last.bearishTotal : null },
                             ]
                             : [
-                              { label: 'Net Flow', color: flowChartData.length > 0 && flowChartData[flowChartData.length - 1]?.netFlow >= 0 ? '#00FF00' : '#FF0000' },
+                              { label: 'Net Flow', color: last && last.netFlow >= 0 ? '#00FF00' : '#FF0000', value: last ? last.netFlow : null },
                             ]
+
+                      let sentiment: { color: string; label: string; pct: number; gaugePercent: number } | null = null
+                      if (last) {
+                        const total = (last.callsPlus + last.callsMinus + last.putsPlus + last.putsMinus) || 1
+                        const bc = last.callsPlus / total, rc = last.callsMinus / total
+                        const bp = last.putsPlus / total, rp = last.putsMinus / total
+                        const score = Math.max(-1, Math.min(1, (bc * 0.8 + bp * 0.6 - rc * 0.6 - rp * 0.8) / 0.8))
+                        const gaugePercent = (score + 1) / 2
+                        const zones = [
+                          { start: 0, end: 0.2, color: '#ef4444', label: 'Bear Trend' },
+                          { start: 0.2, end: 0.4, color: '#f97316', label: 'Bear Chop' },
+                          { start: 0.4, end: 0.6, color: '#eab308', label: 'Neutral' },
+                          { start: 0.6, end: 0.8, color: '#84cc16', label: 'Bull Chop' },
+                          { start: 0.8, end: 1.0, color: '#22c55e', label: 'Bull Trend' },
+                        ]
+                        const zone = zones.find(z => gaugePercent >= z.start && gaugePercent <= z.end) ?? zones[4]
+                        sentiment = { color: zone.color, label: zone.label.toUpperCase(), pct: Math.round(score * 100), gaugePercent }
+                      }
+
+                      const modes: { key: 'net' | 'simplified' | 'detailed'; label: string; title: string }[] = [
+                        { key: 'net', label: 'NET', title: 'Show 1 line: Net Flow (combines all bullish and bearish flows)' },
+                        { key: 'simplified', label: isMobile ? 'B/B' : 'BULL/BEAR', title: 'Show 2 lines: Bullish Total (positive) and Bearish Total (negative)' },
+                        { key: 'detailed', label: isMobile ? '4L' : '4-LINE', title: 'Show 4 lines: Bullish/Bearish Calls and Puts' },
+                      ]
+                      const font = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
+                      const border = '1px solid rgba(255,255,255,0.08)'
+                      const iconBtn: React.CSSProperties = {
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        width: 40, height: 38, border: 'none', cursor: 'pointer',
+                        background: 'transparent', color: 'rgba(255,255,255,0.75)', transition: 'all 0.15s ease', padding: 0,
+                      }
+                      const hoverOn = (bg: string, fg: string) => (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.background = bg; e.currentTarget.style.color = fg }
+                      const hoverOff = (bg: string, fg: string) => (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.background = bg; e.currentTarget.style.color = fg }
+
                       return (
                         <div
                           className="absolute z-[1001]"
                           style={{
-                            left: '50%',
-                            transform: 'translateX(-50%)',
-                            bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + flowChartHeight + 25 - (isMobile ? 36 : 44)}px`,
+                            left: isMobile ? '4px' : '60px',
+                            right: isMobile ? '4px' : '90px',
+                            bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + flowChartHeight + pivotPanelHeight + 25 - (isMobile ? 36 : 44)}px`,
                             transition: isDraggingFlowChart ? 'none' : 'bottom 0.1s ease-out',
                             pointerEvents: 'none',
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            height: 38, maxHeight: 38, fontFamily: font, fontSize: 15,
                           }}
                         >
-                          <div
-                            style={{
-                              display: 'grid',
-                              gridTemplateColumns: legendItems.length === 4 ? '1fr 1fr' : `repeat(${legendItems.length}, auto)`,
-                              gap: isMobile ? '4px 10px' : '5px 14px',
-                              padding: isMobile ? '6px 10px' : '7px 12px',
-                              borderRadius: '10px',
-                              background: 'rgba(0,0,0,0.75)',
-                              border: '1px solid rgba(255,255,255,0.08)',
-                              backdropFilter: 'blur(10px)',
-                              alignItems: 'center',
-                            }}
-                          >
-                            {legendItems.map(({ label, color }) => (
-                              <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                <div style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
-                                <span style={{ fontSize: 11, color: '#cccccc', whiteSpace: 'nowrap', fontWeight: 600, letterSpacing: '0.3px' }}>{label}</span>
+                          {/* View mode segmented control */}
+                          <div style={{ pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 6, height: 38, flexShrink: 0 }}>
+                            {modes.map((m, i) => {
+                              const active = flowChartViewMode === m.key
+                              return (
+                                <button
+                                  key={m.key}
+                                  onClick={() => setFlowChartViewMode(m.key)}
+                                  title={m.title}
+                                  onMouseEnter={(e) => { if (!active) { e.currentTarget.style.background = 'linear-gradient(180deg,#2c2c33,#1b1b20)'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.transform = 'translateY(-1px)' } }}
+                                  onMouseLeave={(e) => { if (!active) { e.currentTarget.style.background = 'linear-gradient(180deg,#202026,#131317)'; e.currentTarget.style.color = 'rgba(255,255,255,0.75)'; e.currentTarget.style.transform = 'none' } }}
+                                  style={{
+                                    height: 38, padding: isMobile ? '0 12px' : '0 20px', borderRadius: 10,
+                                    border: active ? '1px solid rgba(255,255,255,0.55)' : '1px solid rgba(255,255,255,0.14)',
+                                    cursor: 'pointer',
+                                    fontFamily: font, fontSize: isMobile ? 13 : 15, fontWeight: 700, letterSpacing: '0.6px', whiteSpace: 'nowrap',
+                                    background: active ? 'linear-gradient(180deg,#ffffff,#d4d8e0)' : 'linear-gradient(180deg,#202026,#131317)',
+                                    color: active ? '#0a0a0c' : 'rgba(255,255,255,0.75)',
+                                    boxShadow: active
+                                      ? '0 0 0 2px rgba(255,255,255,0.12), 0 4px 12px rgba(0,0,0,0.6), inset 0 1px 0 #fff'
+                                      : '0 2px 6px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.08)',
+                                    transition: 'all 0.15s ease',
+                                  }}
+                                >
+                                  {m.label}
+                                </button>
+                              )
+                            })}
+                          </div>
+
+                          {/* Legend chips */}
+                          <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, overflowX: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                            {legendItems.map(({ label, color, value }) => (
+                              <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, height: 38, padding: '0 14px', flexShrink: 0, borderRadius: 8, border, background: 'rgba(8,8,10,0.92)', backdropFilter: 'blur(10px)' }}>
+                                <span style={{ width: 10, height: 10, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                                <span style={{ color: 'rgba(255,255,255,0.85)', fontWeight: 600, whiteSpace: 'nowrap' }}>{label}</span>
+                                {!isMobile && value !== null && (
+                                  <span style={{ color, fontWeight: 700, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{fmt(value)}</span>
+                                )}
                               </div>
                             ))}
+                          </div>
+
+                          {/* Sentiment chip */}
+                          {sentiment && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, height: 38, padding: '0 14px', flexShrink: 0, borderRadius: 8, border, background: 'rgba(8,8,10,0.92)', backdropFilter: 'blur(10px)' }}>
+                              <span style={{ width: 10, height: 10, borderRadius: '50%', background: sentiment.color, flexShrink: 0 }} />
+                              <span style={{ color: sentiment.color, fontWeight: 800, letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>{sentiment.label}</span>
+                              <span style={{ color: 'rgba(255,255,255,0.9)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{sentiment.pct > 0 ? '+' : ''}{sentiment.pct}%</span>
+                              {!isMobile && (
+                                <div style={{ position: 'relative', width: 80, height: 6, borderRadius: 3, background: 'linear-gradient(90deg,#ef4444,#f97316,#eab308,#84cc16,#22c55e)' }}>
+                                  <div style={{ position: 'absolute', top: -3, left: `calc(${sentiment.gaugePercent * 100}% - 1px)`, width: 3, height: 12, borderRadius: 1, background: '#ffffff', boxShadow: '0 0 3px rgba(0,0,0,0.8)' }} />
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Panel controls */}
+                          <div style={{ position: 'relative', pointerEvents: 'auto', flexShrink: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', height: 38, borderRadius: 8, border, background: 'rgba(8,8,10,0.92)', backdropFilter: 'blur(10px)', overflow: 'hidden' }}>
+                              <button
+                                onClick={() => setShowFlowSettings(v => !v)}
+                                title="Line color settings"
+                                onMouseEnter={hoverOn('rgba(255,255,255,0.08)', '#ffffff')}
+                                onMouseLeave={hoverOff(showFlowSettings ? 'rgba(255,136,0,0.14)' : 'transparent', showFlowSettings ? '#FF8800' : 'rgba(255,255,255,0.75)')}
+                                style={{ ...iconBtn, background: showFlowSettings ? 'rgba(255,136,0,0.14)' : 'transparent', color: showFlowSettings ? '#FF8800' : 'rgba(255,255,255,0.75)' }}
+                              >
+                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                  <circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+                                  <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                                </svg>
+                              </button>
+                              <div style={{ width: 1, height: 32, background: 'rgba(255,255,255,0.08)' }} />
+                              <button
+                                onClick={() => {
+                                  const canvasH = containerRef.current?.clientHeight ?? 600
+                                  const otherPanels = (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + pivotPanelHeight
+                                  const maxH = Math.max(150, canvasH - otherPanels - 25 - 80)
+                                  if (flowChartMaximized) {
+                                    setFlowChartHeight(150)
+                                    setFlowChartMaximized(false)
+                                  } else {
+                                    setFlowChartHeight(maxH)
+                                    setFlowChartMaximized(true)
+                                  }
+                                }}
+                                title={flowChartMaximized ? 'Restore panel' : 'Maximize panel'}
+                                onMouseEnter={hoverOn('rgba(255,255,255,0.08)', '#ffffff')}
+                                onMouseLeave={hoverOff('transparent', 'rgba(255,255,255,0.75)')}
+                                style={iconBtn}
+                              >
+                                {flowChartMaximized ? (
+                                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                    <path d="M3 6h4V2M11 8H7v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                                  </svg>
+                                ) : (
+                                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                    <path d="M2 5V2h3M9 2h3v3M12 9v3H9M5 12H2V9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                                  </svg>
+                                )}
+                              </button>
+                              <div style={{ width: 1, height: 32, background: 'rgba(255,255,255,0.08)' }} />
+                              <button
+                                onClick={() => { setIsFlowChartActive(false); setFlowChartData([]); setFlowChartMaximized(false); setManualFlowLiveMode(false); chartLiveTradesRef.current = []; setFlowData([]) }}
+                                title="Close IntraFlow panel"
+                                onMouseEnter={hoverOn('rgba(239,68,68,0.18)', '#ff5050')}
+                                onMouseLeave={hoverOff('transparent', 'rgba(255,255,255,0.75)')}
+                                style={iconBtn}
+                              >
+                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                  <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                </svg>
+                              </button>
+                            </div>
+                            {/* Settings popup */}
+                            {showFlowSettings && (
+                              <div
+                                style={{
+                                  position: 'absolute', bottom: '40px', right: 0,
+                                  background: 'linear-gradient(180deg, rgba(18,18,18,0.99) 0%, rgba(6,6,6,1) 100%)',
+                                  border: '1px solid rgba(255,255,255,0.12)',
+                                  borderRadius: '12px', padding: '14px 16px',
+                                  boxShadow: '0 8px 32px rgba(0,0,0,0.9)',
+                                  minWidth: '200px', backdropFilter: 'blur(20px)',
+                                  zIndex: 1002,
+                                }}
+                              >
+                                <div style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.8px', marginBottom: '12px', textTransform: 'uppercase' }}>Line Colors</div>
+                                {([
+                                  { label: 'Bullish Calls', key: 'callsPlus' },
+                                  { label: 'Bearish Calls', key: 'callsMinus' },
+                                  { label: 'Bullish Puts', key: 'putsPlus' },
+                                  { label: 'Bearish Puts', key: 'putsMinus' },
+                                  { label: 'Bull Total', key: 'bullishTotal' },
+                                  { label: 'Bear Total', key: 'bearishTotal' },
+                                ] as { label: string; key: keyof typeof flowLineColors }[]).map(({ label, key }) => (
+                                  <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                                    <span style={{ fontSize: '12px', fontWeight: 600, color: '#ffffff' }}>{label}</span>
+                                    <input
+                                      type="color"
+                                      value={flowLineColors[key]}
+                                      onChange={(e) => setFlowLineColors(prev => ({ ...prev, [key]: e.target.value }))}
+                                      style={{ width: '32px', height: '18px', borderRadius: '3px', border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer', padding: 0, background: 'none' }}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                       )
                     })()}
-
-                    {/* Right-side controls for IntraFlow panel: settings, maximize, X */}
-                    {isFlowChartActive && (
-                      <div
-                        className="absolute z-[1001]"
-                        style={{
-                          right: isMobile ? '4px' : '90px',
-                          bottom: `${(isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0) + flowChartHeight + 25 - (isMobile ? 36 : 44)}px`,
-                          transition: isDraggingFlowChart ? 'none' : 'bottom 0.1s ease-out',
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: 'flex',
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: '2px',
-                            padding: isMobile ? '3px' : '4px',
-                            borderRadius: '14px',
-                            background: 'linear-gradient(180deg, rgba(10,10,10,0.98) 0%, rgba(3,3,3,0.99) 100%)',
-                            border: '1px solid rgba(255,255,255,0.1)',
-                            boxShadow: '0 6px 20px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.07)',
-                            backdropFilter: 'blur(16px)',
-                          }}
-                        >
-                          {/* Settings button */}
-                          <button
-                            onClick={() => setShowFlowSettings(v => !v)}
-                            title="Line color settings"
-                            style={{
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              width: isMobile ? '28px' : '34px', height: isMobile ? '28px' : '34px', borderRadius: '9px', border: 'none',
-                              cursor: 'pointer', background: showFlowSettings ? 'rgba(255,136,0,0.15)' : 'transparent',
-                              color: showFlowSettings ? '#FF8800' : '#ffffff', transition: 'all 0.15s ease',
-                            }}
-                          >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                              <circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.5" />
-                              <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                            </svg>
-                          </button>
-                          <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.1)' }} />
-                          {/* Maximize / restore button */}
-                          <button
-                            onClick={() => {
-                              const canvasH = containerRef.current?.clientHeight ?? 600
-                              const otherPanels = (isAnyIVHVActive ? activeIVPanelCount * ivPanelHeight : 0)
-                              const maxH = Math.max(150, canvasH - otherPanels - 25 - 80)
-                              if (flowChartMaximized) {
-                                setFlowChartHeight(150)
-                                setFlowChartMaximized(false)
-                              } else {
-                                setFlowChartHeight(maxH)
-                                setFlowChartMaximized(true)
-                              }
-                            }}
-                            title={flowChartMaximized ? 'Restore panel' : 'Maximize panel'}
-                            style={{
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              width: isMobile ? '28px' : '34px', height: isMobile ? '28px' : '34px', borderRadius: '9px', border: 'none',
-                              cursor: 'pointer', background: 'transparent',
-                              color: '#ffffff', transition: 'all 0.15s ease',
-                            }}
-                          >
-                            {flowChartMaximized ? (
-                              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                                <path d="M3 6h4V2M11 8H7v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            ) : (
-                              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                                <path d="M2 5V2h3M9 2h3v3M12 9v3H9M5 12H2V9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            )}
-                          </button>
-                          <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.1)' }} />
-                          {/* Close X */}
-                          <button
-                            onClick={() => { setIsFlowChartActive(false); setFlowChartData([]); setFlowChartMaximized(false); setManualFlowLiveMode(false); chartLiveTradesRef.current = []; setFlowData([]) }}
-                            title="Close IntraFlow panel"
-                            style={{
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              width: isMobile ? '28px' : '34px', height: isMobile ? '28px' : '34px', borderRadius: '9px', border: 'none',
-                              cursor: 'pointer', background: 'transparent',
-                              color: 'rgba(255,80,80,0.8)', transition: 'all 0.15s ease',
-                            }}
-                          >
-                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                              <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                            </svg>
-                          </button>
-                        </div>
-                        {/* Settings popup */}
-                        {showFlowSettings && (
-                          <div
-                            style={{
-                              position: 'absolute', bottom: '48px', right: 0,
-                              background: 'linear-gradient(180deg, rgba(18,18,18,0.99) 0%, rgba(6,6,6,1) 100%)',
-                              border: '1px solid rgba(255,255,255,0.12)',
-                              borderRadius: '12px', padding: '14px 16px',
-                              boxShadow: '0 8px 32px rgba(0,0,0,0.9)',
-                              minWidth: '200px', backdropFilter: 'blur(20px)',
-                              zIndex: 1002,
-                            }}
-                          >
-                            <div style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.8px', marginBottom: '12px', textTransform: 'uppercase' }}>Line Colors</div>
-                            {([
-                              { label: 'Bullish Calls', key: 'callsPlus' },
-                              { label: 'Bearish Calls', key: 'callsMinus' },
-                              { label: 'Bullish Puts', key: 'putsPlus' },
-                              { label: 'Bearish Puts', key: 'putsMinus' },
-                              { label: 'Bull Total', key: 'bullishTotal' },
-                              { label: 'Bear Total', key: 'bearishTotal' },
-                            ] as { label: string; key: keyof typeof flowLineColors }[]).map(({ label, key }) => (
-                              <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                                <span style={{ fontSize: '12px', fontWeight: 600, color: '#ffffff' }}>{label}</span>
-                                <input
-                                  type="color"
-                                  value={flowLineColors[key]}
-                                  onChange={(e) => setFlowLineColors(prev => ({ ...prev, [key]: e.target.value }))}
-                                  style={{ width: '32px', height: '18px', borderRadius: '3px', border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer', padding: 0, background: 'none' }}
-                                />
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </>
                 )}
               </div>
@@ -37775,7 +37094,7 @@ export default function TradingViewChart({
                   top: (isMobile || hideDesktopSidebar)
                     ? '0px'
                     : `${sidebarPanelTop}px`,
-                  bottom: (isMobile || hideDesktopSidebar) ? '0px' : '8px',
+                  bottom: '0px',
                 }}
                 data-sidebar-panel={activeSidebarPanel || (showPATPanel ? patPanelActiveTab : undefined)}
               >
@@ -37815,7 +37134,7 @@ export default function TradingViewChart({
                     [data-sidebar-panel] .gap-3 { gap: clamp(5px, 1.5vw, 12px) !important; }
                   `}</style>
                 )}
-                <div className={`flex-1 overflow-y-auto`} style={{ ...(activeSidebarPanel === 'chain' ? { touchAction: 'none', overflowY: 'hidden' } : {}) }}>
+                <div className={`flex-1 overflow-y-auto`} style={{ ...(activeSidebarPanel === 'chain' ? { touchAction: 'pan-y', overflowY: 'auto' } : {}) }}>
                   {/* Lazy-mount tracker: mark this panel as ever-opened so it stays mounted after closing */}
                   {activeSidebarPanel ? (mountedPanelsRef.current.add(activeSidebarPanel), null) : null}
                   {mountedPanelsRef.current.has('gex') && (
@@ -38049,7 +37368,7 @@ export default function TradingViewChart({
                       </div>
 
                       {/* RRG Content */}
-                      <div className="flex-1 overflow-hidden">
+                      <div className="flex-1 overflow-auto" style={{ minHeight: 0 }}>
                         <AdminOnlyGate message="This tool is not available on your plan.">
                           {rrgTab === 'Price' && <RRGAnalytics />}
                           {rrgTab === 'IV' && <IVRRGAnalytics />}
@@ -38184,11 +37503,11 @@ export default function TradingViewChart({
                       )}
 
                       {/* Seasonality Content */}
-                      <div className={`flex-1 ${isMobile ? 'overflow-y-auto' : 'overflow-hidden'}`} style={{ background: '#000' }}>
+                      <div className={`flex-1 overflow-y-auto`} style={{ background: '#000', minHeight: 0 }}>
                         {calendarTab === 'Chart' && (
                           <div
                             style={{
-                              height: '100%',
+                              minHeight: '100%',
                               display: 'flex',
                               flexDirection: 'column',
                               background: '#000',
@@ -41728,198 +41047,6 @@ export default function TradingViewChart({
           )}
       </div>
 
-      {/* Guide Chatbot */}
-      <GuideChatbot />
-
-      {/* Notes & Alerts Box - Show when Guide AI button is active (panel visible) */}
-      {isGuideAIOpen && (
-        <div className="fixed right-0 z-[9999]" style={{ top: '70%', width: '30%', height: '30%' }}>
-          <div
-            className="w-full h-full flex flex-col relative"
-            style={{
-              background: '#000000',
-              border: '2px solid rgba(255, 107, 0, 0.5)',
-              borderRight: 'none',
-              borderTop: '2px solid rgba(255, 107, 0, 0.4)',
-            }}
-          >
-            {/* Header */}
-            <div
-              className="px-4 py-2 border-b relative"
-              style={{
-                background:
-                  'linear-gradient(180deg, rgba(255, 107, 0, 0.12) 0%, rgba(0, 0, 0, 0.4) 100%)',
-                borderColor: 'rgba(255, 107, 0, 0.3)',
-              }}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-6 h-6 rounded flex items-center justify-center"
-                    style={{
-                      background: 'rgba(255, 107, 0, 0.2)',
-                      border: '1px solid rgba(255, 107, 0, 0.5)',
-                    }}
-                  >
-                    <span style={{ fontSize: '14px' }}>📋</span>
-                  </div>
-                  <h3
-                    className="text-xs font-bold uppercase tracking-widest"
-                    style={{
-                      color: '#ffffff',
-                      letterSpacing: '1.5px',
-                    }}
-                  >
-                    NOTES & ALERTS
-                  </h3>
-                </div>
-                <span className="text-xs font-mono font-semibold" style={{ color: '#10b981' }}>
-                  {alerts.filter((a) => !a.triggered).length}
-                </span>
-              </div>
-            </div>
-
-            {/* Content Area */}
-            <div
-              className="flex-1 overflow-y-auto p-2"
-              style={{
-                background: '#0a0a0a',
-                scrollbarWidth: 'thin',
-                scrollbarColor: 'rgba(255, 107, 0, 0.6) rgba(0, 0, 0, 0.4)',
-              }}
-            >
-              {/* Notes Input */}
-              <div className="mb-2">
-                <textarea
-                  placeholder="Add your notes here..."
-                  className="w-full p-2 text-xs font-mono resize-none"
-                  rows={3}
-                  value={quickNotes}
-                  onChange={(e) => setQuickNotes(e.target.value)}
-                  style={{
-                    background: 'rgba(26, 26, 26, 0.8)',
-                    border: '1px solid rgba(255, 107, 0, 0.4)',
-                    borderRadius: '4px',
-                    color: '#ffffff',
-                    outline: 'none',
-                  }}
-                  onFocus={(e) => (e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.7)')}
-                  onBlur={(e) => (e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.4)')}
-                />
-              </div>
-
-              {/* Alerts List */}
-              <div className="space-y-1.5">
-                {alerts
-                  .filter((a) => !a.triggered)
-                  .map((alert) => (
-                    <div
-                      key={alert.id}
-                      className="relative"
-                      style={{
-                        background: 'rgba(26, 26, 26, 0.9)',
-                        border: '1px solid rgba(255, 107, 0, 0.3)',
-                        borderRadius: '4px',
-                        padding: '8px 10px',
-                        transition: 'all 0.2s ease',
-                        cursor: 'pointer',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.6)'
-                        e.currentTarget.style.transform = 'translateX(-2px)'
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.borderColor = 'rgba(255, 107, 0, 0.3)'
-                        e.currentTarget.style.transform = 'translateX(0)'
-                      }}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="px-1.5 py-0.5 rounded text-xs font-bold uppercase"
-                            style={{
-                              background: 'rgba(255, 107, 0, 0.2)',
-                              color: '#ff8833',
-                              border: '1px solid rgba(255, 107, 0, 0.5)',
-                              fontSize: '9px',
-                              letterSpacing: '0.5px',
-                            }}
-                          >
-                            {alert.type}
-                          </span>
-                          <span
-                            className="text-xs font-mono font-bold"
-                            style={{ color: '#ffffff' }}
-                          >
-                            {alert.symbol}
-                          </span>
-                        </div>
-                        <span className="text-sm font-bold font-mono" style={{ color: '#ff6b00' }}>
-                          ${alert.price.toFixed(2)}
-                        </span>
-                      </div>
-
-                      <div className="text-xs" style={{ color: '#cccccc' }}>
-                        {alert.condition.replace(/([A-Z])/g, ' $1').trim()}
-                      </div>
-
-                      {alert.message && (
-                        <div
-                          className="text-xs mt-1 pt-1"
-                          style={{
-                            color: '#999999',
-                            borderTop: '1px solid rgba(255, 107, 0, 0.15)',
-                            fontStyle: 'italic',
-                          }}
-                        >
-                          {alert.message}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-
-                {alerts.filter((a) => !a.triggered).length === 0 && (
-                  <div className="flex flex-col items-center justify-center py-4">
-                    <div
-                      className="w-12 h-12 rounded flex items-center justify-center mb-2"
-                      style={{
-                        background: 'rgba(255, 107, 0, 0.1)',
-                        border: '1px solid rgba(255, 107, 0, 0.3)',
-                      }}
-                    >
-                      <span style={{ fontSize: '24px' }}>🔔</span>
-                    </div>
-                    <p className="text-xs font-semibold mb-1" style={{ color: '#ffffff' }}>
-                      No Active Alerts
-                    </p>
-                    <p className="text-xs text-center px-4" style={{ color: '#666666' }}>
-                      Set alerts from the sidebar
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div
-              className="px-3 py-1.5 border-t"
-              style={{
-                background: 'rgba(0, 0, 0, 0.9)',
-                borderColor: 'rgba(255, 107, 0, 0.25)',
-              }}
-            >
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-mono font-bold" style={{ color: '#ffffff' }}>
-                  {config.symbol}
-                </span>
-                <span className="font-mono font-semibold" style={{ color: '#10b981' }}>
-                  {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: getUserTimezone() })}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   )
 }
