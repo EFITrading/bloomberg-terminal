@@ -12028,6 +12028,12 @@ export default function TradingViewChart({
     }
   }, [isAnyIVHVActive, ivData.length, fetchIVData])
 
+  // Clear stale IV data when symbol changes so a refetch happens for the new ticker
+  // (without this, switching symbols kept showing the previous ticker's IV/Rank/Percentile)
+  useEffect(() => {
+    setIVData([])
+  }, [symbol])
+
   // Fetch 30-day IV data
   const isAnyIV30DActive = showIV30DPanel
   const fetchIV30DData = useCallback(async () => {
@@ -12081,6 +12087,11 @@ export default function TradingViewChart({
       fetchIV30DData()
     }
   }, [isAnyIV30DActive, iv30DData.length, fetchIV30DData])
+
+  // Clear stale 30D IV data when symbol changes so a refetch happens for the new ticker
+  useEffect(() => {
+    setIV30DData([])
+  }, [symbol])
 
   // Expansion/Liquidation indicator state
   const [isExpansionLiquidationActive, setIsExpansionLiquidationActive] = useState(false)
