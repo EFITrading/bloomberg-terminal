@@ -461,9 +461,8 @@ function LoginForm() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#FF6600', boxShadow: '0 0 10px #FF6600, 0 0 20px rgba(255,102,0,0.5)' }} />
             <span style={{ fontSize: '12px', color: '#FF6600', letterSpacing: '0.15em', fontWeight: 700 }}>
-              EFI TRADING
+              TERMINAL
             </span>
-            <a href="/" style={{ marginLeft: 18, fontSize: '11px', color: 'rgba(255,255,255,0.6)', letterSpacing: '0.14em', fontWeight: 600, textDecoration: 'none' }}>&larr; BACK TO SITE</a>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '18px' }}>
             <span style={{ fontSize: '11px', color: session.color, letterSpacing: '0.14em', fontWeight: 800, border: `1px solid ${session.color}55`, background: `14`, padding: '3px 10px' }}>
@@ -494,14 +493,6 @@ function LoginForm() {
 
             {/* EFI wordmark */}
             <div style={{ lineHeight: 1, marginBottom: '4px' }}>
-              <span className="efi-efi-text" style={{
-                display: 'block',
-                fontSize: 'clamp(107px,16vw,162px)',
-                fontWeight: 900,
-                letterSpacing: '-0.02em',
-                fontFamily: "'Inter', sans-serif",
-                lineHeight: 0.9,
-              }}>EFI</span>
               <span className="efi-terminal-text" style={{
                 display: 'block',
                 fontSize: 'clamp(54px,8vw,81px)',
@@ -552,6 +543,14 @@ function LoginForm() {
               background: 'linear-gradient(90deg, transparent, #FF6600, #FF8533, #FF6600, transparent)',
               boxShadow: '0 0 12px rgba(255,102,0,0.6)',
             }} />
+
+            <div style={{
+              marginBottom: '20px', padding: '10px 12px', textAlign: 'center',
+              border: '1px solid #FF3333', background: 'rgba(255,51,51,0.1)',
+              color: '#FF4444', fontSize: '13px', fontWeight: 800, letterSpacing: '0.15em',
+            }}>
+              ⚠ ACCESS ADMIN KEY REQUIRED
+            </div>
 
             <form onSubmit={handleSubmit}>
               {/* Field label */}
@@ -729,19 +728,6 @@ function LoginForm() {
             </div>
           </div>
 
-          {/* Platform modules */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px', marginTop: '22px' }}>
-            {['OPTIONS FLOW', 'SWEEPSENSE', 'ALGOFLOW', 'SEASONALITY', 'MARKET REGIME', 'CHARTING', 'AI SUITE'].map(m => (
-              <span key={m} className="efi-chip">{m}</span>
-            ))}
-          </div>
-
-          {/* Footer */}
-          <div style={{ textAlign: 'center', marginTop: '24px' }}>
-            <span style={{ fontSize: '12px', color: '#ffffff', letterSpacing: '0.2em', fontWeight: 700 }}>
-              © {new Date().getFullYear()} EFI TRADING INTELLIGENCE — ALL RIGHTS RESERVED
-            </span>
-          </div>
         </div>
 
         {/* Bottom system bar */}

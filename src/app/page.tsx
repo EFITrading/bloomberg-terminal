@@ -1,14 +1,5 @@
-import './terminal.css';
-import HeroSection from '@/components/terminal/HeroSection';
-import ToolsSection from '@/components/terminal/ToolsSection';
-import Footer from '@/components/terminal/Footer';
+import { redirect } from 'next/navigation';
 
 export default function Home() {
- return (
- <>
- <HeroSection />
- <ToolsSection />
- <Footer />
- </>
- );
+ redirect('/login');
 }
